@@ -22,7 +22,7 @@ mod spans {
     ));
 }
 
-use granit_parser::{
+use ryl_yaml_parser::{
     Event, Marker, Parser, ScalarStyle, Scanner, Span, StrInput, TokenType,
 };
 use std::borrow::Cow;

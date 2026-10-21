@@ -2,7 +2,7 @@
 
 ## ryl targets YAML 1.2 by default
 
-ryl parses YAML with [granit-parser][granit] (a `saphyr-parser` fork). A
+ryl parses YAML with its own fork of [granit-parser][granit]. A
 document with no version directive is resolved per the YAML 1.2 core schema,
 matching the spec, which assumes a directive-less document conforms to 1.2.
 Implicit type resolution can differ from tools built on YAML 1.1 loaders such

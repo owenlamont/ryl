@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use granit_parser::{ScalarStyle, Tag};
+use ryl_yaml_parser::{ScalarStyle, Tag};
 
 use crate::yaml_dom::core_schema_suffix;
 

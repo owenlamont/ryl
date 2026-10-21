@@ -4,7 +4,7 @@
 //! `|`/`>` cannot be annotated without changing its chomping (see the `property-tests` dev
 //! skill).
 //!
-//! Detection enumerates block scalars from granit's scanner tokens
+//! Detection enumerates block scalars from the parser's scanner tokens
 //! (`ScalarStyle::Literal`/`Folded`), so a `|`/`>` in a quoted scalar, comment, or
 //! block content is never mistaken for a header. Only blanks and comments separate a
 //! block scalar's `|`/`>` from the token before it, so the header is the first such
@@ -13,7 +13,7 @@
 //! Sources: YAML 1.2.2 §8.1.1.2; <https://www.yaml.info/learn/quote#chomp>.
 
 use crate::text_version::lexical::Kind as LexicalKind;
-use granit_parser::{ScalarStyle, Span};
+use ryl_yaml_parser::{ScalarStyle, Span};
 
 use crate::rules::support::punctuation::byte_line_and_column;
 use crate::rules::support::span_utils::marker_byte_offset;

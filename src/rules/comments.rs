@@ -5,7 +5,7 @@
 use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
 
-use granit_parser::Placement;
+use ryl_yaml_parser::Placement;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::comments_scan::CommentInfo;
@@ -70,7 +70,7 @@ pub struct Violation {
 ///
 /// # Panics
 ///
-/// Panics if granit's parser fails to populate byte offsets on comment
+/// Panics if the parser fails to populate byte offsets on comment
 /// spans; with [`Parser::new_from_str`] this is always populated.
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
@@ -142,7 +142,7 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Viol
 ///
 /// # Panics
 ///
-/// Panics if granit's parser fails to populate byte offsets on comment
+/// Panics if the parser fails to populate byte offsets on comment
 /// spans; with [`Parser::new_from_str`] this is always populated.
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
@@ -216,7 +216,7 @@ fn comment_byte_start(comment: &CommentInfo) -> usize {
         .span
         .start
         .byte_offset()
-        .expect("granit Parser::new_from_str always populates byte offsets")
+        .expect("Parser::new_from_str always populates byte offsets")
 }
 
 fn spacing_before(buffer: &str, byte_start: usize) -> usize {

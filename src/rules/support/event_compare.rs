@@ -1,7 +1,7 @@
-//! Each document's granit events without marks or comments: what a layout rewrite must
+//! Each document's parser events without marks or comments: what a layout rewrite must
 //! leave unchanged.
 
-use granit_parser::Event;
+use ryl_yaml_parser::Event;
 
 pub(crate) struct Document<'a> {
     pub(crate) events: Vec<Event<'a>>,

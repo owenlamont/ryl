@@ -1,0 +1,2 @@
+# Upstream granit-parser defaults until this crate adopts ryl's rustfmt settings.
+edition = "2021"

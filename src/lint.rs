@@ -48,8 +48,8 @@ pub struct LintProblem {
 }
 
 struct NullSink;
-impl<'i> granit_parser::EventReceiver<'i> for NullSink {
-    fn on_event(&mut self, _ev: granit_parser::Event<'i>) {}
+impl<'i> ryl_yaml_parser::EventReceiver<'i> for NullSink {
+    fn on_event(&mut self, _ev: ryl_yaml_parser::Event<'i>) {}
 }
 
 /// Lint a single YAML file and return diagnostics in yamllint format order.
@@ -416,16 +416,16 @@ pub fn lint_str(
 fn scan(
     content: &str,
     strict_indentation: bool,
-) -> Result<(), granit_parser::ScanError> {
-    let mut parser = granit_parser::Parser::new_from_str_with_options(
+) -> Result<(), ryl_yaml_parser::ScanError> {
+    let mut parser = ryl_yaml_parser::Parser::new_from_str_with_options(
         content,
-        granit_parser::options! { strict_indentation: strict_indentation },
+        ryl_yaml_parser::options! { strict_indentation: strict_indentation },
     );
     let mut sink = NullSink;
     parser.load(&mut sink, true)
 }
 
-fn syntax_problem(err: &granit_parser::ScanError) -> LintProblem {
+fn syntax_problem(err: &ryl_yaml_parser::ScanError) -> LintProblem {
     let marker = err.marker();
     LintProblem {
         line: marker.line(),
@@ -449,7 +449,7 @@ pub(crate) fn strict_parse_error(content: &str) -> Option<LintProblem> {
 
 pub(crate) fn parse_error_from_result(
     content: &str,
-    error: Option<&granit_parser::ScanError>,
+    error: Option<&ryl_yaml_parser::ScanError>,
 ) -> Option<LintProblem> {
     unsupported_version_error(content).or_else(|| error.map(syntax_problem))
 }
@@ -484,18 +484,20 @@ fn higher_minor_version_warning(content: &str) -> Option<LintProblem> {
 }
 
 /// The syntax error ryl reports for `content` during linting, or `None` if it lints
-/// cleanly. Suppresses granit's undefined-alias error (ryl reports that via the `anchors`
-/// rule, matching yamllint).
+/// cleanly. Suppresses the parser's undefined-alias error (ryl reports that via the
+/// `anchors` rule, matching yamllint).
 fn syntax_diagnostic(
     content: &str,
-    error: Option<&granit_parser::ScanError>,
+    error: Option<&ryl_yaml_parser::ScanError>,
 ) -> Option<LintProblem> {
     if let Some(problem) = unsupported_version_error(content) {
         return Some(problem);
     }
     match error {
         None => None,
-        Some(err) if matches!(err.kind(), granit_parser::ErrorKind::UnknownAnchor) => {
+        Some(err)
+            if matches!(err.kind(), ryl_yaml_parser::ErrorKind::UnknownAnchor) =>
+        {
             // Scanning still finds lexical errors after an undefined alias halts parsing.
             scanner_error(content).map(|err| syntax_problem(&err))
         }
@@ -515,7 +517,7 @@ pub fn with_indentation_repair_help(
         return problems;
     };
     if problem.rule.is_some()
-        || !matches!(scan(content, true), Err(err) if matches!(err.kind(), granit_parser::ErrorKind::InvalidIndentation))
+        || !matches!(scan(content, true), Err(err) if matches!(err.kind(), ryl_yaml_parser::ErrorKind::InvalidIndentation))
     {
         return problems;
     }
@@ -543,10 +545,10 @@ pub fn with_indentation_repair_help(
 /// The first lexical scan error in `content`, or `None`. [`syntax_diagnostic`] uses it to
 /// find a malformed-token error the parser cannot reach, having halted on an earlier
 /// (tolerated) undefined alias.
-fn scanner_error(content: &str) -> Option<granit_parser::ScanError> {
-    granit_parser::Scanner::with_options(
-        granit_parser::StrInput::new(content),
-        granit_parser::options! { strict_indentation: true },
+fn scanner_error(content: &str) -> Option<ryl_yaml_parser::ScanError> {
+    ryl_yaml_parser::Scanner::with_options(
+        ryl_yaml_parser::StrInput::new(content),
+        ryl_yaml_parser::options! { strict_indentation: true },
     )
     .find_map(Result::err)
 }

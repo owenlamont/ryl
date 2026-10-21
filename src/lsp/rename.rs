@@ -1,10 +1,10 @@
 //! Anchor/alias rename. Rewrites every occurrence of the name *within the same YAML
-//! document*: a name reused across a `---`/`...` boundary is a distinct anchor (matching
-//! `rules::anchors`). Detection reuses granit's scanner tokens, so a literal `&`/`*`
-//! inside a scalar is never mistaken for an anchor.
+//! document*: a name reused across a `---`/`...` boundary is a distinct anchor
+//! (matching `rules::anchors`). Detection reuses the parser's scanner tokens, so a
+//! literal `&`/`*` inside a scalar is never mistaken for an anchor.
 
-use granit_parser::{Scanner, StrInput, TokenType};
 use lsp_types::{Position, PrepareRenameResponse, Range, TextEdit};
+use ryl_yaml_parser::{Scanner, StrInput, TokenType};
 
 use crate::lsp::encoding::{PositionEncoding, position_at, range_contains};
 use crate::rules::support::line_syntax::line_contents;
@@ -33,7 +33,8 @@ fn occurrences(text: &str) -> Vec<Occurrence> {
             TokenType::Anchor(name) | TokenType::Alias(name) => name.to_string(),
             _ => continue,
         };
-        // granit's Anchor/Alias span starts at the `&`/`*` sigil (verified), hence `+ 1`.
+        // the parser's Anchor/Alias span starts at the `&`/`*` sigil (verified), hence
+        // `+ 1`.
         occurrences.push(Occurrence {
             name_len: name.chars().count(),
             name_start: span.start.index() + 1,
@@ -138,8 +139,8 @@ pub fn rename_edits(
 
 /// Reject a name that is not a valid `ns-anchor-char*` (YAML 1.2.2 §6.9.2: a non-space
 /// printable char excluding the flow indicators `,[]{}`). `:` is left allowed: it is
-/// spec-legal (granit/the reference parser read `&foo:bar` as `foo:bar`), though
-/// `anchors` may then flag it as ambiguous.
+/// spec-legal (the parser and the reference parser read `&foo:bar` as `foo:bar`),
+/// though `anchors` may then flag it as ambiguous.
 fn validate_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("anchor name must not be empty".to_string());

@@ -5,10 +5,10 @@
 
 use std::collections::HashMap;
 
-use granit_parser::{
+use regex::Regex;
+use ryl_yaml_parser::{
     Event, Marker, Parser, ScalarStyle, Span, SpannedEventReceiver, StructureStyle, Tag,
 };
-use regex::Regex;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::starts_with_document_marker;

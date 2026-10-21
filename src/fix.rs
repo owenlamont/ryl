@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use granit_parser::Event;
 use rayon::prelude::*;
+use ryl_yaml_parser::Event;
 #[cfg(not(unix))]
 use same_file::Handle;
 use similar::TextDiff;
@@ -756,7 +756,7 @@ fn repair_events_match(original: &str, repaired: &str) -> bool {
 #[doc(hidden)]
 #[must_use]
 /// # Panics
-/// Panics if either input lacks a complete granit parse.
+/// Panics if either input lacks a complete parse.
 pub fn format_events_match(original: &str, formatted: &str) -> bool {
     let before = TextVersion::new(original);
     let after = TextVersion::new(formatted);
@@ -842,7 +842,7 @@ impl EventComparison {
 
 fn normalized_event(mut event: Event<'_>, yaml11: bool) -> Event<'_> {
     use crate::rules::support::yaml_version;
-    use granit_parser::{ScalarStyle, StructureStyle};
+    use ryl_yaml_parser::{ScalarStyle, StructureStyle};
     match &mut event {
         Event::DocumentStart(explicit, _) => *explicit = false,
         Event::SequenceStart(style, ..) | Event::MappingStart(style, ..) => {

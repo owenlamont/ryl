@@ -7,7 +7,7 @@ use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
 use std::collections::HashMap;
 
-use granit_parser::Event;
+use ryl_yaml_parser::Event;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::buffer_newline;
@@ -76,7 +76,8 @@ fn scan(input: Analysis<'_>, cfg: Config) -> Scan {
                 message: MISSING_MESSAGE.to_string(),
             });
         } else if matches!(event, Event::DocumentEnd) {
-            // granit spans explicit `...` but reports an implicit end as a zero-width point.
+            // the parser spans explicit `...` but reports an implicit end as a
+            // zero-width point.
             let explicit = !span.is_empty();
             pending = !explicit && cfg.requires_marker();
             if explicit && !cfg.requires_marker() {

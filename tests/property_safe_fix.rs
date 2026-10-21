@@ -128,7 +128,7 @@ proptest! {
     #[test]
     fn safe_fix_preserves_parsed_value(document in arb_document()) {
         let input = document.render();
-        // granit counts this terminal blank; the reference parser clips it.
+        // the parser counts this terminal blank; the reference parser clips it.
         let clipped_blank_at_eof = !document.has_final_newline
             && document.entries.last().is_some_and(|entry| {
                 matches!(&entry.value, Node::BlockScalar(spec)

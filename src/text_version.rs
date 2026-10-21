@@ -5,7 +5,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::rules::support::{line_syntax, punctuation, token_spacing};
-use granit_parser::{Event, Parser, ScalarStyle, ScanError, Span};
+use ryl_yaml_parser::{Event, Parser, ScalarStyle, ScanError, Span};
 pub(crate) mod edits;
 mod events;
 pub(crate) mod lexical;
@@ -630,7 +630,7 @@ impl ParsedFacts {
         let mut depth = 0;
         let parser = Parser::new_from_str_with_options(
             text,
-            granit_parser::options! { strict_indentation: strict },
+            ryl_yaml_parser::options! { strict_indentation: strict },
         );
         for item in parser {
             let (event, span) = match item {

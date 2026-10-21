@@ -1,11 +1,11 @@
 // Vendored from saphyr v0.0.6 (`saphyr/src/loader.rs`), specialized to `YamlOwned`
-// and retargeted at granit-parser's event stream. Saphyr is MIT OR Apache-2.0; ryl
+// and retargeted at ryl-yaml-parser's event stream. Saphyr is MIT OR Apache-2.0; ryl
 // ships under MIT.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-use granit_parser::{
+use ryl_yaml_parser::{
     Event, Marker, Parser, ScanError, Span, SpannedEventReceiver, Tag,
 };
 
@@ -17,7 +17,7 @@ use crate::yaml_dom::yaml_owned::{MappingOwned, YamlOwned};
 const MAX_EXPANDED_NODES: usize = 1_000_000;
 
 /// # Errors
-/// Propagates [`ScanError`] when the granit parser rejects the input, or when
+/// Propagates [`ScanError`] when the parser rejects the input, or when
 /// alias expansion exceeds [`MAX_EXPANDED_NODES`] (a billion-laughs payload).
 pub fn load_owned_documents(source: &str) -> Result<Vec<YamlOwned>, ScanError> {
     let mut parser = Parser::new_from_str(source);
@@ -120,8 +120,8 @@ impl<'input> SpannedEventReceiver<'input> for Loader {
                 self.attach(node, 1);
             }
             Event::Alias(id) => {
-                // granit rejects unresolved aliases during the scan, but a linter must
-                // not panic on malformed input, so fall back to `BadValue`.
+                // the parser rejects unresolved aliases during the scan, but a linter
+                // must not panic on malformed input, so fall back to `BadValue`.
                 let size = self.anchor_sizes.get(&id).copied().unwrap_or(1);
                 if self.expanded.saturating_add(size) > MAX_EXPANDED_NODES {
                     self.overflow.get_or_insert(span.start);

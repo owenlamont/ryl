@@ -5,7 +5,7 @@
 //!
 //! The ryl-only, TOML-only `allow-any-open-indent` option (default off) additionally
 //! accepts a comment whose indent matches any still-open enclosing block level. The
-//! levels come from granit's parsed block structure (`compute_open_indents`), not a
+//! levels come from the parser's parsed block structure (`compute_open_indents`), not a
 //! line scan, so multiline scalars, URLs, and flow collections never create a false
 //! level; on a parse error the option degrades to the base next/reference rule.
 //!
@@ -14,7 +14,7 @@ use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
 
 use crate::text_version::lexical::Kind as LexicalKind;
-use granit_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
+use ryl_yaml_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{

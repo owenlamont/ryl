@@ -9,8 +9,8 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::Path;
 
-use granit_parser::{Event, Span, SpannedEventReceiver};
 use regex::Regex;
+use ryl_yaml_parser::{Event, Span, SpannedEventReceiver};
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
 use crate::config::YamlLintConfig;

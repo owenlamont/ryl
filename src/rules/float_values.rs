@@ -4,7 +4,7 @@
 //! safe `--fix`: rewrites such as `.5` to `0.5` or expanding `1e3` to `1000` change the
 //! scalar's text and, for tagged or string consumers, its value.
 
-use granit_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
+use ryl_yaml_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 

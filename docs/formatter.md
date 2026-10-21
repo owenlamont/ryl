@@ -55,7 +55,7 @@ whitespace also keep quotes for
 
 Input rejected by strict YAML parsing is left alone and reported on stderr as
 `skipped by ryl format`, with one exception: spec-invalid indentation accepted by
-granit's relaxed parser can be repaired when the output parses strictly and preserves
+the parser's relaxed mode can be repaired when the output parses strictly and preserves
 the relaxed input's values, tags, anchors and structure. Repairs print
 `input was YAML the spec rejects; repaired indentation`; `--check` exits 1.
 An unsafe or disabled repair leaves the entire file unchanged with a syntax skip.

@@ -2,8 +2,8 @@
 // `saphyr/src/macros.rs`), trimmed to the inspector methods ryl uses. Saphyr is MIT
 // OR Apache-2.0; ryl ships under MIT.
 
-use granit_parser::Tag;
 use hashlink::LinkedHashMap;
+use ryl_yaml_parser::Tag;
 
 use crate::yaml_dom::loader::load_owned_documents;
 use crate::yaml_dom::scalar::ScalarOwned;
@@ -24,8 +24,10 @@ pub enum YamlOwned {
 
 impl YamlOwned {
     /// # Errors
-    /// Returns [`granit_parser::ScanError`] when the parser rejects the input.
-    pub fn load_from_str(source: &str) -> Result<Vec<Self>, granit_parser::ScanError> {
+    /// Returns [`ryl_yaml_parser::ScanError`] when the parser rejects the input.
+    pub fn load_from_str(
+        source: &str,
+    ) -> Result<Vec<Self>, ryl_yaml_parser::ScanError> {
         load_owned_documents(source)
     }
 

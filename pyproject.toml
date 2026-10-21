@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.4,<2.0"]
+requires = ["maturin>=1.9,<2.0"]
 build-backend = "maturin"
 
 [project]
@@ -8,11 +8,17 @@ version = "0.26.0"
 description = "Fast YAML linter and formatter"
 requires-python = ">=3.11"
 readme = "README.md"
+license = "MIT OR Apache-2.0"
+license-files = [
+    "LICENSE",
+    "LICENSE-APACHE",
+    "crates/ryl-yaml-parser/LICENSE",
+    "crates/ryl-yaml-parser/.licenses/*",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",

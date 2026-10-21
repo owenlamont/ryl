@@ -3,7 +3,7 @@
 //! safe `--fix`: the rule exists to make the author choose between `~`, `null`, or
 //! restructuring, so auto-inserting a literal would contradict its purpose.
 
-use granit_parser::{Event, Span, SpannedEventReceiver, StructureStyle};
+use ryl_yaml_parser::{Event, Span, SpannedEventReceiver, StructureStyle};
 
 use crate::config::YamlLintConfig;
 
@@ -68,7 +68,7 @@ pub(crate) fn check_with_analysis(
         receiver.on_event(event, span);
     }
     // A tagged/anchored empty value (e.g. `a: !!str`) is an implicit scalar
-    // that granit positions at a virtual spot which can fall past the document;
+    // that the parser positions at a virtual spot which can fall past the document;
     // keep the report on a real position.
     let mut diagnostics = receiver.diagnostics;
     for violation in &mut diagnostics {

@@ -4,7 +4,7 @@
 //! dash's line (`- name: web`); the body-below form, a dash line with only node
 //! properties (`- &a !tag`), or a comment is accepted.
 //!
-//! `dash-on-own-line` is parser-derived, not a char scan: granit's scanner emits
+//! `dash-on-own-line` is parser-derived, not a char scan: the parser's scanner emits
 //! `BlockEntry` then, for a block-mapping entry, `BlockMappingStart`; both on the same
 //! line means the mapping opened on the dash line. Any other value token is a
 //! non-mapping entry, and a block mapping that is a *mapping* value (no preceding

@@ -1,0 +1,82 @@
+[package]
+name = "ryl-yaml-parser"
+readme = "README.md"
+authors = [
+  # Provided versions up to saphyr-parser 0.0.6 inclusive
+  "Ethiraric <ethiraric@gmail.com>",
+  "David Aguilar <davvid@gmail.com>",
+  "Yuheng Chen <yuhengchen@sensetime.com>",
+
+  # granit-parser
+  "Bourumir Wyngs <bourumir-wyngs@gmail.com>",
+
+  # ryl-yaml-parser
+  "Owen Lamont <owenrlamont@gmail.com>",
+]
+categories = [ "encoding", "parser-implementations", "text-processing" ]
+description = "The YAML parser behind ryl: events with spans, comments and style, in pure Rust"
+documentation = "https://docs.rs/ryl-yaml-parser"
+edition = "2021"
+keywords = [ "yaml", "parser", "no-std", "cst" ]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/owenlamont/ryl"
+
+rust-version = "1.81.0"
+version = "0.1.0"
+# Cargo skips dot-directories unless listed, and the license requires `.licenses/`.
+include = [
+  "/.licenses/*",
+  "/CHANGELOG.md",
+  "/LICENSE",
+  "/README.md",
+  "/examples/**",
+  "/src/**",
+  "/tools/*.rs",
+]
+
+[features]
+default = ["error_messages", "std", "comments"]
+# Capture and emit comments; without this feature, YAML comments are validated and then ignored
+comments = []
+error_messages = []
+std = []
+debug_prints = ["std"]
+
+[dependencies]
+arraydeque = { version = "0.5.1", default-features = false }
+smallvec = {  version = ">=1.6.1, < 2.0.0" }
+
+[dev-dependencies]
+libtest-mimic = "0.8.2"
+
+[[test]]
+name = "yaml-test-suite"
+harness = false
+
+[[test]]
+name = "comment"
+required-features = ["comments"]
+
+[[test]]
+name = "comments_possible"
+required-features = ["comments"]
+
+[[bin]]
+name = "dump_events"
+path = "tools/dump_events.rs"
+
+[[bin]]
+name = "time_parser"
+path = "tools/time_parse.rs"
+
+[[bin]]
+name = "run_parser"
+path = "tools/run_bench.rs"
+
+[[example]]
+name = "fallible_reader"
+required-features = ["std"]
+
+[lints.rust]
+unsafe_code = "forbid"
+unsafe_op_in_unsafe_fn = "deny"

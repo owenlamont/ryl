@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use granit_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
+use ryl_yaml_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;

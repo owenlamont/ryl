@@ -5,13 +5,14 @@
 
 use std::sync::LazyLock;
 
-use granit_parser::{Scanner, StrInput, TokenType, YamlVersion};
 use regex::Regex;
+use ryl_yaml_parser::{Scanner, StrInput, TokenType, YamlVersion};
 
 pub type Version = (u32, u32);
 
-/// The `%YAML` version granit reports on `Event::DocumentStart`, which already resolves
-/// the directive to its document, so rules take it from the event rather than rescanning.
+/// The `%YAML` version the parser reports on `Event::DocumentStart`, which already
+/// resolves the directive to its document, so rules take it from the event rather than
+/// rescanning.
 #[must_use]
 pub const fn event_version(version: YamlVersion) -> Version {
     (version.major, version.minor)

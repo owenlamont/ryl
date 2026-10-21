@@ -96,7 +96,7 @@ embedded YAML is linted CR-aware. User docs: `docs/markdown.md`.
 ## `--fix`
 
 `--fix` requires a complete relaxed parse, including resolved aliases. Lint and LSP
-diagnostics use granit's strict indentation mode; rewrite paths may repair relaxed-only
+diagnostics use the parser's strict indentation mode; rewrite paths may repair relaxed-only
 input when reindent preserves events and the final output parses strictly with the
 original events. Repairs produce a notice; a disabled or unsafe repair is refused.
 Lint repairs require the `ALL` fixable selector, honor indentation ignores and use

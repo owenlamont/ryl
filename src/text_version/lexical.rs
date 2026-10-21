@@ -1,4 +1,4 @@
-use granit_parser::{Placement, ScalarStyle, Scanner, Span, StrInput, TokenType};
+use ryl_yaml_parser::{Placement, ScalarStyle, Scanner, Span, StrInput, TokenType};
 
 pub(crate) enum Kind {
     StreamStart,

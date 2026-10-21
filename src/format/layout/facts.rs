@@ -34,7 +34,7 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub(crate) fn push(&mut self, span: granit_parser::Span, kind: &lexical::Kind) {
+    pub(crate) fn push(&mut self, span: ryl_yaml_parser::Span, kind: &lexical::Kind) {
         self.complete |= matches!(kind, lexical::Kind::StreamEnd);
         self.headers.push(span, kind);
         comments_indentation::classify_token(&mut self.comment_lines, span, kind);

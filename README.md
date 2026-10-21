@@ -182,8 +182,8 @@ linting and developer automation, especially:
   showing some of the nuance and complexity of parsing YAML which I was
   embarrassingly ignorant of when starting ryl.
 - [granit-parser](https://github.com/bourumir-wyngs/granit-parser) - a
-  `saphyr-parser` fork with comment and style metadata that ryl uses for
-  event-stream parsing.
+  `saphyr-parser` fork with comment and style metadata; ryl's own parser,
+  `ryl-yaml-parser`, is forked from granit-parser 2.0.0.
 - [esbuild](https://github.com/evanw/esbuild) and
   [biome](https://github.com/biomejs/biome) - for providing the "binary
   wrapper" blueprint for distributing high-performance native tools via

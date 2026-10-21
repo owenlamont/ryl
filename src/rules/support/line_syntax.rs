@@ -3,7 +3,7 @@ use crate::text_version::Analysis;
 use crate::text_version::TextVersion;
 use std::collections::HashSet;
 
-use granit_parser::{ScalarStyle, Span};
+use ryl_yaml_parser::{ScalarStyle, Span};
 
 /// Whether a line-1 comment, given as its text after the first `#`, is one another
 /// tool reads verbatim: a `#!` shebang or a cloud-init `#cloud-config` header.
@@ -189,7 +189,7 @@ pub(crate) fn scan_lines(buffer: &str) -> impl Iterator<Item = (usize, usize, us
     })
 }
 
-/// Line contents indexable by 1-based line number (`lines[line - 1]`), so a granit
+/// Line contents indexable by 1-based line number (`lines[line - 1]`), so a parser
 /// token's line number lands on its line exactly.
 pub(crate) fn line_contents(buffer: &str) -> Vec<&str> {
     split_lines_preserve_endings(buffer)
@@ -200,7 +200,7 @@ pub(crate) fn line_contents(buffer: &str) -> Vec<&str> {
 /// CR-aware analog of `str::split_inclusive('\n')`: each line including its trailing
 /// YAML 1.2 break, the final piece without one if the buffer is unterminated.
 /// Concatenating the pieces reproduces the buffer, so a line index maps 1:1 onto a
-/// granit (CR-aware) line number.
+/// parser (CR-aware) line number.
 pub(crate) fn split_lines_inclusive(buffer: &str) -> impl Iterator<Item = &str> {
     scan_lines(buffer).map(move |(start, _, next_start)| &buffer[start..next_start])
 }

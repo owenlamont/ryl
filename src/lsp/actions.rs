@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
 
-use granit_parser::ScalarStyle;
+use ryl_yaml_parser::ScalarStyle;
 
 use lsp_types::{
     CodeAction, CodeActionContext, CodeActionKind, CodeActionOrCommand,
@@ -103,7 +103,7 @@ pub(crate) fn build_with_notices(
     {
         // A line inside a multi-line scalar is content, not comment context: a disable-line
         // insert there would corrupt the value, not act as a directive. Skip those lines
-        // (1-based granit line numbers). When the document does NOT parse we cannot tell
+        // (1-based parser line numbers). When the document does NOT parse we cannot tell
         // which lines are scalar content, so no disable-line is offered; disable-file (a
         // line-0 prepend) is always safe.
         // A line inserted where a blank-only block scalar's empty span sits would be the

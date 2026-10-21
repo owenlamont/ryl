@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-use granit_parser::{
+use ryl_yaml_parser::{
     Event, Parser, Placement, ScalarStyle, ScanError, Span, StructureStyle, Tag,
     YamlVersion,
 };
@@ -20,7 +20,7 @@ pub(super) fn verify_strict<'a, 'b>(
     let mut expected = expected.filter(significant);
     let parser = Parser::new_from_str_with_options(
         output,
-        granit_parser::options! { strict_indentation: true },
+        ryl_yaml_parser::options! { strict_indentation: true },
     );
     let mut matches = true;
     for item in parser {
@@ -130,7 +130,7 @@ impl StoredEvent {
             Event::SequenceEnd => Self::SequenceEnd,
             end => (end == Event::MappingEnd)
                 .then_some(Self::MappingEnd)
-                .expect("all granit events are represented"),
+                .expect("all parser events are represented"),
         }
     }
 

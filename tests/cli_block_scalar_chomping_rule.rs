@@ -83,7 +83,7 @@ fn ignores_pipe_inside_quoted_scalar() {
 
 #[test]
 fn flags_empty_and_blank_only_block_scalars() {
-    // Granit anchors an end-of-stream empty scalar on its header, but anchors an
+    // The parser anchors an end-of-stream empty scalar on its header, but anchors an
     // empty scalar before another node on that following node. Both forms and a
     // blank-only body must still report their own headers.
     let (code, output) =
@@ -118,7 +118,7 @@ fn does_not_treat_header_like_first_content_as_the_header() {
 fn treats_bare_cr_as_a_line_break() {
     // A bare `\r` between header and content is a YAML 1.2 line break, so this is
     // a normal one-line header, handled identically to the `\n` form (1:10), like
-    // every other granit-based rule. (Classic-Mac `\r`-only files are otherwise
+    // every other parser-based rule. (Classic-Mac `\r`-only files are otherwise
     // unsupported; the byte-scanning rules count `\n` only; see unicode-line-breaks.)
     let (code, output) = lint_with_toml_config("literal: |\r  one\n", ENABLE);
     assert_eq!(code, 1, "bare-CR-separated header is flagged: {output}");
@@ -131,7 +131,7 @@ fn treats_bare_cr_as_a_line_break() {
 #[test]
 fn counts_bare_cr_when_numbering_the_header_line() {
     // Two leading bare `\r`s are two line breaks, so the header `z: |` is on line 3
-    // (not line 1): the CR-aware count matches granit and ryl's other token rules.
+    // (not line 1): the CR-aware count matches the parser and ryl's other token rules.
     let (code, output) = lint_with_toml_config("x: 1\ry: 2\rz: |\n  body\n", ENABLE);
     assert_eq!(
         code, 1,

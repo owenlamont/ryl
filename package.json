@@ -22,7 +22,9 @@
     "bin/",
     "npm-platforms.json",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "LICENSE-APACHE",
+    "ryl-yaml-parser/"
   ],
   "homepage": "https://github.com/owenlamont/ryl#readme",
   "keywords": [
@@ -32,7 +34,7 @@
     "cli",
     "rust"
   ],
-  "license": "MIT",
+  "license": "MIT OR Apache-2.0",
   "name": "@owenlamont/ryl",
   "os": [
     "darwin",

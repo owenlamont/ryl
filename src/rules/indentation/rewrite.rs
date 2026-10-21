@@ -924,7 +924,7 @@ fn reshape_events<'a>(
     lines: &mut Vec<VirtualLine<'a>>,
     own_line: bool,
 ) -> Vec<(usize, usize)> {
-    use granit_parser::{Event, StructureStyle};
+    use ryl_yaml_parser::{Event, StructureStyle};
     let mut stack = Vec::new();
     let mut shapes = Vec::new();
     let mut comments = std::collections::HashSet::new();
@@ -966,7 +966,7 @@ fn reshape_events<'a>(
 
 fn event_shape(
     input: Analysis<'_>,
-    span: granit_parser::Span,
+    span: ryl_yaml_parser::Span,
     own_line: bool,
 ) -> Option<(usize, Option<usize>, usize)> {
     let line = span.start.line() - 1;

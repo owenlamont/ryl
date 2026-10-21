@@ -59,8 +59,8 @@ pub fn negotiate(client: Option<&[PositionEncodingKind]>) -> PositionEncoding {
 
 /// Code units spanned by the first `char_count` characters of `line`. `take` clamps a
 /// count past the line's end to the whole line (the LSP "character past line length
-/// defaults to line length" rule), also covering granit's virtual past-end positions for
-/// implicit empty scalars.
+/// defaults to line length" rule), also covering the parser's virtual past-end
+/// positions for implicit empty scalars.
 fn prefix_units(line: &str, char_count: usize, enc: PositionEncoding) -> u32 {
     let units: usize = line.chars().take(char_count).map(|ch| enc.units(ch)).sum();
     u32::try_from(units).unwrap_or(u32::MAX)

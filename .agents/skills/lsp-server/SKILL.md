@@ -69,7 +69,7 @@ YAML only) + `quickfix` disable-rule inserts (`# ryl disable-line` / first-line
 scalar, where a `#` would be content not a directive, via `protected_scalar_lines`);
 `textDocument/formatting` (`ryl format` via `rewrite_str`, no enabled rule needed; no range
 formatting); hover (rule + message + docs link for a covered diagnostic);
-anchor/alias `rename` + `prepareRename` (granit scanner tokens, document-scoped, YAML
+anchor/alias `rename` + `prepareRename` (parser scanner tokens, document-scoped, YAML
 only); and INCREMENTAL sync (ranged edits applied via `encoding::offset_at`). The engine
 has no per-occurrence fix; code actions honour `context.only`.
 

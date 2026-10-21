@@ -1,7 +1,7 @@
 //! Whole-line extents of each mapping entry, so a fixer can permute entries without
 //! touching their text.
 
-use granit_parser::{
+use ryl_yaml_parser::{
     Event, Parser, Placement, ScalarStyle, Scanner, Span, SpannedEventReceiver,
     StrInput, StructureStyle, TokenType,
 };
@@ -59,7 +59,7 @@ pub(crate) struct Layout<'a> {
 }
 
 type End = Option<(usize, usize, bool)>;
-const BALANCED: &str = "granit closes every collection it opens";
+const BALANCED: &str = "the parser closes every collection it opens";
 
 impl<'a> Layout<'a> {
     pub(crate) fn parse(buffer: &'a str) -> Option<Self> {
@@ -232,7 +232,7 @@ pub(crate) fn is_blank(line: &str) -> bool {
     line.trim_matches([' ', '\t']).is_empty()
 }
 
-/// Byte offset of char column `col`, past a leading BOM that granit does not count.
+/// Byte offset of char column `col`, past a leading BOM that the parser does not count.
 pub(crate) fn byte_at(line: &str, col: usize) -> usize {
     let bom = if line.starts_with('\u{feff}') {
         '\u{feff}'.len_utf8()

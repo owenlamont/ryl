@@ -1,9 +1,9 @@
 use std::path::Path;
 use std::process::Command;
 
-use granit_parser::Parser;
 use ryl::config::{SourceKind, YamlLintConfig};
 use ryl::fix::{Rewrite, rewrite_str};
+use ryl_yaml_parser::Parser;
 
 const INPUT: &str = "---\nflow: [a,\nb,\nc]\n";
 const OUTPUT: &str = "---\nflow: [a,\n       b,\n       c]\n";
@@ -274,7 +274,7 @@ fn formatting_keeps_flow_closers_deeper_than_the_enclosing_block() {
         assert!(
             Parser::new_from_str_with_options(
                 &output,
-                granit_parser::options! { strict_indentation: true }
+                ryl_yaml_parser::options! { strict_indentation: true }
             )
             .collect::<Result<Vec<_>, _>>()
             .is_ok()
@@ -345,7 +345,7 @@ fn repaired_output_preserves_tag_anchor_comment_and_events() {
         .collect();
     let after: Vec<_> = Parser::new_from_str_with_options(
         &output,
-        granit_parser::options! { strict_indentation: true },
+        ryl_yaml_parser::options! { strict_indentation: true },
     )
     .map(|item| item.unwrap().0)
     .collect();

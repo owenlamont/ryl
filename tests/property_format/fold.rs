@@ -11,8 +11,8 @@
 //! `under_indented_break` proves each inserted continuation is deeper than the block
 //! collection owning its scalar, and at least two columns deeper under a quoted one.
 
-use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use proptest::prelude::*;
+use ryl_yaml_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
 const FIRST_WORDS: [&str; 4] = ["aaa", "b", "世界", "é"];
 

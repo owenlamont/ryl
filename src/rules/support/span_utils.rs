@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use granit_parser::Marker;
+use ryl_yaml_parser::Marker;
 
 use crate::rules::support::line_syntax::line_contents;
 
@@ -9,7 +9,7 @@ use crate::rules::support::line_syntax::line_contents;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct BytePos(usize);
 
-/// A character index, as reported by granit spans via `Marker::index`; never used to
+/// A character index, as reported by parser spans via `Marker::index`; never used to
 /// address bytes directly.
 #[cfg(feature = "lsp")]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -45,7 +45,7 @@ pub fn marker_byte_offset(marker: Marker) -> BytePos {
     BytePos(
         marker
             .byte_offset()
-            .expect("granit Parser::new_from_str always populates byte offsets"),
+            .expect("Parser::new_from_str always populates byte offsets"),
     )
 }
 
@@ -67,19 +67,20 @@ pub(crate) fn containing_byte_scalar_range<'a>(
 
 /// Clamp a 1-based `(line, column)` onto a real position within `buffer`.
 ///
-/// granit reports an implicit empty scalar (a node after a tag/anchor with no written
-/// value) at a virtual position that, when such a node ends the document, can fall
-/// past end-of-line. `tags`/`empty-values` clamp here so a diagnostic never points
+/// the parser reports an implicit empty scalar (a node after a tag/anchor with no
+/// written value) at a virtual position that, when such a node ends the document, can
+/// fall past end-of-line. `tags`/`empty-values` clamp here so a diagnostic never points
 /// outside the document.
 #[must_use]
 pub fn clamp_position(buffer: &str, line: usize, column: usize) -> (usize, usize) {
     // `line_contents` yields only real lines (no trailing-break phantom), so its
-    // length is the last line a clamp may land on; CR-aware like granit's `Marker::line`.
+    // length is the last line a clamp may land on; CR-aware like the parser's
+    // `Marker::line`.
     let lines = line_contents(buffer);
     let line = line.min(lines.len());
     let index = line
         .checked_sub(1)
-        .expect("clamp_position receives a 1-based granit line number");
+        .expect("clamp_position receives a 1-based parser line number");
     let max_column = lines
         .get(index)
         .expect("clamped line always indexes the line table")

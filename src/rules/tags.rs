@@ -15,7 +15,7 @@
 //!
 //! Sources: YAML 1.2.2 spec (tags); YAML 1.2.2 changes page; `PyYAML` docs.
 
-use granit_parser::{Event, Span, SpannedEventReceiver, Tag};
+use ryl_yaml_parser::{Event, Span, SpannedEventReceiver, Tag};
 
 use crate::config::YamlLintConfig;
 use crate::yaml_dom::{YamlOwned, core_schema_suffix};
@@ -140,7 +140,7 @@ impl<'input> SpannedEventReceiver<'input> for TagsReceiver<'_> {
         {
             let tag_start = span
                 .tag_start()
-                .expect("granit provides tag_start for tagged node events");
+                .expect("the parser provides tag_start for tagged node events");
             self.diagnostics.push(Violation {
                 line: tag_start.line(),
                 column: tag_start.col() + 1,

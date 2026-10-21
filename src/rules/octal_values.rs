@@ -3,7 +3,7 @@
 //! `--fix`: resolving `010` needs the author's intent (integer 8, integer 10, or the
 //! string "010"), which the source alone cannot disambiguate.
 
-use granit_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
+use ryl_yaml_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 

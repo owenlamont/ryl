@@ -1,5 +1,8 @@
 #:schema https://www.schemastore.org/prek.json
 
+# The vendored parser keeps upstream formatting until it adopts ryl's standards.
+exclude = '^crates/ryl-yaml-parser/'
+
 [[repos]]
 repo = "https://github.com/pre-commit/pre-commit-hooks"
 rev = "v6.0.0"

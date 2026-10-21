@@ -1,3 +1,6 @@
+[workspace]
+members = ["crates/ryl-yaml-parser"]
+
 [package]
 name = "ryl"
 version = "0.26.0"
@@ -5,7 +8,7 @@ edition = "2024"
 rust-version = "1.99.0"
 description = "Fast YAML linter and formatter"
 readme = "README.md"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/owenlamont/ryl"
 categories = ["command-line-utilities", "development-tools"]
 keywords = ["yaml", "lint", "formatter", "cli", "rust"]
@@ -13,6 +16,7 @@ include = [
   "/Cargo.lock",
   "/Cargo.toml",
   "/LICENSE",
+  "/LICENSE-APACHE",
   "/README.md",
   "/clippy.toml",
   # Required in the maturin-built sdist so pip can discover the PEP 517 build
@@ -57,7 +61,7 @@ globset = "0.4.18"
 ignore = "0.4.25"
 rayon = "1.11.0"
 schemars = { version = "1.2.1", features = ["derive"] }
-granit-parser = { version = "2.0.0", features = ["comments"] }
+ryl-yaml-parser = { version = "0.1.0", path = "crates/ryl-yaml-parser" }
 hashlink = "0.12.0"
 ordered-float = "5"
 dirs-next = "2.0.0"

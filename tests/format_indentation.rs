@@ -420,9 +420,9 @@ fn large_relaxed_only_reindent_keeps_the_final_strict_guard_required() {
     );
     assert!(output.refused.is_empty());
     assert!(
-        granit_parser::Parser::new_from_str_with_options(
+        ryl_yaml_parser::Parser::new_from_str_with_options(
             &output.text,
-            granit_parser::options! { strict_indentation: true },
+            ryl_yaml_parser::options! { strict_indentation: true },
         )
         .collect::<Result<Vec<_>, _>>()
         .is_err()

@@ -13,7 +13,7 @@
 //!
 //! Sources: YAML 1.2.2 changes page; YAML merge type.
 
-use granit_parser::{Event, Span, SpannedEventReceiver};
+use ryl_yaml_parser::{Event, Span, SpannedEventReceiver};
 
 use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::merge_key::is_merge_directive;

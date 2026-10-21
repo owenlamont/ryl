@@ -428,7 +428,7 @@ reference parser for this EOF shape.
 
 For `a: >\n  a\n\n\n    \n\n\n\n`, `ryl format` removes the last three
 empty lines. The reference parser emits `=VAL >a\n\n\n\n  \n` before and
-after; granit, eemeli `yaml`, PyYAML and ruamel read `"a\n\n\n  \n"` on
+after; ryl-yaml-parser, eemeli `yaml`, PyYAML and ruamel read `"a\n\n\n  \n"` on
 both sides. CRLF and CR line endings have the same meaning.
 The formatter follows the reference parser's equal-value verdict.
 YAML 1.2.2's [folded content production](https://yaml.org/spec/1.2.2/#rule-l-folded-content)
@@ -457,7 +457,7 @@ moving the scalar header would turn the blank line's spaces into content.
 Root strings such as `'---'` and `'...'` keep their quotes. Marker prefixes followed
 by Unicode whitespace or a BOM also keep quotes, including `---` followed by U+00A0
 and `x`. The reference parser emits `=VAL '---\_x` for the quoted form, but only
-`+STR -STR` and a parse error for the plain form; granit and resolving loaders accept
+`+STR -STR` and a parse error for the plain form; ryl-yaml-parser and resolving loaders accept
 the plain form as a string. Formatting refuses rewrites that introduce such root lines.
 
 YAML 1.2.2's [production 206, `c-forbidden`](https://yaml.org/spec/1.2.2/#rule-c-forbidden)

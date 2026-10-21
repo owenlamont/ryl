@@ -11,16 +11,17 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
-use granit_parser::Placement;
 use regex::Regex;
+use ryl_yaml_parser::Placement;
 
 use crate::rules::ALL_RULE_IDS;
 use crate::rules::support::line_syntax::{
     split_lines_inclusive, split_lines_preserve_endings,
 };
 
-// The patterns match granit's comment payload (text after the leading `#`); the leading
-// space is the one between `#` and the keyword, keeping parity with yamllint's `^# ...`.
+// The patterns match the parser's comment payload (text after the leading `#`); the
+// leading space is the one between `#` and the keyword, keeping parity with yamllint's
+// `^# ...`.
 static DISABLE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^ (?:yamllint|ryl) disable(?: rule:\S+)*\s*$").unwrap()
 });
@@ -195,8 +196,8 @@ impl Directives {
     /// Parse inline directives, then layer config `per-line-ignores` on top as a virtual
     /// `disable-line`, so lint filtering and `--fix` reconcile treat config and inline
     /// suppression identically. A `regex` entry suppresses its rules only on matching
-    /// lines, numbered via [`line_contents`] (same YAML 1.2 break set as granit, so a
-    /// match on line *n* lands on a diagnostic at line *n*); a no-`regex` entry is
+    /// lines, numbered via [`line_contents`] (same YAML 1.2 break set as the parser, so
+    /// a match on line *n* lands on a diagnostic at line *n*); a no-`regex` entry is
     /// file-wide, recorded once in `file_wide`.
     #[must_use]
     pub fn parse_with_per_line(

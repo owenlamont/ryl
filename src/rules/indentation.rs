@@ -1,10 +1,10 @@
-//! `indentation`: yamllint's token-driven rule on granit's scanner. No safe `--fix`;
-//! `ryl format` re-indents through [`reindent`], which places each line where the check
-//! expects it.
+//! `indentation`: yamllint's token-driven rule on the parser's scanner. No safe
+//! `--fix`; `ryl format` re-indents through [`reindent`], which places each line where
+//! the check expects it.
 
 use crate::text_version::lexical::Kind as LexicalKind;
 use crate::text_version::{Analysis, TextVersion};
-use granit_parser::ScalarStyle;
+use ryl_yaml_parser::ScalarStyle;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::byte_line_and_column;
@@ -240,7 +240,7 @@ pub(crate) fn normalized_tokens<'a>(
 pub(crate) fn normalized_tokens_from<'a, K: std::borrow::Borrow<LexicalKind> + 'a>(
     text: &'a str,
     line_starts: &'a [usize],
-    tokens: impl Iterator<Item = (granit_parser::Span, K)> + 'a,
+    tokens: impl Iterator<Item = (ryl_yaml_parser::Span, K)> + 'a,
 ) -> impl Iterator<Item = Token> + 'a {
     crate::format::layout::stats::count(
         crate::format::layout::stats::Counter::Normalize,
@@ -264,7 +264,7 @@ struct Normalizer<'a> {
 impl Normalizer<'_> {
     fn token(
         &mut self,
-        span: granit_parser::Span,
+        span: ryl_yaml_parser::Span,
         token_type: &LexicalKind,
     ) -> Option<Token> {
         let (text, line_starts) = (self.text, self.line_starts);
@@ -288,7 +288,8 @@ impl Normalizer<'_> {
             LexicalKind::BlockSequenceStart => Kind::BlockSequenceStart,
             LexicalKind::BlockEnd => Kind::BlockEnd,
             LexicalKind::BlockEntry => {
-                // granit marks an entry past the dash's trailing blanks and comment.
+                // the parser marks an entry past the dash's trailing blanks and
+                // comment.
                 (start, column) = match self.previous.as_ref() {
                     Some(prev) if prev.kind == Kind::BlockSequenceStart => {
                         (prev.start, prev.column)
@@ -318,7 +319,8 @@ impl Normalizer<'_> {
             LexicalKind::Anchor | LexicalKind::Tag => Kind::Property,
             LexicalKind::Scalar { style, empty } => {
                 if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
-                    // granit starts a block scalar at its content, PyYAML at `|`/`>`.
+                    // the parser starts a block scalar at its content, PyYAML at
+                    // `|`/`>`.
                     let from = self.previous.as_ref().map_or(0, |prev| prev.end);
                     start = block_indicator(text, from).unwrap_or(start);
                     line = line_starts.partition_point(|&offset| offset <= start) - 1;
@@ -353,7 +355,11 @@ impl Normalizer<'_> {
     }
 }
 
-fn align_line_start(text: &str, line_start: &mut usize, marker: granit_parser::Marker) {
+fn align_line_start(
+    text: &str,
+    line_start: &mut usize,
+    marker: ryl_yaml_parser::Marker,
+) {
     if text[*line_start..].starts_with('\u{feff}')
         && byte_line_and_column(
             text.as_bytes(),
