@@ -54,8 +54,8 @@ pub(crate) struct Header {
 
 pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
     let mut scanner = Headers::new(input);
-    for (span, token_type) in input.tokens().iter() {
-        scanner.push(span, token_type);
+    for (span, token_type) in input.tokens().iter(input.text()) {
+        scanner.push(span, &token_type);
     }
     scanner.finish()
 }
@@ -81,7 +81,7 @@ impl<'a> Headers<'a> {
         self.found
     }
 
-    pub(crate) fn push(&mut self, span: Span, token_type: &LexicalKind) {
+    pub(crate) fn push(&mut self, span: Span, token_type: &LexicalKind<'_>) {
         let chars = self.chars;
         match token_type {
             LexicalKind::Comment { .. } => return,

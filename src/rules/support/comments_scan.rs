@@ -34,12 +34,12 @@ pub(crate) fn collect_comments_with_analysis(
     }
     input
         .tokens()
-        .iter()
+        .iter(input.text())
         .filter_map(|(span, kind)| match kind {
             LexicalKind::Comment { text, placement } => Some(CommentInfo {
                 span,
                 text: text.to_string(),
-                placement: *placement,
+                placement,
             }),
             _ => None,
         })

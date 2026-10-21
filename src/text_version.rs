@@ -248,14 +248,25 @@ impl<'text> Analysis<'text> {
     }
 
     pub(crate) fn event_iter(self) -> impl Iterator<Item = (Event<'text>, Span)> {
-        self.parsed()
+        let facts = self.parsed();
+        facts.events.iter().map(move |(event, span)| {
+            (
+                event.borrow(self.text(), &facts.tables),
+                facts.spans.get(*span),
+            )
+        })
+    }
+
+    fn event_values(self) -> impl Iterator<Item = Event<'text>> {
+        let facts = self.parsed();
+        facts
             .events
             .iter()
-            .map(move |(event, span)| (event.borrow(self.text()), span.get()))
+            .map(move |(event, _)| event.borrow(self.text(), &facts.tables))
     }
 
     pub(crate) fn verify_strict(self, output: Analysis<'_>) -> Result<bool, ScanError> {
-        self.verify_strict_events(output, self.event_iter().map(|(event, _)| event))
+        self.verify_strict_events(output, self.event_values())
     }
 
     pub(crate) fn verify_strict_events(
@@ -285,7 +296,7 @@ impl<'text> Analysis<'text> {
             let mut tokens = None;
             let result = rayon::in_place_scope(|scope| {
                 scope.spawn(|_| tokens = Some(lexical::scan(text)));
-                self.verify_events_serial(output, expected, semantic)
+                self.verify_events_serial(output, expected, semantic, false)
             });
             crate::format::layout::stats::prefetched();
             if result.as_ref().is_ok_and(|matches| *matches) {
@@ -294,7 +305,7 @@ impl<'text> Analysis<'text> {
             }
             return result;
         }
-        self.verify_events_serial(output, expected, semantic)
+        self.verify_events_serial(output, expected, semantic, semantic)
     }
 
     fn verify_events_serial(
@@ -302,6 +313,7 @@ impl<'text> Analysis<'text> {
         output: Analysis<'_>,
         expected: impl Iterator<Item = Event<'text>>,
         semantic: bool,
+        capture: bool,
     ) -> Result<bool, ScanError> {
         crate::format::layout::stats::count(
             crate::format::layout::stats::Counter::Analysis,
@@ -316,8 +328,9 @@ impl<'text> Analysis<'text> {
             events: Vec::with_capacity(self.parsed().events.len()),
             ..ParsedFacts::default()
         };
+        let mut tokens = lexical::Tokens::default();
         let mut depth = 0;
-        let mut original = self.event_iter().map(|(event, _)| event).filter(|event| {
+        let mut original = self.event_values().filter(|event| {
             !matches!(
                 event,
                 Event::Comment(..) | Event::StreamStart | Event::StreamEnd
@@ -326,7 +339,7 @@ impl<'text> Analysis<'text> {
         let mut comparison = crate::fix::EventComparison::default();
         let mut semantic_matches =
             !semantic || !crate::fix::non_ascii_marker(output.text());
-        let matches = events::verify_strict(expected, output.text(), |event, span| {
+        let observe = |event, span| {
             if semantic
                 && !matches!(
                     event,
@@ -337,50 +350,41 @@ impl<'text> Analysis<'text> {
                     .next()
                     .is_some_and(|before| comparison.matches(&before, &event));
             }
-            facts.push(output.text(), event, span, &mut depth);
-        })?;
+            facts.push(output.text(), event, &span, &mut depth);
+        };
+        let matches = if capture {
+            events::verify_strict(
+                expected,
+                output.text(),
+                |span: &Span, kind: ryl_yaml_parser::TokenKind<'_>| {
+                    tokens.push(span, kind);
+                },
+                observe,
+            )?
+        } else {
+            events::verify_strict(expected, output.text(), (), observe)?
+        };
+
         facts.valid = true;
         facts.compact();
         output.seed_facts(facts);
+        if capture {
+            crate::format::layout::stats::captured();
+            output.seed_tokens(tokens);
+        }
         Ok(matches && semantic_matches && (!semantic || original.next().is_none()))
     }
 
     pub(crate) fn significant_events_match(self, other: Analysis<'_>) -> bool {
-        struct WithSource<'a> {
-            event: &'a StoredEvent,
-            source: &'a str,
-        }
-
-        impl PartialEq for WithSource<'_> {
-            fn eq(&self, other: &Self) -> bool {
-                self.event
-                    .equivalent(other.event, self.source, other.source)
-            }
-        }
-
-        impl Eq for WithSource<'_> {}
-
-        let original = self
-            .parsed()
-            .events
-            .iter()
-            .map(|(event, _)| event)
-            .filter(|event| event.significant())
-            .map(|event| WithSource {
+        let significant = |event: &Event<'_>| {
+            !matches!(
                 event,
-                source: self.text(),
-            });
-        let rewritten = other
-            .parsed()
-            .events
-            .iter()
-            .map(|(event, _)| event)
-            .filter(|event| event.significant())
-            .map(|event| WithSource {
-                event,
-                source: other.text(),
-            });
-        original.eq(rewritten)
+                Event::Comment(..) | Event::StreamStart | Event::StreamEnd
+            )
+        };
+        self.event_values()
+            .filter(significant)
+            .eq(other.event_values().filter(significant))
     }
 
     pub(crate) fn byte_line_starts(self) -> &'text [usize] {
@@ -456,7 +460,7 @@ impl<'text> Analysis<'text> {
         start == end
     }
 
-    pub(crate) fn prefetched_tokens(self) -> Option<&'text lexical::Tokens> {
+    pub(crate) fn captured_tokens(self) -> Option<&'text lexical::Tokens> {
         self.source.tokens.get()
     }
 
@@ -537,19 +541,21 @@ impl<'text> Analysis<'text> {
 
 #[derive(Default)]
 pub(crate) struct ParsedFacts {
-    scalars: Vec<(ScalarStyle, usize)>,
+    scalars: Vec<(ScalarStyle, u32)>,
     pub(crate) root_scalars: HashMap<usize, usize>,
     pub(crate) document_starts: Vec<usize>,
     pub(crate) valid: bool,
     pub(crate) error: Option<ScanError>,
     events: Vec<(StoredEvent, spans::StoredSpan)>,
+    spans: spans::Spans,
+    tables: events::Tables,
 }
 
 impl ParsedFacts {
     pub(crate) fn scalars(&self) -> impl Iterator<Item = (ScalarStyle, Span)> {
-        self.scalars
-            .iter()
-            .map(|&(style, index)| (style, self.events[index].1.get()))
+        self.scalars.iter().map(|&(style, index)| {
+            (style, self.spans.get(self.events[index as usize].1))
+        })
     }
 
     pub(crate) fn event_count(&self) -> usize {
@@ -561,7 +567,7 @@ impl ParsedFacts {
         self.scalars.shrink_to_fit();
     }
 
-    fn record(&mut self, event: &Event<'_>, span: Span, depth: &mut usize) {
+    fn record(&mut self, event: &Event<'_>, span: &Span, depth: &mut usize) {
         match event {
             Event::DocumentStart(..) => {
                 self.document_starts.push(span.start.line() - 1);
@@ -569,7 +575,11 @@ impl ParsedFacts {
             Event::MappingStart(..) | Event::SequenceStart(..) => *depth += 1,
             Event::MappingEnd | Event::SequenceEnd => *depth -= 1,
             Event::Scalar(_, style, ..) => {
-                self.scalars.push((*style, self.events.len()));
+                self.scalars.push((
+                    *style,
+                    u32::try_from(self.events.len())
+                        .expect("scalar event index fits u32"),
+                ));
                 if *depth == 0
                     && matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
                 {
@@ -585,10 +595,12 @@ impl ParsedFacts {
         Self::parse_with_options(text, event_capacity, false)
     }
 
-    fn push(&mut self, text: &str, event: Event<'_>, span: Span, depth: &mut usize) {
+    fn push(&mut self, text: &str, event: Event<'_>, span: &Span, depth: &mut usize) {
         self.record(&event, span, depth);
-        self.events
-            .push((StoredEvent::new(text, event), spans::StoredSpan::new(span)));
+        self.events.push((
+            StoredEvent::new(text, event, &mut self.tables),
+            self.spans.store(span),
+        ));
     }
 
     pub(crate) fn parse_with_options(
@@ -607,15 +619,19 @@ impl ParsedFacts {
         Self::parse_unrecorded(text, event_capacity, strict)
     }
 
-    pub(crate) fn parse_for_format(text: &str) -> (Self, Option<lexical::Tokens>) {
-        if !prefetch_enabled(text) {
-            return (Self::parse_unrecorded(text, 0, true), None);
+    pub(crate) fn parse_for_format(
+        text: &str,
+    ) -> (Self, Option<lexical::Tokens>, bool) {
+        if prefetch_enabled(text) {
+            let (facts, tokens) = rayon::join(
+                || Self::parse_unrecorded(text, 0, true),
+                || lexical::scan(text),
+            );
+            (facts, Some(tokens), true)
+        } else {
+            let (facts, tokens) = Self::parse_observed(text, 0, true);
+            (facts, tokens, false)
         }
-        let (facts, tokens) = rayon::join(
-            || Self::parse_unrecorded(text, 0, true),
-            || lexical::scan(text),
-        );
-        (facts, Some(tokens))
     }
 
     pub(crate) fn parse_unrecorded(
@@ -623,14 +639,40 @@ impl ParsedFacts {
         event_capacity: usize,
         strict: bool,
     ) -> Self {
+        Self::parse_using(text, event_capacity, strict, ())
+    }
+
+    pub(crate) fn parse_observed(
+        text: &str,
+        event_capacity: usize,
+        strict: bool,
+    ) -> (Self, Option<lexical::Tokens>) {
+        let mut tokens = lexical::Tokens::default();
+        let facts = Self::parse_using(
+            text,
+            event_capacity,
+            strict,
+            |span: &Span, kind: ryl_yaml_parser::TokenKind<'_>| tokens.push(span, kind),
+        );
+        let tokens = facts.valid.then_some(tokens);
+        (facts, tokens)
+    }
+
+    fn parse_using(
+        text: &str,
+        event_capacity: usize,
+        strict: bool,
+        observer: impl ryl_yaml_parser::TokenObserver,
+    ) -> Self {
         let mut facts = Self {
             events: Vec::with_capacity(event_capacity),
             ..Self::default()
         };
         let mut depth = 0;
-        let parser = Parser::new_from_str_with_options(
-            text,
+        let parser = Parser::with_options_and_observer(
+            ryl_yaml_parser::StrInput::new(text),
             ryl_yaml_parser::options! { strict_indentation: strict },
+            observer,
         );
         for item in parser {
             let (event, span) = match item {
@@ -640,7 +682,7 @@ impl ParsedFacts {
                     break;
                 }
             };
-            facts.push(text, event, span, &mut depth);
+            facts.push(text, event, &span, &mut depth);
         }
         facts.valid = facts.error.is_none();
         facts.compact();

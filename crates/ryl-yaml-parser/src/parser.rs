@@ -499,7 +499,8 @@ impl<'input> Event<'input> {
 
 /// A YAML parser.
 #[derive(Debug)]
-pub struct Parser<'input, T: BorrowedInput<'input>> {
+pub struct Parser<'input, T: BorrowedInput<'input>, O = ()> {
+    observer: O,
     /// The underlying scanner from which we pull tokens.
     scanner: Scanner<'input, T>,
     /// Maximum number of comments retained while resolving an ambiguous collection entry.
@@ -938,6 +939,23 @@ where
 }
 
 impl<'input, T: BorrowedInput<'input>> Parser<'input, T> {
+    /// Create a parser over a custom input source.
+    #[must_use]
+    pub fn new(src: T) -> Self {
+        Self::with_options(src, Options::default())
+    }
+
+    /// Create a parser with configurable behavior and resource limits.
+    ///
+    /// Use [`crate::options!`] to construct options without exhaustive struct literals.
+    /// Without the `comments` feature, comments are validated but not captured or emitted.
+    #[must_use]
+    pub fn with_options(src: T, options: Options) -> Self {
+        Self::with_options_and_observer(src, options, ())
+    }
+}
+
+impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T, O> {
     /// Return the next anchor ID that will be assigned by this parser.
     #[must_use]
     pub fn anchor_offset(&self) -> usize {
@@ -949,26 +967,19 @@ impl<'input, T: BorrowedInput<'input>> Parser<'input, T> {
         self.anchor_id_count = offset;
     }
 
-    /// Create a parser over a custom input source.
-    #[must_use]
-    pub fn new(src: T) -> Self {
-        Self::with_options(src, Options::default())
-    }
-
-    /// Create a parser over a custom input source with configurable behavior and resource limits.
+    /// Observe each emitted scanner token once, including comments and stream end.
     ///
-    /// Use [`crate::options!`] to construct `options` without depending on exhaustive struct
-    /// literal syntax.
-    /// Without the `comments` feature, comment capture and emission are compiled out of both
-    /// the parser and its scanner. YAML comments are still skipped and validated.
+    /// Payloads borrow scanner storage only for the callback; parser errors may stop
+    /// observation before stream end, and peeking never repeats a callback.
     #[must_use]
-    pub fn with_options(src: T, options: Options) -> Self {
+    pub fn with_options_and_observer(src: T, options: Options, observer: O) -> Self {
         #[cfg(feature = "comments")]
         let max_buffered_comment_events = options.max_buffered_comment_events;
         let block_nesting_limit = options.block_nesting_limit;
         let scanner = Scanner::with_options(src, options);
 
         Parser {
+            observer,
             scanner,
             #[cfg(feature = "comments")]
             max_buffered_comment_events,
@@ -1142,7 +1153,10 @@ impl<'input, T: BorrowedInput<'input>> Parser<'input, T> {
     fn scan_next_token(&mut self) -> Result<QueuedToken<'input>, ScanError> {
         match self.scanner.next_queued_token()? {
             None => unreachable!("scanner ended before the parser consumed its stream-end token"),
-            Some(tok) => Ok(tok),
+            Some(tok) => {
+                self.observer.on_token(&tok.0, tok.1.kind());
+                Ok(tok)
+            }
         }
     }
 
@@ -2632,7 +2646,9 @@ impl<'input, T: BorrowedInput<'input>> Parser<'input, T> {
     }
 }
 
-impl<'input, T: BorrowedInput<'input>> ParserTrait<'input> for Parser<'input, T> {
+impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> ParserTrait<'input>
+    for Parser<'input, T, O>
+{
     fn peek(&mut self) -> Option<Result<&(Event<'input>, Span), ScanError>> {
         if let Some(ref x) = self.current {
             Some(Ok(x))
@@ -2731,7 +2747,7 @@ impl<'input, T: BorrowedInput<'input>> ParserTrait<'input> for Parser<'input, T>
     }
 }
 
-impl<'input, T: BorrowedInput<'input>> Iterator for Parser<'input, T> {
+impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Iterator for Parser<'input, T, O> {
     type Item = Result<(Event<'input>, Span), ScanError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -2739,7 +2755,10 @@ impl<'input, T: BorrowedInput<'input>> Iterator for Parser<'input, T> {
     }
 }
 
-impl<'input, T: BorrowedInput<'input>> core::iter::FusedIterator for Parser<'input, T> {}
+impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> core::iter::FusedIterator
+    for Parser<'input, T, O>
+{
+}
 
 #[cfg(test)]
 mod test {

@@ -34,7 +34,11 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub(crate) fn push(&mut self, span: ryl_yaml_parser::Span, kind: &lexical::Kind) {
+    pub(crate) fn push(
+        &mut self,
+        span: ryl_yaml_parser::Span,
+        kind: &lexical::Kind<'_>,
+    ) {
         self.complete |= matches!(kind, lexical::Kind::StreamEnd);
         self.headers.push(span, kind);
         comments_indentation::classify_token(&mut self.comment_lines, span, kind);
@@ -69,8 +73,8 @@ pub(crate) fn prepare_input(
     folding: bool,
 ) -> Result<(), super::Fallback> {
     let mut facts = Builder::new(input, folding);
-    for (span, kind) in input.tokens().iter() {
-        facts.push(span, kind);
+    for (span, kind) in input.tokens().iter(input.text()) {
+        facts.push(span, &kind);
     }
     facts.finish().map(|facts| input.seed_layout_facts(facts))
 }

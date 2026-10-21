@@ -218,7 +218,7 @@ pub(crate) fn normalized_line_starts(input: Analysis<'_>) -> Vec<usize> {
     let text = input.text();
     let mut starts = input.byte_line_starts().to_vec();
     if text.contains('\u{feff}') {
-        for (span, _) in input.tokens().iter() {
+        for (span, _) in input.tokens().iter(input.text()) {
             for marker in [span.start, span.end] {
                 align_line_start(text, &mut starts[marker.line() - 1], marker);
             }
@@ -234,10 +234,13 @@ pub(crate) fn normalized_tokens<'a>(
     input: Analysis<'a>,
     line_starts: &'a [usize],
 ) -> impl Iterator<Item = Token> {
-    normalized_tokens_from(input.text(), line_starts, input.tokens().iter())
+    normalized_tokens_from(input.text(), line_starts, input.tokens().iter(input.text()))
 }
 
-pub(crate) fn normalized_tokens_from<'a, K: std::borrow::Borrow<LexicalKind> + 'a>(
+pub(crate) fn normalized_tokens_from<
+    'a,
+    K: std::borrow::Borrow<LexicalKind<'a>> + 'a,
+>(
     text: &'a str,
     line_starts: &'a [usize],
     tokens: impl Iterator<Item = (ryl_yaml_parser::Span, K)> + 'a,
@@ -265,7 +268,7 @@ impl Normalizer<'_> {
     fn token(
         &mut self,
         span: ryl_yaml_parser::Span,
-        token_type: &LexicalKind,
+        token_type: &LexicalKind<'_>,
     ) -> Option<Token> {
         let (text, line_starts) = (self.text, self.line_starts);
         let (mut start, mut end) = (

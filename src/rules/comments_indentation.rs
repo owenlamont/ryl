@@ -206,8 +206,8 @@ fn build_lines(input: Analysis<'_>) -> std::borrow::Cow<'_, [LineInfo]> {
         return std::borrow::Cow::Borrowed(&facts.comment_lines);
     }
     let mut lines = line_facts(input);
-    for (span, kind) in input.tokens().iter() {
-        classify_token(&mut lines, span, kind);
+    for (span, kind) in input.tokens().iter(input.text()) {
+        classify_token(&mut lines, span, &kind);
     }
     std::borrow::Cow::Owned(lines)
 }
@@ -227,7 +227,11 @@ pub(crate) fn line_facts(input: Analysis<'_>) -> Vec<LineInfo> {
         .collect()
 }
 
-pub(crate) fn classify_token(lines: &mut [LineInfo], span: Span, kind: &LexicalKind) {
+pub(crate) fn classify_token(
+    lines: &mut [LineInfo],
+    span: Span,
+    kind: &LexicalKind<'_>,
+) {
     // A token after a quoted scalar's closing quote, such as a flow `]`, makes its
     // line content again, as yamllint indents by each token's start line.
     if let Some(line) = lines.get_mut(span.start.line() - 1)

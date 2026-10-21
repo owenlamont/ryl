@@ -149,8 +149,7 @@ pub(crate) fn rewrite_parse_gate(
             strict_error,
         });
     }
-    let (mut facts, mut tokens) = ParsedFacts::parse_for_format(content);
-    let prefetched = tokens.is_some();
+    let (mut facts, mut tokens, prefetched) = ParsedFacts::parse_for_format(content);
     let strict_error =
         crate::lint::parse_error_from_result(content, facts.error.as_ref());
     if strict_error.is_some() {

@@ -14,7 +14,7 @@ use super::strategy::arb_quoted_payload;
 
 const TAGS: [&str; 3] = ["!!str", "!local", "!"];
 
-const ESCAPED: [(bool, &str); 14] = [
+const ESCAPED: [(bool, &str); 15] = [
     (true, "line\nbreak"),
     (true, "tab\there"),
     (true, "back\\slash"),
@@ -29,6 +29,7 @@ const ESCAPED: [(bool, &str); 14] = [
     (true, "café \"quoted\": value"),
     (false, "café's: value"),
     (true, "café [value]"),
+    (true, "🦀 é 世 \"quoted\""),
 ];
 
 const QUOTED_KEYS: [&str; 8] = [

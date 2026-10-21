@@ -542,6 +542,42 @@ pub(crate) enum QueuedTokenType<'input> {
 }
 
 impl<'input> QueuedTokenType<'input> {
+    #[inline]
+    pub(crate) fn kind(&self) -> crate::TokenKind<'_> {
+        match self {
+            Self::StreamStart => crate::TokenKind::StreamStart,
+            Self::StreamEnd => crate::TokenKind::StreamEnd,
+            Self::VersionDirective(..) => crate::TokenKind::VersionDirective,
+            Self::TagDirective(..) => crate::TokenKind::TagDirective,
+            Self::DocumentStart => crate::TokenKind::DocumentStart,
+            Self::DocumentEnd => crate::TokenKind::DocumentEnd,
+            Self::BlockSequenceStart => crate::TokenKind::BlockSequenceStart,
+            Self::BlockMappingStart => crate::TokenKind::BlockMappingStart,
+            Self::BlockEnd => crate::TokenKind::BlockEnd,
+            Self::FlowSequenceStart => crate::TokenKind::FlowSequenceStart,
+            Self::FlowSequenceEnd => crate::TokenKind::FlowSequenceEnd,
+            Self::FlowMappingStart => crate::TokenKind::FlowMappingStart,
+            Self::FlowMappingEnd => crate::TokenKind::FlowMappingEnd,
+            Self::BlockEntry => crate::TokenKind::BlockEntry,
+            Self::FlowEntry => crate::TokenKind::FlowEntry,
+            Self::Key => crate::TokenKind::Key,
+            Self::Value => crate::TokenKind::Value,
+            Self::Alias(..) => crate::TokenKind::Alias,
+            Self::Anchor(..) => crate::TokenKind::Anchor,
+            Self::Tag(..) => crate::TokenKind::Tag,
+            Self::ReservedDirective(..) => crate::TokenKind::ReservedDirective,
+            Self::Scalar(style, value) => crate::TokenKind::Scalar {
+                style: *style,
+                value: value.as_ref(),
+            },
+            #[cfg(feature = "comments")]
+            Self::Comment(comment) => crate::TokenKind::Comment {
+                text: comment.text(),
+                placement: comment.placement(),
+            },
+        }
+    }
+
     fn into_public(self) -> TokenType<'input> {
         match self {
             Self::StreamStart => TokenType::StreamStart,
@@ -4617,6 +4653,46 @@ enum Chomping {
     Clip,
     /// The final line break and trailing empty lines are included.
     Keep,
+}
+
+impl TokenType<'_> {
+    /// Borrow lexical evidence without cloning decoded values.
+    #[must_use]
+    #[inline]
+    pub fn kind(&self) -> crate::TokenKind<'_> {
+        match self {
+            Self::StreamStart => crate::TokenKind::StreamStart,
+            Self::StreamEnd => crate::TokenKind::StreamEnd,
+            Self::VersionDirective(..) => crate::TokenKind::VersionDirective,
+            Self::TagDirective(..) => crate::TokenKind::TagDirective,
+            Self::DocumentStart => crate::TokenKind::DocumentStart,
+            Self::DocumentEnd => crate::TokenKind::DocumentEnd,
+            Self::BlockSequenceStart => crate::TokenKind::BlockSequenceStart,
+            Self::BlockMappingStart => crate::TokenKind::BlockMappingStart,
+            Self::BlockEnd => crate::TokenKind::BlockEnd,
+            Self::FlowSequenceStart => crate::TokenKind::FlowSequenceStart,
+            Self::FlowSequenceEnd => crate::TokenKind::FlowSequenceEnd,
+            Self::FlowMappingStart => crate::TokenKind::FlowMappingStart,
+            Self::FlowMappingEnd => crate::TokenKind::FlowMappingEnd,
+            Self::BlockEntry => crate::TokenKind::BlockEntry,
+            Self::FlowEntry => crate::TokenKind::FlowEntry,
+            Self::Key => crate::TokenKind::Key,
+            Self::Value => crate::TokenKind::Value,
+            Self::Alias(..) => crate::TokenKind::Alias,
+            Self::Anchor(..) => crate::TokenKind::Anchor,
+            Self::Tag(..) => crate::TokenKind::Tag,
+            Self::ReservedDirective(..) => crate::TokenKind::ReservedDirective,
+            Self::Scalar(style, value) => crate::TokenKind::Scalar {
+                style: *style,
+                value: value.as_ref(),
+            },
+            #[cfg(feature = "comments")]
+            Self::Comment(comment) => crate::TokenKind::Comment {
+                text: comment.text(),
+                placement: comment.placement(),
+            },
+        }
+    }
 }
 
 #[cfg(test)]

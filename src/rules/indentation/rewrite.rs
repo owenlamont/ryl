@@ -466,8 +466,8 @@ impl<'a> Layout<'a> {
         let input = self.input;
         let projection = Projection::new(input, edits);
         let mut gaps = Projection::incremental();
-        let tokens = if let Some(tape) = input.prefetched_tokens() {
-            let scanner = tape.iter().inspect(move |(span, kind)| {
+        let tokens = if let Some(tape) = input.captured_tokens() {
+            let scanner = tape.iter(input.text()).inspect(move |(span, kind)| {
                 facts.borrow_mut().push(*span, kind);
             });
             rayon::iter::Either::Left(super::normalized_tokens_from(
@@ -841,7 +841,7 @@ fn reshape<'a>(
     if let Some(own_line) = dash_on_own_line {
         let commented: std::collections::HashSet<_> = input
             .tokens()
-            .iter()
+            .iter(input.text())
             .filter_map(|(span, kind)| {
                 matches!(kind, crate::text_version::lexical::Kind::Comment { .. })
                     .then_some(span.start.line() - 1)
