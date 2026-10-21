@@ -52,7 +52,7 @@ const EX2_17 : &str =
 const EX2_18 : &str =
     "plain:\n  This unquoted scalar\n  spans many lines.\n\nquoted: \"So does this\n  quoted scalar.\\n\"";
 
-// These examples demonstrate YAML schema resolution in the spec. granit-parser is a low-level
+// These examples demonstrate YAML schema resolution in the spec. ryl-yaml-parser is a low-level
 // event parser, so the tests only assert that the examples parse with the expected node shape.
 const EX2_19 : &str =
     "canonical: 12345\ndecimal: +12345\noctal: 0o14\nhexadecimal: 0xC";

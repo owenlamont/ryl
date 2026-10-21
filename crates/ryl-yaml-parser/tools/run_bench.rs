@@ -75,7 +75,7 @@ fn run() -> Result<(), String> {
     let percentile95 = sorted_times[((95 * iterations) / 100) as usize];
 
     if output_yaml {
-        println!("parser: granit-parser");
+        println!("parser: ryl-yaml-parser");
         println!("input: {}", args[1]);
         println!("average: {avg}");
         println!("min: {min}");

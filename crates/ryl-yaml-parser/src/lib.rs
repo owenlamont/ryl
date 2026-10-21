@@ -4,7 +4,7 @@
 
 //! YAML 1.2 parser implementation in pure Rust.
 //!
-//! `granit-parser` is a low-level event parser. It reads YAML input and yields a stream of
+//! `ryl-yaml-parser` is a low-level event parser. It reads YAML input and yields a stream of
 //! [`Event`] values paired with their source [`Span`].
 //! With the default `comments` feature, comments are emitted as `Event::Comment`. They
 //! are presentation metadata, not YAML data nodes, so consumers building YAML value trees should
@@ -13,7 +13,7 @@
 //! Add it to your project:
 //!
 //! ```sh
-//! cargo add granit-parser
+//! cargo add ryl-yaml-parser
 //! ```
 //!
 //! # Usage

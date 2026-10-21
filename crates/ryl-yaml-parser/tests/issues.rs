@@ -462,7 +462,7 @@ fn test_issue14_v2() {
 }
 
 #[test]
-fn test_granit_issue14_colon_in_alias_name_is_not_value_indicator() {
+fn test_upstream_issue14_colon_in_alias_name_is_not_value_indicator() {
     // YAML 1.2.2:
     //
     //   ns-anchor-char ::= ns-char - c-flow-indicator
@@ -484,7 +484,7 @@ fn test_granit_issue14_colon_in_alias_name_is_not_value_indicator() {
 }
 
 #[test]
-fn test_granit_issue14_space_before_colon_keeps_alias_key_mapping_valid() {
+fn test_upstream_issue14_space_before_colon_keeps_alias_key_mapping_valid() {
     // With an explicit separation space before ':', the alias name is `foo`.
     // This is the valid alias-key mapping form.
     let input = "foo: &foo value\n*foo : bar\n";
@@ -671,7 +671,7 @@ fn test_issue84() {
 }
 
 #[test]
-fn test_granit_issue14_anchor_and_alias_names_may_end_with_colon() {
+fn test_upstream_issue14_anchor_and_alias_names_may_end_with_colon() {
     // YAML 1.2.2:
     //
     //   ns-anchor-char ::= ns-char - c-flow-indicator

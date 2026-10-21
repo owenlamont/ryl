@@ -258,7 +258,7 @@ These are breaking API changes intended for the next major release.
 
 ### Error handling without grepping message text
   
-  Granit-parser uses the [`ErrorKind`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/enum.ErrorKind.html) enum to encode the error kind, and this enum may carry additional metadata. This is useful when messages need to be translated (built-in messages are English), or when the using code needs to handle some error specifically without greping for message text.
+  The parser uses the [`ErrorKind`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/enum.ErrorKind.html) enum to encode the error kind, and this enum may carry additional metadata. This is useful when messages need to be translated (built-in messages are English), or when the using code needs to handle some error specifically without greping for message text.
 
 ### Fallible streaming input
 
