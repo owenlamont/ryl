@@ -206,8 +206,7 @@ impl Presentation {
         ] {
             presentation.extend(rule, edits);
         }
-        presentation.settle()?;
-        Ok(presentation)
+        presentation.settle().map(|()| presentation)
     }
 
     fn pre_scan(
@@ -219,13 +218,13 @@ impl Presentation {
         let mut braces = passes
             .braces
             .as_ref()
-            .map(|cfg| braces::edit_sites(cfg, input.text()));
+            .and_then(|cfg| braces::edit_sites(cfg, input.text()));
         let templates = input.text().contains("{{");
         let mut brackets = passes
             .brackets
             .as_ref()
             .filter(|_| !templates)
-            .map(|cfg| brackets::edit_sites(cfg, input.text()));
+            .and_then(|cfg| brackets::edit_sites(cfg, input.text()));
         let mut comma_edits = Vec::new();
         let mut depth = 0usize;
         for &(at, ch) in input.flow_sites() {
@@ -344,23 +343,30 @@ impl Presentation {
         if !layout.collapse_scalars(&presentation.edits) {
             return Err(Fallback::ScalarInteraction);
         }
-        let (targets, spacing) =
-            layout.stream_targets(cfg, &presentation.edits, passes)?;
-        for site in spacing {
-            let dash =
-                site.indicator == crate::rules::support::token_spacing::Indicator::Dash;
-            presentation
-                .rules
-                .push(if dash { hyphens::ID } else { colons::ID });
-            let (from, to, spaces) = site.edit;
-            presentation
-                .edits
-                .push((from, to, pieces::Replacement::Spaces(spaces)));
-        }
-        presentation.comments(input, passes, &mut layout);
-        presentation.settle()?;
-        let targets = targets.finish(&layout);
-        Ok((layout, targets, presentation))
+        layout
+            .stream_targets(cfg, &presentation.edits, passes)
+            .and_then(|(targets, spacing)| {
+                for site in spacing {
+                    let dash = site.indicator
+                        == crate::rules::support::token_spacing::Indicator::Dash;
+                    presentation.rules.push(if dash {
+                        hyphens::ID
+                    } else {
+                        colons::ID
+                    });
+                    let (from, to, spaces) = site.edit;
+                    presentation.edits.push((
+                        from,
+                        to,
+                        pieces::Replacement::Spaces(spaces),
+                    ));
+                }
+                presentation.comments(input, passes, &mut layout);
+                presentation.settle().map(|()| {
+                    let targets = targets.finish(&layout);
+                    (layout, targets, presentation)
+                })
+            })
     }
 
     fn quotes(
@@ -438,21 +444,26 @@ impl<'a> DocumentPlan<'a> {
             return Err(Fallback::Refusal);
         };
         let (layout, targets, presentation) = if input.text().contains('\u{feff}') {
-            facts::prepare_input(input, passes.line_length.is_some())?;
-            let mut layout = indentation::Layout::new(input, &cfg);
-            let presentation = Presentation::new(input, passes, &mut layout, quotes)?;
-            if !layout.collapse_scalars(&presentation.edits) {
-                return Err(Fallback::ScalarInteraction);
-            }
-            let targets =
-                layout.targets(&cfg, &presentation.edits, passes.line_length.is_some());
-            (layout, targets, presentation)
+            facts::prepare_input(input, passes.line_length.is_some()).and_then(|()| {
+                let mut layout = indentation::Layout::new(input, &cfg);
+                let presentation =
+                    Presentation::new(input, passes, &mut layout, quotes)?;
+                if !layout.collapse_scalars(&presentation.edits) {
+                    return Err(Fallback::ScalarInteraction);
+                }
+                let targets = layout.targets(
+                    &cfg,
+                    &presentation.edits,
+                    passes.line_length.is_some(),
+                );
+                Ok((layout, targets, presentation))
+            })
         } else {
             if sink == Sink::Validate {
                 stats::count(stats::Counter::DryScan);
             }
-            Presentation::stream(input, passes, quotes, &cfg)?
-        };
+            Presentation::stream(input, passes, quotes, &cfg)
+        }?;
         if crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
             input,
         )

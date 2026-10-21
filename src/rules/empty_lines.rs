@@ -142,9 +142,9 @@ pub(crate) fn preserved_scalar_lines_with_empty(
             .rev()
             .take_while(|line| empty(*line - 1))
         {
-            if let Some(protected) = protected.get_mut(line - 1) {
-                *protected = false;
-            }
+            *protected
+                .get_mut(line - 1)
+                .expect("parsed scalar line belongs to the source line table") = false;
         }
     }
     Some(protected)

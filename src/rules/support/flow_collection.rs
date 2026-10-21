@@ -84,7 +84,7 @@ macro_rules! define_rule {
         pub(crate) fn edit_sites<'a>(
             cfg: &'a Config,
             buffer: &'a str,
-        ) -> $crate::rules::support::flow_collection::Edits<'a> {
+        ) -> Option<$crate::rules::support::flow_collection::Edits<'a>> {
             $crate::rules::support::flow_collection::Edits::new(
                 buffer.as_bytes(),
                 cfg.inner(),
@@ -296,14 +296,14 @@ impl<'a> Edits<'a> {
         bytes: &'a [u8],
         config: &'a Config,
         descriptor: &'a FlowCollectionDescriptor,
-    ) -> Self {
-        Self {
+    ) -> Option<Self> {
+        (config.forbid() == Forbid::None).then(|| Self {
             bytes,
             config,
             descriptor,
             stack: Vec::new(),
             replacements: Vec::new(),
-        }
+        })
     }
 
     pub(crate) fn push(&mut self, idx: usize, ch: u8) {
@@ -314,9 +314,6 @@ impl<'a> Edits<'a> {
             stack,
             replacements,
         } = self;
-        if config.forbid() != Forbid::None {
-            return;
-        }
         if ch == desc.open {
             if let Some(state) = stack.last_mut() {
                 state.is_empty = false;
@@ -446,11 +443,14 @@ pub(crate) fn edits(
     desc: &FlowCollectionDescriptor,
 ) -> Vec<crate::text_version::edits::Edit> {
     let buffer = input.text();
-    if buffer.is_empty() || cfg.forbid() != Forbid::None {
+    if buffer.is_empty() {
         return Vec::new();
     }
 
-    let bytes = buffer.as_bytes();
+    let Some(mut edits) = Edits::new(buffer.as_bytes(), cfg, desc) else {
+        return Vec::new();
+    };
+
     let legacy;
     let sites = if desc.open == b'[' && buffer.contains("{{") {
         legacy = super::punctuation::flow_sites(input, false);
@@ -458,7 +458,6 @@ pub(crate) fn edits(
     } else {
         input.flow_sites()
     };
-    let mut edits = Edits::new(bytes, cfg, desc);
     for &(idx, ch) in sites {
         edits.push(idx, ch);
     }

@@ -68,12 +68,9 @@ pub(crate) fn prepare_input(
     input: Analysis<'_>,
     folding: bool,
 ) -> Result<(), super::Fallback> {
-    if input.layout_facts().is_none() {
-        let mut facts = Builder::new(input, folding);
-        for (span, kind) in input.tokens().iter() {
-            facts.push(span, kind);
-        }
-        input.seed_layout_facts(facts.finish()?);
+    let mut facts = Builder::new(input, folding);
+    for (span, kind) in input.tokens().iter() {
+        facts.push(span, kind);
     }
-    Ok(())
+    facts.finish().map(|facts| input.seed_layout_facts(facts))
 }

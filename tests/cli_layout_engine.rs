@@ -351,6 +351,72 @@ fn skip_finishing_matches_ordered_formatter() {
 }
 
 #[test]
+fn skipped_flow_spacing_keeps_the_original_gaps_and_comments() {
+    let input = "items: { a: [ b,c ] } #note\n";
+    assert_eq!(
+        format_with_skipped_rules(
+            input,
+            "[format]\n",
+            &["braces", "brackets", "commas", "comments"],
+        ),
+        input
+    );
+}
+
+#[test]
+fn template_text_keeps_the_legacy_bracket_walk() {
+    let input = "items: [ a,b ]\nvalue: '{{ x }}'\n";
+    let config = "[format]\nquote-style='preserve'\n";
+    assert_eq!(
+        format_with_skipped_rules(input, config, &[]),
+        "items: [a, b]\nvalue: '{{ x }}'\n"
+    );
+    assert_eq!(
+        format_with_skipped_rules(input, config, &["brackets"]),
+        "items: [ a, b ]\nvalue: '{{ x }}'\n"
+    );
+}
+
+#[test]
+fn bom_quote_collapses_keep_the_byte_derived_tail_adapter() {
+    let output = format_with_skipped_rules(
+        "\u{feff}key: ['first\n  second', 'third\n  fourth'] #note\n",
+        "[format]\n",
+        &[],
+    );
+    assert_eq!(
+        output,
+        "\u{feff}key: [first second, third fourth]  # note\n"
+    );
+}
+
+#[test]
+fn bom_flow_key_overlap_restarts_the_ordered_driver() {
+    let output = format_with_skipped_rules(
+        "\u{feff}{\"foo\"\n: bar}\n",
+        "[format]\nbrace-spacing=true\n",
+        &[],
+    );
+    assert_eq!(output, "\u{feff}{ foo\n  : bar }\n");
+}
+
+#[test]
+fn bom_unsettled_root_quote_restarts_the_ordered_driver() {
+    let output = format_with_skipped_rules("\u{feff}---\n\"foo\"\n", "[format]\n", &[]);
+    assert_eq!(output, "\u{feff}---\nfoo\n");
+}
+
+#[test]
+fn bom_root_scalar_fold_restarts_the_ordered_driver() {
+    let output = format_with_skipped_rules(
+        "\u{feff}--- \"a\n...x\nb\"\n",
+        "[format]\nfold-long-lines=true\n",
+        &[],
+    );
+    assert_eq!(output, "\u{feff}--- a ...x b\n");
+}
+
+#[test]
 fn skip_final_newline_matches_ordered_formatter() {
     let output = format_with_skipped_rules(
         "a: |+\n  a\n  ",

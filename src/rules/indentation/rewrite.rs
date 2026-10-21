@@ -195,7 +195,9 @@ impl<'a> Layout<'a> {
             starts.clear();
         }
         let kept_dash_lines = if parsed && streaming {
-            reshape_events(input, &mut lines, cfg.dash_on_own_line)
+            cfg.dash_on_own_line.map_or_else(Vec::new, |own_line| {
+                reshape_events(input, &mut lines, own_line)
+            })
         } else if parsed {
             reshape(
                 input,
@@ -417,7 +419,6 @@ impl<'a> Layout<'a> {
                 }
             });
         }
-        input.seed_layout_facts(facts.into_inner().finish()?);
         let Analyzer {
             shifts,
             gaps,
@@ -425,16 +426,20 @@ impl<'a> Layout<'a> {
             scalar_owners,
             ..
         } = analyzer;
-        self.consistent = consistency.map(|check| check.diagnostics.is_empty());
-        Ok((
-            StreamTargets {
-                shifts,
-                gaps,
-                diagnostics,
-                scalar_owners: scalar_owners.unwrap_or_default(),
-            },
-            spacing,
-        ))
+        let consistent = consistency.map(|check| check.diagnostics.is_empty());
+        facts.into_inner().finish().map(|facts| {
+            input.seed_layout_facts(facts);
+            self.consistent = consistent;
+            (
+                StreamTargets {
+                    shifts,
+                    gaps,
+                    diagnostics,
+                    scalar_owners: scalar_owners.unwrap_or_default(),
+                },
+                spacing,
+            )
+        })
     }
 
     fn line_starts(&self) -> Cow<'_, [usize]> {
@@ -769,21 +774,22 @@ fn shape(
     own_line: bool,
     lines: &[VirtualLine<'_>],
 ) -> Option<(usize, Option<usize>, usize)> {
-    if entry.kind != Kind::BlockEntry || start.kind != Kind::BlockMappingStart {
-        return None;
-    }
-    if own_line && start.line == entry.line {
-        Some((entry.line, Some(start.column), entry.column))
-    } else if !own_line
-        && start.line == entry.line + 1
-        && start.column > entry.column + 1
-        && lines[entry.line].prefix + lines[entry.line].body.trim_end().len()
-            == entry.column + 1
-    {
-        Some((entry.line, None, entry.column))
-    } else {
-        None
-    }
+    (entry.kind == Kind::BlockEntry && start.kind == Kind::BlockMappingStart)
+        .then(|| {
+            if own_line && start.line == entry.line {
+                Some((entry.line, Some(start.column), entry.column))
+            } else if !own_line
+                && start.line == entry.line + 1
+                && start.column > entry.column + 1
+                && lines[entry.line].prefix + lines[entry.line].body.trim_end().len()
+                    == entry.column + 1
+            {
+                Some((entry.line, None, entry.column))
+            } else {
+                None
+            }
+        })
+        .flatten()
 }
 
 fn refuse_inconsistent(
@@ -900,12 +906,9 @@ fn apply_shapes<'a>(
 fn reshape_events<'a>(
     input: Analysis<'a>,
     lines: &mut Vec<VirtualLine<'a>>,
-    own_line: Option<bool>,
+    own_line: bool,
 ) -> Vec<(usize, usize)> {
     use granit_parser::{Event, StructureStyle};
-    let Some(own_line) = own_line else {
-        return Vec::new();
-    };
     let mut stack = Vec::new();
     let mut shapes = Vec::new();
     let mut comments = std::collections::HashSet::new();
