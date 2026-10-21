@@ -770,7 +770,7 @@ pub(crate) fn format_events_match_with_analysis(
     !non_ascii_marker(formatted.text()) && representation_matches(original, formatted)
 }
 
-fn non_ascii_marker(formatted: &str) -> bool {
+pub(crate) fn non_ascii_marker(formatted: &str) -> bool {
     // The reference parser's marker lookahead includes non-ASCII whitespace.
     crate::rules::support::line_syntax::split_lines_preserve_endings(formatted).any(
         |(_, line, _)| {
@@ -800,23 +800,35 @@ fn representation_matches(before: Analysis<'_>, after: Analysis<'_>) -> bool {
         .event_iter()
         .map(|(event, _)| event)
         .filter(significant);
-    let mut yaml11 = false;
+    let mut comparison = EventComparison::default();
     loop {
         match (left.next(), right.next()) {
             (None, None) => return true,
             (Some(a), Some(b)) => {
-                if let Event::DocumentStart(_, version) = &a {
-                    yaml11 = crate::rules::support::yaml_version::resolves_as_yaml_1_1(
-                        version.map(crate::rules::support::yaml_version::event_version),
-                    );
-                }
-                if a != b && normalized_event(a, yaml11) != normalized_event(b, yaml11)
-                {
+                if !comparison.matches(&a, &b) {
                     return false;
                 }
             }
             _ => return false,
         }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct EventComparison {
+    yaml11: bool,
+}
+
+impl EventComparison {
+    pub(crate) fn matches(&mut self, a: &Event<'_>, b: &Event<'_>) -> bool {
+        if let Event::DocumentStart(_, version) = a {
+            self.yaml11 = crate::rules::support::yaml_version::resolves_as_yaml_1_1(
+                version.map(crate::rules::support::yaml_version::event_version),
+            );
+        }
+        a == b
+            || normalized_event(a.clone(), self.yaml11)
+                == normalized_event(b.clone(), self.yaml11)
     }
 }
 
@@ -1354,8 +1366,38 @@ pub(crate) fn run_passes(
     .into_text()
 }
 
-pub(crate) type ReindentCache =
-    Option<(String, indentation::Config, indentation::Reindented)>;
+pub(crate) type ReindentCache = Option<ReindentEvidence>;
+
+pub(crate) struct ReindentEvidence {
+    epoch: std::rc::Rc<()>,
+    config: indentation::Config,
+    pub(crate) refused: Vec<indentation::Refusal>,
+    pub(crate) kept_dash_lines: Vec<(usize, usize)>,
+}
+
+impl ReindentEvidence {
+    pub(crate) fn new(
+        input: Analysis<'_>,
+        config: indentation::Config,
+        refused: Vec<indentation::Refusal>,
+        kept_dash_lines: Vec<(usize, usize)>,
+    ) -> Self {
+        Self {
+            epoch: input.epoch(),
+            config,
+            refused,
+            kept_dash_lines,
+        }
+    }
+
+    pub(crate) fn matches(
+        &self,
+        input: Analysis<'_>,
+        config: indentation::Config,
+    ) -> bool {
+        std::rc::Rc::ptr_eq(&self.epoch, &input.epoch()) && self.config == config
+    }
+}
 
 pub(crate) struct PassTracking<'a> {
     pub edited: &'a mut Vec<&'static str>,
@@ -1373,7 +1415,12 @@ fn reindent_for_pass(
         return Some(output);
     }
     if let Some(slot) = cache {
-        *slot = Some((input.text().to_string(), *cfg, result));
+        *slot = Some(ReindentEvidence::new(
+            input,
+            *cfg,
+            result.refused,
+            result.kept_dash_lines,
+        ));
     }
     None
 }

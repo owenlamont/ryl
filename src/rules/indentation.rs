@@ -14,7 +14,7 @@ mod rewrite;
 
 pub(crate) use rewrite::reindent_with_analysis;
 pub use rewrite::{Cause, Refusal, Reindented, fix, reindent};
-pub(crate) use rewrite::{DryLayout, Layout, Targets, stream_layout};
+pub(crate) use rewrite::{Layout, Targets};
 
 pub const ID: &str = "indentation";
 
@@ -242,9 +242,32 @@ pub(crate) fn normalized_tokens_from<'a, K: std::borrow::Borrow<LexicalKind> + '
     line_starts: &'a [usize],
     tokens: impl Iterator<Item = (granit_parser::Span, K)> + 'a,
 ) -> impl Iterator<Item = Token> + 'a {
-    let mut previous: Option<Token> = None;
+    crate::format::layout::stats::count(
+        crate::format::layout::stats::Counter::Normalize,
+    );
+    let mut normalizer = Normalizer {
+        text,
+        line_starts,
+        previous: None,
+    };
     tokens.filter_map(move |(span, token_type)| {
-        let token_type = token_type.borrow();
+        normalizer.token(span, token_type.borrow())
+    })
+}
+
+struct Normalizer<'a> {
+    text: &'a str,
+    line_starts: &'a [usize],
+    previous: Option<Token>,
+}
+
+impl Normalizer<'_> {
+    fn token(
+        &mut self,
+        span: granit_parser::Span,
+        token_type: &LexicalKind,
+    ) -> Option<Token> {
+        let (text, line_starts) = (self.text, self.line_starts);
         let (mut start, mut end) = (
             marker_byte_offset(span.start).get(),
             marker_byte_offset(span.end).get(),
@@ -266,7 +289,7 @@ pub(crate) fn normalized_tokens_from<'a, K: std::borrow::Borrow<LexicalKind> + '
             LexicalKind::BlockEnd => Kind::BlockEnd,
             LexicalKind::BlockEntry => {
                 // granit marks an entry past the dash's trailing blanks and comment.
-                (start, column) = match previous.as_ref() {
+                (start, column) = match self.previous.as_ref() {
                     Some(prev) if prev.kind == Kind::BlockSequenceStart => {
                         (prev.start, prev.column)
                     }
@@ -296,7 +319,7 @@ pub(crate) fn normalized_tokens_from<'a, K: std::borrow::Borrow<LexicalKind> + '
             LexicalKind::Scalar { style, empty } => {
                 if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
                     // granit starts a block scalar at its content, PyYAML at `|`/`>`.
-                    let from = previous.as_ref().map_or(0, |prev| prev.end);
+                    let from = self.previous.as_ref().map_or(0, |prev| prev.end);
                     start = block_indicator(text, from).unwrap_or(start);
                     line = line_starts.partition_point(|&offset| offset <= start) - 1;
                     column = text[line_starts[line]..start].chars().count();
@@ -325,9 +348,9 @@ pub(crate) fn normalized_tokens_from<'a, K: std::borrow::Borrow<LexicalKind> + '
             end_line,
             end_column,
         };
-        previous = Some(token);
+        self.previous = Some(token);
         Some(token)
-    })
+    }
 }
 
 fn align_line_start(text: &str, line_start: &mut usize, marker: granit_parser::Marker) {
@@ -541,18 +564,10 @@ impl<'a> Analyzer<'a> {
         mut tokens: impl Iterator<Item = Token>,
         mut observe: impl FnMut(&Token, Option<&Token>, Option<&Token>, Option<&Token>),
     ) {
-        let mut prev = None;
-        let mut current = tokens.next();
-        let mut next = tokens.next();
-        let mut after = tokens.next();
-        while let Some(token) = current {
-            observe(&token, prev.as_ref(), next.as_ref(), after.as_ref());
-            self.advance(&token, prev.as_ref(), next.as_ref(), after.as_ref());
-            prev = current;
-            current = next;
-            next = after;
-            after = tokens.next();
-        }
+        walk(&mut tokens, |token, previous, next, after| {
+            observe(token, previous, next, after);
+            self.advance(token, previous, next, after);
+        });
     }
 
     fn advance(
@@ -999,6 +1014,23 @@ impl<'a> Analyzer<'a> {
             column: found + bom + 1,
             message,
         });
+    }
+}
+
+fn walk<T: Copy>(
+    mut tokens: impl Iterator<Item = T>,
+    mut visit: impl FnMut(&T, Option<&T>, Option<&T>, Option<&T>),
+) {
+    let mut previous = None;
+    let mut current = tokens.next();
+    let mut next = tokens.next();
+    let mut after = tokens.next();
+    while let Some(token) = current {
+        visit(&token, previous.as_ref(), next.as_ref(), after.as_ref());
+        previous = current;
+        current = next;
+        next = after;
+        after = tokens.next();
     }
 }
 

@@ -193,10 +193,17 @@ the existing driver; `check --fix` keeps its ordered rule pipeline. Set
 `RYL_LAYOUT_STATS` to a JSONL destination to record per-input fallback reasons,
 traversal/emission counts and elapsed time during development.
 
-The dry plan streams scanner tokens through bounded indentation lookahead and
-collects shared header, comment, spacing and folding facts. BOM inputs retain the
+Both plans collect shared header, comment, sparse spacing and folding facts during
+lexical scanning. The input buffers the unresolved line, projects tokens against
+settled local gaps and quotes, and feeds the indentation analyzer directly.
+The dry pass invokes the same producers and layout planner on fresh candidate facts;
+any remaining edit or refusal restarts the bounded driver from the original bytes.
+Strict candidate verification compares expected events and semantic events in
+the same parse. Refusal reporting stores epoch-bound evidence without text copies.
+BOM dry inputs retain the
 cached normalizer, whose marker columns distinguish prefix BOMs from scalar content.
-Scalar protection ranges are cached per text epoch. Space replacements emit counts.
+Physical lines borrow slices from the byte-start table; scalar protection ranges are
+cached per text epoch. Space replacements emit counts.
 
 For fallback and indentation-only callers, changed single-document output of at
 least 1 MB uses one strict streaming parse to compare significant events against the

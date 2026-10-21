@@ -1,23 +1,30 @@
 use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
 
-pub(super) type PlanEdit = (BytePos, BytePos, Replacement);
+pub(crate) type PlanEdit = (BytePos, BytePos, Replacement);
 
 #[derive(PartialEq, Eq)]
-pub(super) enum Replacement {
-    Text(String),
+pub(crate) enum Replacement {
+    Text { text: String, chars: usize },
     Spaces(usize),
 }
 
 impl Replacement {
-    pub(super) fn piece(&self) -> Piece<'_> {
+    pub(crate) fn piece(&self) -> Piece<'_> {
         match self {
-            Self::Text(text) => Piece::Text(text),
+            Self::Text { text, .. } => Piece::Text(text),
             Self::Spaces(count) => Piece::Spaces(*count),
         }
     }
 
-    pub(super) fn len(&self) -> usize {
+    pub(crate) fn char_count(&self) -> usize {
+        match self {
+            Self::Text { chars, .. } => *chars,
+            Self::Spaces(count) => *count,
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
         self.piece().len()
     }
 }
@@ -26,13 +33,16 @@ pub(super) fn plan_edit((start, end, text): Edit) -> PlanEdit {
     let replacement = if text.bytes().all(|byte| byte == b' ') {
         Replacement::Spaces(text.len())
     } else {
-        Replacement::Text(text)
+        Replacement::Text {
+            chars: text.chars().count(),
+            text,
+        }
     };
     (start, end, replacement)
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum Piece<'a> {
+pub(crate) enum Piece<'a> {
     Text(&'a str),
     Spaces(usize),
 }
@@ -45,7 +55,7 @@ impl<'a> Piece<'a> {
         }
     }
 
-    pub(super) fn chars(self) -> impl Iterator<Item = char> + 'a {
+    pub(crate) fn chars(self) -> impl Iterator<Item = char> + 'a {
         let (spaces, text) = match self {
             Self::Text(text) => (0, text),
             Self::Spaces(count) => (count, ""),
@@ -77,15 +87,10 @@ impl<'a> Piece<'a> {
 }
 
 pub(super) fn bridge_width(
-    edits: &[PlanEdit],
-    bridge: Option<(usize, usize)>,
+    bridge: Option<&super::Bridge>,
     byte: usize,
 ) -> Option<usize> {
-    bridge.map_or(Some(0), |(start, end)| {
-        (byte >= end).then(|| {
-            edits[edits.partition_point(|(from, _, _)| from.get() < start)]
-                .2
-                .len()
-        })
+    bridge.map_or(Some(0), |bridge| {
+        (byte >= bridge.end).then_some(bridge.bytes)
     })
 }

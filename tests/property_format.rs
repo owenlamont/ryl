@@ -565,18 +565,25 @@ proptest! {
     fn quoted_indicator_scalars_keep_their_value(
         value in strategy::arb_quoted_payload(),
         double in any::<bool>(),
+        schema in prop::sample::select(vec!["", "%YAML 1.1\n---\n", "%YAML 1.2\n---\n"]),
+        properties in prop::sample::select(vec!["", "!!str ", "&a ", "!!str &a "]),
         position in prop::sample::select(vec![("", "\n"), ("- ", "\n"), ("a: ", "\n"), ("[", "]\n")]),
     ) {
         let scalar = if double { ast::Scalar::DoubleQuoted(value.clone()) } else { ast::Scalar::SingleQuoted(value.clone()) };
         let mut quoted = String::new();
         scalar.render(&mut quoted);
-        let input = format!("{}{quoted}{}", position.0, position.1);
+        let input = format!("{schema}{}{properties}{quoted}{}", position.0, position.1);
         let nodes = representation(&input).expect("quoted scalar parses");
         let loaded = nodes.iter().rev().find_map(|node| match node {
             Node::Scalar { value, .. } => Some(value),
             _ => None,
         });
-        prop_assert_eq!(loaded, Some(&Value::Core(ryl::yaml_dom::ScalarOwned::String(value))));
+        let expected = if schema.contains("1.1") && properties.contains("!!str") {
+            Value::Spelling(value)
+        } else {
+            Value::Core(ryl::yaml_dom::ScalarOwned::String(value))
+        };
+        prop_assert_eq!(loaded, Some(&expected));
         for pass in format_passes() {
             check_pass(pass, &input).map_err(TestCaseError::fail)?;
         }

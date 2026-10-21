@@ -13,6 +13,13 @@ use granit_parser::ScalarStyle;
 use crate::rules::support::punctuation::byte_line_and_column;
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 
+pub(crate) type SpaceEdit = (BytePos, BytePos, usize);
+
+pub(crate) struct SpaceSite {
+    pub(crate) indicator: Indicator,
+    pub(crate) edit: SpaceEdit,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Indicator {
     Dash,
@@ -80,6 +87,7 @@ pub(crate) struct Sites<'a> {
     previous_min: Option<usize>,
     pending: Option<(usize, usize)>,
     open: Vec<(usize, usize, usize)>,
+    delivered: usize,
 }
 
 impl<'a> Sites<'a> {
@@ -88,16 +96,63 @@ impl<'a> Sites<'a> {
             walk: Walk {
                 buffer: input.text(),
                 line_starts: input.byte_line_starts(),
+                sparse: false,
             },
             found: Vec::new(),
             previous_min: None,
             pending: None,
             open: Vec::new(),
+            delivered: 0,
         }
     }
 
+    pub(crate) fn format(input: Analysis<'a>) -> Self {
+        let mut sites = Self::new(input);
+        sites.walk.sparse = true;
+        sites
+    }
+
     pub(crate) fn finish(self) -> Vec<Site> {
+        crate::format::layout::stats::add(
+            crate::format::layout::stats::Counter::Sites,
+            self.found.len(),
+        );
         self.found
+    }
+
+    pub(crate) fn edits_through(
+        &mut self,
+        line: usize,
+        colons: bool,
+        hyphens: bool,
+    ) -> Vec<SpaceSite> {
+        let stop = self.found.partition_point(|site| site.line <= line);
+        let edits = self.found[self.delivered..stop]
+            .iter()
+            .filter_map(|site| {
+                let enabled = if site.indicator == Indicator::Dash {
+                    hyphens
+                } else {
+                    colons
+                };
+                enabled
+                    .then(|| {
+                        space_site(
+                            self.walk.buffer,
+                            Mode::Format,
+                            site,
+                            i64::from(!site.before),
+                        )
+                    })
+                    .flatten()
+                    .map(|edit| SpaceSite {
+                        indicator: site.indicator,
+                        edit,
+                    })
+            })
+            .collect();
+        self.delivered = stop;
+        edits
     }
 
     pub(crate) fn push(&mut self, span: granit_parser::Span, token: &LexicalKind) {
@@ -174,31 +229,50 @@ pub(crate) fn edits(
     tolerance: impl Fn(&Site) -> Option<i64>,
 ) -> Vec<Edit> {
     let buffer = input.text();
-    input
-        .sites()
+    let sites = if mode == Mode::Format {
+        input.format_sites()
+    } else {
+        input.sites()
+    };
+    sites
         .iter()
-        .filter(|site| site.fix == Fix::Safe)
-        .filter_map(|site| {
-            let target = usize::try_from(tolerance(site)?).ok()?.max(site.min);
-            let ws = &buffer[site.ws.clone()];
-            let edit = match mode {
-                Mode::Lint => site.spaces > target,
-                Mode::Format => ws.len() != target || ws.contains('\t'),
-            };
-            edit.then(|| {
-                (
-                    BytePos::new(site.ws.start),
-                    BytePos::new(site.ws.end),
-                    " ".repeat(target),
-                )
-            })
-        })
+        .filter_map(|site| site_edit(buffer, mode, site, tolerance(site)?))
         .collect()
+}
+
+fn site_edit(buffer: &str, mode: Mode, site: &Site, tolerance: i64) -> Option<Edit> {
+    space_site(buffer, mode, site, tolerance)
+        .map(|(from, to, spaces)| (from, to, " ".repeat(spaces)))
+}
+
+fn space_site(
+    buffer: &str,
+    mode: Mode,
+    site: &Site,
+    tolerance: i64,
+) -> Option<SpaceEdit> {
+    if site.fix != Fix::Safe {
+        return None;
+    }
+    let target = usize::try_from(tolerance).ok()?.max(site.min);
+    let ws = &buffer[site.ws.clone()];
+    let edit = match mode {
+        Mode::Lint => site.spaces > target,
+        Mode::Format => ws.len() != target || ws.contains('\t'),
+    };
+    edit.then(|| {
+        (
+            BytePos::new(site.ws.start),
+            BytePos::new(site.ws.end),
+            target,
+        )
+    })
 }
 
 struct Walk<'a> {
     buffer: &'a str,
     line_starts: &'a [usize],
+    sparse: bool,
 }
 
 impl Walk<'_> {
@@ -213,19 +287,28 @@ impl Walk<'_> {
         idx
     }
 
-    fn site(&self, indicator: Indicator, before: bool, ws: Range<usize>) -> Site {
+    fn site(
+        &self,
+        indicator: Indicator,
+        before: bool,
+        ws: Range<usize>,
+        min: usize,
+    ) -> Option<Site> {
+        if self.sparse && ws.len() == min && !self.buffer[ws.clone()].contains('\t') {
+            return None;
+        }
         let (line, column) =
             byte_line_and_column(self.buffer.as_bytes(), self.line_starts, ws.end);
-        Site {
+        Some(Site {
             indicator,
             before,
             fix: Fix::Safe,
             line,
             column: column.saturating_sub(1).max(1),
             spaces: ws.len(),
-            min: 1,
+            min,
             ws,
-        }
+        })
     }
 
     fn after(&self, indicator: Indicator, at: usize) -> Option<Site> {
@@ -237,7 +320,7 @@ impl Walk<'_> {
         if matches!(next, b'\n' | b'\r' | b'#') {
             return None;
         }
-        let mut site = self.site(indicator, false, at + 1..end);
+        let mut site = self.site(indicator, false, at + 1..end, 1)?;
         if matches!(next, b',' | b']' | b'}') {
             site.fix = Fix::Elsewhere;
         }
@@ -250,8 +333,6 @@ impl Walk<'_> {
         if start == 0 || matches!(self.byte_at(start - 1), b'\n' | b'\r') {
             return None;
         }
-        let mut site = self.site(Indicator::Colon, true, start..at);
-        site.min = min;
-        Some(site)
+        self.site(Indicator::Colon, true, start..at, min)
     }
 }

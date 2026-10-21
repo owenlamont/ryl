@@ -21,15 +21,38 @@ pub struct TextVersion<'text> {
     epoch: Rc<()>,
     parsed: OnceCell<ParsedFacts>,
     headers: OnceCell<Vec<Header>>,
-    byte_line_starts: OnceCell<Vec<usize>>,
-    lines: OnceCell<Vec<(usize, usize, usize)>>,
+    line_table: OnceCell<LineTable>,
     tokens: OnceCell<lexical::Tokens>,
     sites: OnceCell<Vec<token_spacing::Site>>,
     flow_sites: OnceCell<Vec<(usize, u8)>>,
     indentation: OnceCell<crate::rules::indentation::Scanned>,
     directives: OnceCell<crate::directives::Directives>,
-    layout_facts: OnceCell<crate::format::layout::dry::Facts>,
+    layout_facts: OnceCell<crate::format::layout::facts::PlanFacts>,
     scalar_lines: OnceCell<Vec<(usize, usize)>>,
+    content_blanks: OnceCell<std::collections::HashSet<usize>>,
+}
+
+struct LineTable {
+    starts: Vec<usize>,
+    endings: Vec<u8>,
+}
+
+impl LineTable {
+    fn new(text: &str) -> Self {
+        let mut starts = vec![0];
+        let mut endings = Vec::new();
+        for (_, end, next) in line_syntax::scan_lines(text) {
+            starts.push(next);
+            endings.push(
+                u8::try_from(next - end)
+                    .expect("a YAML line ending is at most two bytes"),
+            );
+        }
+        if endings.last() == Some(&0) {
+            starts.pop();
+        }
+        Self { starts, endings }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -51,8 +74,7 @@ impl<'text> TextVersion<'text> {
             epoch: Rc::new(()),
             parsed: OnceCell::new(),
             headers: OnceCell::new(),
-            byte_line_starts: OnceCell::new(),
-            lines: OnceCell::new(),
+            line_table: OnceCell::new(),
             tokens: OnceCell::new(),
             sites: OnceCell::new(),
             flow_sites: OnceCell::new(),
@@ -60,6 +82,7 @@ impl<'text> TextVersion<'text> {
             directives: OnceCell::new(),
             layout_facts: OnceCell::new(),
             scalar_lines: OnceCell::new(),
+            content_blanks: OnceCell::new(),
         }
     }
 
@@ -87,8 +110,7 @@ impl<'text> TextVersion<'text> {
             epoch: self.epoch,
             parsed: self.parsed,
             headers: self.headers,
-            byte_line_starts: self.byte_line_starts,
-            lines: self.lines,
+            line_table: self.line_table,
             tokens: self.tokens,
             sites: self.sites,
             flow_sites: self.flow_sites,
@@ -96,6 +118,7 @@ impl<'text> TextVersion<'text> {
             directives: self.directives,
             layout_facts: self.layout_facts,
             scalar_lines: self.scalar_lines,
+            content_blanks: self.content_blanks,
         }
     }
 
@@ -117,8 +140,7 @@ impl<'text> TextVersion<'text> {
 
     pub(crate) fn release_layout(&mut self) {
         self.headers.take();
-        self.byte_line_starts.take();
-        self.lines.take();
+        self.line_table.take();
         self.tokens.take();
         self.sites.take();
         self.flow_sites.take();
@@ -126,6 +148,7 @@ impl<'text> TextVersion<'text> {
         self.directives.take();
         self.layout_facts.take();
         self.scalar_lines.take();
+        self.content_blanks.take();
     }
 
     pub(crate) fn inherit_event_capacity(&mut self, previous: Analysis<'_>) {
@@ -142,6 +165,10 @@ impl Deref for TextVersion<'_> {
 }
 
 impl<'text> Analysis<'text> {
+    pub(crate) fn epoch(self) -> Rc<()> {
+        Rc::clone(&self.source.epoch)
+    }
+
     pub(crate) fn strict_valid(self) -> bool {
         self.source.strict_valid
     }
@@ -232,6 +259,23 @@ impl<'text> Analysis<'text> {
         output: Analysis<'_>,
         expected: impl Iterator<Item = Event<'text>>,
     ) -> Result<bool, ScanError> {
+        self.verify_events(output, expected, false)
+    }
+
+    pub(crate) fn verify_format_events(
+        self,
+        output: Analysis<'_>,
+        expected: impl Iterator<Item = Event<'text>>,
+    ) -> Result<bool, ScanError> {
+        self.verify_events(output, expected, true)
+    }
+
+    fn verify_events(
+        self,
+        output: Analysis<'_>,
+        expected: impl Iterator<Item = Event<'text>>,
+        semantic: bool,
+    ) -> Result<bool, ScanError> {
         crate::format::layout::stats::count(
             crate::format::layout::stats::Counter::Analysis,
         );
@@ -246,13 +290,32 @@ impl<'text> Analysis<'text> {
             ..ParsedFacts::default()
         };
         let mut depth = 0;
+        let mut original = self.event_iter().map(|(event, _)| event).filter(|event| {
+            !matches!(
+                event,
+                Event::Comment(..) | Event::StreamStart | Event::StreamEnd
+            )
+        });
+        let mut comparison = crate::fix::EventComparison::default();
+        let mut semantic_matches =
+            !semantic || !crate::fix::non_ascii_marker(output.text());
         let matches = events::verify_strict(expected, output.text(), |event, span| {
+            if semantic
+                && !matches!(
+                    event,
+                    Event::Comment(..) | Event::StreamStart | Event::StreamEnd
+                )
+            {
+                semantic_matches &= original
+                    .next()
+                    .is_some_and(|before| comparison.matches(&before, &event));
+            }
             facts.push(output.text(), event, span, &mut depth);
         })?;
         facts.valid = true;
         facts.compact();
         output.seed_facts(facts);
-        Ok(matches)
+        Ok(matches && semantic_matches && (!semantic || original.next().is_none()))
     }
 
     pub(crate) fn significant_events_match(self, other: Analysis<'_>) -> bool {
@@ -294,24 +357,67 @@ impl<'text> Analysis<'text> {
     }
 
     pub(crate) fn byte_line_starts(self) -> &'text [usize] {
-        self.source
-            .byte_line_starts
-            .get_or_init(|| punctuation::build_byte_line_starts(self.text()))
+        &self.line_table().starts
     }
 
-    fn line_ranges(self) -> &'text [(usize, usize, usize)] {
-        self.source
-            .lines
-            .get_or_init(|| line_syntax::scan_lines(self.text()).collect())
+    fn line_table(self) -> &'text LineTable {
+        self.source.line_table.get_or_init(|| {
+            crate::format::layout::stats::count(
+                crate::format::layout::stats::Counter::Lines,
+            );
+            LineTable::new(self.text())
+        })
     }
 
     pub(crate) fn lines(self) -> impl Iterator<Item = (usize, &'text str, &'text str)> {
-        self.line_ranges()
-            .iter()
-            .enumerate()
-            .map(move |(line, &(start, end, next))| {
-                (line, &self.text()[start..end], &self.text()[end..next])
-            })
+        self.lines_from(0)
+    }
+
+    pub(crate) fn lines_from(
+        self,
+        first: usize,
+    ) -> impl Iterator<Item = (usize, &'text str, &'text str)> {
+        (first..self.line_count()).map(move |line| {
+            let (start, end, next) = self.line_range(line);
+            (line, &self.text()[start..end], &self.text()[end..next])
+        })
+    }
+
+    pub(crate) fn line_count(self) -> usize {
+        self.line_table().endings.len()
+    }
+
+    fn line_range(self, line: usize) -> (usize, usize, usize) {
+        let table = self.line_table();
+        let starts = &table.starts;
+        let start = starts[line];
+        let next = starts.get(line + 1).copied().unwrap_or(self.text().len());
+        let end = next - usize::from(table.endings.get(line).copied().unwrap_or(0));
+        (start, end, next)
+    }
+
+    pub(crate) fn line_content(self, line: usize) -> &'text str {
+        let (start, end, _) = self.line_range(line);
+        &self.text()[start..end]
+    }
+
+    pub(crate) fn get_line(self, line: usize) -> Option<&'text str> {
+        (line < self.line_count()).then(|| self.line_content(line))
+    }
+
+    pub(crate) fn line_contents_from(
+        self,
+        first: usize,
+    ) -> impl DoubleEndedIterator<Item = &'text str> + ExactSizeIterator + Clone {
+        self.line_contents_range(first..self.line_count())
+    }
+
+    pub(crate) fn line_contents_range(
+        self,
+        range: std::ops::Range<usize>,
+    ) -> impl DoubleEndedIterator<Item = &'text str> + ExactSizeIterator + Clone {
+        // Skipping mapped lines still decodes them, so bound the range before mapping.
+        range.map(move |line| self.line_content(line))
     }
 
     pub(crate) fn line_contents(self) -> Vec<&'text str> {
@@ -319,12 +425,15 @@ impl<'text> Analysis<'text> {
     }
 
     pub(crate) fn line_is_empty(self, line: usize) -> bool {
-        let (start, end, _) = self.line_ranges()[line];
+        let (start, end, _) = self.line_range(line);
         start == end
     }
 
     pub(crate) fn tokens(self) -> &'text lexical::Tokens {
         self.source.tokens.get_or_init(|| {
+            crate::format::layout::stats::count(
+                crate::format::layout::stats::Counter::Tape,
+            );
             crate::format::layout::stats::count(
                 crate::format::layout::stats::Counter::Scan,
             );
@@ -345,12 +454,14 @@ impl<'text> Analysis<'text> {
     }
 
     pub(crate) fn sites(self) -> &'text [token_spacing::Site] {
-        if let Some(facts) = self.layout_facts() {
-            return &facts.sites;
-        }
         self.source
             .sites
             .get_or_init(|| token_spacing::sites_with_analysis(self))
+    }
+
+    pub(crate) fn format_sites(self) -> &'text [token_spacing::Site] {
+        self.layout_facts()
+            .map_or_else(|| self.sites(), |facts| &facts.sites)
     }
 
     pub(crate) fn flow_sites(self) -> &'text [(usize, u8)] {
@@ -365,11 +476,14 @@ impl<'text> Analysis<'text> {
 
     pub(crate) fn layout_facts(
         self,
-    ) -> Option<&'text crate::format::layout::dry::Facts> {
+    ) -> Option<&'text crate::format::layout::facts::PlanFacts> {
         self.source.layout_facts.get()
     }
 
-    pub(crate) fn seed_layout_facts(self, facts: crate::format::layout::dry::Facts) {
+    pub(crate) fn seed_layout_facts(
+        self,
+        facts: crate::format::layout::facts::PlanFacts,
+    ) {
         self.source.layout_facts.get_or_init(|| facts);
     }
 
@@ -377,6 +491,12 @@ impl<'text> Analysis<'text> {
         self.source
             .scalar_lines
             .get_or_init(|| line_syntax::scalar_line_ranges(self))
+    }
+
+    pub(crate) fn content_blank_lines(self) -> &'text std::collections::HashSet<usize> {
+        self.source.content_blanks.get_or_init(|| {
+            crate::rules::trailing_spaces::content_blank_lines_with_analysis(self)
+        })
     }
 }
 

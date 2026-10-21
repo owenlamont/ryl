@@ -53,9 +53,59 @@ fn multiline_quotes_share_layout_and_a_dry_plan() {
         ("strict_parses", 2),
         ("verification_parses", 1),
         ("rollback", 0),
+        ("cached_lexical_tapes", 0),
+        ("line_table_builds", 2),
+        ("token_normalizations", 2),
     ] {
         assert_eq!(statistics[name], count, "{name}: {statistics}");
     }
+}
+
+#[test]
+fn projected_unicode_endpoints_survive_nested_gaps_and_scalar_collapse() {
+    let input =
+        "🦀: { é : [ '世',x ] }\r\nnext: ['first\r\n  last', café, { tail : z }]\r\n";
+    let (output, statistics) = format_with_statistics(input, "[format]\n");
+    assert_eq!(
+        output,
+        "🦀: {é: [世, x]}\nnext: [first last, café, {tail: z}]\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["line_table_builds"], 2, "{statistics}");
+    assert!(statistics["projected_coordinate_queries"].as_u64().unwrap() > 0);
+    assert_eq!(format_with_statistics(&output, "[format]\n").0, output);
+}
+
+#[test]
+fn a_comment_ending_in_a_dash_cannot_join_the_mapping_below() {
+    let (output, statistics) =
+        format_with_statistics("- # -\n        key: value\n", "[format]\n");
+    assert_eq!(output, "-  # -\n  key: value\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn a_directive_keyword_inside_a_scalar_does_not_cache_tokens() {
+    let (output, statistics) =
+        format_with_statistics("word: 'ryl message'\n", "[format]\n");
+    assert_eq!(output, "word: ryl message\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["cached_lexical_tapes"], 0, "{statistics}");
+}
+
+#[test]
+fn a_dash_at_the_end_of_a_key_does_not_own_the_colon_gap() {
+    let (status, _, diagnostics, _) = common::cli::ryl_on(
+        Some("[format]\n"),
+        "café- : x\n",
+        &["format", "--check", "--output-format", "parsable"],
+    );
+    assert_eq!(status, 1);
+    assert!(
+        diagnostics.contains(":1:6: [error] too many spaces before colon (colons)"),
+        "{diagnostics}"
+    );
+    assert!(!diagnostics.contains("(hyphens)"), "{diagnostics}");
 }
 
 #[test]
@@ -298,6 +348,72 @@ fn skip_finishing_matches_ordered_formatter() {
         ],
     );
     assert_eq!(output, "a: b  \n\n\n");
+}
+
+#[test]
+fn skipped_flow_spacing_keeps_the_original_gaps_and_comments() {
+    let input = "items: { a: [ b,c ] } #note\n";
+    assert_eq!(
+        format_with_skipped_rules(
+            input,
+            "[format]\n",
+            &["braces", "brackets", "commas", "comments"],
+        ),
+        input
+    );
+}
+
+#[test]
+fn template_text_keeps_the_legacy_bracket_walk() {
+    let input = "items: [ a,b ]\nvalue: '{{ x }}'\n";
+    let config = "[format]\nquote-style='preserve'\n";
+    assert_eq!(
+        format_with_skipped_rules(input, config, &[]),
+        "items: [a, b]\nvalue: '{{ x }}'\n"
+    );
+    assert_eq!(
+        format_with_skipped_rules(input, config, &["brackets"]),
+        "items: [ a, b ]\nvalue: '{{ x }}'\n"
+    );
+}
+
+#[test]
+fn bom_quote_collapses_keep_the_byte_derived_tail_adapter() {
+    let output = format_with_skipped_rules(
+        "\u{feff}key: ['first\n  second', 'third\n  fourth'] #note\n",
+        "[format]\n",
+        &[],
+    );
+    assert_eq!(
+        output,
+        "\u{feff}key: [first second, third fourth]  # note\n"
+    );
+}
+
+#[test]
+fn bom_flow_key_overlap_restarts_the_ordered_driver() {
+    let output = format_with_skipped_rules(
+        "\u{feff}{\"foo\"\n: bar}\n",
+        "[format]\nbrace-spacing=true\n",
+        &[],
+    );
+    assert_eq!(output, "\u{feff}{ foo\n  : bar }\n");
+}
+
+#[test]
+fn bom_unsettled_root_quote_restarts_the_ordered_driver() {
+    let output = format_with_skipped_rules("\u{feff}---\n\"foo\"\n", "[format]\n", &[]);
+    assert_eq!(output, "\u{feff}---\nfoo\n");
+}
+
+#[test]
+fn bom_root_scalar_fold_restarts_the_ordered_driver() {
+    let output = format_with_skipped_rules(
+        "\u{feff}--- \"a\n...x\nb\"\n",
+        "[format]\nfold-long-lines=true\n",
+        &[],
+    );
+    assert_eq!(output, "\u{feff}--- a ...x b\n");
 }
 
 #[test]

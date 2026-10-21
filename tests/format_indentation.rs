@@ -176,8 +176,8 @@ fn long_comment_runs_reindent_in_linear_time() {
         assert_eq!(output.text, input);
         start.elapsed()
     };
-    let small = measure(4_000);
-    let large = measure(16_000);
+    let small = (0..3).map(|_| measure(4_000)).min().unwrap();
+    let large = (0..3).map(|_| measure(16_000)).min().unwrap();
     assert!(
         large <= small * 5 + std::time::Duration::from_millis(50),
         "comment-run scaling: 4,000 lines took {small:?}, 16,000 took {large:?}"

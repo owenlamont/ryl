@@ -115,41 +115,36 @@ pub(crate) fn ambiguous_blank_body_line(buffer: &str) -> Option<usize> {
 pub(crate) fn ambiguous_blank_body_line_with_analysis(
     input: Analysis<'_>,
 ) -> Option<usize> {
-    let lines = input.line_contents();
     input.headers().iter().find_map(|header| {
-        let indent = lines[header.line - 1]
+        let indent = input
+            .line_content(header.line - 1)
             .bytes()
             .take_while(|ch| *ch == b' ')
             .count();
-        let body: Vec<_> = lines
-            .iter()
-            .skip(header.line)
-            .take_while(|line| {
-                line.trim().is_empty()
-                    || line.bytes().take_while(|ch| *ch == b' ').count() > indent
-            })
-            .collect();
-        let blank_body: Vec<_> = lines
-            .iter()
-            .skip(header.line)
-            .take_while(|line| line.trim().is_empty())
-            .collect();
-        let prefix: String = lines[header.line - 1]
-            .chars()
-            .take(header.column - 1)
-            .collect();
+        let body = input.line_contents_from(header.line).take_while(|line| {
+            line.trim().is_empty()
+                || line.bytes().take_while(|ch| *ch == b' ').count() > indent
+        });
+        let blank_body = input
+            .line_contents_from(header.line)
+            .take_while(|line| line.trim().is_empty());
+        let header_text = input.line_content(header.line - 1);
+        let end = header_text
+            .char_indices()
+            .nth(header.column - 1)
+            .map_or(header_text.len(), |(at, _)| at);
+        let prefix = &header_text[..end];
         if prefix
             .find(':')
             .zip(prefix.rfind("- "))
             .is_some_and(|(colon, dash)| colon < dash)
-            && blank_body.iter().any(|line| !line.is_empty())
+            && blank_body.clone().any(|line| !line.is_empty())
         {
             return Some(header.line);
         }
-        if blank_body.iter().any(|line| !line.is_empty())
-            && lines
-                .iter()
-                .skip(header.line + blank_body.len())
+        if blank_body.clone().any(|line| !line.is_empty())
+            && input
+                .line_contents_from(header.line + blank_body.count())
                 .find(|line| !line.trim().is_empty())
                 .is_some_and(|line| {
                     let text = line.trim_start();
@@ -159,8 +154,8 @@ pub(crate) fn ambiguous_blank_body_line_with_analysis(
             return Some(header.line);
         }
         if header.chomping == Some('+')
-            && body.iter().any(|line| line.trim().is_empty())
-            && body.iter().any(|line| line.trim_start().starts_with('#'))
+            && body.clone().any(|line| line.trim().is_empty())
+            && body.clone().any(|line| line.trim_start().starts_with('#'))
         {
             return Some(header.line);
         }
@@ -168,12 +163,12 @@ pub(crate) fn ambiguous_blank_body_line_with_analysis(
             return None;
         }
         let movable_dash = prefix.split_whitespace().any(|token| token == "-")
-            || lines[..header.line - 1]
-                .iter()
+            || input
+                .line_contents_range(0..header.line - 1)
                 .rev()
                 .find(|line| !line.trim().is_empty())
                 .is_some_and(|line| line.trim_end().ends_with('-'));
-        let mut following = lines.iter().skip(header.line).peekable();
+        let mut following = input.line_contents_from(header.line).peekable();
         if !following.peek().is_some_and(|line| line.trim().is_empty()) {
             return None;
         }

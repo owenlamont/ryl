@@ -122,12 +122,16 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: &Config) -> Option<Str
 }
 
 pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
-    let mut replacements: Vec<(BytePos, BytePos, String)> = Vec::new();
+    let mut replacements: Vec<crate::rules::support::token_spacing::SpaceEdit> =
+        Vec::new();
     scan_commas(input, |bytes, i| {
         collect_comma_fixes(cfg, bytes, i, &mut replacements);
     });
 
     replacements
+        .into_iter()
+        .map(|(from, to, spaces)| (from, to, " ".repeat(spaces)))
+        .collect()
 }
 
 fn scan_commas(input: Analysis<'_>, mut visit: impl FnMut(&[u8], usize)) {
@@ -275,11 +279,11 @@ pub fn coverage_overlapping_replacements() -> String {
     )
 }
 
-fn collect_comma_fixes(
+pub(crate) fn collect_comma_fixes(
     cfg: &Config,
     bytes: &[u8],
     comma_idx: usize,
-    replacements: &mut Vec<(BytePos, BytePos, String)>,
+    replacements: &mut Vec<crate::rules::support::token_spacing::SpaceEdit>,
 ) {
     if let BeforeResult::SameLine { spaces, start_idx } =
         compute_spaces_before(bytes, comma_idx)
@@ -290,7 +294,7 @@ fn collect_comma_fixes(
             replacements.push((
                 BytePos::new(start_idx),
                 BytePos::new(comma_idx),
-                " ".repeat(target),
+                target,
             ));
         }
     }
@@ -303,7 +307,7 @@ fn collect_comma_fixes(
         replacements.push((
             BytePos::new(comma_idx + 1),
             BytePos::new(next_char),
-            " ".repeat(target),
+            target,
         ));
     }
 }

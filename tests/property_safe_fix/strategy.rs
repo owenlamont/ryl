@@ -25,16 +25,17 @@ fn arb_plain_value() -> impl Strategy<Value = String> {
 
 pub fn arb_quoted_payload() -> impl Strategy<Value = String> {
     prop_oneof![
-    1 => prop::sample::select(vec!["---", "...", "--- x", "... # c", "first ---\u{feff}x"]).prop_map(str::to_owned),
-    4 => prop::collection::vec(
+    8 => prop::sample::select(vec!["---", "...", "--- x", "... # c", "first ---\u{feff}x"]).prop_map(str::to_owned),
+    31 => prop::collection::vec(
         prop_oneof![
             4 => prop::sample::select(QUOTED_INDICATORS.chars().collect::<Vec<_>>()),
-            1 => prop::sample::select(vec!['b', '1']),
+            1 => prop::sample::select(vec!['b', '1', '\\', '\u{feff}', '\u{a0}']),
             1 => arb_multibyte_char(),
         ],
         0usize..=8,
     )
-    .prop_map(|chars| chars.into_iter().collect())
+    .prop_map(|chars| chars.into_iter().collect()),
+    1 => "[a-z _:,.é世🦀]{128,512}",
     ]
 }
 
@@ -183,8 +184,8 @@ fn arb_seq_item(depth: u32) -> impl Strategy<Value = SeqItem> {
 }
 
 fn arb_node() -> impl Strategy<Value = Node> {
-    let leaf = arb_scalar().prop_map(Node::Scalar);
-    leaf.prop_recursive(2, 16, 4, |inner| {
+    let leaf = arb_scalar().prop_map(Node::Scalar).boxed();
+    let branch = |inner: BoxedStrategy<Node>| {
         prop_oneof![
             (
                 prop::collection::vec(inner.clone(), 0..=4),
@@ -197,7 +198,12 @@ fn arb_node() -> impl Strategy<Value = Node> {
             )
                 .prop_map(|(pairs, style)| Node::FlowMap(pairs, style)),
         ]
-    })
+        .boxed()
+    };
+    prop_oneof![
+        15 => leaf.clone().prop_recursive(2, 16, 4, branch),
+        1 => leaf.prop_recursive(8, 128, 4, branch),
+    ]
 }
 
 /// A block entry's value: scalars and multi-line forms, plus nested block collections
@@ -255,7 +261,7 @@ fn arb_block_scalar_spec() -> BoxedStrategy<BlockScalarSpec> {
         prop::collection::vec(arb_block_body_line(), 0..=3),
         prop::option::weighted(0.2, 0u8..=1),
         prop::option::weighted(0.1, 0i8..=3),
-        0usize..=3,
+        prop_oneof![15 => 0usize..=3, 1 => 32usize..=128],
         0u8..=3,
     )
         .prop_map(

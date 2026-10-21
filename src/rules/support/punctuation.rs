@@ -131,24 +131,6 @@ pub(crate) fn build_line_starts(chars: &[(usize, char)]) -> Vec<CharPos> {
     starts
 }
 
-pub(crate) fn build_byte_line_starts(text: &str) -> Vec<usize> {
-    let bytes = text.as_bytes();
-    let mut starts = vec![0];
-    let mut idx = 0;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'\r' => {
-                idx += usize::from(bytes.get(idx + 1) == Some(&b'\n'));
-                starts.push(idx + 1);
-            }
-            b'\n' => starts.push(idx + 1),
-            _ => {}
-        }
-        idx += 1;
-    }
-    starts
-}
-
 pub(crate) fn byte_line_and_column(
     text: &[u8],
     starts: &[usize],
