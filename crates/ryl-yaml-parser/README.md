@@ -326,12 +326,11 @@ uses `\n`/`\r` only line-breaking that as expected in YAML 1.2.
 
 ## Testing
 
-Run the tests from a repository checkout with the official YAML suite initialized:
+Run the tests from the ryl repository root with the official YAML suite initialized:
 
 ```sh
-git submodule update --init tests/yaml-test-suite
-cargo test
-cargo test --test yaml-test-suite -- ::strict
+git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite
+cargo nextest run -p ryl-yaml-parser --all-features
 ```
 
 Strict mode runs every active upstream case without case-specific overrides. The

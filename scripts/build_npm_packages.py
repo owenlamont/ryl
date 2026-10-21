@@ -15,28 +15,20 @@ ROOT = Path(__file__).resolve().parent.parent
 PLATFORMS_PATH = ROOT / "npm-platforms.json"
 PACKAGE_JSON_PATH = ROOT / "package.json"
 README_PATH = ROOT / "README.md"
+_PARSER_DIR: Final = ROOT / "crates" / "ryl-yaml-parser"
 # The binary embeds ryl-yaml-parser, whose license requires its inherited notices too.
-PARSER_NOTICES: Final = (
-    "LICENSE",
-    *(
-        f".licenses/{name}"
-        for name in (
-            "ChenYuheng-Apache",
-            "ChenYuheng-MIT",
-            "Ethiraric-Apache",
-            "Ethiraric-MIT",
-        )
-    ),
-)
-LICENSE_FILES: Final = (
+_LICENSE_FILES: Final = (
     (ROOT / "LICENSE", "LICENSE"),
     (ROOT / "LICENSE-APACHE", "LICENSE-APACHE"),
     *(
-        (ROOT / "crates" / "ryl-yaml-parser" / name, f"ryl-yaml-parser/{name}")
-        for name in PARSER_NOTICES
+        (path, f"ryl-yaml-parser/{path.relative_to(_PARSER_DIR).as_posix()}")
+        for path in (
+            _PARSER_DIR / "LICENSE",
+            *sorted((_PARSER_DIR / ".licenses").iterdir()),
+        )
     ),
 )
-LICENSE_PACKAGE_PATHS: Final = ("LICENSE", "LICENSE-APACHE", "ryl-yaml-parser/")
+_LICENSE_PACKAGE_PATHS: Final = ("LICENSE", "LICENSE-APACHE", "ryl-yaml-parser/")
 LAUNCHER_PATH = ROOT / "bin" / "ryl.js"
 
 
@@ -78,7 +70,7 @@ def copy_text_asset(src: Path, dst: Path) -> None:
 def copy_license_files(package_dir: Path) -> None:
     """Copy ryl's and ryl-yaml-parser's license notices into a package directory."""
 
-    for src, dst in LICENSE_FILES:
+    for src, dst in _LICENSE_FILES:
         copy_text_asset(src, package_dir / dst)
 
 
@@ -208,7 +200,7 @@ def build_platform_packages(
             "bugs": package_data["bugs"],
             "repository": package_data["repository"],
             "type": "commonjs",
-            "files": ["bin/", "README.md", *LICENSE_PACKAGE_PATHS],
+            "files": ["bin/", "README.md", *_LICENSE_PACKAGE_PATHS],
             "os": platform["os"],
             "cpu": platform["cpu"],
             "publishConfig": {"access": "public"},

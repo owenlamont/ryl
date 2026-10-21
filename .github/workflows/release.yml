@@ -566,18 +566,34 @@ jobs:
           pending=""
           # Dependency order: ryl depends on ryl-yaml-parser.
           for manifest in crates/ryl-yaml-parser/Cargo.toml Cargo.toml; do
-            read -r name version < <(python - "${manifest}" <<'PY'
+            meta="$(python - "${manifest}" <<'PY'
           import sys
           import tomllib
           with open(sys.argv[1], "rb") as f:
               package = tomllib.load(f)["package"]
           print(package["name"], package["version"])
           PY
-            )
+            )"
+            read -r name version <<< "${meta}"
             url="https://crates.io/api/v1/crates/${name}/${version}"
             http_status="$(curl -sS -A "${HTTP_USER_AGENT}" -o /dev/null -w "%{http_code}" "${url}")"
             case "${http_status}" in
-              200) echo "Crate ${name} ${version} already published; skipping." ;;
+              200)
+                # An unbumped parser change would otherwise publish a ryl built against stale code.
+                cargo package -p "${name}" --no-verify --quiet
+                published="$(mktemp -d)"
+                packaged="$(mktemp -d)"
+                curl -sSfL -A "${HTTP_USER_AGENT}" \
+                  "https://static.crates.io/crates/${name}/${name}-${version}.crate" \
+                  | tar xz -C "${published}"
+                tar xzf "target/package/${name}-${version}.crate" -C "${packaged}"
+                if ! diff -r --exclude=.cargo_vcs_info.json --exclude=Cargo.toml \
+                  "${published}" "${packaged}"; then
+                  echo "${name} ${version} is on crates.io with different contents; bump its version." >&2
+                  exit 1
+                fi
+                echo "Crate ${name} ${version} already published unchanged; skipping."
+                ;;
               404) pending="${pending} ${name}" ;;
               *)
                 echo "Unexpected crates.io response (${http_status}) for ${name} ${version}." >&2
