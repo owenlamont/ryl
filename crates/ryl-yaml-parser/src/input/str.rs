@@ -401,14 +401,20 @@ impl Input for StrInput<'_> {
     }
 
     fn skip_while_non_breakz(&mut self) -> usize {
-        let mut byte_pos = 0;
-        let mut chars_consumed = 0;
+        let ascii_bytes = self
+            .buffer
+            .as_bytes()
+            .iter()
+            .take_while(|&&byte| matches!(byte, b'\t' | b' '..=b'~'))
+            .count();
+        let mut byte_pos = ascii_bytes;
+        let mut chars_consumed = ascii_bytes;
 
-        for (i, c) in self.buffer.char_indices() {
+        for (i, c) in self.buffer[ascii_bytes..].char_indices() {
             if is_breakz(c) || !crate::char_traits::is_printable(c) {
                 break;
             }
-            byte_pos = i + c.len_utf8();
+            byte_pos = ascii_bytes + i + c.len_utf8();
             chars_consumed += 1;
         }
 
