@@ -19,10 +19,10 @@
 //! # Usage
 //!
 //! ```rust
-//! # fn main() -> Result<(), granit_parser::ScanError> {
+//! # fn main() -> Result<(), ryl_yaml_parser::ScanError> {
 //! # #[cfg(feature = "comments")]
 //! # {
-//! use granit_parser::{Event, Parser, Placement};
+//! use ryl_yaml_parser::{Event, Parser, Placement};
 //!
 //! let yaml = r#"# header
 //! items: # inline
@@ -154,25 +154,25 @@ mod readme_doctests {}
 // Verify the feature-disabled public API without adding these checks to rendered documentation.
 #[cfg(all(doctest, not(feature = "comments")))]
 /// ```compile_fail
-/// use granit_parser::Comment;
+/// use ryl_yaml_parser::Comment;
 /// ```
 /// ```compile_fail
-/// use granit_parser::Placement;
+/// use ryl_yaml_parser::Placement;
 /// ```
 /// ```compile_fail
-/// let _ = granit_parser::Event::Comment;
+/// let _ = ryl_yaml_parser::Event::Comment;
 /// ```
 /// ```compile_fail
-/// let _ = granit_parser::TokenType::Comment;
+/// let _ = ryl_yaml_parser::TokenType::Comment;
 /// ```
 /// ```compile_fail
-/// let _ = granit_parser::Options::default().max_buffered_comment_events;
+/// let _ = ryl_yaml_parser::Options::default().max_buffered_comment_events;
 /// ```
 /// ```compile_fail
-/// let _ = granit_parser::ErrorKind::TooManyComments;
+/// let _ = ryl_yaml_parser::ErrorKind::TooManyComments;
 /// ```
 /// ```compile_fail
-/// use granit_parser::{Input, StrInput};
+/// use ryl_yaml_parser::{Input, StrInput};
 /// let _ = <StrInput<'_> as Input>::may_contain_comments(&StrInput::new(""));
 /// ```
 mod comments_disabled_doctests {}

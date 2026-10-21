@@ -93,7 +93,7 @@ fn flags_explicitly_tagged_merge_key_regardless_of_text() {
 fn flags_verbatim_merge_tag() {
     // A verbatim-spelled core merge tag merges identically (verified in PyYAML and
     // ruamel) but resolves to an empty handle, so it is matched by the tag's full
-    // URI rather than granit's handle-only `is_yaml_core_schema`.
+    // URI rather than the parser's handle-only `is_yaml_core_schema`.
     let (code, output) = lint_with_toml_config(
         "base: &b {x: 1}\n!<tag:yaml.org,2002:merge> foo: *b\n",
         ENABLE,

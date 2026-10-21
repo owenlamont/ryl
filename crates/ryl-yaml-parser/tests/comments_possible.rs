@@ -1,4 +1,4 @@
-use granit_parser::{
+use ryl_yaml_parser::{
     input::{SkipTabs, WhitespaceResult},
     BorrowedInput, ErrorKind, Event, Input, Parser, ScanError, Scanner, Span, StrInput, Token,
 };

@@ -644,7 +644,7 @@ pub struct Parser<'input, T: BorrowedInput<'input>> {
 ///
 /// # Example
 /// ```
-/// # use granit_parser::{Event, EventReceiver, Parser};
+/// # use ryl_yaml_parser::{Event, EventReceiver, Parser};
 /// #
 /// /// Sink of events. Collects them into an array.
 /// struct EventSink<'input> {
@@ -1413,8 +1413,8 @@ impl<'input, T: BorrowedInput<'input>> Parser<'input, T> {
     ///
     /// # Example
     /// ```
-    /// # use granit_parser::{Event, EventReceiver, Parser};
-    /// # fn main() -> Result<(), granit_parser::ScanError> {
+    /// # use ryl_yaml_parser::{Event, EventReceiver, Parser};
+    /// # fn main() -> Result<(), ryl_yaml_parser::ScanError> {
     /// struct EventSink<'input> {
     ///     events: Vec<Event<'input>>,
     /// }
@@ -1461,7 +1461,7 @@ impl<'input, T: BorrowedInput<'input>> Parser<'input, T> {
     ///
     /// # Example
     /// ```
-    /// # use granit_parser::{Event, Parser, TryEventReceiver, TryLoadError};
+    /// # use ryl_yaml_parser::{Event, Parser, TryEventReceiver, TryLoadError};
     /// #[derive(Debug, PartialEq, Eq)]
     /// enum ValidationError {
     ///     ForbiddenScalar,

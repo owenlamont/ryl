@@ -1,4 +1,4 @@
-use granit_parser::{
+use ryl_yaml_parser::{
     BorrowedInput, ErrorKind, Event, EventReceiver, FallibleBufferedInput, Input, InputIoError,
     Marker, Parser, ScanError, Scanner,
 };
@@ -54,7 +54,7 @@ fn source_error_after_trailing_whitespace_preserves_physical_position() {
         ("[\r\n  ", 2, 2),
     ] {
         for emit_comments in [false, true] {
-            let options = granit_parser::options! { emit_comments: emit_comments };
+            let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
             let context = format!("{source:?}, emit_comments={emit_comments}");
             let input = || {
                 source
@@ -97,7 +97,7 @@ fn source_errors_during_empty_nodes_and_properties_keep_valid_source_positions()
                 message: "incomplete UTF-8 character".to_owned(),
             };
             for emit_comments in [false, true] {
-                let options = granit_parser::options! { emit_comments: emit_comments };
+                let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
                 let context = format!("{source:?}, comments={emit_comments}");
                 let input = || {
                     source

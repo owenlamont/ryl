@@ -27,7 +27,7 @@
     "valid-values-license": [
       "error",
       [
-        "MIT"
+        "MIT OR Apache-2.0"
       ]
     ],
     "version-type": "error"

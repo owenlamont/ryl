@@ -58,7 +58,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "granit-parser-fuzz"
+name = "ryl-yaml-parser-fuzz"
 version = "0.0.0"
 dependencies = [
  "granit-parser",

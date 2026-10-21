@@ -7,6 +7,8 @@ ryl lints and formats YAML files
 ## Project Structure
 
 - **/src/** – All application code lives here.
+- **/crates/ryl-yaml-parser/** – ryl's YAML parser, a fork of granit-parser 2.0.0; it
+  must never depend on ryl.
 - **/src/lsp/** – the `ryl server` language server, behind the default-on `lsp` cargo
   feature; a thin protocol adapter over the engine.
 - **/tests/** – Unit and integration tests.
@@ -70,13 +72,13 @@ ryl lints and formats YAML files
   resolution (does `011` resolve to int 11, an empty scalar to null?) use a resolving
   loader (`ruamel.yaml` 1.2 mode or PyYAML), since ryl targets the YAML 1.2 **core**
   schema.
-- When parsers disagree (e.g. granit vs PyYAML vs `ruamel.yaml`) and a rule's or the
-  formatter's behaviour turns on it, **decide against the YAML 1.2.2 spec grammar and
-  the play.yaml.com reference parser.** PyYAML and ruamel are non-conformant and never
-  outvote it, even split 2–2; eemeli's `yaml` (near-conformant) is the implementation to
-  cross-check. Follow the reference parser even when every implementation disagrees.
-  Quote the spec production and event stream, and record any divergence (example +
-  rationale) in the "How ryl differs from yamllint" catalog in
+- When parsers disagree (e.g. ryl-yaml-parser vs PyYAML vs `ruamel.yaml`) and a rule's
+  or the formatter's behaviour turns on it, **decide against the YAML 1.2.2 spec grammar
+  and the play.yaml.com reference parser.** PyYAML and ruamel are non-conformant and
+  never outvote it, even split 2–2; eemeli's `yaml` (near-conformant) is the
+  implementation to cross-check. Follow the reference parser even when every
+  implementation disagrees. Quote the spec production and event stream, and record any
+  divergence (example + rationale) in the "How ryl differs from yamllint" catalog in
   `docs/getting-started/migrating-from-yamllint.md`.
 - Keep YAML configuration aligned with what yamllint currently supports; put any
   ryl-only settings, experimental options, or ahead-of-upstream behaviour in TOML so
@@ -92,7 +94,7 @@ needed. Each has a `SKILL.md`; `coverage` also has a `uv`-runnable helper.
 
 Working on the codebase:
 
-- `.agents/skills/adding-a-rule/SKILL.md` — the multi-site rule checklist and the granit
+- `.agents/skills/adding-a-rule/SKILL.md` — the multi-site rule checklist and the parser
   event/span gotchas.
 - `.agents/skills/lint-pipeline/SKILL.md` — inputs, source kinds, stdin, directives,
   Markdown embedding, `--fix`/`--diff`.

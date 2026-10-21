@@ -161,7 +161,7 @@ fn fix_never_mutates_unparsable_yaml() {
 #[test]
 fn fix_skips_and_reports_unparsable_file_with_undefined_alias() {
     // An undefined alias is not a syntax error in lint (the `anchors` rule reports
-    // it, matching yamllint), but granit cannot resolve it, so the strict `--fix`
+    // it, matching yamllint), but the parser cannot resolve it, so the strict `--fix`
     // gate refuses to mutate the file and prints why, rather than silently skipping
     // it or rewriting an invalid document. The CRLF endings are NOT normalized.
     let dir = tempdir().unwrap();

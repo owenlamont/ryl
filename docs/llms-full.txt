@@ -1030,7 +1030,7 @@ reference parser for this EOF shape.
 
 For `a: >\n  a\n\n\n    \n\n\n\n`, `ryl format` removes the last three
 empty lines. The reference parser emits `=VAL >a\n\n\n\n  \n` before and
-after; granit, eemeli `yaml`, PyYAML and ruamel read `"a\n\n\n  \n"` on
+after; ryl-yaml-parser, eemeli `yaml`, PyYAML and ruamel read `"a\n\n\n  \n"` on
 both sides. CRLF and CR line endings have the same meaning.
 The formatter follows the reference parser's equal-value verdict.
 YAML 1.2.2's [folded content production](https://yaml.org/spec/1.2.2/#rule-l-folded-content)
@@ -1059,7 +1059,7 @@ moving the scalar header would turn the blank line's spaces into content.
 Root strings such as `'---'` and `'...'` keep their quotes. Marker prefixes followed
 by Unicode whitespace or a BOM also keep quotes, including `---` followed by U+00A0
 and `x`. The reference parser emits `=VAL '---\_x` for the quoted form, but only
-`+STR -STR` and a parse error for the plain form; granit and resolving loaders accept
+`+STR -STR` and a parse error for the plain form; ryl-yaml-parser and resolving loaders accept
 the plain form as a string. Formatting refuses rewrites that introduce such root lines.
 
 YAML 1.2.2's [production 206, `c-forbidden`](https://yaml.org/spec/1.2.2/#rule-c-forbidden)
@@ -1821,7 +1821,7 @@ whitespace also keep quotes for
 
 Input rejected by strict YAML parsing is left alone and reported on stderr as
 `skipped by ryl format`, with one exception: spec-invalid indentation accepted by
-granit's relaxed parser can be repaired when the output parses strictly and preserves
+the parser's relaxed mode can be repaired when the output parses strictly and preserves
 the relaxed input's values, tags, anchors and structure. Repairs print
 `input was YAML the spec rejects; repaired indentation`; `--check` exits 1.
 An unsafe or disabled repair leaves the entire file unchanged with a syntax skip.
@@ -3491,7 +3491,7 @@ Source: https://ryl-docs.pages.dev/yaml-version/
 
 ## ryl targets YAML 1.2 by default
 
-ryl parses YAML with [granit-parser][granit] (a `saphyr-parser` fork). A
+ryl parses YAML with its own fork of [granit-parser][granit]. A
 document with no version directive is resolved per the YAML 1.2 core schema,
 matching the spec, which assumes a directive-less document conforms to 1.2.
 Implicit type resolution can differ from tools built on YAML 1.1 loaders such
@@ -3672,7 +3672,8 @@ These are current, load-bearing choices from ryl's issues, pull requests, and re
 | --- | --- | --- |
 | **The YAML 1.2.2 grammar and reference parser decide parse disagreements.** The reference event stream takes priority even when other parsers agree against it. | The keep-scalar EOF case has the same reference value before and after formatting, while PyYAML and ruamel disagree; the spec's keep-empty production supports the reference reading. PyYAML and ruamel also accept YAML the spec rejects (yaml-test-suite 9C9N), so their agreement is no evidence of conformance. | [Spec and parser evidence](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#block-scalar-at-eof), [maintainer decision](https://github.com/owenlamont/ryl/issues/694), [9C9N](https://github.com/owenlamont/ryl/issues/635) |
 | **Eemeli's `yaml` cross-checks the reference parser.** PyYAML and ruamel are non-conformant and never outvote the reference, even 2–2. | The recorded yaml-test-suite comparison found `yaml` closer to the reference on valid and invalid cases; the keep-scalar case demonstrates the split. | [Parser comparison](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#block-scalar-at-eof), [decision](https://github.com/owenlamont/ryl/pull/701) |
-| **Granit supplies ryl's parse events.** Known divergences are recorded with examples in the migration catalog. | A single parser stack avoids conflicting event streams; published divergences make cases where ryl differs from other parsers reviewable. | [Parser stack](https://github.com/owenlamont/ryl/pull/228), [divergence catalog](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#how-ryl-differs-from-yamllint) |
+| **ryl-yaml-parser supplies ryl's parse events.** Known divergences are recorded with examples in the migration catalog. | A single parser stack avoids conflicting event streams; published divergences make cases where ryl differs from other parsers reviewable. | [Parser stack](https://github.com/owenlamont/ryl/pull/228), [divergence catalog](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#how-ryl-differs-from-yamllint) |
+| **ryl owns its parser as the `ryl-yaml-parser` workspace crate.** It is forked from granit-parser 2.0.0, never depends on ryl, and follows semantic versioning on its own API, independently of ryl's version; ryl is dual-licensed MIT OR Apache-2.0 to match. | Owning the parser lets ryl cut the formatter's memory and repeated scans without waiting on upstream; a separate crate keeps the parser reusable and movable to its own repository. | [Format performance](https://github.com/owenlamont/ryl/issues/787) |
 | **Configuration is explicit, local and fails loudly.** Nothing runs from an unseen default, one nearest config governs each file, and anything ryl cannot apply is an error rather than a quiet warning. | Opening one file should show exactly what runs, and a typo or unsupported key must not look effective. | [Explicit and local](https://github.com/owenlamont/ryl/issues/291#issuecomment-4698540200), [unknown keys rejected](https://github.com/owenlamont/ryl/pull/308) |
 | **Ruff, rumdl, ty, and Biome are tool precedents.** Check their installed binaries where possible; yamllint decides only where migration compatibility would break. | ryl began from rumdl's example: a mostly single-developer Rust tool replacing Python Markdown linters showed the same could be done for YAML. rumdl itself draws on Astral's Rust tools (ruff, ty), so following their lead keeps ryl familiar to users of all three; yamllint remains the migration path, not the model. | [Contributor policy](https://github.com/owenlamont/ryl/blob/main/AGENTS.md#coding-standards), [formatter re-review](https://github.com/owenlamont/ryl/issues/374) |
 
@@ -3761,7 +3762,7 @@ These are current, load-bearing choices from ryl's issues, pull requests, and re
 | Decision | Why | Source |
 | --- | --- | --- |
 | **Lint parses strictly; rewrites may repair indentation.** `check` and LSP diagnostics reject spec-invalid indentation; formatting and lint fixes require strictly valid output with the relaxed input's events preserved. | Strict diagnostics enforce YAML while guarded lenient parsing permits repairs such as yaml-test-suite `9C9N`. | [Decision](https://github.com/owenlamont/ryl/issues/635) |
-| **One parser stack drives ryl.** Granit supplies YAML events; a small local DOM supports configuration without maintaining a second parser implementation. | A single event parser avoids conflicting parse results and an unnecessary second parser dependency. | [Decision](https://github.com/owenlamont/ryl/pull/228) |
+| **One parser stack drives ryl.** ryl-yaml-parser supplies YAML events; a small local DOM supports configuration without maintaining a second parser implementation. | A single event parser avoids conflicting parse results and an unnecessary second parser dependency. | [Decision](https://github.com/owenlamont/ryl/pull/228) |
 | **YAML 1.2.2 grammar and the reference parser settle disagreements.** PyYAML and ruamel cannot outvote the reference event stream; eemeli's `yaml` is a cross-check. | The reference parser implements the spec event layer; the EOF keep-scalar case shows PyYAML and ruamel disagree with it even together. | [Decision](https://github.com/owenlamont/ryl/pull/701), [EOF evidence](https://github.com/owenlamont/ryl/issues/694), [parser comparison](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#block-scalar-at-eof) |
 | **Resolution uses the YAML 1.2 core schema.** Plain `011` and `11` are the same integer key, replacing a proposed JSON-schema string reading. | One rule using JSON-schema identity would conflict with the core-schema resolver used elsewhere. | [Core decision](https://github.com/owenlamont/ryl/pull/267), [wide integers](https://github.com/owenlamont/ryl/pull/517), [Maintainer rationale](https://github.com/owenlamont/ryl/pull/267) |
 | **Each document's `%YAML` directive matters.** Unversioned input uses 1.2; explicit 1.1 keeps version-sensitive values, a higher minor warns, and a higher major errors. | Version-sensitive scalars can change meaning across YAML versions, so each document needs its own resolution policy. | [Decision](https://github.com/owenlamont/ryl/issues/351) |

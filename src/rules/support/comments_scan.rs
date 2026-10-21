@@ -1,8 +1,9 @@
 use crate::text_version::lexical::Kind as LexicalKind;
-use granit_parser::{Placement, Span};
+use ryl_yaml_parser::{Placement, Span};
 
-/// `text` is granit's raw payload (after the `#`, excluding the break); `span` covers
-/// the whole comment including the `#`; `placement` is `Right` for trailing comments.
+/// `text` is the parser's raw payload (after the `#`, excluding the break); `span`
+/// covers the whole comment including the `#`; `placement` is `Right` for trailing
+/// comments.
 #[derive(Clone)]
 pub(crate) struct CommentInfo {
     pub(crate) span: Span,
@@ -22,7 +23,7 @@ pub(crate) fn collect_comments_with_analysis(
         return input
             .event_iter()
             .filter_map(|(event, span)| match event {
-                granit_parser::Event::Comment(text, placement) => Some(CommentInfo {
+                ryl_yaml_parser::Event::Comment(text, placement) => Some(CommentInfo {
                     span,
                     text: text.into_owned(),
                     placement,

@@ -5,9 +5,9 @@
 
 use std::borrow::Cow;
 
-use granit_parser::{ScalarStyle, Tag};
 use num_bigint::BigInt;
 use ordered_float::OrderedFloat;
+use ryl_yaml_parser::{ScalarStyle, Tag};
 
 use super::core_schema_suffix;
 

@@ -70,6 +70,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh skill publish --dry-run
 
+      - name: Run ryl-yaml-parser's suite
+        run: |-
+          git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite
+          cargo nextest run -p ryl-yaml-parser --all-features
+
       - name: Replay saved property seeds
         env:
           PROPTEST_CASES: '0'

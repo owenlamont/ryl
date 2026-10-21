@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-pub fn is_comment_event(event: &granit_parser::Event<'_>) -> bool {
+pub fn is_comment_event(event: &ryl_yaml_parser::Event<'_>) -> bool {
     #[cfg(feature = "comments")]
     {
-        matches!(event, granit_parser::Event::Comment(..))
+        matches!(event, ryl_yaml_parser::Event::Comment(..))
     }
     #[cfg(not(feature = "comments"))]
     {
@@ -12,10 +12,10 @@ pub fn is_comment_event(event: &granit_parser::Event<'_>) -> bool {
     }
 }
 
-pub fn is_comment_token(token: &granit_parser::TokenType<'_>) -> bool {
+pub fn is_comment_token(token: &ryl_yaml_parser::TokenType<'_>) -> bool {
     #[cfg(feature = "comments")]
     {
-        matches!(token, granit_parser::TokenType::Comment(_))
+        matches!(token, ryl_yaml_parser::TokenType::Comment(_))
     }
     #[cfg(not(feature = "comments"))]
     {

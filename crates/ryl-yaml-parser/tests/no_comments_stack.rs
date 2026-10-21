@@ -1,7 +1,7 @@
 mod support;
-use granit_parser::{Event, Options, Parser, ParserStack, Span, StrInput};
+use ryl_yaml_parser::{Event, Options, Parser, ParserStack, Span, StrInput};
 #[cfg(feature = "comments")]
-use granit_parser::{Marker, ParserTrait, Placement, ReplayParser, ScalarStyle};
+use ryl_yaml_parser::{Marker, ParserTrait, Placement, ReplayParser, ScalarStyle};
 #[cfg(feature = "comments")]
 use std::borrow::Cow;
 use std::{boxed::Box, vec::Vec};
@@ -9,7 +9,7 @@ use std::{boxed::Box, vec::Vec};
 type Stack = ParserStack<'static, std::vec::IntoIter<char>, StrInput<'static>>;
 
 fn no_comment_options() -> Options {
-    granit_parser::options! {
+    ryl_yaml_parser::options! {
         emit_comments: false,
         #[cfg(feature = "comments")]
         max_buffered_comment_events: 0,

@@ -11,10 +11,11 @@
 //! behaviour); divergence catalogued in
 //! `docs/getting-started/migrating-from-yamllint.md`.
 //!
-//! Detection reads granit's scanner tokens (`TokenType::Anchor`/`Alias`), so a literal
-//! `&`/`*` in a plain/block scalar, a glob, or after a tag is not an anchor/alias. The
-//! scanner is resolution-independent, so an undefined or forward alias is still
-//! tokenised (the parser would error on it), as `forbid-undeclared-aliases` needs.
+//! Detection reads the parser's scanner tokens (`TokenType::Anchor`/`Alias`), so a
+//! literal `&`/`*` in a plain/block scalar, a glob, or after a tag is not an
+//! anchor/alias. The scanner is resolution-independent, so an undefined or forward
+//! alias is still tokenised (the parser would error on it), as
+//! `forbid-undeclared-aliases` needs.
 //!
 //! Sources: YAML 1.2.2 §6.9.2, §7.1; adrienverge/yamllint#780.
 

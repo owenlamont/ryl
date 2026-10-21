@@ -1,4 +1,4 @@
-use granit_parser::{Event, Parser, ScalarStyle, StructureStyle};
+use ryl_yaml_parser::{Event, Parser, ScalarStyle, StructureStyle};
 
 fn scalar_value<'a>(ev: &'a Event<'_>) -> Option<&'a str> {
     match ev {

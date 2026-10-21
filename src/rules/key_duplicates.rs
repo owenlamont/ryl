@@ -32,7 +32,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use granit_parser::{Event, ScalarStyle, Span, SpannedEventReceiver, Tag};
+use ryl_yaml_parser::{Event, ScalarStyle, Span, SpannedEventReceiver, Tag};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;

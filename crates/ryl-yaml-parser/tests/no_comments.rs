@@ -1,20 +1,20 @@
 mod support;
 use std::{borrow::Cow, cell::Cell, rc::Rc};
 
-use granit_parser::{
+use ryl_yaml_parser::{
     BorrowedInput, BufferedInput, ErrorKind, Event, FallibleBufferedInput, Marker, Options, Parser,
     ScalarStyle, ScanError, Scanner, Span, StrInput, StructureStyle, Tag, Token, TokenType,
 };
 
 fn no_comments() -> Options {
-    granit_parser::options! {
+    ryl_yaml_parser::options! {
         #[cfg(feature = "comments")]
         emit_comments: false,
     }
 }
 
 fn no_comments_with_zero_buffer() -> Options {
-    granit_parser::options! {
+    ryl_yaml_parser::options! {
         #[cfg(feature = "comments")]
         emit_comments: false,
         #[cfg(feature = "comments")]
@@ -476,7 +476,7 @@ fn comments_at_eof_preserve_empty_nodes_and_properties_across_backends() {
             let mut expected_tokens = None;
             for strict_indentation in [false, true] {
                 for emit_comments in [false, true] {
-                    let options = granit_parser::options! {
+                    let options = ryl_yaml_parser::options! {
                         strict_indentation: strict_indentation,
                         emit_comments: emit_comments,
                     };
@@ -570,7 +570,7 @@ fn invalid_controls_in_eof_comments_keep_exact_error_positions() {
                 let yaml = format!("# pré{line_break}{prefix}# café {character}");
                 let marker = Marker::new(yaml.chars().count() - 1, 2, prefix.chars().count() + 7);
                 for emit_comments in [false, true] {
-                    let options = granit_parser::options! { emit_comments: emit_comments };
+                    let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
                     let context = format!("{yaml:?}, comments={emit_comments}");
                     let parser_traces =
                         [
@@ -796,8 +796,8 @@ fn ignored_tab_prefixed_comments_preserve_completed_scalars_before_later_errors(
     let expected_scalar = Some((ScalarStyle::DoubleQuoted, "value"));
 
     for strict_indentation in [false, true] {
-        let enabled = granit_parser::options! { strict_indentation: strict_indentation };
-        let disabled = granit_parser::options! {
+        let enabled = ryl_yaml_parser::options! { strict_indentation: strict_indentation };
+        let disabled = ryl_yaml_parser::options! {
             strict_indentation: strict_indentation,
             #[cfg(feature = "comments")]
             emit_comments: false,
@@ -947,7 +947,7 @@ fn streaming_comment_failures_preserve_source_errors_in_all_emission_modes() {
     ] {
         // `true` also exercises the always-available option when comment support is absent.
         for emit_comments in [false, true] {
-            let options = granit_parser::options! { emit_comments: emit_comments };
+            let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
             let context = format!("{source:?}, emit_comments={emit_comments}");
             let (events, event_comments, parser_error) = parse_non_comment_prefix_until_error(
                 Parser::new_from_fallible_iter_with_options(failing_input(source), options.clone()),

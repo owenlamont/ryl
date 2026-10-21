@@ -1,4 +1,4 @@
-use granit_parser::{
+use ryl_yaml_parser::{
     ErrorKind, Event, InputIoError, Marker, Parser, ScalarStyle, ScanError, Span, StructureStyle,
     Tag,
 };

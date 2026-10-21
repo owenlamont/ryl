@@ -1,4 +1,4 @@
-use granit_parser::{Parser, ScanError};
+use ryl_yaml_parser::{Parser, ScanError};
 
 const README: &str = include_str!("../README.md");
 

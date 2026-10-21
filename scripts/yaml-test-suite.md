@@ -1,6 +1,6 @@
 # yaml-test-suite formatter gate
 
-The ignored `tests/yaml_test_suite.rs` test uses the existing granit-parser dependency.
+The ignored `tests/yaml_test_suite.rs` test uses ryl's `ryl-yaml-parser` crate.
 Normal tests and CI need no network or submodule. Fetch the suite separately:
 
 ```sh
@@ -20,8 +20,9 @@ exit 1 with a syntax diagnostic in either case.
 A syntax skip currently exits 0: refusal is established by the diagnostic and bytes.
 
 Quote style is `preserve` to compare scalar styles directly. The event adapter follows
-granit's own suite runner: collection style and document markers are omitted, anchor
-names become numeric identities, and untagged empty scalars become granit's `~`.
+the parser crate's own suite runner: collection style and document markers are
+omitted, anchor names become numeric identities, and untagged empty scalars become
+the parser's `~`.
 Scalar content, style, tags, document count, mapping order and aliases remain checked.
 
 `BAIL` rows report deliberate reindent or collection-style refusals after event
@@ -57,9 +58,10 @@ Base ryl: `14ba6e1d0d3473872dad96e8e1246c482c5769f6`, release build, quote style
 | 360 | 1 | 41 | 402 |
 
 `9C9N`: ryl accepts an under-indented flow sequence marked invalid by the suite;
-`format` does not refuse and `check` emits no syntax error. Granit's own suite runner
-deliberately accepts the same case for PyYAML/ruamel compatibility. The ryl gate
-keeps the reference verdict and fails; no formatter or parser bugs were changed.
+`format` does not refuse and `check` emits no syntax error. The parser crate's own
+suite runner deliberately accepts the same case for PyYAML/ruamel compatibility. The
+ryl gate keeps the reference verdict and fails; no formatter or parser bugs were
+changed.
 
 Bail-outs passed reference-event preservation and idempotence:
 

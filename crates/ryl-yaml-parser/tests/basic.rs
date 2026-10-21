@@ -2,8 +2,8 @@
 #![allow(clippy::float_cmp)]
 mod support;
 #[cfg(feature = "comments")]
-use granit_parser::Placement;
-use granit_parser::{Event, Parser, ScalarStyle, ScanError, StructureStyle, YamlVersion};
+use ryl_yaml_parser::Placement;
+use ryl_yaml_parser::{Event, Parser, ScalarStyle, ScanError, StructureStyle, YamlVersion};
 
 /// Run the parser through the string.
 ///

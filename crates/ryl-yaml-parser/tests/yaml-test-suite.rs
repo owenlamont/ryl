@@ -8,7 +8,7 @@ use std::{
 
 use libtest_mimic::{run, Arguments, Failed, Trial};
 
-use granit_parser::{
+use ryl_yaml_parser::{
     Event, Marker, Options, Parser, ScalarStyle, ScanError, Span, SpannedEventReceiver,
     StructureStyle, Tag,
 };
@@ -73,7 +73,7 @@ fn main() -> Result<ExitCode> {
 fn run_yaml_test(data: YamlTest) -> Result<(), Failed> {
     let reporter = parse_to_events(
         &data.yaml,
-        granit_parser::options! {
+        ryl_yaml_parser::options! {
             strict_indentation: data.strict_indentation,
         },
     );

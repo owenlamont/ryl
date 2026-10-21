@@ -1,5 +1,5 @@
 #![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
+use ryl_yaml_parser::{Event, Parser, Span, SpannedEventReceiver};
 use std::{env, fs::File, io::prelude::*};
 
 /// A sink which discards any event sent.

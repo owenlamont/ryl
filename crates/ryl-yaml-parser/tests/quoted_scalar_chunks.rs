@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use granit_parser::{ErrorKind, Event, InputIoError, Marker, Parser, ScanError, Span};
+use ryl_yaml_parser::{ErrorKind, Event, InputIoError, Marker, Parser, ScanError, Span};
 
 /// Compare values, styles, and character-based spans across all built-in input backends.
 /// Marker equality deliberately ignores the optional byte offsets of string input.

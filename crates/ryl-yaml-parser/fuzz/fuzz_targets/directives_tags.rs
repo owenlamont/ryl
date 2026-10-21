@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), no_main)]
 #[cfg(feature = "comments")]
-use granit_parser::Placement;
+use ryl_yaml_parser::Placement;
 
 #[cfg(not(test))]
 mod common;
@@ -8,9 +8,9 @@ mod common;
 use crate::common;
 
 use common::{parse_with_both_inputs, parse_with_options, scan_with_options};
-use granit_parser::{ErrorKind, Event, Options, Parser, Scanner, StrInput, TokenType};
 #[cfg(not(test))]
 use libfuzzer_sys::fuzz_target;
+use ryl_yaml_parser::{ErrorKind, Event, Options, Parser, Scanner, StrInput, TokenType};
 
 const MAX_INPUT_LEN: usize = 8 * 1024;
 const HEX: &[u8; 16] = b"0123456789abcdef";

@@ -8,9 +8,9 @@ use crate::common;
 use std::str;
 
 use common::parse_with_both_inputs;
-use granit_parser::{ErrorKind, Parser, ScalarStyle};
 #[cfg(not(test))]
 use libfuzzer_sys::fuzz_target;
+use ryl_yaml_parser::{ErrorKind, Parser, ScalarStyle};
 
 const MAX_PAYLOAD_BYTES: usize = 16 << 10;
 const MAX_NESTING_DEPTH: usize = 32;

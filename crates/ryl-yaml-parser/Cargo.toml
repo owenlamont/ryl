@@ -1,5 +1,5 @@
 [package]
-name = "granit-parser"
+name = "ryl-yaml-parser"
 readme = "README.md"
 authors = [
   # Provided versions up to saphyr-parser 0.0.6 inclusive
@@ -7,27 +7,31 @@ authors = [
   "David Aguilar <davvid@gmail.com>",
   "Yuheng Chen <yuhengchen@sensetime.com>",
 
-  # Later versions (serde-granit)
-  "Bourumir Wyngs <bourumir-wyngs@gmail.com>"
+  # granit-parser
+  "Bourumir Wyngs <bourumir-wyngs@gmail.com>",
+
+  # ryl-yaml-parser
+  "Owen Lamont <owenrlamont@gmail.com>",
 ]
 categories = [ "encoding", "parser-implementations", "text-processing" ]
-description = "A YAML parser with comment, tag and style support, written in pure Rust"
-documentation = "https://docs.rs/granit-parser/latest/granit_parser"
+description = "The YAML parser behind ryl: events with spans, comments and style, in pure Rust"
+documentation = "https://docs.rs/ryl-yaml-parser"
 edition = "2021"
 keywords = [ "yaml", "parser", "no-std", "cst" ]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/bourumir-wyngs/granit-parser"
+repository = "https://github.com/owenlamont/ryl"
 
 rust-version = "1.81.0"
-version = "2.0.0"
-exclude = [
-  # Exclude the `yaml-test-suite` from the package. This removes the need to
-  # add its license to the package.
-  "/tests/yaml-test-suite",
-  # These repository-only checks import the separate fuzz package, which Cargo omits.
-  "/tests/fuzz_targets.rs",
-  # We don't need the documents either.
-  "/documents",
+version = "0.1.0"
+# Cargo skips dot-directories unless listed, and the license requires `.licenses/`.
+include = [
+  "/.licenses/*",
+  "/CHANGELOG.md",
+  "/LICENSE",
+  "/README.md",
+  "/examples/**",
+  "/src/**",
+  "/tools/*.rs",
 ]
 
 [features]

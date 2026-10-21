@@ -1,6 +1,6 @@
 #![cfg(not(feature = "comments"))]
 
-use granit_parser::{
+use ryl_yaml_parser::{
     BufferedInput, ErrorKind, Event, FallibleBufferedInput, Marker, Parser, ParserStack,
     ScalarStyle, Scanner, Span, StrInput, TokenType,
 };

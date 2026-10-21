@@ -1,4 +1,4 @@
-use granit_parser::{Marker, Span};
+use ryl_yaml_parser::{Marker, Span};
 
 #[test]
 fn constructors_and_metadata_builders_preserve_unicode_source_range() {

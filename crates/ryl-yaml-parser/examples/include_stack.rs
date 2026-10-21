@@ -1,4 +1,4 @@
-use granit_parser::{Event, Parser, ParserStack, ParserTrait, ScanError, StrInput, Tag};
+use ryl_yaml_parser::{Event, Parser, ParserStack, ParserTrait, ScanError, StrInput, Tag};
 
 type IncludeStack = ParserStack<'static, core::iter::Empty<char>, StrInput<'static>>;
 

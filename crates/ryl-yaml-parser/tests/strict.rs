@@ -1,4 +1,4 @@
-use granit_parser::{
+use ryl_yaml_parser::{
     BufferedInput, ErrorKind, Event, FallibleBufferedInput, Marker, Parser, ScalarStyle, ScanError,
     Scanner, StrInput, StructureStyle, Tag,
 };
@@ -8,7 +8,7 @@ fn events_with_inputs(
     yaml: &str,
     strict_indentation: bool,
 ) -> Vec<Result<Vec<Event<'_>>, ScanError>> {
-    let options = granit_parser::options! { strict_indentation: strict_indentation };
+    let options = ryl_yaml_parser::options! { strict_indentation: strict_indentation };
     [
         Parser::with_options(StrInput::new(yaml), options.clone()).collect::<Result<Vec<_>, _>>(),
         Parser::new_from_str_with_options(yaml, options.clone()).collect::<Result<Vec<_>, _>>(),
@@ -57,7 +57,7 @@ fn assert_relaxed_only_with_kind(
         .expect("default scanner should accept relaxed indentation");
     Scanner::with_options(
         StrInput::new(yaml),
-        granit_parser::options! { strict_indentation: false },
+        ryl_yaml_parser::options! { strict_indentation: false },
     )
     .collect::<Result<Vec<_>, _>>()
     .expect("explicit relaxed scanner should accept relaxed indentation");
@@ -73,7 +73,7 @@ fn assert_relaxed_only_with_kind(
     }
     let error = Scanner::with_options(
         StrInput::new(yaml),
-        granit_parser::options! { strict_indentation: true },
+        ryl_yaml_parser::options! { strict_indentation: true },
     )
     .find_map(Result::err)
     .expect("strict scanner accepted relaxed indentation");
@@ -338,13 +338,13 @@ fn strict_rejects_tabs_used_instead_of_flow_indentation() {
             .expect("default scanner should preserve relaxed tab handling");
         Scanner::with_options(
             StrInput::new(yaml),
-            granit_parser::options! { strict_indentation: false },
+            ryl_yaml_parser::options! { strict_indentation: false },
         )
         .collect::<Result<Vec<_>, _>>()
         .expect("relaxed scanner should parse");
         let error = Scanner::with_options(
             StrInput::new(yaml),
-            granit_parser::options! { strict_indentation: true },
+            ryl_yaml_parser::options! { strict_indentation: true },
         )
         .find_map(Result::err)
         .expect("strict scanner accepted tab indentation");
@@ -382,7 +382,7 @@ fn conforming_flow_indentation_has_identical_events_in_both_modes() {
                     expected
                 );
             }
-            Scanner::with_options(StrInput::new(yaml), granit_parser::options! { strict_indentation: strict_indentation })
+            Scanner::with_options(StrInput::new(yaml), ryl_yaml_parser::options! { strict_indentation: strict_indentation })
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap_or_else(|error| panic!("strict_indentation={strict_indentation}, scanner input {yaml:?}: {error}"));
         }
@@ -438,7 +438,7 @@ fn strict_errors_preserve_unicode_positions_and_terminate_iteration() {
             let yaml = format!("{prefix}{}", suffix.replace('\n', line_break));
             let marker = Marker::new(prefix.chars().count(), 2, 0);
             let byte_marker = marker.with_byte_offset(Some(prefix.len()));
-            let options = granit_parser::options! { strict_indentation: true };
+            let options = ryl_yaml_parser::options! { strict_indentation: true };
 
             check(
                 Parser::new_from_str_with_options(&yaml, options.clone()),

@@ -1,4 +1,4 @@
-use granit_parser::{ErrorKind, Event, Options, Parser, ScalarStyle, ScanError, StructureStyle};
+use ryl_yaml_parser::{ErrorKind, Event, Options, Parser, ScalarStyle, ScanError, StructureStyle};
 
 fn collect_events(input: &str) -> Result<Vec<Event<'_>>, ScanError> {
     collect_events_with_options(input, Options::default())
@@ -47,7 +47,7 @@ fn collect_structural_events_with_options(
 fn assert_structural_events_in_all_modes(input: &str, expected: &[Event<'_>]) {
     for emit_comments in [false, true] {
         for strict_indentation in [false, true] {
-            let options = granit_parser::options! {
+            let options = ryl_yaml_parser::options! {
                 emit_comments: emit_comments,
                 strict_indentation: strict_indentation,
             };
@@ -137,7 +137,7 @@ fn tabs_separate_explicit_block_keys_without_becoming_indentation() {
             let yaml = format!("?{separator}{key}\n: value\n");
             let reference = format!("? {key}\n: value\n");
             for strict_indentation in [false, true] {
-                let options = granit_parser::options! { strict_indentation: strict_indentation };
+                let options = ryl_yaml_parser::options! { strict_indentation: strict_indentation };
                 assert_eq!(
                     collect_events_with_options(&yaml, options.clone())
                         .unwrap_or_else(|error| panic!("{yaml:?}: {error}")),
@@ -212,7 +212,7 @@ fn explicit_key_tabs_after_comments_require_space_indentation() {
     ] {
         for emit_comments in [false, true] {
             for strict_indentation in [false, true] {
-                let options = granit_parser::options! { emit_comments: emit_comments, strict_indentation: strict_indentation };
+                let options = ryl_yaml_parser::options! { emit_comments: emit_comments, strict_indentation: strict_indentation };
                 let events: Vec<_> = collect_events_with_options(yaml, options)
                     .unwrap_or_else(|error| panic!("{yaml:?}: {error}"))
                     .into_iter()
@@ -269,7 +269,7 @@ fn explicit_key_properties_survive_tab_separation_and_comment_lines() {
         Event::SequenceStart(
             StructureStyle::Flow,
             1,
-            Some(std::borrow::Cow::Owned(granit_parser::Tag::new(
+            Some(std::borrow::Cow::Owned(ryl_yaml_parser::Tag::new(
                 "!", "local",
             ))),
         ),
@@ -362,7 +362,7 @@ fn explicit_key_property_indentation_is_strict_only() {
                 "key".into(),
                 ScalarStyle::Plain,
                 anchor,
-                tagged.then(|| std::borrow::Cow::Owned(granit_parser::Tag::new("!", "local"))),
+                tagged.then(|| std::borrow::Cow::Owned(ryl_yaml_parser::Tag::new("!", "local"))),
             ),
             Event::Scalar("value".into(), ScalarStyle::Plain, 0, None),
             Event::MappingEnd,
@@ -373,14 +373,14 @@ fn explicit_key_property_indentation_is_strict_only() {
         expected.extend([Event::DocumentEnd, Event::StreamEnd]);
 
         for emit_comments in [false, true] {
-            let strict = granit_parser::options! {
+            let strict = ryl_yaml_parser::options! {
                 emit_comments: emit_comments,
                 strict_indentation: true,
             };
             let error = collect_events_with_options(yaml, strict).unwrap_err();
             assert_eq!(error.kind(), &ErrorKind::TabNotAllowed, "{yaml:?}");
 
-            let relaxed = granit_parser::options! {
+            let relaxed = ryl_yaml_parser::options! {
                 emit_comments: emit_comments,
                 strict_indentation: false,
             };
@@ -398,7 +398,7 @@ fn tabs_cannot_indent_compact_explicit_key_collections_in_either_mode() {
     let yaml = "- ?\tkey:\n  : value\n";
     for emit_comments in [false, true] {
         for strict_indentation in [false, true] {
-            let options = granit_parser::options! {
+            let options = ryl_yaml_parser::options! {
                 emit_comments: emit_comments,
                 strict_indentation: strict_indentation,
             };
@@ -528,7 +528,7 @@ fn tabs_after_colons_preserve_tagged_anchors_and_aliases() {
                     "value".into(),
                     ScalarStyle::Plain,
                     1,
-                    Some(std::borrow::Cow::Owned(granit_parser::Tag::new(
+                    Some(std::borrow::Cow::Owned(ryl_yaml_parser::Tag::new(
                         "!", "local"
                     ))),
                 ),

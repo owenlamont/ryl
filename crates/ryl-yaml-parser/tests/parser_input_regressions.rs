@@ -1,6 +1,6 @@
 use std::str::Chars;
 
-use granit_parser::{
+use ryl_yaml_parser::{
     BorrowedInput, BufferedInput, ErrorKind, Event, Input, Marker, Parser, ScanError, StrInput,
 };
 

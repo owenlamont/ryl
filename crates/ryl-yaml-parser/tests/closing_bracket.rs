@@ -1,4 +1,4 @@
-use granit_parser::{Event, Parser};
+use ryl_yaml_parser::{Event, Parser};
 
 /// Test case 4H7K in `yaml_test_suite`
 #[test]

@@ -1,7 +1,7 @@
 //! `[format] sequence-style` / `mapping-style` from the collection-style probe corpus.
-//! PyYAML, ruamel, the `yaml` npm package and granit load each row's `expected` to its
-//! input's events, collection style aside; every input left unchanged is one where one
-//! of those parsers reads the other style differently, or the rewrite would lose a
+//! PyYAML, ruamel, the `yaml` npm package and the parser load each row's `expected` to
+//! its input's events, collection style aside; every input left unchanged is one where
+//! one of those parsers reads the other style differently, or the rewrite would lose a
 //! comment or a line break or, under `flow`, outgrow `line-length`.
 
 use std::fs;

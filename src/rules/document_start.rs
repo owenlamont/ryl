@@ -6,7 +6,7 @@
 //! document boundaries, so it is not fixed.
 use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
-use granit_parser::Event;
+use ryl_yaml_parser::Event;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::{buffer_newline, is_magic_first_line};

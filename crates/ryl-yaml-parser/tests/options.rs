@@ -1,10 +1,10 @@
 mod support;
-use granit_parser::{
+use ryl_yaml_parser::{
     BufferedInput, ErrorKind, Event, FallibleBufferedInput, Options, Parser, Scanner, StrInput,
     TokenType,
 };
 
-fn assert_comment_free_value(events: &[(Event<'_>, granit_parser::Span)]) {
+fn assert_comment_free_value(events: &[(Event<'_>, ryl_yaml_parser::Span)]) {
     assert!(events
         .iter()
         .all(|(event, _)| !support::is_comment_event(event)));
@@ -25,9 +25,9 @@ fn options_macro_starts_with_defaults_and_applies_fields() {
     assert_eq!(defaults.block_nesting_limit, 255);
     assert_eq!(defaults.max_directive_bytes, 1024);
     assert_eq!(defaults.max_reserved_directive_params, 16);
-    assert_eq!(granit_parser::options! {}, defaults);
+    assert_eq!(ryl_yaml_parser::options! {}, defaults);
 
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         strict_indentation: true,
         emit_comments: false,
         #[cfg(feature = "comments")]
@@ -52,7 +52,7 @@ fn options_macro_starts_with_defaults_and_applies_fields() {
 
 #[test]
 fn options_macro_configures_parser() {
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         flow_nesting_limit: 1,
     };
     let error = Parser::with_options(StrInput::new("[[]]"), options)
@@ -68,7 +68,7 @@ fn comment_emission_option_is_available_with_and_without_comments() {
     let mut setter_options = Options::default();
 
     for emit_comments in [false, true, false] {
-        let options = granit_parser::options! { emit_comments: emit_comments };
+        let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
         setter_options.set_emit_comments(emit_comments);
         assert_eq!(options, setter_options);
         let expect_comments = cfg!(feature = "comments") && emit_comments;
@@ -132,7 +132,7 @@ fn new_uses_default_options() {
 #[test]
 fn common_input_constructors_accept_options() {
     let yaml = String::from("# ignored\nvalue\n");
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         emit_comments: false,
     };
 
@@ -171,7 +171,7 @@ fn buffered_comment_limit_can_be_raised() {
         .expect("default options should reject the comment above their limit");
     assert_eq!(error.kind(), &ErrorKind::TooManyComments);
 
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         max_buffered_comment_events: raised_limit,
     };
     let events = Parser::with_options(StrInput::new(&yaml), options)
@@ -191,7 +191,7 @@ fn buffered_comment_limit_can_be_raised() {
 #[cfg(feature = "comments")]
 fn buffered_comment_limit_honors_lower_and_zero_boundaries() {
     let one_comment = "key: # one\nnext: value\n";
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         max_buffered_comment_events: 1,
     };
     Parser::with_options(StrInput::new(one_comment), options)
@@ -199,7 +199,7 @@ fn buffered_comment_limit_honors_lower_and_zero_boundaries() {
         .expect("one buffered comment should be accepted at limit one");
 
     let two_comments = "key: # one\n# two\nnext: value\n";
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         max_buffered_comment_events: 1,
     };
     let error = Parser::with_options(StrInput::new(two_comments), options)
@@ -207,7 +207,7 @@ fn buffered_comment_limit_honors_lower_and_zero_boundaries() {
         .expect("the second buffered comment should exceed limit one");
     assert_eq!(error.kind(), &ErrorKind::TooManyComments);
 
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         max_buffered_comment_events: 0,
     };
     let error = Parser::with_options(StrInput::new(one_comment), options)
@@ -219,7 +219,7 @@ fn buffered_comment_limit_honors_lower_and_zero_boundaries() {
 #[test]
 #[cfg(feature = "comments")]
 fn zero_comment_limit_still_precedes_indentless_sequence_start() {
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         max_buffered_comment_events: 0,
     };
     let mut events = Vec::new();
@@ -252,7 +252,7 @@ fn simple_key_lookahead_can_be_raised() {
         .expect("default options should reject a 1025-character simple key");
     assert_eq!(error.kind(), &ErrorKind::SimpleKeyExpected);
 
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         simple_key_max_lookahead: 1025,
     };
     Parser::with_options(StrInput::new(&yaml), options)
@@ -263,14 +263,14 @@ fn simple_key_lookahead_can_be_raised() {
 #[test]
 fn simple_key_lookahead_honors_configured_boundary() {
     let yaml = "a: b\nlong: value\n";
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         simple_key_max_lookahead: 4,
     };
     Parser::with_options(StrInput::new(yaml), options)
         .collect::<Result<Vec<_>, _>>()
         .expect("a simple key at the configured limit should be accepted");
 
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         simple_key_max_lookahead: 3,
     };
     let error = Parser::with_options(StrInput::new(yaml), options)
@@ -288,7 +288,7 @@ fn flow_nesting_limit_can_be_raised_above_previous_type_limit() {
         .expect("default options should reject flow nesting level 256");
     assert_eq!(error.kind(), &ErrorKind::RecursionLimitExceeded);
 
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         flow_nesting_limit: 256,
     };
     let events = Parser::with_options(StrInput::new(&yaml), options)
@@ -306,14 +306,14 @@ fn flow_nesting_limit_can_be_raised_above_previous_type_limit() {
 
 #[test]
 fn flow_nesting_limit_honors_lower_and_zero_boundaries() {
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         flow_nesting_limit: 1,
     };
     Parser::with_options(StrInput::new("[]"), options)
         .collect::<Result<Vec<_>, _>>()
         .expect("one flow collection should be accepted at limit one");
 
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         flow_nesting_limit: 1,
     };
     let error = Parser::with_options(StrInput::new("[[]]"), options)
@@ -321,7 +321,7 @@ fn flow_nesting_limit_honors_lower_and_zero_boundaries() {
         .expect("the second flow collection should exceed limit one");
     assert_eq!(error.kind(), &ErrorKind::RecursionLimitExceeded);
 
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         flow_nesting_limit: 0,
     };
     let error = Parser::with_options(StrInput::new("[]"), options)
@@ -353,7 +353,7 @@ fn default_options_reject_excessive_compact_block_nesting() {
 #[test]
 fn block_nesting_limit_can_be_raised() {
     let yaml = format!("{}value", "- ".repeat(256));
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         block_nesting_limit: 256,
     };
 
@@ -372,7 +372,7 @@ fn block_nesting_limit_can_be_raised() {
 
 #[test]
 fn block_nesting_limit_honors_collection_and_zero_boundaries() {
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         block_nesting_limit: 1,
     };
     Parser::with_options(StrInput::new("- value"), options)
@@ -380,7 +380,7 @@ fn block_nesting_limit_honors_collection_and_zero_boundaries() {
         .expect("one block collection should be accepted at limit one");
 
     for yaml in ["root:\n- value\n", "root:\n  - value\n"] {
-        let options = granit_parser::options! {
+        let options = ryl_yaml_parser::options! {
             block_nesting_limit: 1,
         };
         let error = Parser::with_options(StrInput::new(yaml), options)
@@ -389,7 +389,7 @@ fn block_nesting_limit_honors_collection_and_zero_boundaries() {
         assert_eq!(error.kind(), &ErrorKind::RecursionLimitExceeded);
     }
 
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         block_nesting_limit: 0,
     };
     let error = Parser::with_options(StrInput::new("key: value"), options)
@@ -401,7 +401,7 @@ fn block_nesting_limit_honors_collection_and_zero_boundaries() {
 #[test]
 fn scanner_enforces_block_nesting_limit_for_compact_collections() {
     for yaml in ["- - value", "? ? value", ": : value"] {
-        let options = granit_parser::options! {
+        let options = ryl_yaml_parser::options! {
             block_nesting_limit: 1,
         };
         let mut starts = 0;
@@ -429,7 +429,7 @@ fn scanner_enforces_block_nesting_limit_for_compact_collections() {
 #[test]
 fn block_nesting_limit_is_reused_after_collections_close() {
     let yaml = "---\n- first\n...\n---\nkey: value\n";
-    let options = granit_parser::options! {
+    let options = ryl_yaml_parser::options! {
         block_nesting_limit: 1,
     };
 

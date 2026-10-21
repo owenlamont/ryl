@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use crate::text_version::lexical::Kind;
 use crate::text_version::{Analysis, TextVersion};
-use granit_parser::ScalarStyle;
+use ryl_yaml_parser::ScalarStyle;
 
 use super::{Config, ID};
 use crate::directives::{Directives, directive_scope};
@@ -65,7 +65,7 @@ pub fn fold(buffer: &str, cfg: Fold) -> Option<String> {
     } in foldable_scalars(input)
     {
         let owner = owner.map(|(_, column)| column);
-        // granit rejects a quoted mapping value continued one column past its key.
+        // the parser rejects a quoted mapping value continued one column past its key.
         let min_step = if style == ScalarStyle::Plain { 1 } else { 2 };
         let (first, last) = (line_of(span.start), line_of(span.end - 1));
         let folded = style == ScalarStyle::Folded;
@@ -159,7 +159,7 @@ impl Foldables {
         self.scalars
     }
 
-    pub(crate) fn push(&mut self, span: granit_parser::Span, kind: &Kind) {
+    pub(crate) fn push(&mut self, span: ryl_yaml_parser::Span, kind: &Kind) {
         self.owner = match kind {
             Kind::Anchor | Kind::Tag | Kind::Comment { .. } => {
                 return;

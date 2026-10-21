@@ -1,5 +1,5 @@
 mod support;
-use granit_parser::{ErrorKind, Event, Marker, Options, Parser, ScanError, Span};
+use ryl_yaml_parser::{ErrorKind, Event, Marker, Options, Parser, ScanError, Span};
 
 fn trace_all_inputs(source: &str, options: Options) -> Vec<Result<(Event<'_>, Span), ScanError>> {
     let mut from_str = Parser::new_from_str_with_options(source, options.clone());
@@ -89,7 +89,7 @@ fn expiration_of_older_candidate_keeps_younger_collection_key_live() {
         // At ':' the root '[' exceeds the limit by one character, while '[key] ' is
         // exactly at its limit and must still be resolved as an implicit mapping key.
         let source = format!("[[{key}] : value]\n");
-        let options = granit_parser::options! {
+        let options = ryl_yaml_parser::options! {
             simple_key_max_lookahead: key.chars().count() + 3,
         };
         let trace = trace_all_inputs(&source, options);
@@ -106,7 +106,7 @@ fn expiration_of_older_candidate_keeps_younger_collection_key_live() {
 fn key_length_limit_is_strictly_greater_than_character_count_not_byte_count() {
     for key in ["abcd", "é字🦀x"] {
         let source = format!("a: b\n{key}: value\n");
-        let options = granit_parser::options! { simple_key_max_lookahead: 4 };
+        let options = ryl_yaml_parser::options! { simple_key_max_lookahead: 4 };
         let events = parse_all_inputs(&source, options);
         let (_, span) = events
             .iter()
@@ -116,7 +116,7 @@ fn key_length_limit_is_strictly_greater_than_character_count_not_byte_count() {
         assert_eq!(span.end, Marker::new(9, 2, 4));
         assert_eq!(span.byte_range(), Some(5..5 + key.len()));
 
-        let options = granit_parser::options! { simple_key_max_lookahead: 3 };
+        let options = ryl_yaml_parser::options! { simple_key_max_lookahead: 3 };
         let trace = trace_all_inputs(&source, options);
         let error = trace.last().unwrap().as_ref().unwrap_err();
         assert_eq!(error.kind(), &ErrorKind::SimpleKeyExpected);
@@ -133,12 +133,12 @@ fn zero_and_maximum_limits_preserve_explicit_keys_and_non_key_nodes() {
     for source in ["[a, [b], { ? c: d }]\n", "? a\n: b\n"] {
         let expected = parse_all_inputs(source, Options::default());
         for limit in [0, usize::MAX] {
-            let options = granit_parser::options! { simple_key_max_lookahead: limit };
+            let options = ryl_yaml_parser::options! { simple_key_max_lookahead: limit };
             assert_eq!(parse_all_inputs(source, options), expected);
         }
     }
     let source = format!("a: b\n{}: value\n", "é".repeat(2048));
-    let options = granit_parser::options! { simple_key_max_lookahead: usize::MAX };
+    let options = ryl_yaml_parser::options! { simple_key_max_lookahead: usize::MAX };
     parse_all_inputs(&source, options);
 }
 
@@ -200,7 +200,7 @@ fn comments_and_document_markers_preserve_event_order() {
     ];
     for &emit_comments in support::comment_modes() {
         let options =
-            granit_parser::options! { #[cfg(feature = "comments")] emit_comments: emit_comments };
+            ryl_yaml_parser::options! { #[cfg(feature = "comments")] emit_comments: emit_comments };
         let trace = trace_all_inputs(source, options);
         assert_eq!(
             outline(&trace),

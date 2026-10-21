@@ -1,4 +1,4 @@
-use granit_parser::{Event, Parser, ScalarStyle, StructureStyle};
+use ryl_yaml_parser::{Event, Parser, ScalarStyle, StructureStyle};
 
 #[test]
 fn misplaced_closing_bracket_at_col_0() {

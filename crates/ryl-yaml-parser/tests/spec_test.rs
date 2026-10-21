@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 #![allow(non_upper_case_globals)]
-extern crate granit_parser;
+extern crate ryl_yaml_parser;
 
-use granit_parser::{Event, EventReceiver, Parser, ScalarStyle};
+use ryl_yaml_parser::{Event, EventReceiver, Parser, ScalarStyle};
 
 // These names match the names used in the C++ test suite.
 #[allow(clippy::enum_variant_names)]

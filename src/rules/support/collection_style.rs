@@ -2,7 +2,7 @@
 //! rewritten in block style and leaf block ones in flow style, each entry's text copied
 //! as written.
 
-use granit_parser::{Event, Parser, ScalarStyle, Span, StructureStyle};
+use ryl_yaml_parser::{Event, Parser, ScalarStyle, Span, StructureStyle};
 
 use crate::config_schema::CollectionStyleTarget;
 use crate::directives::{Directives, disables_file};

@@ -4,11 +4,11 @@
 //! A double-quoted backslash + trailing whitespace + newline differs
 //! from `\<newline>` alone (a line-continuation escape that drops the folded space).
 //! Multi-line single-quoted and plain scalars fold trailing whitespace away, so they
-//! stay fixable. The protected line set comes from `granit_parser`, so the fix bails
+//! stay fixable. The protected line set comes from `ryl_yaml_parser`, so the fix bails
 //! (returns `None`) on an unparsable buffer.
 use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
-use granit_parser::ScalarStyle;
+use ryl_yaml_parser::ScalarStyle;
 use std::collections::HashSet;
 
 use crate::rules::document_end;

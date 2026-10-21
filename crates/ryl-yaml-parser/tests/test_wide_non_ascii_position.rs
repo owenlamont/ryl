@@ -1,4 +1,4 @@
-use granit_parser::{Event, Parser};
+use ryl_yaml_parser::{Event, Parser};
 
 #[test]
 fn test_wide_non_ascii_positions() {

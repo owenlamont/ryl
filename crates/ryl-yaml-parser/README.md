@@ -1,58 +1,42 @@
-# granit-parser
+# ryl-yaml-parser
 
-[![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
-[![panic-free](https://img.shields.io/badge/panic--free-%E2%9C%94%EF%B8%8F-brightgreen)](https://effective-rust.com/panic.html)
-[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/bourumir-wyngs/granit-parser/ci.yml)](https://github.com/bourumir-wyngs/granit-parser/actions/workflows/ci.yml)
-[![Fuzz](https://github.com/bourumir-wyngs/granit-parser/actions/workflows/fuzz.yml/badge.svg)](https://github.com/bourumir-wyngs/granit-parser/actions/workflows/fuzz.yml)
-[![docs.rs](https://docs.rs/granit-parser/badge.svg)](https://docs.rs/granit-parser)
+The YAML 1.2 parser behind [ryl](https://github.com/owenlamont/ryl), the YAML linter and
+formatter. It emits parser events with byte spans, comments and structure-style
+information, and is tuned for ryl's needs.
 
-[![codecov](https://codecov.io/gh/bourumir-wyngs/granit-parser/graph/badge.svg)](https://codecov.io/gh/bourumir-wyngs/granit-parser)
-[![Socket Badge](https://badge.socket.dev/cargo/package/granit-parser)](https://socket.dev/cargo/package/granit-parser)
-[![dependency status](https://deps.rs/crate/granit-parser/latest/status.svg)](https://deps.rs/crate/granit-parser/latest)
-
-[![1.3 API compatibility](https://github.com/bourumir-wyngs/granit-parser/actions/workflows/api-compat.yml/badge.svg)](https://github.com/bourumir-wyngs/granit-parser/actions/workflows/api-compat.yml)
-[![crates.io](https://img.shields.io/crates/l/granit-parser.svg)](https://crates.io/crates/granit-parser)
-[![crates.io](https://img.shields.io/crates/v/granit-parser.svg)](https://crates.io/crates/granit-parser)
-[![crates.io](https://img.shields.io/crates/d/granit-parser.svg)](https://crates.io/crates/granit-parser)
-[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/bourumir-wyngs/granit-parser?utm_source=badge)
+This crate is a fork of [granit-parser](https://github.com/bourumir-wyngs/granit-parser)
+2.0.0 (commit `d2bde4f`) by Bourumir Wyngs, which itself descends from
+[saphyr-parser](https://crates.io/crates/saphyr-parser) and
+[yaml-rust](https://github.com/chyh1990/yaml-rust). The license notices of every
+contributor in that lineage are kept in [`LICENSE`](LICENSE) and [`.licenses/`](.licenses).
+Sections below that describe granit-parser's own changes are kept as inherited
+documentation.
 
 > “YAML is hard. Much more than I had anticipated. If you are exploring dark corners of YAML ... I'm curious to know what it is.”
 >
 > — [Ethiraric](https://crates.io/users/Ethiraric)
 
-**granit-parser** is a YAML 1.2 parser in pure Rust with comment and style support, no-std support, and spans for parser events. It accepts many real-world YAML documents from the YAML 1.1 era where the syntax overlaps with YAML 1.2. “Granit” is a correct word in many European languages (English *granite*).
+## Versioning
 
-This crate started as a fork of [saphyr-parser](https://crates.io/crates/saphyr-parser) that descends from [yaml-rust](https://github.com/chyh1990/yaml-rust), with influences from [libyaml](https://crates.io/crates/libyaml) and [yaml-cpp](https://github.com/jbeder/yaml-cpp). The project has since diverged significantly and is now maintained as an independent project.
-
-Its primary goals are:
-
-* [`Comment`](https://docs.rs/granit-parser/latest/granit_parser/struct.Comment.html) support and [`StructureStyle`](https://docs.rs/granit-parser/latest/granit_parser/enum.StructureStyle.html) information. This is for linting, formatting, and analysis.
-* compliance with the [yaml-test-suite](https://github.com/yaml/yaml-test-suite), including correctness in edge cases
-* compatibility with real-world YAML usage
-* quickly incorporate the changes we need for the upstream dependency [serde-saphyr](https://crates.io/crates/serde-saphyr).
-
-`granit-parser` 1.0 stabilizes the public API after the experimental 0.0.x releases. The 1.0
-migration, including scanner and parser-stack replacements, is documented in
-[`CHANGELOG.md`](CHANGELOG.md).
-
-See [releases](https://github.com/bourumir-wyngs/granit-parser/releases)
+`ryl-yaml-parser` follows [semantic versioning](https://semver.org) on its own public API,
+independently of ryl's version. While it is at 0.x, a minor-version bump may break the API.
 
 ## Minimal example
 
-[`Parser::new_from_str`](https://docs.rs/granit-parser/latest/granit_parser/struct.Parser.html#method.new_from_str) returns an iterator of ([`Event`](https://docs.rs/granit-parser/latest/granit_parser/enum.Event.html), [`Span`](https://docs.rs/granit-parser/latest/granit_parser/struct.Span.html)) pairs. The event helpers expose common node metadata, and spans provide byte ranges, source slices, and explicit tag-token starts for tagged nodes:
+[`Parser::new_from_str`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.Parser.html#method.new_from_str) returns an iterator of ([`Event`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/enum.Event.html), [`Span`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.Span.html)) pairs. The event helpers expose common node metadata, and spans provide byte ranges, source slices, and explicit tag-token starts for tagged nodes:
 
-Comments are emitted as [`Event::Comment(text, placement)`](https://docs.rs/granit-parser/latest/granit_parser/enum.Event.html#variant.Comment). They are presentation metadata for tools such as linters and formatters, not YAML data nodes, so consumers that build YAML values should filter them out. The companion [`Span`](https://docs.rs/granit-parser/latest/granit_parser/struct.Span.html) for a comment covers the whole source comment, including `#` and excluding the line break; when parsing from [`Parser::new_from_str`](https://docs.rs/granit-parser/latest/granit_parser/struct.Parser.html#method.new_from_str), [`span.slice(yaml)`](https://docs.rs/granit-parser/latest/granit_parser/struct.Span.html#method.slice) returns that source comment text.
+Comments are emitted as [`Event::Comment(text, placement)`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/enum.Event.html#variant.Comment). They are presentation metadata for tools such as linters and formatters, not YAML data nodes, so consumers that build YAML values should filter them out. The companion [`Span`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.Span.html) for a comment covers the whole source comment, including `#` and excluding the line break; when parsing from [`Parser::new_from_str`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.Parser.html#method.new_from_str), [`span.slice(yaml)`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.Span.html#method.slice) returns that source comment text.
 
 Applications that do not use comments can disable their capture and emission by setting
-[`Options::emit_comments`](https://docs.rs/granit-parser/latest/granit_parser/struct.Options.html#structfield.emit_comments)
+[`Options::emit_comments`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.Options.html#structfield.emit_comments)
 to `false` or disabling the default `comments` Cargo feature. The field is always available and
 defaults to `true` with the feature enabled and `false` without it. Setting it to `true` has no
 effect without the feature. Comments are still recognized and validated as YAML syntax.
 
-Document starts are emitted as [`Event::DocumentStart(explicit, version)`](https://docs.rs/granit-parser/latest/granit_parser/enum.Event.html#variant.DocumentStart), where `version` is the optional [`YamlVersion`](https://docs.rs/granit-parser/latest/granit_parser/struct.YamlVersion.html) declared by a preceding `%YAML` directive for that document.
+Document starts are emitted as [`Event::DocumentStart(explicit, version)`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/enum.Event.html#variant.DocumentStart), where `version` is the optional [`YamlVersion`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.YamlVersion.html) declared by a preceding `%YAML` directive for that document.
 
 ```rust
-use granit_parser::Parser;
+use ryl_yaml_parser::Parser;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let yaml = r#"
@@ -173,7 +157,7 @@ differences done from the time of forking (0.0.6). Saphyr-parser may also have c
 
 ### Compatibility adjustment
 While linters would insist on strict compliance, other applications may prefer full backward compatibility. 
-To balance requirements for all use cases, the compliance is governed by settings in [`Options`](https://docs.rs/granit-parser/latest/granit_parser/struct.Options.html).
+To balance requirements for all use cases, the compliance is governed by settings in [`Options`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.Options.html).
 
 * **Relaxed indentation for flow collection entries and delimiters**
 
@@ -188,11 +172,11 @@ To balance requirements for all use cases, the compliance is governed by setting
   and mappings are accepted for compatibility with PyYAML, ruamel.yaml, and real-world inputs.
   Under-indented implicit mapping keys must keep the key and its `:` on the same line.
 
-  Set [`strict_indentation: true`](https://docs.rs/granit-parser/latest/granit_parser/struct.Options.html#structfield.strict_indentation) to require YAML-compliant flow indentation, including entries,
+  Set [`strict_indentation: true`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.Options.html#structfield.strict_indentation) to require YAML-compliant flow indentation, including entries,
   delimiters, and multiline scalar continuations. The default is `false`.
 
   ```rust
-  use granit_parser::{options, Parser};
+  use ryl_yaml_parser::{options, Parser};
 
   let parser = Parser::new_from_str_with_options(
       "key: [\n  1, 2, 3\n  ]\n",
@@ -249,7 +233,7 @@ must use constructors instead of struct literals or struct-update syntax. Use th
 builders or assign individual fields, and include `..` when destructuring:
 
 ```rust
-use granit_parser::{Marker, Span};
+use ryl_yaml_parser::{Marker, Span};
 
 let start = Marker::new(0, 1, 0);
 let end = Marker::new(3, 1, 3);
@@ -261,7 +245,7 @@ assert_eq!(actual_start, start);
 ```
 
 For custom `Input` implementations, `SkipTabs` now contains only the input policies `Yes` and
-`No`. Whitespace results use `granit_parser::input::WhitespaceResult` instead:
+`No`. Whitespace results use `ryl_yaml_parser::input::WhitespaceResult` instead:
 
 - `skip_ws_to_eol` returns `(usize, Result<WhitespaceResult, ErrorKind>)`.
 - `skip_ws_to_eol_blanks` returns `(usize, WhitespaceResult)`.
@@ -274,27 +258,27 @@ These are breaking API changes intended for the next major release.
 
 ### Error handling without grepping message text
   
-  Granit-parser uses the [`ErrorKind`](https://docs.rs/granit-parser/latest/granit_parser/enum.ErrorKind.html) enum to encode the error kind, and this enum may carry additional metadata. This is useful when messages need to be translated (built-in messages are English), or when the using code needs to handle some error specifically without greping for message text.
+  Granit-parser uses the [`ErrorKind`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/enum.ErrorKind.html) enum to encode the error kind, and this enum may carry additional metadata. This is useful when messages need to be translated (built-in messages are English), or when the using code needs to handle some error specifically without greping for message text.
 
 ### Fallible streaming input
 
-[`Parser::new_from_iter`](https://docs.rs/granit-parser/latest/granit_parser/struct.Parser.html#method.new_from_iter) remains available for genuinely infallible sources. Do not use it for an adapter that turns I/O, decoding, or size-limit failures into EOF: an incomplete YAML prefix may itself be a valid document.
+[`Parser::new_from_iter`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.Parser.html#method.new_from_iter) remains available for genuinely infallible sources. Do not use it for an adapter that turns I/O, decoding, or size-limit failures into EOF: an incomplete YAML prefix may itself be a valid document.
 
-Use [`Parser::new_from_fallible_iter`](https://docs.rs/granit-parser/latest/granit_parser/struct.Parser.html#method.new_from_fallible_iter) for a streaming source that can fail. It accepts an [`Iterator`](https://doc.rust-lang.org/std/iter/trait.Iterator.html) whose items are [`Result<char, ErrorKind>`](https://doc.rust-lang.org/std/result/enum.Result.html). The iterator protocol has three distinct outcomes:
+Use [`Parser::new_from_fallible_iter`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.Parser.html#method.new_from_fallible_iter) for a streaming source that can fail. It accepts an [`Iterator`](https://doc.rust-lang.org/std/iter/trait.Iterator.html) whose items are [`Result<char, ErrorKind>`](https://doc.rust-lang.org/std/result/enum.Result.html). The iterator protocol has three distinct outcomes:
 
 * `Some(Ok(character))` supplies another character.
 * `None` reports clean physical end-of-input.
 * `Some(Err(error_kind))` reports a terminal source failure.
 
-The parser returns a [`ScanError`](https://docs.rs/granit-parser/latest/granit_parser/struct.ScanError.html) carrying that same [`ErrorKind`](https://docs.rs/granit-parser/latest/granit_parser/enum.ErrorKind.html) and never polls the source again.
+The parser returns a [`ScanError`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.ScanError.html) carrying that same [`ErrorKind`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/enum.ErrorKind.html) and never polls the source again.
 See the [fallible reader example](examples/fallible_reader.rs).
 
-The lower-level [`Scanner`](https://docs.rs/granit-parser/latest/granit_parser/struct.Scanner.html)
+The lower-level [`Scanner`](https://docs.rs/ryl-yaml-parser/latest/ryl_yaml_parser/struct.Scanner.html)
 is also fallible. Its iterator item is `Result<Token, ScanError>`, so collecting all tokens keeps
 scanner failures distinct from clean EOF:
 
 ```rust
-use granit_parser::{Scanner, StrInput};
+use ryl_yaml_parser::{Scanner, StrInput};
 
 let tokens = Scanner::new(StrInput::new("key: value\n"))
     .collect::<Result<Vec<_>, _>>()
@@ -361,7 +345,7 @@ The filesystem-backed suite is not run under Miri isolation.
 
 ## Tools
 
-The repository includes a few developer tools for inspecting parser output and measuring performance.
+The crate includes a few developer tools for inspecting parser output and measuring performance.
 
 Root package binaries:
 
@@ -377,23 +361,6 @@ Root package binaries:
   ```sh
   cargo run --release --bin run_parser -- input.yaml 10
   ```
-
-Standalone helper crates:
-
-* `walk` opens a small REPL for navigating parsed YAML spans.
-  ```sh
-  cargo run --manifest-path tools/walk/Cargo.toml -- input.yaml
-  ```
-* `bench_compare` compares benchmark output from multiple parsers.
-  ```sh
-  cargo bench_compare -- run_bench
-  ```
-* `gen_large_yaml` generates large YAML inputs for benchmark work.
-  ```sh
-  cargo gen_large_yaml -- --help
-  ```
-
-See `tools/README.md` and `tools/bench_compare/README.md` for the longer tool notes.
 
 
 ## License

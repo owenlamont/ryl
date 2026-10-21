@@ -4,9 +4,9 @@
 //! regular test suite does not reach.
 
 #[cfg(feature = "comments")]
-use granit_parser::Placement;
+use ryl_yaml_parser::Placement;
 
-use granit_parser::{
+use ryl_yaml_parser::{
     input::{SkipTabs, WhitespaceResult},
     BufferedInput, ErrorKind, Event, Input, Parser, ScanError, StrInput, TryEventReceiver,
     TryLoadError,
@@ -181,7 +181,7 @@ fn comment_after_value_in_flow_sequence_explicit_pair_is_emitted() {
     #[cfg(not(feature = "comments"))]
     assert!(events.windows(3).any(|events| matches!(
         events,
-        [Event::MappingStart(granit_parser::StructureStyle::Flow, 0, None), Event::Scalar(key, ..), Event::Scalar(value, ..)]
+        [Event::MappingStart(ryl_yaml_parser::StructureStyle::Flow, 0, None), Event::Scalar(key, ..), Event::Scalar(value, ..)]
             if key == "a" && value == "b"
     )));
     #[cfg(feature = "comments")]
@@ -192,7 +192,7 @@ fn comment_after_value_in_flow_sequence_explicit_pair_is_emitted() {
             .expect("the comment between the key and value must be emitted");
         assert!(matches!(
             events[comment_pos - 2],
-            Event::MappingStart(granit_parser::StructureStyle::Flow, 0, None)
+            Event::MappingStart(ryl_yaml_parser::StructureStyle::Flow, 0, None)
         ));
         assert!(matches!(
             events[comment_pos - 1],

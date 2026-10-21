@@ -508,9 +508,9 @@ fn check_invariants(
     let once = format(input);
     check_preserved(input, &once)?;
     if once != input {
-        granit_parser::Parser::new_from_str_with_options(
+        ryl_yaml_parser::Parser::new_from_str_with_options(
             &once,
-            granit_parser::options! { strict_indentation: true },
+            ryl_yaml_parser::options! { strict_indentation: true },
         )
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("strict output: {error}: {once:?}"))?;
@@ -606,15 +606,15 @@ proptest! {
         let cfg = YamlLintConfig::from_toml_str(&format!("indent-width = {width}\n[format]")).unwrap();
         let output = ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
         prop_assert_ne!(&input, &output);
-        prop_assert!(granit_parser::Parser::new_from_str_with_options(
-            &output, granit_parser::options! { strict_indentation: true },
+        prop_assert!(ryl_yaml_parser::Parser::new_from_str_with_options(
+            &output, ryl_yaml_parser::options! { strict_indentation: true },
         ).collect::<Result<Vec<_>, _>>().is_ok(), "output must parse strictly");
         check_preserved(&input, &output).map_err(TestCaseError::fail)?;
         prop_assert_eq!(ryl::format::format_str(&output, &cfg, synthetic_path(), &[]), output);
         let fixed = apply_safe_fixes(&input, &cfg, synthetic_path(), synthetic_base_dir());
         prop_assert_ne!(&fixed, &input);
-        prop_assert!(granit_parser::Parser::new_from_str_with_options(
-            &fixed, granit_parser::options! { strict_indentation: true },
+        prop_assert!(ryl_yaml_parser::Parser::new_from_str_with_options(
+            &fixed, ryl_yaml_parser::options! { strict_indentation: true },
         ).collect::<Result<Vec<_>, _>>().is_ok(), "fixed output must parse strictly");
         check_preserved(&input, &fixed).map_err(TestCaseError::fail)?;
     }
@@ -929,7 +929,7 @@ fn lines(text: &str) -> Vec<&str> {
 
 /// Re-indent's own guarantee on top of the pipeline's: only leading spaces and the gaps
 /// after indicators change, a refused document keeps its bytes, and every other line is
-/// where `indentation` expects. An input granit cannot parse is left to the
+/// where `indentation` expects. An input the parser cannot parse is left to the
 /// parse-preservation check.
 fn check_reindent(input: &str, width: usize) -> Result<(), String> {
     if representation(input).is_none() {

@@ -1,4 +1,4 @@
-use granit_parser::{Marker, Span};
+use ryl_yaml_parser::{Marker, Span};
 
 pub(super) enum StoredSpan {
     Compact([u32; 9]),

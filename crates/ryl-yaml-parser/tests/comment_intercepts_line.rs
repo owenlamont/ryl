@@ -1,4 +1,4 @@
-use granit_parser::{Event, Parser};
+use ryl_yaml_parser::{Event, Parser};
 
 /// Comment intercepting the multiline text is invalid YAML (case BS4K)
 #[test]

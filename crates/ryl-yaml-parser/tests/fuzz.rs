@@ -1,5 +1,5 @@
 use core::str;
-use granit_parser::{ErrorKind, Event, Parser, ScanError};
+use ryl_yaml_parser::{ErrorKind, Event, Parser, ScanError};
 
 /// Run the parser through the string.
 ///

@@ -6,7 +6,7 @@
 /// # Examples
 ///
 /// ```rust
-/// let options = granit_parser::options! {
+/// let options = ryl_yaml_parser::options! {
 ///     strict_indentation: true,
 ///     flow_nesting_limit: 512,
 ///     block_nesting_limit: 256,

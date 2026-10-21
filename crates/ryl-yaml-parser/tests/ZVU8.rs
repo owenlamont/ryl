@@ -4,10 +4,10 @@
 // Upstream calls them valid under YAML 1.2's productions but undesirable to
 // encourage. Keep its acceptance expectation here, independently of that skip.
 
-use granit_parser::{Event, Parser, ScalarStyle};
+use ryl_yaml_parser::{Event, Parser, ScalarStyle};
 
 fn assert_empty_document(yaml: &str) {
-    let options = granit_parser::options! { strict_indentation: true };
+    let options = ryl_yaml_parser::options! { strict_indentation: true };
     let events = Parser::new_from_str_with_options(yaml, options)
         .map(|result| result.map(|(event, _)| event))
         .collect::<Result<Vec<_>, _>>()

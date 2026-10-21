@@ -1,5 +1,5 @@
 #[cfg(feature = "comments")]
-use granit_parser::Placement;
+use ryl_yaml_parser::Placement;
 extern crate alloc;
 
 use alloc::{
@@ -9,7 +9,7 @@ use alloc::{
     vec::Vec,
 };
 use core::iter::Empty;
-use granit_parser::{
+use ryl_yaml_parser::{
     BorrowedInput, ErrorKind, Event, Marker, Parser, ParserStack, ParserTrait, ReplayParser,
     ScalarStyle, ScanError, Span, SpannedEventReceiver, StrInput, StructureStyle, TryEventReceiver,
     TryLoadError,
@@ -684,11 +684,11 @@ fn test_replay_parser_updates_anchor_offset() {
         (Event::DocumentStart(false, None), span),
         (Event::MappingStart(StructureStyle::Block, 0, None), span),
         (
-            Event::Scalar("k2".into(), granit_parser::ScalarStyle::Plain, 0, None),
+            Event::Scalar("k2".into(), ryl_yaml_parser::ScalarStyle::Plain, 0, None),
             span,
         ),
         (
-            Event::Scalar("v2".into(), granit_parser::ScalarStyle::Plain, 2, None),
+            Event::Scalar("v2".into(), ryl_yaml_parser::ScalarStyle::Plain, 2, None),
             span,
         ),
         (Event::MappingEnd, span),
@@ -734,14 +734,14 @@ fn test_replay_parser_without_anchors_does_not_regress_anchor_offset() {
         (
             Event::Scalar(
                 "included".into(),
-                granit_parser::ScalarStyle::Plain,
+                ryl_yaml_parser::ScalarStyle::Plain,
                 0,
                 None,
             ),
             span,
         ),
         (
-            Event::Scalar("value".into(), granit_parser::ScalarStyle::Plain, 0, None),
+            Event::Scalar("value".into(), ryl_yaml_parser::ScalarStyle::Plain, 0, None),
             span,
         ),
         (Event::MappingEnd, span),

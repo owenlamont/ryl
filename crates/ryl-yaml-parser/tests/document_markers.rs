@@ -1,7 +1,7 @@
 mod support;
 #[cfg(feature = "comments")]
-use granit_parser::Placement;
-use granit_parser::{Event, Parser, ScalarStyle, ScanError, Span};
+use ryl_yaml_parser::Placement;
+use ryl_yaml_parser::{Event, Parser, ScalarStyle, ScanError, Span};
 
 /// Run the parser through the string.
 ///

@@ -687,7 +687,7 @@ pub trait Input {
     /// # Examples
     ///
     /// ```
-    /// use granit_parser::{Input, StrInput};
+    /// use ryl_yaml_parser::{Input, StrInput};
     ///
     /// let mut input = StrInput::new("é🦀\r\nnext");
     /// let mut output = String::from("prefix:");
@@ -735,7 +735,7 @@ pub trait Input {
     /// # Examples
     ///
     /// ```
-    /// use granit_parser::{BufferedInput, Input, StrInput};
+    /// use ryl_yaml_parser::{BufferedInput, Input, StrInput};
     ///
     /// // Remaining content after a double-quoted scalar's opening quote.
     /// let mut input = StrInput::new(r#"name\n""#);
@@ -805,7 +805,7 @@ pub trait Input {
 /// Whitespace results cannot be used as input policies:
 ///
 /// ```compile_fail,E0308
-/// use granit_parser::{input::WhitespaceResult, BufferedInput, Input};
+/// use ryl_yaml_parser::{input::WhitespaceResult, BufferedInput, Input};
 ///
 /// let mut input = BufferedInput::new(" \tvalue".chars());
 /// let previous_result = WhitespaceResult::new(true, true);
@@ -828,7 +828,7 @@ pub enum SkipTabs {
 /// # Examples
 ///
 /// ```
-/// use granit_parser::{input::{SkipTabs, WhitespaceResult}, BufferedInput, Input};
+/// use ryl_yaml_parser::{input::{SkipTabs, WhitespaceResult}, BufferedInput, Input};
 ///
 /// let mut input = BufferedInput::new(" \t#comment".chars());
 /// let (consumed, result) = input.skip_ws_to_eol_blanks(SkipTabs::Yes);

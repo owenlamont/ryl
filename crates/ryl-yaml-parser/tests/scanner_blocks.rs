@@ -11,7 +11,7 @@
 //!   `slice_bytes`) but without zero-copy borrowing (`slice_borrowed` returns `None`), which
 //!   forces the owned-copy fallbacks when finalizing quoted scalars.
 
-use granit_parser::{
+use ryl_yaml_parser::{
     input::{is_breakz, BorrowedInput, Input},
     Event, Parser, ScalarStyle, ScanError, StructureStyle,
 };

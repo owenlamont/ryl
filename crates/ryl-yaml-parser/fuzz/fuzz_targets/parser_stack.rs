@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), no_main)]
 #[cfg(feature = "comments")]
-use granit_parser::Placement;
+use ryl_yaml_parser::Placement;
 
 #[cfg(not(test))]
 mod common;
@@ -9,12 +9,12 @@ use crate::common;
 
 use std::fmt::Write;
 
-use granit_parser::{
+#[cfg(not(test))]
+use libfuzzer_sys::fuzz_target;
+use ryl_yaml_parser::{
     ErrorKind, Event, Marker, Parser, ParserStack, ParserTrait, ReplayParser, ScalarStyle,
     ScanError, Span, StrInput,
 };
-#[cfg(not(test))]
-use libfuzzer_sys::fuzz_target;
 
 type Stack<'a> = ParserStack<'a, std::vec::IntoIter<char>, StrInput<'a>>;
 
@@ -109,7 +109,7 @@ pub fn check_input(data: &[u8]) {
 
     for &emit_comments in common::comment_modes() {
         for peek in [false, true] {
-            let mut stack = Stack::with_options(granit_parser::options! {
+            let mut stack = Stack::with_options(ryl_yaml_parser::options! {
                 #[cfg(feature = "comments")]
                 emit_comments: emit_comments,
             });

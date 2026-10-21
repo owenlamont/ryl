@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import shutil
 import tarfile
+from typing import Final
 import zipfile
 
 
@@ -14,7 +15,28 @@ ROOT = Path(__file__).resolve().parent.parent
 PLATFORMS_PATH = ROOT / "npm-platforms.json"
 PACKAGE_JSON_PATH = ROOT / "package.json"
 README_PATH = ROOT / "README.md"
-LICENSE_PATH = ROOT / "LICENSE"
+# The binary embeds ryl-yaml-parser, whose license requires its inherited notices too.
+PARSER_NOTICES: Final = (
+    "LICENSE",
+    *(
+        f".licenses/{name}"
+        for name in (
+            "ChenYuheng-Apache",
+            "ChenYuheng-MIT",
+            "Ethiraric-Apache",
+            "Ethiraric-MIT",
+        )
+    ),
+)
+LICENSE_FILES: Final = (
+    (ROOT / "LICENSE", "LICENSE"),
+    (ROOT / "LICENSE-APACHE", "LICENSE-APACHE"),
+    *(
+        (ROOT / "crates" / "ryl-yaml-parser" / name, f"ryl-yaml-parser/{name}")
+        for name in PARSER_NOTICES
+    ),
+)
+LICENSE_PACKAGE_PATHS: Final = ("LICENSE", "LICENSE-APACHE", "ryl-yaml-parser/")
 LAUNCHER_PATH = ROOT / "bin" / "ryl.js"
 
 
@@ -51,6 +73,13 @@ def copy_text_asset(src: Path, dst: Path) -> None:
 
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
+
+
+def copy_license_files(package_dir: Path) -> None:
+    """Copy ryl's and ryl-yaml-parser's license notices into a package directory."""
+
+    for src, dst in LICENSE_FILES:
+        copy_text_asset(src, package_dir / dst)
 
 
 def extract_archive(
@@ -122,7 +151,7 @@ def build_meta_package(
     clean_dir(meta_dir)
 
     copy_text_asset(README_PATH, meta_dir / "README.md")
-    copy_text_asset(LICENSE_PATH, meta_dir / "LICENSE")
+    copy_license_files(meta_dir)
     copy_text_asset(LAUNCHER_PATH, meta_dir / "bin" / "ryl.js")
     copy_text_asset(PLATFORMS_PATH, meta_dir / "npm-platforms.json")
 
@@ -163,7 +192,7 @@ def build_platform_packages(
             raise FileNotFoundError(f"Missing release asset {archive_path}")
 
         copy_text_asset(README_PATH, package_dir / "README.md")
-        copy_text_asset(LICENSE_PATH, package_dir / "LICENSE")
+        copy_license_files(package_dir)
         binary_path = package_dir / "bin" / platform["binaryName"]
         extract_archive(archive_path, platform["binaryName"], binary_path)
         if platform["binaryName"] == "ryl":
@@ -179,7 +208,7 @@ def build_platform_packages(
             "bugs": package_data["bugs"],
             "repository": package_data["repository"],
             "type": "commonjs",
-            "files": ["bin/", "README.md", "LICENSE"],
+            "files": ["bin/", "README.md", *LICENSE_PACKAGE_PATHS],
             "os": platform["os"],
             "cpu": platform["cpu"],
             "publishConfig": {"access": "public"},

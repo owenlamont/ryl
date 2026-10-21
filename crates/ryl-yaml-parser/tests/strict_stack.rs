@@ -1,4 +1,4 @@
-use granit_parser::{ErrorKind, Parser, ParserStack, StrInput};
+use ryl_yaml_parser::{ErrorKind, Parser, ParserStack, StrInput};
 
 type Stack = ParserStack<'static, core::iter::Empty<char>, StrInput<'static>>;
 
@@ -6,7 +6,7 @@ const RELAXED: &str = "key: [\nvalue\n ]\n";
 const CONFORMING: &str = "key: [\n value\n ]\n";
 
 fn stack_with_include(strict: bool, borrowed: bool, source: &'static str) -> Stack {
-    let mut stack = Stack::with_options(granit_parser::options! { strict_indentation: strict });
+    let mut stack = Stack::with_options(ryl_yaml_parser::options! { strict_indentation: strict });
     if borrowed {
         stack.set_borrowed_resolver(move |_| Ok(source));
     } else {
@@ -50,11 +50,11 @@ fn strict_options_reach_owned_and_borrowed_includes() {
 fn stack_keeps_caller_supplied_parser_indentation_options() {
     for parser_strict in [false, true] {
         let mut stack =
-            Stack::with_options(granit_parser::options! { strict_indentation: !parser_strict });
+            Stack::with_options(ryl_yaml_parser::options! { strict_indentation: !parser_strict });
         stack.push_str_parser(
             Parser::new_from_str_with_options(
                 RELAXED,
-                granit_parser::options! { strict_indentation: parser_strict },
+                ryl_yaml_parser::options! { strict_indentation: parser_strict },
             ),
             "supplied.yaml".into(),
         );

@@ -1,11 +1,11 @@
 //! Representation-level oracle for the format suite: what a document *is*, as opposed to
 //! how it is laid out.
 //!
-//! Loading to plain values loses tags, aliases and duplicate keys, so [`representation`]
-//! keeps granit's event stream, correcting block scalar values where granit differs from
-//! the reference parser. It resolves
-//! each scalar against the version its document declares (or under YAML 1.1 throughout,
-//! for [`yaml_1_1_representation`]) and drops layout-only details (scalar style, the
+//! Loading to plain values loses tags, aliases and duplicate keys, so
+//! [`representation`] keeps the parser's event stream, correcting block scalar values
+//! where the parser differs from the reference parser. It resolves each scalar against
+//! the version its document declares (or under YAML 1.1 throughout, for
+//! [`yaml_1_1_representation`]) and drops layout-only details (scalar style, the
 //! `---` marker, collection style).
 //! [`annotations`] separately records each comment, keyed to the data event it sits
 //! beside, and the anchor and alias names in source order.
@@ -14,12 +14,12 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
-use granit_parser::{
+use regex::Regex;
+use ryl::yaml_dom::{Scalar, ScalarOwned, is_core_schema};
+use ryl_yaml_parser::{
     Event, Parser, Placement, ScalarStyle, Scanner, Span, SpannedEventReceiver,
     StrInput, StructureStyle, Tag, TokenType,
 };
-use regex::Regex;
-use ryl::yaml_dom::{Scalar, ScalarOwned, is_core_schema};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
@@ -90,7 +90,7 @@ struct Recorder {
     starts: Vec<(usize, usize, bool)>,
     comments: Vec<Comment>,
     dash_comments: BTreeSet<(usize, usize)>,
-    /// granit numbers anchors internally; ordinals of first definition are what the
+    /// the parser numbers anchors internally; ordinals of first definition are what the
     /// alias graph means.
     anchor_ordinals: BTreeMap<usize, usize>,
     terminal_block_values: BTreeMap<usize, (String, Span, bool, bool)>,
@@ -253,7 +253,7 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
                 self.anchor_ordinals
                     .get(&id)
                     .copied()
-                    .expect("granit rejects an alias to an undefined anchor"),
+                    .expect("the parser rejects an alias to an undefined anchor"),
             ),
             _ => return,
         };
@@ -345,7 +345,7 @@ pub(super) static BLOCK_HEADER: std::sync::LazyLock<regex::Regex> =
         regex::Regex::new(r"([|>][1-9+-]{0,2})(?:[ \t]*(?:#.*)?)$").unwrap()
     });
 
-pub(super) fn scalar_tokens(output: &str) -> Vec<(granit_parser::Span, ScalarStyle)> {
+pub(super) fn scalar_tokens(output: &str) -> Vec<(ryl_yaml_parser::Span, ScalarStyle)> {
     Scanner::new(StrInput::new(output))
         .map_while(Result::ok)
         .filter_map(|token| match token.into_parts() {
@@ -355,7 +355,7 @@ pub(super) fn scalar_tokens(output: &str) -> Vec<(granit_parser::Span, ScalarSty
         .collect()
 }
 
-pub(super) fn first_content_line(output: &str, span: &granit_parser::Span) -> usize {
+pub(super) fn first_content_line(output: &str, span: &ryl_yaml_parser::Span) -> usize {
     let lines = yaml_lines(output);
     let mut first = span.start.line();
     if span.indent.is_none()
@@ -442,7 +442,7 @@ fn value_representation(content: &str, assume_yaml_1_1: bool) -> Option<Vec<Node
 
 pub(super) fn reference_terminal_block_value(
     content: &str,
-    span: &granit_parser::Span,
+    span: &ryl_yaml_parser::Span,
     style: ScalarStyle,
     loaded: &str,
     followed: bool,
@@ -584,7 +584,8 @@ pub(super) fn reference_terminal_block_value(
         })
         .collect();
     let loaded = if root_explicit {
-        // granit counts root explicit indentation one level deeper than the reference.
+        // the parser counts root explicit indentation one level deeper than the
+        // reference.
         let mut adjusted = lines[..first - 1].concat();
         for line in body {
             adjusted.push(' ');

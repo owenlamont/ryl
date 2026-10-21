@@ -131,8 +131,8 @@ enabling the format-owned rules (`FORMAT_OWNED_RULES`, pinned equal to
 and `key-ordering` are lint-owned and stay out), one per quoted-strings variant plus a
 TOML row for the ryl-only ladder options.
 
-- Value preservation compares granit's event stream (`property_format/representation.rs`),
-  correcting block-scalar values where granit differs from the reference parser; the
+- Value preservation compares the parser's event stream (`property_format/representation.rs`),
+  correcting block-scalar values where the parser differs from the reference parser; the
   terminal and blank-only reference fixtures pin those corrections. It retains document
   count, node kinds, entry order, duplicate keys, explicit
   tags, the anchor/alias graph, and each scalar resolved against its document's declared

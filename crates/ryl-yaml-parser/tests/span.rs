@@ -1,6 +1,6 @@
 #![allow(clippy::bool_assert_comparison)]
 #![allow(clippy::float_cmp)]
-use granit_parser::{ErrorKind, Event, Marker, Parser, ScanError};
+use ryl_yaml_parser::{ErrorKind, Event, Marker, Parser, ScanError};
 
 fn char_index_to_byte_index(s: &str, char_index: usize) -> usize {
     if char_index == 0 {
@@ -70,13 +70,13 @@ fn first_event_slice(yaml: &str, matches_event: impl Fn(&Event<'_>) -> bool) -> 
         })
 }
 
-fn event_spans(yaml: &str) -> Vec<(Event<'_>, granit_parser::Span)> {
+fn event_spans(yaml: &str) -> Vec<(Event<'_>, ryl_yaml_parser::Span)> {
     Parser::new_from_str(yaml).map(Result::unwrap).collect()
 }
 
 #[test]
 fn span_helpers_report_length_empty_and_byte_range() {
-    let span = granit_parser::Span::new(
+    let span = ryl_yaml_parser::Span::new(
         Marker::new(2, 1, 2).with_byte_offset(Some(5)),
         Marker::new(6, 1, 6).with_byte_offset(Some(13)),
     );
@@ -86,11 +86,12 @@ fn span_helpers_report_length_empty_and_byte_range() {
     assert_eq!(span.byte_range(), Some(5..13));
     assert_eq!(span.tag_start(), None);
 
-    let empty = granit_parser::Span::empty(Marker::new(6, 1, 6).with_byte_offset(Some(13)));
+    let empty = ryl_yaml_parser::Span::empty(Marker::new(6, 1, 6).with_byte_offset(Some(13)));
     assert!(empty.is_empty());
     assert_eq!(empty.byte_range(), Some(13..13));
 
-    let without_byte_offsets = granit_parser::Span::new(Marker::new(0, 1, 0), Marker::new(1, 1, 1));
+    let without_byte_offsets =
+        ryl_yaml_parser::Span::new(Marker::new(0, 1, 0), Marker::new(1, 1, 1));
     assert_eq!(without_byte_offsets.byte_range(), None);
 }
 
@@ -305,7 +306,7 @@ fn tag_start_uses_tag_token_when_tag_precedes_anchor() {
 #[test]
 fn span_slice_returns_source_text_for_valid_byte_ranges() {
     let source = "key: value";
-    let span = granit_parser::Span::new(
+    let span = ryl_yaml_parser::Span::new(
         Marker::new(5, 1, 5).with_byte_offset(Some(5)),
         Marker::new(10, 1, 10).with_byte_offset(Some(10)),
     );
@@ -316,11 +317,11 @@ fn span_slice_returns_source_text_for_valid_byte_ranges() {
 #[test]
 fn span_slice_handles_non_ascii_byte_ranges() {
     let source = "a: 你好";
-    let span = granit_parser::Span::new(
+    let span = ryl_yaml_parser::Span::new(
         Marker::new(3, 1, 3).with_byte_offset(Some(3)),
         Marker::new(5, 1, 5).with_byte_offset(Some(source.len())),
     );
-    let invalid_boundary = granit_parser::Span::new(
+    let invalid_boundary = ryl_yaml_parser::Span::new(
         Marker::new(3, 1, 3).with_byte_offset(Some(4)),
         Marker::new(5, 1, 5).with_byte_offset(Some(source.len())),
     );
@@ -361,7 +362,7 @@ fn parser_spans_use_byte_offsets_for_non_ascii_input() {
 #[test]
 fn span_slice_handles_empty_spans() {
     let source = "key: value";
-    let empty = granit_parser::Span::empty(Marker::new(4, 1, 4).with_byte_offset(Some(4)));
+    let empty = ryl_yaml_parser::Span::empty(Marker::new(4, 1, 4).with_byte_offset(Some(4)));
 
     assert_eq!(empty.slice(source), Some(""));
 }

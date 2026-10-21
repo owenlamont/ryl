@@ -155,7 +155,7 @@ fn unknown_core_schema_tag_is_bad_value() {
     assert_matches!(v, YamlOwned::BadValue);
 }
 
-// granit scans a verbatim `!<…>` tag to an *empty* handle with the full URI in
+// the parser scans a verbatim `!<…>` tag to an *empty* handle with the full URI in
 // the suffix, so a core tag must be recognised by suffix rather than handle to
 // resolve like its `!!` shorthand. Verified vs PyYAML + ruamel.yaml.
 #[test]

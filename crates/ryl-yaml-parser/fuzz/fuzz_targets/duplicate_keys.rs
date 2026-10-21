@@ -6,9 +6,9 @@ mod common;
 use crate::common;
 
 use common::parse_with_both_inputs;
-use granit_parser::Parser;
 #[cfg(not(test))]
 use libfuzzer_sys::fuzz_target;
+use ryl_yaml_parser::Parser;
 
 const MAX_INPUT_LEN: usize = 8 * 1024;
 const MAX_SIMPLE_KEY_BYTES: usize = 384;

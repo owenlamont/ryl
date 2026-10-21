@@ -17,7 +17,7 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    `resolve(&YamlLintConfig)`, a `check(...) -> Vec<Violation>` (or `Option`), and a
    `Violation { line, column, message }`. Open with a `//!` header — one-line purpose,
    a `Sources:` line (spec / yamllint / authoritative refs), and the "no safe `--fix`"
-   note where applicable. Prefer granit scanner/event tokens over char heuristics; if
+   note where applicable. Prefer parser scanner/event tokens over char heuristics; if
    the rule tracks key/value position, advance the shared
    `support::mapping_key_walker::Walker` on *every* node event, including
    `Event::Alias` (`Walker::skip_node`), or key/value alternation desyncs.
@@ -44,21 +44,21 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    output, produce the `line:col`/message by **running ryl** on the shown input — not by
    hand (hand-written examples have shipped with wrong columns).
 
-## granit event/span gotchas (granit-parser 2.0.0)
+## Parser event/span gotchas (ryl-yaml-parser)
 
-Facts the codebase relies on; re-verify on a granit bump:
+Facts the codebase relies on; re-verify after changing the parser:
 
 - Derive a token's position from `marker.byte_offset()` via
   `crate::rules::support::span_utils` (the pattern every span-using rule follows), rather
   than reading offsets off the raw `Span` by hand.
-- Any rule reading granit token/event line numbers must index lines split the
-  granit-aligned way (`\r\n|\r|\n`, via `line_syntax`), never `\n`-only: a bare `\r`
-  is a line break to granit, so a `\n`-only split desyncs and can panic out-of-bounds.
-- For an indentation/column-sensitive rule, derive structure from granit events from the
+- Any rule reading parser token/event line numbers must index lines split the
+  parser-aligned way (`\r\n|\r|\n`, via `line_syntax`), never `\n`-only: a bare `\r`
+  is a line break to the parser, so a `\n`-only split desyncs and can panic out-of-bounds.
+- For an indentation/column-sensitive rule, derive structure from parser events from the
   start; a line-based `classify_mapping` is YAML-unsound on colons-in-scalars, quoted
   escapes, and multiline plain scalars (the comments-indentation rewrite learned this over
   ~5 review rounds).
 - Matching a `tag:yaml.org,2002:` type (`!!int`, `!!merge`, …): use
   `crate::yaml_dom::core_schema_suffix` / `is_core_schema`. They resolve every spelling
-  (verbatim, `!!`, a `%TAG` split mid-token) and, unlike granit's strict Core Schema
+  (verbatim, `!!`, a `%TAG` split mid-token) and, unlike the parser's strict Core Schema
   `Tag::core_suffix` / `is_yaml_core_schema`, also see non-core types such as `merge`.

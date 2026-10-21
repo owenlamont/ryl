@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use granit_parser::{Event, ScalarStyle};
+use ryl_yaml_parser::{Event, ScalarStyle};
 
 use crate::fix::{PassTracking, Passes};
 use crate::rules::{

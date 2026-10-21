@@ -1,4 +1,4 @@
-use granit_parser::{Event, Parser, ScalarStyle, ScanError, StructureStyle};
+use ryl_yaml_parser::{Event, Parser, ScalarStyle, ScanError, StructureStyle};
 
 fn parse_events(input: &str) -> Result<Vec<Event<'_>>, ScanError> {
     Parser::new_from_str(input)

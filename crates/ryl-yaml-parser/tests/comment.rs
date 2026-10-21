@@ -1,6 +1,6 @@
 use std::{borrow::Cow, cell::Cell, rc::Rc};
 
-use granit_parser::{
+use ryl_yaml_parser::{
     BorrowedInput, BufferedInput, Comment, ErrorKind, Event, EventReceiver, Marker, Options,
     Parser, Placement, ScalarStyle, ScanError, Scanner, Span, StrInput, Token, TokenType,
     TryEventReceiver,
@@ -979,7 +979,7 @@ fn parser_streams_tab_prefixed_comment_runs_before_reading_tail() {
 
     for strict_indentation in [false, true] {
         for (name, yaml) in &cases {
-            let options = granit_parser::options! {
+            let options = ryl_yaml_parser::options! {
                 strict_indentation: strict_indentation,
                 max_buffered_comment_events: 4,
             };
@@ -1005,7 +1005,7 @@ fn parser_rejects_ambiguous_tab_prefixed_comment_runs_before_reading_tail() {
 
     for strict_indentation in [false, true] {
         for (name, yaml) in &cases {
-            let options = granit_parser::options! {
+            let options = ryl_yaml_parser::options! {
                 strict_indentation: strict_indentation,
                 max_buffered_comment_events: 4,
             };

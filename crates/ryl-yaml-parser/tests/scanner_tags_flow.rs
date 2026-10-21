@@ -9,7 +9,7 @@
 
 use std::cell::Cell;
 
-use granit_parser::{
+use ryl_yaml_parser::{
     BorrowedInput, BufferedInput, Event, Input, Parser, ScalarStyle, ScanError, Scanner, StrInput,
     Tag,
 };

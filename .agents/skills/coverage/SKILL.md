@@ -89,7 +89,7 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   spelling sets). Version-sensitive rules honor explicit version directives and retain
   cross-version quoting safeguards.
 - Matching a core-schema tag (`!!int`, `!!str`, …): use
-  `crate::yaml_dom::core_schema_suffix(tag)` / `is_core_schema(tag)`. They wrap granit's
+  `crate::yaml_dom::core_schema_suffix(tag)` / `is_core_schema(tag)`. They wrap the parser's
   `Tag::suffix_in_namespace`, which resolves every spelling (verbatim, `!!`, a `%TAG`
-  split mid-token), and unlike granit's strict `Tag::is_yaml_core_schema` they also
+  split mid-token), and unlike the parser's strict `Tag::is_yaml_core_schema` they also
   accept non-core types such as `merge`.

@@ -1,5 +1,5 @@
 // 6FWR: Block Scalar Keep (|+)
-use granit_parser::{Event, Parser};
+use ryl_yaml_parser::{Event, Parser};
 
 #[allow(clippy::unreachable)]
 #[test]

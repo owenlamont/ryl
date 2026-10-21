@@ -1,4 +1,4 @@
-use granit_parser::{ErrorKind, Event, EventReceiver, Parser, ScanError};
+use ryl_yaml_parser::{ErrorKind, Event, EventReceiver, Parser, ScanError};
 
 struct Collector(Vec<Event<'static>>);
 impl EventReceiver<'static> for Collector {

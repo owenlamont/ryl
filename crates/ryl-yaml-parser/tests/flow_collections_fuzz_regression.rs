@@ -1,6 +1,6 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use granit_parser::Parser;
+use ryl_yaml_parser::Parser;
 
 const CRASH_CA24C2F5B1341124FCD324CBAAFCAA9A1F6D034C: &[u8] = &[
     255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 10, 9, 35, 8, 10, 9, 255, 255, 255, 255,

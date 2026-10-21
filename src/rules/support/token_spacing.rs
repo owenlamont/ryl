@@ -8,7 +8,7 @@ use crate::text_version::Analysis;
 use std::ops::Range;
 
 use crate::text_version::lexical::Kind as LexicalKind;
-use granit_parser::ScalarStyle;
+use ryl_yaml_parser::ScalarStyle;
 
 use crate::rules::support::punctuation::byte_line_and_column;
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
@@ -155,7 +155,7 @@ impl<'a> Sites<'a> {
         edits
     }
 
-    pub(crate) fn push(&mut self, span: granit_parser::Span, token: &LexicalKind) {
+    pub(crate) fn push(&mut self, span: ryl_yaml_parser::Span, token: &LexicalKind) {
         self.open.retain_mut(|(index, line, depth)| {
             match token {
                 LexicalKind::BlockMappingStart | LexicalKind::BlockSequenceStart => {

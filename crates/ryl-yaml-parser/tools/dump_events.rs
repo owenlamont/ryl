@@ -1,4 +1,4 @@
-use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
+use ryl_yaml_parser::{Event, Parser, Span, SpannedEventReceiver};
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;

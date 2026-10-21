@@ -1,5 +1,5 @@
 [package]
-name = "granit-parser-fuzz"
+name = "ryl-yaml-parser-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -9,11 +9,11 @@ cargo-fuzz = true
 
 [features]
 default = ["comments"]
-comments = ["granit-parser/comments"]
+comments = ["ryl-yaml-parser/comments"]
 
 [dependencies]
 libfuzzer-sys = "0.4"
-granit-parser = { path = "..", default-features = false, features = ["std", "error_messages"] }
+ryl-yaml-parser = { path = "..", default-features = false, features = ["std", "error_messages"] }
 
 [[bin]]
 name = "aliases_merges"

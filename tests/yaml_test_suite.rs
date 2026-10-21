@@ -1,6 +1,6 @@
 use std::{fs, path::Path, process::Command};
 
-use granit_parser::{Event, Parser, ScalarStyle};
+use ryl_yaml_parser::{Event, Parser, ScalarStyle};
 
 const CONFIG: &str =
     "[format]\nquote-style = 'preserve'\n[lint.rules.document-start]\n";
@@ -50,7 +50,7 @@ fn normalize(expected: &str) -> Vec<String> {
 fn events(input: &str, strict: bool) -> Result<Vec<String>, String> {
     Parser::new_from_str_with_options(
         input,
-        granit_parser::options! { strict_indentation: strict },
+        ryl_yaml_parser::options! { strict_indentation: strict },
     )
     .filter_map(|item| {
         let (event, _) = match item {

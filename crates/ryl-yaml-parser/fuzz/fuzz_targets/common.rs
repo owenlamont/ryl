@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use granit_parser::{
+use ryl_yaml_parser::{
     BufferedInput, ErrorKind, Event, FallibleBufferedInput, Marker, Options, Parser, ScanError,
     Scanner, Span, StrInput, Token, TokenType,
 };

@@ -1,4 +1,4 @@
-use granit_parser::{
+use ryl_yaml_parser::{
     Event, Marker, Parser, ScalarStyle, ScanError, Span, StructureStyle,
     StructureStyle::{Block, Flow},
 };

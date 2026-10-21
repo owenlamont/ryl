@@ -24,7 +24,7 @@ The YAML config loader (`yaml_dom::loader`; `lint_str` builds no DOM) bounds ali
 expansion at `MAX_EXPANDED_NODES` and `extends` depth at `MAX_EXTENDS_DEPTH`, so
 billion-laughs and cyclic-`extends` configs error instead of exhausting memory/stack. An
 empty YAML/TOML config errors ("not a mapping" / "configuration is empty") rather than
-silently linting nothing. granit caps nesting recursion (~256), and config regexes
+silently linting nothing. The parser caps nesting recursion (~256), and config regexes
 (`key-ordering`/`quoted-strings`) are validated at parse time with the linear-time
 `regex` crate (no ReDoS).
 

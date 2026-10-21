@@ -1,4 +1,4 @@
-use granit_parser::{
+use ryl_yaml_parser::{
     BufferedInput, ErrorKind, Event, Options, Parser, ScalarStyle, ScanError, Scanner, Span,
     StrInput, StructureStyle,
 };
@@ -407,7 +407,7 @@ fn minimally_indented_quoted_continuations_preserve_folding_and_source_spans() {
                 for (blank_line, expected) in [("", "un deux"), (newline, "un\ndeux")] {
                     let quoted = format!("{quote}un{newline}{blank_line}{indent}deux{quote}");
                     let input = format!("{prefix}{quoted}{newline}after: done{newline}");
-                    let options = granit_parser::options! { strict_indentation: true };
+                    let options = ryl_yaml_parser::options! { strict_indentation: true };
                     let from_str = Parser::new_from_str_with_options(&input, options.clone())
                         .collect::<Result<Vec<_>, _>>()
                         .unwrap_or_else(|error| panic!("{input:?}: {error}"));

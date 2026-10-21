@@ -4,7 +4,9 @@ pub fn assert_cached_quote_matches_fresh(value: &str) {
     let quoted = serde_json::to_string(value).unwrap();
     let single = format!("first: {quoted}\n");
     let repeated = format!("{single}second: {quoted}\n");
-    assert!(granit_parser::Parser::new_from_str(&repeated).all(|event| event.is_ok()));
+    assert!(
+        ryl_yaml_parser::Parser::new_from_str(&repeated).all(|event| event.is_ok())
+    );
 
     let config = Config::ladder(QuoteStyle::Double);
     let fresh = quoted_strings::check(&single, &config);

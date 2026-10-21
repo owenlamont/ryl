@@ -1,6 +1,6 @@
 use std::io;
 
-use granit_parser::{ErrorKind, Event, InputIoError, Parser, ScanError};
+use ryl_yaml_parser::{ErrorKind, Event, InputIoError, Parser, ScanError};
 
 /// Iterator adapter that adds parser error reporting and a UTF-8 byte limit.
 ///

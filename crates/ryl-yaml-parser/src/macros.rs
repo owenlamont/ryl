@@ -8,7 +8,7 @@
 /// # Examples
 ///
 /// ```rust
-/// let options = granit_parser::options! {
+/// let options = ryl_yaml_parser::options! {
 ///     emit_comments: false,
 ///     simple_key_max_lookahead: 2048,
 /// };

@@ -1,4 +1,4 @@
-use granit_parser::{Parser, ScanError};
+use ryl_yaml_parser::{Parser, ScanError};
 
 fn first_error_from_str(input: &str) -> ScanError {
     Parser::new_from_str(input)

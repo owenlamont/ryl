@@ -102,7 +102,7 @@ fn handles_windows_line_endings() {
 fn malformed_empty_anchor_defers_to_syntax_error() {
     // `& value` is an empty anchor name, a scanner error: the token stream stops
     // there, so the rule emits nothing and the alias after it is not reached. Lint
-    // surfaces the granit syntax error instead of an anchors diagnostic.
+    // surfaces the parser's syntax error instead of an anchors diagnostic.
     let cfg = Config::new_for_tests(true, true, true);
     let hits = anchors::check("---\n- & value\n- *missing\n", &cfg);
     assert!(hits.is_empty(), "unexpected diagnostics: {hits:?}");
@@ -585,7 +585,7 @@ fn ambiguous_colon_leading_names_are_reported() {
             &format!(r#"{MESSAGE_AMBIGUOUS_ANCHOR} ":foo""#)
         )]
     );
-    // The names resolve to `:` (spec/granit), so `*:` references the declared `&:`
+    // The names resolve to `:` (spec/parser), so `*:` references the declared `&:`
     // (used, not undeclared); both carry the welded colon and are flagged ambiguous.
     let both = anchors::check("a: &: 1\nb: *:\n", &ambiguous_cfg());
     assert_eq!(
@@ -607,8 +607,8 @@ fn space_separated_alias_key_is_not_ambiguous() {
 #[test]
 fn ampersand_inside_plain_scalar_is_not_an_anchor() {
     // `&` after a non-space (`rock&roll`) or after a plain-scalar word and a space
-    // (`word &x:y`) is part of the plain scalar (granit/yamllint agree), not an
-    // anchor: the granit scanner tokenises both as a single `Scalar`, so the rule
+    // (`word &x:y`) is part of the plain scalar (the parser and yamllint agree), not an
+    // anchor: the parser's scanner tokenises both as a single `Scalar`, so the rule
     // sees no anchor to flag or register.
     let cfg = Config::new_for_tests(true, false, true)
         .with_forbid_ambiguous_anchor_alias_names(true);

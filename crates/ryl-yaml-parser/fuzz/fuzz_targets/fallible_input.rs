@@ -2,11 +2,11 @@
 
 use std::str;
 
-use granit_parser::{
-    ErrorKind, Event, FallibleBufferedInput, InputIoError, Parser, Scanner, TokenType,
-};
 #[cfg(not(test))]
 use libfuzzer_sys::fuzz_target;
+use ryl_yaml_parser::{
+    ErrorKind, Event, FallibleBufferedInput, InputIoError, Parser, Scanner, TokenType,
+};
 
 struct ErrorAt<'a> {
     chars: str::Chars<'a>,

@@ -1,4 +1,4 @@
-use granit_parser::{Event, Parser};
+use ryl_yaml_parser::{Event, Parser};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let yaml = "opw_kinematics_joint_offsets: !degrees [0, 0, -90, 0, 0, 180]\n";

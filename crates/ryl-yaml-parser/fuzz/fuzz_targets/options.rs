@@ -8,9 +8,9 @@ use crate::common;
 use std::str;
 
 use common::{check_comment_suppression_with_options, parse_with_options, scan_with_options};
-use granit_parser::{ErrorKind, Options, Parser, Scanner, StrInput};
 #[cfg(not(test))]
 use libfuzzer_sys::fuzz_target;
+use ryl_yaml_parser::{ErrorKind, Options, Parser, Scanner, StrInput};
 
 #[cfg(feature = "comments")]
 const COMMENT_LIMITS: &[usize] = &[0, 1, 31, 32, 33, 95, 96, 97, 255];
@@ -121,7 +121,7 @@ pub fn check_input(data: &[u8]) {
 
     // The high flag bit selects strict indentation for every raw oracle, including comment
     // suppression. Lower flags and the five-byte header keep their existing meanings.
-    let mut options = granit_parser::options! { strict_indentation: flags & 0x80 != 0 };
+    let mut options = ryl_yaml_parser::options! { strict_indentation: flags & 0x80 != 0 };
     if mode % 3 == 2 {
         check_comment_suppression_with_options(input, options);
         return;

@@ -8,9 +8,9 @@ use crate::common;
 use std::str;
 
 use common::parse_with_both_inputs;
-use granit_parser::{Event, Parser, ScalarStyle};
 #[cfg(not(test))]
 use libfuzzer_sys::fuzz_target;
+use ryl_yaml_parser::{Event, Parser, ScalarStyle};
 
 const SIZE_BUCKETS: [usize; 5] = [64, 1 << 10, 16 << 10, 64 << 10, 256 << 10];
 const MAX_SEED_BYTES: usize = 16 << 10;

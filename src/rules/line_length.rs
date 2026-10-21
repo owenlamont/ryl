@@ -10,7 +10,7 @@ pub use fold::{Fold, fold};
 
 use std::convert::TryFrom;
 
-use granit_parser::{Event, Parser, Span, SpannedEventReceiver};
+use ryl_yaml_parser::{Event, Parser, Span, SpannedEventReceiver};
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::split_lines_preserve_endings;

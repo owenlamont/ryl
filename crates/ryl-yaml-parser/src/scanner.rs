@@ -143,7 +143,7 @@ impl Marker {
 /// Destructuring patterns must include `..`.
 ///
 /// ```rust
-/// use granit_parser::{Marker, Span};
+/// use ryl_yaml_parser::{Marker, Span};
 ///
 /// let start = Marker::new(0, 1, 0);
 /// let end = Marker::new(3, 1, 3);
@@ -159,7 +159,7 @@ impl Marker {
 /// Direct struct construction outside this crate is not supported:
 ///
 /// ```compile_fail,E0639
-/// use granit_parser::{Marker, Span};
+/// use ryl_yaml_parser::{Marker, Span};
 ///
 /// let marker = Marker::new(0, 1, 0);
 /// let span = Span { start: marker, end: marker, indent: None, tag_start: None };
@@ -168,7 +168,7 @@ impl Marker {
 /// Struct-update syntax is likewise unavailable; use the builders or assign individual fields:
 ///
 /// ```compile_fail,E0639
-/// use granit_parser::{Marker, Span};
+/// use ryl_yaml_parser::{Marker, Span};
 ///
 /// let span = Span { indent: Some(2), ..Span::empty(Marker::new(0, 1, 0)) };
 /// ```

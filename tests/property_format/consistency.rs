@@ -1,9 +1,9 @@
 use super::representation::{
     BLOCK_HEADER, first_content_line, scalar_tokens, yaml_lines,
 };
-use granit_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
+use ryl_yaml_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use similar::{DiffTag, TextDiff};
 
 pub(super) fn scalar_value(output: &str, index: usize) -> Option<noyalib::Value> {

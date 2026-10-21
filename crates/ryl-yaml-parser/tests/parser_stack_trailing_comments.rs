@@ -1,7 +1,7 @@
 mod support;
 #[cfg(feature = "comments")]
-use granit_parser::Placement;
-use granit_parser::{
+use ryl_yaml_parser::Placement;
+use ryl_yaml_parser::{
     ErrorKind, Event, Marker, Options, Parser, ParserStack, ParserTrait, ReplayParser, ScalarStyle,
     ScanError, Span, StrInput,
 };
@@ -158,7 +158,7 @@ fn included_trailing_comments_are_emitted_before_parent_resumes() {
 fn trailing_comments_do_not_hide_a_second_included_document() {
     for backend in BACKENDS {
         for &emit_comments in support::comment_modes() {
-            let options = granit_parser::options! { #[cfg(feature = "comments")] emit_comments: emit_comments };
+            let options = ryl_yaml_parser::options! { #[cfg(feature = "comments")] emit_comments: emit_comments };
             let mut stack = stack_with_child(backend, TWO_DOCUMENTS, options);
             let mut actual = Vec::new();
             let error = loop {
@@ -204,7 +204,7 @@ fn replayed_trailing_comments_do_not_allow_events_after_document_end() {
             assert!(matches!(events.pop().unwrap().0, Event::StreamEnd));
             events.push((unexpected.clone(), Span::empty(Marker::new(29, 4, 0))));
 
-            let mut stack = Stack::with_options(granit_parser::options! {
+            let mut stack = Stack::with_options(ryl_yaml_parser::options! {
                 #[cfg(feature = "comments")]
                 emit_comments: emit_comments,
             });
