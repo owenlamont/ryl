@@ -275,3 +275,33 @@ fn partial_late_document_does_not_authorize_snapshot_edits() {
     let source = "a: \"é\" #comment\n...\n---\nb: *missing\n";
     assert_format(source, source, "");
 }
+
+#[test]
+fn large_bom_epochs_match_serial_scanner_columns() {
+    let input = format!(
+        "\u{feff}# {}\na: 'é' #note\n...\n\u{feff}b:\n    -  café\n    -  'two'\n",
+        "padding ".repeat(131_073)
+    );
+    let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    let serial = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
+    let parallel = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .unwrap();
+    let expected =
+        serial.install(|| format_str(&input, &cfg, Path::new("bom.yaml"), &[]));
+    let output =
+        parallel.install(|| format_str(&input, &cfg, Path::new("bom.yaml"), &[]));
+    assert!(
+        output == expected,
+        "prefetch must preserve both BOM coordinate views"
+    );
+    assert!(output.ends_with("a: é  # note\n...\n\u{feff}b:\n  - café\n  - two\n"));
+    assert!(
+        parallel.install(|| format_str(&output, &cfg, Path::new("bom.yaml"), &[]))
+            == output
+    );
+}

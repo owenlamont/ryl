@@ -205,6 +205,15 @@ cached normalizer, whose marker columns distinguish prefix BOMs from scalar cont
 Physical lines borrow slices from the byte-start table; scalar protection ranges are
 cached per text epoch. Space replacements emit counts.
 
+Formatter epochs of at least 1 MiB overlap strict parsing with lexical prefetch
+when both CPU availability and the current Rayon pool allow multiple workers.
+Owned token tapes seed the existing snapshot cache and feed the same planner as
+the streaming scanner. Candidate tapes are accepted only after verification;
+each tape is released after its consumers finish. Counters are recorded on the
+caller so stolen tasks cannot charge another file's thread-local recording.
+Initial parse counts are seeded when the formatter recording starts, so input
+parsing must stay unrecorded.
+
 For fallback and indentation-only callers, changed single-document output of at
 least 1 MB uses one strict streaming parse to compare significant events against the
 input tape through EOF and cache compact

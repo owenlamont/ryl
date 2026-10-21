@@ -2453,3 +2453,32 @@ fn g11_refusal_maps_indentation_through_trailing_space_cleanup() {
         &before,
     ));
 }
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 16,
+        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
+            "tests/proptest-regressions/property_format.txt",
+        ))),
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn large_epochs_match_serial_formatting(
+        document in arb_document_with_properties(),
+        settings in settings::arb_format_config(),
+        newline in prop::sample::select(vec!["\n", "\r\n", "\r"]),
+    ) {
+        let body = document.render().replace('\n', newline);
+        let input = format!("#{}{newline}{body}", "padding ".repeat(131_073));
+        let serial = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+        let parallel = rayon::ThreadPoolBuilder::new().num_threads(2).build().unwrap();
+        let cfg = YamlLintConfig::from_toml_str(&settings).unwrap();
+        let format = || ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
+        let expected = serial.install(format);
+        let actual = parallel.install(format);
+        prop_assert_eq!(&actual, &expected);
+        let again = parallel.install(|| ryl::format::format_str(&actual, &cfg, synthetic_path(), &[]));
+        prop_assert_eq!(actual, again);
+    }
+}
