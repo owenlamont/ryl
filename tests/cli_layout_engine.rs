@@ -1057,6 +1057,18 @@ fn trailing_commas_use_the_closing_collections_spacing_target() {
         format_with_statistics("café: [ one, two, ]\nmap: { a : b , }\n", "[format]\n");
     assert_eq!(output, "café: [one, two,]\nmap: {a: b,}\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn lf_only_stream_uses_verified_plan_without_line_records() {
+    let (output, statistics) =
+        format_with_statistics(&"\n".repeat(262_144), "[format]\n");
+    assert_eq!(output, "");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["rollback"], 0, "{statistics}");
+    assert_eq!(statistics["verification_parses"], 1, "{statistics}");
+    assert_eq!(statistics["planning_invocations"], 2, "{statistics}");
+    assert_eq!(statistics["line_table_builds"], 1, "{statistics}");
     assert_eq!(statistics["emissions"], 1, "{statistics}");
 }
 
@@ -1271,4 +1283,21 @@ fn a_directive_on_the_next_line_does_not_stop_a_block_fold() {
         "a: >-\n  more text\n  here\ncafé : 1 # ryl disable-line\n"
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn non_lf_whitespace_plans_line_records() {
+    let (output, statistics) = format_with_statistics(" \n\t\n", "[format]\n");
+    assert_eq!(output, "");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["line_table_builds"], 2, "{statistics}");
+}
+
+#[test]
+fn lf_only_collection_conversion_plans_line_records() {
+    let (output, statistics) =
+        format_with_statistics("\n\n", "[format]\nsequence-style = \"flow\"\n");
+    assert_eq!(output, "");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["line_table_builds"], 2, "{statistics}");
 }
