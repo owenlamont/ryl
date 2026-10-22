@@ -1,4 +1,4 @@
-//! Build small, reproducible corpora containing raw regressions and generator control bytes.
+//! Named inputs for each oracle: raw regressions and generator control bytes.
 
 pub const TARGETS: &[&str] = &[
     "aliases_merges",
@@ -45,7 +45,7 @@ const STRICT_INPUTS: &[&str] = &[
     "key: ['é\n'] # closing\n",
 ];
 
-/// Build reproducible raw inputs or generator control bytes for a fuzz target.
+/// Raw inputs or generator control bytes for an oracle.
 ///
 /// # Panics
 /// Panics if `target` is not one of [`TARGETS`].
@@ -61,7 +61,9 @@ pub fn seeds(target: &str) -> Vec<Vec<u8>> {
         }
         "aliases_merges" => headers.extend((0..4).map(|mode| vec![mode])),
         "duplicate_keys" => headers.extend((0..5).map(|mode| vec![mode])),
-        "directives_tags" => headers.extend((0..6).chain(240..=255).map(|mode| vec![mode])),
+        "directives_tags" => {
+            headers.extend((0..6).chain(240..=255).map(|mode| vec![mode]))
+        }
         "flow_collections" => {
             for mode in (0..6).chain(252..=254) {
                 headers.extend((0..4).map(|shape| vec![mode, shape]));
@@ -94,7 +96,7 @@ pub fn seeds(target: &str) -> Vec<Vec<u8>> {
                 }
             }
         }
-        _ => panic!("unknown fuzz target: {target}"),
+        _ => panic!("unknown oracle: {target}"),
     }
     for header in &mut headers {
         header.extend_from_slice("é🪨 # ---\tvalue\n".as_bytes());
@@ -112,33 +114,4 @@ pub fn seeds(target: &str) -> Vec<Vec<u8>> {
         }
     }
     headers
-}
-
-#[cfg(not(test))]
-fn main() -> std::io::Result<()> {
-    let mut args = std::env::args().skip(1);
-    let target = args
-        .next()
-        .expect("usage: seed_corpus TARGET OUTPUT_DIRECTORY");
-    assert!(
-        TARGETS.contains(&target.as_str()),
-        "unknown fuzz target: {target}"
-    );
-    let directory = args.next().expect("missing output directory");
-    assert!(args.next().is_none(), "unexpected extra arguments");
-    std::fs::create_dir_all(&directory)?;
-    for (index, input) in seeds(&target).iter().enumerate() {
-        use std::io::Write;
-        let path = std::path::Path::new(&directory).join(format!("changelog-seed-{index:03}"));
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-        {
-            Ok(mut file) => file.write_all(input)?,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(())
 }

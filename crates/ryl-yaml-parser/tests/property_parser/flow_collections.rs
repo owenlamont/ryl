@@ -1,15 +1,8 @@
-#![cfg_attr(not(test), no_main)]
-
-#[cfg(not(test))]
-mod common;
-#[cfg(test)]
-use crate::common;
+use super::common;
 
 use std::str;
 
-use common::parse_with_both_inputs;
-#[cfg(not(test))]
-use libfuzzer_sys::fuzz_target;
+use common::{cap_at_utf8_boundary, parse_with_both_inputs};
 use ryl_yaml_parser::{ErrorKind, Parser, ScalarStyle};
 
 const MAX_PAYLOAD_BYTES: usize = 16 << 10;
@@ -18,8 +11,6 @@ const MAX_NESTING_DEPTH: usize = 32;
 // Select one construction per iteration so coverage feedback is attributable
 // to that construction and executions stay cheap. Valid, raw, malformed, and
 // nested flow inputs all remain reachable from short mutations.
-#[cfg(not(test))]
-fuzz_target!(|data: &[u8]| check_input(data));
 
 /// Generate bounded flow collections and compare parser backends with semantic expectations.
 ///
@@ -221,19 +212,8 @@ fn malformed_nested(payload: &[u8], shape: u8) -> String {
 }
 
 fn nesting_is_mapping(shape: u8, level: usize) -> bool {
-    (usize::from(shape.rotate_right(u32::try_from(level % 8).unwrap())) + level) & 1 == 0
-}
-
-fn cap_at_utf8_boundary(data: &[u8], max_len: usize) -> &[u8] {
-    if data.len() <= max_len {
-        return data;
-    }
-
-    let mut end = max_len;
-    while end > 0 && data[end] & 0xc0 == 0x80 {
-        end -= 1;
-    }
-    &data[..end]
+    (usize::from(shape.rotate_right(u32::try_from(level % 8).unwrap())) + level) & 1
+        == 0
 }
 
 fn push_quoted_byte(yaml: &mut String, byte: u8) {

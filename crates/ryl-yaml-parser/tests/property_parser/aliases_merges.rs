@@ -1,44 +1,9 @@
-#![cfg_attr(not(test), no_main)]
+use super::common;
 
-#[cfg(not(test))]
-mod common;
-#[cfg(test)]
-use crate::common;
-
-use common::parse_with_both_inputs;
-#[cfg(not(test))]
-use libfuzzer_sys::fuzz_target;
+use common::{parse_with_both_inputs, quoted_scalar};
 use ryl_yaml_parser::Parser;
 
 const MAX_INPUT_LEN: usize = 8 * 1024;
-
-fn quoted_scalar(value: &str) -> String {
-    let mut quoted = String::with_capacity(value.len() + 2);
-    quoted.push('"');
-    for character in value.chars() {
-        match character {
-            '\0' => quoted.push_str("\\0"),
-            '\x07' => quoted.push_str("\\a"),
-            '\x08' => quoted.push_str("\\b"),
-            '\t' => quoted.push_str("\\t"),
-            '\n' => quoted.push_str("\\n"),
-            '\x0b' => quoted.push_str("\\v"),
-            '\x0c' => quoted.push_str("\\f"),
-            '\r' => quoted.push_str("\\r"),
-            '\x1b' => quoted.push_str("\\e"),
-            '\u{85}' => quoted.push_str("\\N"),
-            '\u{2028}' => quoted.push_str("\\L"),
-            '\u{2029}' => quoted.push_str("\\P"),
-            '"' => quoted.push_str("\\\""),
-            '\\' => quoted.push_str("\\\\"),
-            '\u{feff}' | '\u{fffe}' | '\u{ffff}' => quoted.push('_'),
-            character if character.is_control() => quoted.push('_'),
-            character => quoted.push(character),
-        }
-    }
-    quoted.push('"');
-    quoted
-}
 
 fn assert_aliases_reference_preceding_anchors(input: &str) {
     let events = Parser::new_from_str(input)
@@ -104,6 +69,3 @@ pub fn check_input(data: &[u8]) {
 
     parse_with_both_inputs(&yaml);
 }
-
-#[cfg(not(test))]
-fuzz_target!(|data: &[u8]| check_input(data));

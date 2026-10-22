@@ -3,13 +3,12 @@
 //! These tests target scattered error paths and default trait implementations that the
 //! regular test suite does not reach.
 
-#[cfg(feature = "comments")]
 use ryl_yaml_parser::Placement;
 
 use ryl_yaml_parser::{
+    BufferedInput, ErrorKind, Event, Input, Parser, ScanError, StrInput,
+    TryEventReceiver, TryLoadError,
     input::{SkipTabs, WhitespaceResult},
-    BufferedInput, ErrorKind, Event, Input, Parser, ScanError, StrInput, TryEventReceiver,
-    TryLoadError,
 };
 
 fn parse_events(input: &str) -> Result<Vec<Event<'_>>, ScanError> {
@@ -178,17 +177,12 @@ fn stray_flow_entry_in_block_mapping_value_reports_block_mapping_error() {
 fn comment_after_value_in_flow_sequence_explicit_pair_is_emitted() {
     let events = parse_events("[? a : # note\n b]\n").unwrap();
 
-    #[cfg(not(feature = "comments"))]
-    assert!(events.windows(3).any(|events| matches!(
-        events,
-        [Event::MappingStart(ryl_yaml_parser::StructureStyle::Flow, 0, None), Event::Scalar(key, ..), Event::Scalar(value, ..)]
-            if key == "a" && value == "b"
-    )));
-    #[cfg(feature = "comments")]
     {
         let comment_pos = events
             .iter()
-            .position(|event| matches!(event, Event::Comment(text, _) if text == " note"))
+            .position(
+                |event| matches!(event, Event::Comment(text, _) if text == " note"),
+            )
             .expect("the comment between the key and value must be emitted");
         assert!(matches!(
             events[comment_pos - 2],

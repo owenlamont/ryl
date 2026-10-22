@@ -2,22 +2,20 @@ mod support;
 use std::{borrow::Cow, cell::Cell, rc::Rc};
 
 use ryl_yaml_parser::{
-    BorrowedInput, BufferedInput, ErrorKind, Event, FallibleBufferedInput, Marker, Options, Parser,
-    ScalarStyle, ScanError, Scanner, Span, StrInput, StructureStyle, Tag, Token, TokenType,
+    BorrowedInput, BufferedInput, ErrorKind, Event, FallibleBufferedInput, Marker,
+    Options, Parser, ScalarStyle, ScanError, Scanner, Span, StrInput, StructureStyle,
+    Tag, Token, TokenType,
 };
 
 fn no_comments() -> Options {
     ryl_yaml_parser::options! {
-        #[cfg(feature = "comments")]
         emit_comments: false,
     }
 }
 
 fn no_comments_with_zero_buffer() -> Options {
     ryl_yaml_parser::options! {
-        #[cfg(feature = "comments")]
         emit_comments: false,
-        #[cfg(feature = "comments")]
         max_buffered_comment_events: 0,
     }
 }
@@ -28,7 +26,10 @@ fn parse_str(source: &str, options: Options) -> Result<Vec<Event<'_>>, ScanError
         .collect()
 }
 
-fn parse_iter(source: &str, options: Options) -> Result<Vec<Event<'static>>, ScanError> {
+fn parse_iter(
+    source: &str,
+    options: Options,
+) -> Result<Vec<Event<'static>>, ScanError> {
     Parser::with_options(BufferedInput::new(source.chars()), options)
         .map(|result| result.map(|(event, _)| event))
         .collect()
@@ -118,9 +119,10 @@ fn assert_parser_error(source: &str, expected: &ErrorKind) {
         .expect("string parser should reject invalid YAML");
     assert_eq!(str_error.kind(), expected, "string input: {source:?}");
 
-    let iter_error = Parser::with_options(BufferedInput::new(source.chars()), no_comments())
-        .find_map(Result::err)
-        .expect("iterator parser should reject invalid YAML");
+    let iter_error =
+        Parser::with_options(BufferedInput::new(source.chars()), no_comments())
+            .find_map(Result::err)
+            .expect("iterator parser should reject invalid YAML");
     assert_eq!(iter_error.kind(), expected, "iterator input: {source:?}");
 }
 
@@ -143,7 +145,10 @@ fn has_completed_token(tokens: &[Token<'_>], expected_scalar: &ExpectedScalar) -
     }
 }
 
-fn has_completed_event(events: &[(Event<'_>, Span)], expected_scalar: &ExpectedScalar) -> bool {
+fn has_completed_event(
+    events: &[(Event<'_>, Span)],
+    expected_scalar: &ExpectedScalar,
+) -> bool {
     match expected_scalar {
         Some((style, value)) => events.iter().any(|(event, _)| {
             matches!(event, Event::Scalar(actual_value, actual_style, ..)
@@ -173,9 +178,8 @@ fn assert_scanner_prefix<'input, T>(
     assert_eq!(disabled_error.kind(), enabled_error.kind(), "{context}");
     assert_eq!(disabled_error.marker(), enabled_error.marker(), "{context}");
     assert_eq!(disabled_tokens, enabled_tokens, "{context}");
-    assert_eq!(
+    assert!(
         enabled_comments > 0,
-        cfg!(feature = "comments"),
         "{context}: scanner comment emission must match the compiled feature"
     );
     assert_eq!(disabled_comments, 0, "{context}");
@@ -203,9 +207,8 @@ fn assert_parser_prefix<'input, T>(
     assert_eq!(disabled_error.kind(), enabled_error.kind(), "{context}");
     assert_eq!(disabled_error.marker(), enabled_error.marker(), "{context}");
     assert_eq!(disabled_events, enabled_events, "{context}");
-    assert_eq!(
+    assert!(
         enabled_comments > 0,
-        cfg!(feature = "comments"),
         "{context}: parser comment emission must match the compiled feature"
     );
     assert_eq!(disabled_comments, 0, "{context}");
@@ -237,11 +240,12 @@ fn scanner_suppresses_every_lexical_comment_for_string_and_iterator_input() {
         "# before stream end\n",
     );
 
-    let str_tokens = scan_str(yaml, no_comments()).expect("string scanner should accept comments");
+    let str_tokens =
+        scan_str(yaml, no_comments()).expect("string scanner should accept comments");
     assert_no_comment_tokens(&str_tokens);
 
-    let iter_tokens =
-        scan_iter(yaml, no_comments()).expect("iterator scanner should accept comments");
+    let iter_tokens = scan_iter(yaml, no_comments())
+        .expect("iterator scanner should accept comments");
     assert_no_comment_tokens(&iter_tokens);
 
     for tokens in [&str_tokens[..], &iter_tokens[..]] {
@@ -265,11 +269,12 @@ fn parser_suppresses_every_comment_event_for_string_and_iterator_input() {
         "# trailing\n",
     );
 
-    let str_events = parse_str(yaml, no_comments()).expect("string parser should accept comments");
+    let str_events =
+        parse_str(yaml, no_comments()).expect("string parser should accept comments");
     assert_no_comment_events(&str_events);
 
-    let iter_events =
-        parse_iter(yaml, no_comments()).expect("iterator parser should accept comments");
+    let iter_events = parse_iter(yaml, no_comments())
+        .expect("iterator parser should accept comments");
     assert_no_comment_events(&iter_events);
 }
 
@@ -288,18 +293,18 @@ fn disabled_comments_match_enabled_yaml_semantics_after_filtering_comments() {
         "# footer\n",
     );
 
-    let mut enabled_str =
-        parse_str(yaml, Options::default()).expect("enabled string parser should accept YAML");
+    let mut enabled_str = parse_str(yaml, Options::default())
+        .expect("enabled string parser should accept YAML");
     enabled_str.retain(|event| !support::is_comment_event(event));
-    let disabled_str =
-        parse_str(yaml, no_comments()).expect("disabled string parser should accept YAML");
+    let disabled_str = parse_str(yaml, no_comments())
+        .expect("disabled string parser should accept YAML");
     assert_eq!(disabled_str, enabled_str);
 
-    let mut enabled_iter =
-        parse_iter(yaml, Options::default()).expect("enabled iterator parser should accept YAML");
+    let mut enabled_iter = parse_iter(yaml, Options::default())
+        .expect("enabled iterator parser should accept YAML");
     enabled_iter.retain(|event| !support::is_comment_event(event));
-    let disabled_iter =
-        parse_iter(yaml, no_comments()).expect("disabled iterator parser should accept YAML");
+    let disabled_iter = parse_iter(yaml, no_comments())
+        .expect("disabled iterator parser should accept YAML");
     assert_eq!(disabled_iter, enabled_iter);
 }
 
@@ -311,15 +316,12 @@ fn comment_after_leading_document_end_does_not_start_implicit_document() {
 
     let mut enabled = parse_str(yaml, Options::default())
         .expect("leading document end and comment should not open a document");
-    #[cfg(feature = "comments")]
     {
         assert!(matches!(
             enabled.as_slice(),
             [Event::StreamStart, Event::Comment(..), Event::StreamEnd]
         ));
     }
-    #[cfg(not(feature = "comments"))]
-    assert_eq!(enabled, [Event::StreamStart, Event::StreamEnd]);
     enabled.retain(|event| !support::is_comment_event(event));
 
     let disabled = parse_str(yaml, no_comments())
@@ -342,11 +344,7 @@ fn disabled_comments_do_not_skip_document_end_after_directive_comment() {
         let (disabled_events, disabled_comments, disabled_error) =
             parse_non_comment_prefix_until_error(disabled);
 
-        assert_eq!(
-            enabled_comments,
-            usize::from(cfg!(feature = "comments")),
-            "{context}"
-        );
+        assert_eq!(enabled_comments, usize::from(true), "{context}");
         assert_eq!(disabled_comments, 0, "{context}");
         assert_eq!(disabled_events, enabled_events, "{context}");
         assert!(
@@ -395,11 +393,10 @@ fn disabled_comments_preserve_non_comment_event_spans() {
         let mut enabled = Parser::with_options(StrInput::new(yaml), Options::default())
             .collect::<Result<Vec<_>, _>>()
             .expect("enabled string parser should accept YAML");
-        assert_eq!(
+        assert!(
             enabled
                 .iter()
                 .any(|(event, _)| support::is_comment_event(event)),
-            cfg!(feature = "comments"),
             "parser comment emission must match the compiled feature: {yaml:?}"
         );
         enabled.retain(|(event, _)| !support::is_comment_event(event));
@@ -462,103 +459,102 @@ fn empty_node_comment_cases() -> [(&'static str, Vec<Event<'static>>); 5] {
 #[test]
 fn comments_at_eof_preserve_empty_nodes_and_properties_across_backends() {
     for (template, body) in empty_node_comment_cases() {
-        let mut expected_events = vec![Event::StreamStart, Event::DocumentStart(false, None)];
+        let mut expected_events =
+            vec![Event::StreamStart, Event::DocumentStart(false, None)];
         expected_events.extend(body);
         expected_events.extend([Event::DocumentEnd, Event::StreamEnd]);
         for line_break in ["\n", "\r", "\r\n"] {
-            let yaml = format!("# pré{line_break}{}", template.replace('\n', line_break));
+            let yaml =
+                format!("# pré{line_break}{}", template.replace('\n', line_break));
             let eof = Marker::new(
                 yaml.chars().count(),
                 template.matches('\n').count() + 2,
                 template.rsplit('\n').next().unwrap().chars().count(),
             );
-            let mut reference_trace = None;
-            let mut expected_tokens = None;
+            let mut reference = None;
             for strict_indentation in [false, true] {
                 for emit_comments in [false, true] {
                     let options = ryl_yaml_parser::options! {
                         strict_indentation: strict_indentation,
                         emit_comments: emit_comments,
                     };
-                    let context =
-                        format!("{yaml:?}, strict={strict_indentation}, comments={emit_comments}");
-                    let expected_comments = if cfg!(feature = "comments") && emit_comments {
-                        yaml.matches('#').count()
-                    } else {
-                        0
-                    };
-                    for events in [
-                        Parser::new_from_str_with_options(&yaml, options.clone())
-                            .collect::<Result<Vec<_>, _>>(),
-                        Parser::new_from_iter_with_options(yaml.chars(), options.clone())
-                            .collect::<Result<Vec<_>, _>>(),
-                        Parser::new_from_fallible_iter_with_options(
-                            yaml.chars().map(Ok),
-                            options.clone(),
-                        )
-                        .collect::<Result<Vec<_>, _>>(),
-                    ] {
-                        let mut events =
-                            events.unwrap_or_else(|error| panic!("{context}: {error}"));
-                        assert_eq!(
-                            events
-                                .iter()
-                                .filter(|(event, _)| support::is_comment_event(event))
-                                .count(),
-                            expected_comments,
-                            "{context}",
-                        );
-                        events.retain(|(event, _)| !support::is_comment_event(event));
-                        assert_eq!(
-                            events
-                                .iter()
-                                .map(|(event, _)| event.clone())
-                                .collect::<Vec<_>>(),
-                            expected_events,
-                            "{context}"
-                        );
-                        assert_eq!(events.last().unwrap().1, Span::empty(eof), "{context}");
-                        if let Some(expected) = &reference_trace {
-                            assert_eq!(&events, expected, "{context}");
-                        } else {
-                            reference_trace = Some(events);
-                        }
-                    }
-                    for tokens in [
-                        Scanner::with_options(StrInput::new(&yaml), options.clone())
-                            .collect::<Result<Vec<_>, _>>(),
-                        Scanner::with_options(BufferedInput::new(yaml.chars()), options.clone())
-                            .collect::<Result<Vec<_>, _>>(),
-                        Scanner::with_options(
-                            FallibleBufferedInput::new(yaml.chars().map(Ok)),
-                            options.clone(),
-                        )
-                        .collect::<Result<Vec<_>, _>>(),
-                    ] {
-                        let mut tokens =
-                            tokens.unwrap_or_else(|error| panic!("{context}: {error}"));
-                        assert_eq!(
-                            tokens
-                                .iter()
-                                .filter(|token| support::is_comment_token(token.token_type()))
-                                .count(),
-                            expected_comments,
-                            "{context}",
-                        );
-                        tokens.retain(|token| !support::is_comment_token(token.token_type()));
-                        let stream_end = tokens.last().unwrap();
-                        assert_eq!(stream_end.token_type(), &TokenType::StreamEnd, "{context}");
-                        assert_eq!(stream_end.span(), Span::empty(eof), "{context}");
-                        if let Some(expected) = &expected_tokens {
-                            assert_eq!(&tokens, expected, "{context}");
-                        } else {
-                            expected_tokens = Some(tokens);
-                        }
-                    }
+                    let traces = non_comment_traces_to_eof(&yaml, &options, eof);
+                    assert_eq!(
+                        traces
+                            .0
+                            .iter()
+                            .map(|(event, _)| event.clone())
+                            .collect::<Vec<_>>(),
+                        expected_events,
+                        "{yaml:?}, {options:?}"
+                    );
+                    let reference = reference.get_or_insert_with(|| traces.clone());
+                    assert_eq!(&traces, reference, "{yaml:?}, {options:?}");
                 }
             }
         }
     }
+}
+
+/// Every backend's non-comment events and tokens for a stream ending at `eof`, after checking
+/// that the backends agree and emit one comment per `#` exactly when comments are enabled.
+fn non_comment_traces_to_eof<'y>(
+    yaml: &'y str,
+    options: &Options,
+    eof: Marker,
+) -> (Vec<(Event<'y>, Span)>, Vec<Token<'y>>) {
+    let context = format!("{yaml:?}, {options:?}");
+    let expected_comments = if options.emit_comments {
+        yaml.matches('#').count()
+    } else {
+        0
+    };
+    let events = [
+        Parser::new_from_str_with_options(yaml, options.clone())
+            .collect::<Result<Vec<_>, _>>(),
+        Parser::new_from_iter_with_options(yaml.chars(), options.clone()).collect(),
+        Parser::new_from_fallible_iter_with_options(
+            yaml.chars().map(Ok),
+            options.clone(),
+        )
+        .collect(),
+    ]
+    .map(|events| {
+        let mut events = events.unwrap_or_else(|error| panic!("{context}: {error}"));
+        let total = events.len();
+        events.retain(|(event, _)| !support::is_comment_event(event));
+        assert_eq!(total - events.len(), expected_comments, "{context}");
+        assert_eq!(events.last().unwrap().1, Span::empty(eof), "{context}");
+        events
+    });
+    let tokens = [
+        Scanner::with_options(StrInput::new(yaml), options.clone())
+            .collect::<Result<Vec<_>, _>>(),
+        Scanner::with_options(BufferedInput::new(yaml.chars()), options.clone())
+            .collect(),
+        Scanner::with_options(
+            FallibleBufferedInput::new(yaml.chars().map(Ok)),
+            options.clone(),
+        )
+        .collect(),
+    ]
+    .map(|tokens| {
+        let mut tokens = tokens.unwrap_or_else(|error| panic!("{context}: {error}"));
+        let total = tokens.len();
+        tokens.retain(|token| !support::is_comment_token(token.token_type()));
+        assert_eq!(total - tokens.len(), expected_comments, "{context}");
+        let stream_end = tokens.last().unwrap();
+        assert_eq!(stream_end.token_type(), &TokenType::StreamEnd, "{context}");
+        assert_eq!(stream_end.span(), Span::empty(eof), "{context}");
+        tokens
+    });
+    let [events, iter_events, fallible_events] = events;
+    assert_eq!(iter_events, events, "{context}");
+    assert_eq!(fallible_events, events, "{context}");
+    let [tokens, iter_tokens, fallible_tokens] = tokens;
+    assert_eq!(iter_tokens, tokens, "{context}");
+    assert_eq!(fallible_tokens, tokens, "{context}");
+    (events, tokens)
 }
 
 #[test]
@@ -568,71 +564,90 @@ fn invalid_controls_in_eof_comments_keep_exact_error_positions() {
         for prefix in ["", "? ", "&a !local ", "| ", "%YAML 1.2 "] {
             for character in ['\0', '\u{1}', '\u{7f}', '\u{80}', '\u{9f}'] {
                 let yaml = format!("# pré{line_break}{prefix}# café {character}");
-                let marker = Marker::new(yaml.chars().count() - 1, 2, prefix.chars().count() + 7);
+                let marker = Marker::new(
+                    yaml.chars().count() - 1,
+                    2,
+                    prefix.chars().count() + 7,
+                );
                 for emit_comments in [false, true] {
-                    let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
-                    let context = format!("{yaml:?}, comments={emit_comments}");
-                    let parser_traces =
-                        [
-                            parse_non_comment_prefix_until_error(
-                                Parser::new_from_str_with_options(&yaml, options.clone()),
-                            ),
-                            parse_non_comment_prefix_until_error(
-                                Parser::new_from_iter_with_options(yaml.chars(), options.clone()),
-                            ),
-                            parse_non_comment_prefix_until_error(
-                                Parser::new_from_fallible_iter_with_options(
-                                    yaml.chars().map(Ok),
-                                    options.clone(),
-                                ),
-                            ),
-                        ];
-                    let scanner_traces = [
-                        scan_non_comment_prefix_until_error(Scanner::with_options(
-                            StrInput::new(&yaml),
-                            options.clone(),
-                        )),
-                        scan_non_comment_prefix_until_error(Scanner::with_options(
-                            BufferedInput::new(yaml.chars()),
-                            options.clone(),
-                        )),
-                        scan_non_comment_prefix_until_error(Scanner::with_options(
-                            FallibleBufferedInput::new(yaml.chars().map(Ok)),
-                            options,
-                        )),
-                    ];
-                    for error in parser_traces
-                        .iter()
-                        .map(|trace| &trace.2)
-                        .chain(scanner_traces.iter().map(|trace| &trace.2))
-                    {
-                        assert_eq!(
-                            error.kind(),
-                            &ErrorKind::UnexpectedCharacter { character },
-                            "{context}"
-                        );
-                        assert_eq!(*error.marker(), marker, "{context}");
-                    }
-                    for trace in &parser_traces[1..] {
-                        assert_eq!(trace, &parser_traces[0], "{context}");
-                    }
-                    for trace in &scanner_traces[1..] {
-                        assert_eq!(trace, &scanner_traces[0], "{context}");
-                    }
-                    assert_eq!(
-                        parser_traces[0].2.marker().byte_offset(),
-                        Some(yaml.len() - character.len_utf8()),
-                        "{context}"
-                    );
-                    assert_eq!(
-                        scanner_traces[0].2.marker().byte_offset(),
-                        Some(yaml.len() - character.len_utf8()),
-                        "{context}"
+                    assert_invalid_eof_comment_control(
+                        &yaml,
+                        character,
+                        marker,
+                        emit_comments,
                     );
                 }
             }
         }
     }
+}
+
+fn assert_invalid_eof_comment_control(
+    yaml: &str,
+    character: char,
+    marker: Marker,
+    emit_comments: bool,
+) {
+    let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
+    let context = format!("{yaml:?}, comments={emit_comments}");
+    let parser_traces = [
+        parse_non_comment_prefix_until_error(Parser::new_from_str_with_options(
+            yaml,
+            options.clone(),
+        )),
+        parse_non_comment_prefix_until_error(Parser::new_from_iter_with_options(
+            yaml.chars(),
+            options.clone(),
+        )),
+        parse_non_comment_prefix_until_error(
+            Parser::new_from_fallible_iter_with_options(
+                yaml.chars().map(Ok),
+                options.clone(),
+            ),
+        ),
+    ];
+    let scanner_traces = [
+        scan_non_comment_prefix_until_error(Scanner::with_options(
+            StrInput::new(yaml),
+            options.clone(),
+        )),
+        scan_non_comment_prefix_until_error(Scanner::with_options(
+            BufferedInput::new(yaml.chars()),
+            options.clone(),
+        )),
+        scan_non_comment_prefix_until_error(Scanner::with_options(
+            FallibleBufferedInput::new(yaml.chars().map(Ok)),
+            options,
+        )),
+    ];
+    for error in parser_traces
+        .iter()
+        .map(|trace| &trace.2)
+        .chain(scanner_traces.iter().map(|trace| &trace.2))
+    {
+        assert_eq!(
+            error.kind(),
+            &ErrorKind::UnexpectedCharacter { character },
+            "{context}"
+        );
+        assert_eq!(*error.marker(), marker, "{context}");
+    }
+    for trace in &parser_traces[1..] {
+        assert_eq!(trace, &parser_traces[0], "{context}");
+    }
+    for trace in &scanner_traces[1..] {
+        assert_eq!(trace, &scanner_traces[0], "{context}");
+    }
+    assert_eq!(
+        parser_traces[0].2.marker().byte_offset(),
+        Some(yaml.len() - character.len_utf8()),
+        "{context}"
+    );
+    assert_eq!(
+        scanner_traces[0].2.marker().byte_offset(),
+        Some(yaml.len() - character.len_utf8()),
+        "{context}"
+    );
 }
 
 #[test]
@@ -657,9 +672,8 @@ fn disabled_comments_preserve_events_and_errors_for_invalid_yaml() {
                 no_comments(),
             ));
 
-        assert_eq!(
+        assert!(
             enabled_comments > 0,
-            cfg!(feature = "comments"),
             "parser comment emission must match the compiled feature: {name}"
         );
         assert_eq!(disabled_comments, 0, "{name}");
@@ -670,9 +684,10 @@ fn disabled_comments_preserve_events_and_errors_for_invalid_yaml() {
         let expected_error = ErrorKind::UnexpectedCharacter { character: '\u{1}' };
         assert_eq!(enabled_error.kind(), &expected_error, "{name}");
         assert!(
-            enabled_events
-                .iter()
-                .all(|(event, _)| !matches!(event, Event::MappingEnd | Event::DocumentEnd)),
+            enabled_events.iter().all(|(event, _)| !matches!(
+                event,
+                Event::MappingEnd | Event::DocumentEnd
+            )),
             "parser emitted closing events after the error: {name}"
         );
     }
@@ -767,7 +782,10 @@ fn disabled_comments_preserve_non_comment_prefixes_before_errors() {
         );
         assert_scanner_prefix(
             &format!("{name}, iterator scanner"),
-            Scanner::with_options(BufferedInput::new(source.chars()), Options::default()),
+            Scanner::with_options(
+                BufferedInput::new(source.chars()),
+                Options::default(),
+            ),
             Scanner::with_options(BufferedInput::new(source.chars()), no_comments()),
             &expected_error,
             &expected_scalar,
@@ -781,7 +799,10 @@ fn disabled_comments_preserve_non_comment_prefixes_before_errors() {
         );
         assert_parser_prefix(
             &format!("{name}, iterator parser"),
-            Parser::with_options(BufferedInput::new(source.chars()), Options::default()),
+            Parser::with_options(
+                BufferedInput::new(source.chars()),
+                Options::default(),
+            ),
             Parser::with_options(BufferedInput::new(source.chars()), no_comments()),
             &expected_error,
             &expected_scalar,
@@ -796,10 +817,10 @@ fn ignored_tab_prefixed_comments_preserve_completed_scalars_before_later_errors(
     let expected_scalar = Some((ScalarStyle::DoubleQuoted, "value"));
 
     for strict_indentation in [false, true] {
-        let enabled = ryl_yaml_parser::options! { strict_indentation: strict_indentation };
+        let enabled =
+            ryl_yaml_parser::options! { strict_indentation: strict_indentation };
         let disabled = ryl_yaml_parser::options! {
             strict_indentation: strict_indentation,
-            #[cfg(feature = "comments")]
             emit_comments: false,
         };
 
@@ -843,7 +864,8 @@ fn disabled_comments_preserve_required_block_scalar_error_prefix() {
     ) where
         T: BorrowedInput<'input>,
     {
-        let (enabled_tokens, _, enabled_error) = scan_non_comment_prefix_until_error(enabled);
+        let (enabled_tokens, _, enabled_error) =
+            scan_non_comment_prefix_until_error(enabled);
         let (disabled_tokens, disabled_comments, disabled_error) =
             scan_non_comment_prefix_until_error(disabled);
 
@@ -873,7 +895,8 @@ fn disabled_comments_preserve_required_block_scalar_error_prefix() {
     ) where
         T: BorrowedInput<'input>,
     {
-        let (enabled_events, _, enabled_error) = parse_non_comment_prefix_until_error(enabled);
+        let (enabled_events, _, enabled_error) =
+            parse_non_comment_prefix_until_error(enabled);
         let (disabled_events, disabled_comments, disabled_error) =
             parse_non_comment_prefix_until_error(disabled);
 
@@ -888,9 +911,10 @@ fn disabled_comments_preserve_required_block_scalar_error_prefix() {
         assert_eq!(disabled_comments, 0, "{context}");
         assert_eq!(disabled_events, enabled_events, "{context}");
         assert!(
-            enabled_events
-                .iter()
-                .all(|(event, _)| !matches!(event, Event::Scalar(_, ScalarStyle::Literal, ..))),
+            enabled_events.iter().all(|(event, _)| !matches!(
+                event,
+                Event::Scalar(_, ScalarStyle::Literal, ..)
+            )),
             "block scalar escaped before its required-key error: {context}"
         );
     }
@@ -922,7 +946,9 @@ fn disabled_comments_preserve_required_block_scalar_error_prefix() {
 
 #[test]
 fn streaming_comment_failures_preserve_source_errors_in_all_emission_modes() {
-    fn failing_input(source: &str) -> impl Iterator<Item = Result<char, ErrorKind>> + '_ {
+    fn failing_input(
+        source: &str,
+    ) -> impl Iterator<Item = Result<char, ErrorKind>> + '_ {
         source
             .chars()
             .map(Ok)
@@ -949,12 +975,18 @@ fn streaming_comment_failures_preserve_source_errors_in_all_emission_modes() {
         for emit_comments in [false, true] {
             let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
             let context = format!("{source:?}, emit_comments={emit_comments}");
-            let (events, event_comments, parser_error) = parse_non_comment_prefix_until_error(
-                Parser::new_from_fallible_iter_with_options(failing_input(source), options.clone()),
-            );
-            let (tokens, token_comments, scanner_error) = scan_non_comment_prefix_until_error(
-                Scanner::with_options(FallibleBufferedInput::new(failing_input(source)), options),
-            );
+            let (events, event_comments, parser_error) =
+                parse_non_comment_prefix_until_error(
+                    Parser::new_from_fallible_iter_with_options(
+                        failing_input(source),
+                        options.clone(),
+                    ),
+                );
+            let (tokens, token_comments, scanner_error) =
+                scan_non_comment_prefix_until_error(Scanner::with_options(
+                    FallibleBufferedInput::new(failing_input(source)),
+                    options,
+                ));
 
             assert_eq!(
                 parser_error.kind(),
@@ -991,7 +1023,7 @@ fn streaming_comment_failures_preserve_source_errors_in_all_emission_modes() {
                     .all(|token| !matches!(token.token_type(), TokenType::StreamEnd)),
                 "{context}"
             );
-            if !cfg!(feature = "comments") || !emit_comments {
+            if !emit_comments {
                 assert_eq!((event_comments, token_comments), (0, 0), "{context}");
             }
         }
@@ -1027,7 +1059,8 @@ fn hash_characters_inside_scalars_remain_data_when_comments_are_disabled() {
         "  # block\n",
     );
 
-    let str_events = parse_str(yaml, no_comments()).expect("string parser should accept scalars");
+    let str_events =
+        parse_str(yaml, no_comments()).expect("string parser should accept scalars");
     assert_no_comment_events(&str_events);
     assert_literal_hash_scalars(&str_events);
 
@@ -1054,7 +1087,6 @@ fn completed_plain_scalar_is_returned_before_long_suppressed_comment_tail_is_rea
             .expect("parser should return the completed scalar")
             .expect("the comment tail should not fail");
         match event {
-            #[cfg(feature = "comments")]
             Event::Comment(..) => panic!("disabled comments must not be emitted"),
             Event::Scalar(value, ScalarStyle::Plain, ..) if value == "foo" => break,
             _ => {}
@@ -1076,18 +1108,24 @@ fn completed_plain_scalar_is_returned_before_fallible_suppressed_comment_tail_fa
         .chars()
         .map(Ok)
         .chain(core::iter::once(Err(source_error.clone())));
-    let mut parser = Parser::with_options(FallibleBufferedInput::new(input), no_comments());
+    let mut parser =
+        Parser::with_options(FallibleBufferedInput::new(input), no_comments());
 
     loop {
         match parser
             .next_event()
             .expect("parser should return the completed scalar")
         {
-            #[cfg(feature = "comments")]
-            Ok((Event::Comment(..), _)) => panic!("disabled comments must not be emitted"),
-            Ok((Event::Scalar(value, ScalarStyle::Plain, ..), _)) if value == "foo" => break,
+            Ok((Event::Comment(..), _)) => {
+                panic!("disabled comments must not be emitted")
+            }
+            Ok((Event::Scalar(value, ScalarStyle::Plain, ..), _)) if value == "foo" => {
+                break;
+            }
             Ok(_) => {}
-            Err(error) => panic!("source failure overtook the completed scalar: {error}"),
+            Err(error) => {
+                panic!("source failure overtook the completed scalar: {error}")
+            }
         }
     }
 

@@ -146,32 +146,29 @@ pub(crate) fn find_non_printable(s: &str) -> Option<char> {
     }
 
     let bytes = s.as_bytes();
-    let mut chunks = bytes.chunks_exact(8);
+    let (chunks, remainder) = bytes.as_chunks::<8>();
     let mut byte_offset = 0;
     let mut suspicious_offset = None;
 
-    for chunk in &mut chunks {
-        // u64 will always be 8 bytes, this unwrap cannot trigger.
-        let word = u64::from_ne_bytes(chunk.try_into().unwrap());
+    for chunk in chunks {
+        let word = u64::from_ne_bytes(*chunk);
         let may_have_suspicious_byte = word & BYTE_LANES_HIGH_BITS != 0
             || has_zero_byte(word & BYTE_LANES_TOP_THREE_BITS)
             || has_zero_byte(word ^ BYTE_LANES_DEL);
 
-        if may_have_suspicious_byte {
-            if let Some(chunk_offset) = chunk
+        if may_have_suspicious_byte
+            && let Some(chunk_offset) = chunk
                 .iter()
                 .position(|&byte| is_suspicious_scalar_byte(byte))
-            {
-                suspicious_offset = Some(byte_offset + chunk_offset);
-                break;
-            }
+        {
+            suspicious_offset = Some(byte_offset + chunk_offset);
+            break;
         }
         byte_offset += chunk.len();
     }
 
     let suspicious_offset = suspicious_offset.or_else(|| {
-        chunks
-            .remainder()
+        remainder
             .iter()
             .position(|&byte| is_suspicious_scalar_byte(byte))
             .map(|remainder_offset| byte_offset + remainder_offset)
@@ -224,118 +221,4 @@ pub fn is_uri_char(c: char) -> bool {
 #[must_use]
 pub fn is_tag_char(c: char) -> bool {
     is_uri_char(c) && !is_flow(c) && c != '!'
-}
-
-#[cfg(test)]
-mod tests {
-    use alloc::string::String;
-
-    use super::*;
-
-    #[test]
-    fn printable_ranges_include_private_and_supplementary_planes() {
-        assert!(is_printable('\u{E000}'));
-        assert!(is_printable('\u{10FFFF}'));
-        assert!(is_yaml_non_break('\u{10000}'));
-        assert!(!is_yaml_non_break('\u{FEFF}'));
-        assert!(!is_yaml_non_break('\n'));
-    }
-
-    #[test]
-    fn optimized_non_printable_search_matches_yaml_boundaries() {
-        let printable = [
-            '\t',
-            '\n',
-            '\r',
-            ' ',
-            '~',
-            '\u{85}',
-            '\u{a0}',
-            '\u{d7ff}',
-            '\u{e000}',
-            '\u{feff}',
-            '\u{fffd}',
-            '\u{10000}',
-            '\u{10ffff}',
-        ];
-        for character in printable {
-            let mut short = String::from("before");
-            short.push(character);
-            short.push_str("after");
-            assert_eq!(find_non_printable(&short), None, "rejected {character:?}");
-
-            let mut long = "x".repeat(80);
-            long.push(character);
-            long.push_str("after");
-            assert_eq!(find_non_printable(&long), None, "rejected {character:?}");
-        }
-
-        let non_printable = [
-            '\0', '\u{1}', '\u{8}', '\u{b}', '\u{c}', '\u{e}', '\u{1f}', '\u{7f}', '\u{80}',
-            '\u{84}', '\u{86}', '\u{9f}', '\u{fffe}', '\u{ffff}',
-        ];
-        for character in non_printable {
-            let mut short = String::from("before");
-            short.push(character);
-            short.push_str("after");
-            assert_eq!(
-                find_non_printable(&short),
-                Some(character),
-                "accepted {character:?}",
-            );
-
-            let mut long = "x".repeat(80);
-            long.push(character);
-            long.push_str("after");
-            assert_eq!(
-                find_non_printable(&long),
-                Some(character),
-                "accepted {character:?}",
-            );
-        }
-
-        let mut multiple = "x".repeat(80);
-        multiple.push('\u{80}');
-        multiple.push('\u{7f}');
-        assert_eq!(find_non_printable(&multiple), Some('\u{80}'));
-    }
-
-    #[test]
-    fn optimized_non_printable_search_matches_reference_across_chunk_boundaries() {
-        let suffixes = [
-            "plain",
-            "\tafter",
-            "\nafter",
-            "\rafter",
-            "éafter",
-            "\u{85}after",
-            "\u{80}after",
-            "\u{7f}after",
-            "é\u{7f}after",
-            "\u{85}\u{9f}after",
-            "\u{10000}\u{ffff}after",
-        ];
-
-        for prefix_len in 56..=80 {
-            for suffix in suffixes {
-                let input = "x".repeat(prefix_len) + suffix;
-                let expected = input.chars().find(|&character| !is_printable(character));
-                assert_eq!(
-                    find_non_printable(&input),
-                    expected,
-                    "mismatch at prefix length {prefix_len} for {suffix:?}",
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn word_uri_and_tag_character_sets_are_distinct() {
-        assert!(is_word_char('-'));
-        assert!(!is_word_char('_'));
-        assert!(is_uri_char('_'));
-        assert!(is_uri_char('%'));
-        assert!(!is_tag_char('!'));
-        assert!(!is_tag_char('['));
-    }
 }

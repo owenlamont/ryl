@@ -12,8 +12,8 @@
 //!   forces the owned-copy fallbacks when finalizing quoted scalars.
 
 use ryl_yaml_parser::{
-    input::{is_breakz, BorrowedInput, Input},
     Event, Parser, ScalarStyle, ScanError, StructureStyle,
+    input::{BorrowedInput, Input, is_breakz},
 };
 
 fn parse_events(input: &str) -> Result<Vec<Event<'_>>, ScanError> {
@@ -242,9 +242,9 @@ impl BorrowedInput<'static> for SliceableStreamInput {
 /// lookahead window drains partway through it.
 #[test]
 fn block_scalar_line_longer_than_lookahead_window_is_read_completely() {
-    let events: Result<Vec<Event<'static>>, ScanError> = Parser::new(WindowedInput::new(
-        "|\n abcdefghijklmnopqrstuvwxyz 0123456789\n",
-    ))
+    let events: Result<Vec<Event<'static>>, ScanError> = Parser::new(
+        WindowedInput::new("|\n abcdefghijklmnopqrstuvwxyz 0123456789\n"),
+    )
     .map(|event| event.map(|(event, _)| event))
     .collect();
     let events = events.expect("valid literal scalar must parse");
@@ -262,11 +262,12 @@ fn block_scalar_line_longer_than_lookahead_window_is_read_completely() {
 /// folding.
 #[test]
 fn folded_scalar_long_lines_with_windowed_input_fold_to_spaces() {
-    let events: Result<Vec<Event<'static>>, ScanError> = Parser::new(WindowedInput::new(
-        ">\n the quick brown fox jumps over\n the lazy dog and runs away\n",
-    ))
-    .map(|event| event.map(|(event, _)| event))
-    .collect();
+    let events: Result<Vec<Event<'static>>, ScanError> =
+        Parser::new(WindowedInput::new(
+            ">\n the quick brown fox jumps over\n the lazy dog and runs away\n",
+        ))
+        .map(|event| event.map(|(event, _)| event))
+        .collect();
     let events = events.expect("valid folded scalar must parse");
 
     assert_eq!(
@@ -310,9 +311,10 @@ fn deeply_indented_block_scalar_with_windowed_input() {
     let indent = " ".repeat(10);
     let yaml = format!("k:\n{indent}|\n{indent}aaaa\n\n{indent}bbbb\n");
 
-    let events: Result<Vec<Event<'static>>, ScanError> = Parser::new(WindowedInput::new(&yaml))
-        .map(|event| event.map(|(event, _)| event))
-        .collect();
+    let events: Result<Vec<Event<'static>>, ScanError> =
+        Parser::new(WindowedInput::new(&yaml))
+            .map(|event| event.map(|(event, _)| event))
+            .collect();
     let events = events.expect("valid literal scalar must parse");
 
     assert_eq!(

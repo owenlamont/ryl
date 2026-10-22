@@ -1,9 +1,8 @@
 mod support;
-#[cfg(feature = "comments")]
 use ryl_yaml_parser::Placement;
 use ryl_yaml_parser::{
-    options, BufferedInput, ErrorKind, Event, Options, Parser, ScanError, Scanner, StrInput, Token,
-    TokenType,
+    BufferedInput, ErrorKind, Event, Options, Parser, ScanError, Scanner, StrInput,
+    Token, TokenType, options,
 };
 
 /// Drive the parser to completion and return the first error, if any.
@@ -49,14 +48,11 @@ fn reserved_directive_separated_comments_preserve_parameters_and_scalar() {
             " actual comment",
         ),
     ] {
-        #[cfg(not(feature = "comments"))]
-        let _ = comment_text;
         let tokens = scanner_tokens(yaml, Options::default());
         assert_eq!(
             tokens[1].token_type(),
             &TokenType::ReservedDirective(name.into(), vec![param.into()]),
         );
-        #[cfg(feature = "comments")]
         {
             let TokenType::Comment(comment) = tokens[2].token_type() else {
                 panic!("expected a comment after the directive: {yaml:?}");
@@ -77,12 +73,10 @@ fn reserved_directive_separated_comments_preserve_parameters_and_scalar() {
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap(),
         );
-        #[cfg(feature = "comments")]
         {
             let comments = events
                 .iter()
                 .filter_map(|(event, span)| match event {
-                    #[cfg(feature = "comments")]
                     Event::Comment(text, _) => Some((text.as_ref(), *span)),
                     _ => None,
                 })
@@ -110,21 +104,23 @@ fn reserved_directive_comments_do_not_consume_parameter_or_byte_limits() {
         ] {
             for &emit_comments in support::comment_modes() {
                 let options = limits.clone();
-                #[cfg(feature = "comments")]
                 let options = {
                     let mut options = options;
                     options.emit_comments = emit_comments;
                     options
                 };
                 let tokens = scanner_tokens(&yaml, options.clone());
-                let TokenType::ReservedDirective(_, params) = tokens[1].token_type() else {
+                let TokenType::ReservedDirective(_, params) = tokens[1].token_type()
+                else {
                     panic!("expected a reserved directive");
                 };
                 assert_eq!(params.len(), param_count);
                 assert_eq!(
                     tokens
                         .iter()
-                        .filter(|token| { support::is_comment_token(token.token_type()) })
+                        .filter(|token| {
+                            support::is_comment_token(token.token_type())
+                        })
                         .count(),
                     usize::from(emit_comments)
                 );
@@ -144,7 +140,6 @@ fn reserved_directive_comments_do_not_hide_excess_parameters() {
         for &emit_comments in support::comment_modes() {
             let options = options! {
                 max_reserved_directive_params: 0,
-                #[cfg(feature = "comments")]
                 emit_comments: emit_comments,
             };
             for error in [
@@ -163,39 +158,55 @@ fn reserved_directive_comments_do_not_hide_excess_parameters() {
 
 #[test]
 fn reserved_directive_comments_at_eof_do_not_supply_a_document() {
-    for (directive, params) in [("FUTURE", vec![]), ("FUTURE option", vec!["option".into()])] {
+    for (directive, params) in
+        [("FUTURE", vec![]), ("FUTURE option", vec!["option".into()])]
+    {
         for comment_text in ["", " café 漢字"] {
             let yaml = format!("%{directive} #{comment_text}");
             for &emit_comments in support::comment_modes() {
-                let options =
-                    options! { #[cfg(feature = "comments")] emit_comments: emit_comments };
-                let tokens = scanner_tokens(&yaml, options.clone());
-                assert_eq!(
-                    tokens[1].token_type(),
-                    &TokenType::ReservedDirective("FUTURE".into(), params.clone()),
+                assert_eof_reserved_directive_comment(
+                    &yaml,
+                    directive,
+                    &params,
+                    comment_text,
+                    emit_comments,
                 );
-                assert_eq!(tokens.len(), 3 + usize::from(emit_comments));
-                assert_eq!(tokens.last().unwrap().token_type(), &TokenType::StreamEnd);
-                #[cfg(feature = "comments")]
-                if emit_comments {
-                    let TokenType::Comment(comment) = tokens[2].token_type() else {
-                        panic!("expected EOF comment: {yaml:?}");
-                    };
-                    assert_eq!(comment.text(), comment_text);
-                    assert_eq!(comment.placement(), Placement::Right);
-                    assert_eq!(
-                        tokens[2].span().slice(&yaml),
-                        Some(&yaml[1 + directive.len() + 1..])
-                    );
-                }
-                for error in [
-                    first_error(&yaml, options.clone()),
-                    first_iter_error(&yaml, options),
-                ] {
-                    assert_eq!(error.unwrap().kind(), &ErrorKind::ExpectedDocumentStart);
-                }
             }
         }
+    }
+}
+
+fn assert_eof_reserved_directive_comment(
+    yaml: &str,
+    directive: &str,
+    params: &[String],
+    comment_text: &str,
+    emit_comments: bool,
+) {
+    let options = options! { emit_comments: emit_comments };
+    let tokens = scanner_tokens(yaml, options.clone());
+    assert_eq!(
+        tokens[1].token_type(),
+        &TokenType::ReservedDirective("FUTURE".into(), params.to_vec()),
+    );
+    assert_eq!(tokens.len(), 3 + usize::from(emit_comments));
+    assert_eq!(tokens.last().unwrap().token_type(), &TokenType::StreamEnd);
+    if emit_comments {
+        let TokenType::Comment(comment) = tokens[2].token_type() else {
+            panic!("expected EOF comment: {yaml:?}");
+        };
+        assert_eq!(comment.text(), comment_text);
+        assert_eq!(comment.placement(), Placement::Right);
+        assert_eq!(
+            tokens[2].span().slice(yaml),
+            Some(&yaml[1 + directive.len() + 1..])
+        );
+    }
+    for error in [
+        first_error(yaml, options.clone()),
+        first_iter_error(yaml, options),
+    ] {
+        assert_eq!(error.unwrap().kind(), &ErrorKind::ExpectedDocumentStart);
     }
 }
 
@@ -204,9 +215,7 @@ fn reserved_directive_comments_still_validate_control_characters_when_suppressed
     for character in ['\u{1}', '\u{7f}'] {
         let yaml = format!("%FUTURE option # café {character}\n---\nvalue\n");
         for &emit_comments in support::comment_modes() {
-            #[cfg(not(feature = "comments"))]
-            let _ = emit_comments;
-            let options = options! { #[cfg(feature = "comments")] emit_comments: emit_comments };
+            let options = options! { emit_comments: emit_comments };
             for error in [
                 first_error(&yaml, options.clone()),
                 first_iter_error(&yaml, options),
@@ -231,7 +240,6 @@ fn reserved_directive_comment_separator_is_excluded_from_utf8_byte_limit() {
             let exact = options! {
                 max_directive_bytes: directive.len(),
                 max_reserved_directive_params: 1,
-                #[cfg(feature = "comments")]
                 emit_comments: emit_comments,
             };
             let tokens = scanner_tokens(&yaml, exact.clone());
@@ -306,10 +314,12 @@ fn yaml_bad_yaml_directive() {
     }
     // This should fail because "YAML" is a defined directive and it has too many parameters.
     assert!(got_err.is_some());
-    assert!(got_err
-        .unwrap()
-        .info()
-        .contains("did not find expected comment or line break"));
+    assert!(
+        got_err
+            .unwrap()
+            .info()
+            .contains("did not find expected comment or line break")
+    );
 }
 
 #[test]
@@ -338,10 +348,12 @@ fn yaml_reserved_directive_at_eof() {
         }
     }
     assert!(got_err.is_some(), "Expected an error");
-    assert!(got_err
-        .unwrap()
-        .info()
-        .contains("did not find expected <document start>"));
+    assert!(
+        got_err
+            .unwrap()
+            .info()
+            .contains("did not find expected <document start>")
+    );
 }
 
 #[test]
@@ -356,10 +368,12 @@ fn yaml_reserved_directive_with_param_at_eof() {
         }
     }
     assert!(got_err.is_some(), "Expected an error");
-    assert!(got_err
-        .unwrap()
-        .info()
-        .contains("did not find expected <document start>"));
+    assert!(
+        got_err
+            .unwrap()
+            .info()
+            .contains("did not find expected <document start>")
+    );
 }
 
 // The parser ignores reserved directives, but the scanner still has to materialize one `String`
@@ -390,8 +404,9 @@ fn reserved_directive_param_count_limit_is_configurable() {
 
     let err = first_error("%X a b c\n---\n", options).expect("expected a limit error");
     assert!(
-        err.info()
-            .contains("reserved directive exceeds the configured limit of 2 parameters"),
+        err.info().contains(
+            "reserved directive exceeds the configured limit of 2 parameters"
+        ),
         "unexpected error: {}",
         err.info()
     );

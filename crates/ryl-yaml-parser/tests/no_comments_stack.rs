@@ -1,8 +1,6 @@
 mod support;
 use ryl_yaml_parser::{Event, Options, Parser, ParserStack, Span, StrInput};
-#[cfg(feature = "comments")]
 use ryl_yaml_parser::{Marker, ParserTrait, Placement, ReplayParser, ScalarStyle};
-#[cfg(feature = "comments")]
 use std::borrow::Cow;
 use std::{boxed::Box, vec::Vec};
 
@@ -11,12 +9,10 @@ type Stack = ParserStack<'static, std::vec::IntoIter<char>, StrInput<'static>>;
 fn no_comment_options() -> Options {
     ryl_yaml_parser::options! {
         emit_comments: false,
-        #[cfg(feature = "comments")]
         max_buffered_comment_events: 0,
     }
 }
 
-#[cfg(feature = "comments")]
 fn span() -> Span {
     Span::empty(Marker::new(0, 1, 0))
 }
@@ -54,9 +50,9 @@ fn assert_nested_trailing_comment_is_suppressed(stack: Stack) {
     assert_has_no_comments(&events);
 
     for expected in ["child", "parent"] {
-        assert!(events
-            .iter()
-            .any(|(event, _)| matches!(event, Event::Scalar(value, ..) if value == expected)));
+        assert!(events.iter().any(
+            |(event, _)| matches!(event, Event::Scalar(value, ..) if value == expected)
+        ));
     }
     assert_eq!(
         events
@@ -68,7 +64,6 @@ fn assert_nested_trailing_comment_is_suppressed(stack: Stack) {
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn default_stack_emits_replayed_comments() {
     let mut stack = Stack::new();
     stack.push_replay_parser(
@@ -90,7 +85,6 @@ fn default_stack_emits_replayed_comments() {
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn no_comments_stack_suppresses_replayed_events() {
     let mut stack = Stack::with_options(no_comment_options());
     stack.push_replay_parser(
@@ -113,13 +107,12 @@ fn no_comments_stack_suppresses_replayed_events() {
 
     let events = stack.collect::<Result<Vec<_>, _>>().unwrap();
     assert_has_no_comments(&events);
-    assert!(events
-        .iter()
-        .any(|(event, _)| matches!(event, Event::Scalar(value, ..) if value == "value")));
+    assert!(events.iter().any(
+        |(event, _)| matches!(event, Event::Scalar(value, ..) if value == "value")
+    ));
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn no_comments_stack_suppresses_preconsumed_current_and_later_comments() {
     let mut parser = Parser::new_from_str("# current\n# later\nvalue\n");
     assert!(matches!(
@@ -134,9 +127,9 @@ fn no_comments_stack_suppresses_preconsumed_current_and_later_comments() {
 
     let events = stack.collect::<Result<Vec<_>, _>>().unwrap();
     assert_has_no_comments(&events);
-    assert!(events
-        .iter()
-        .any(|(event, _)| matches!(event, Event::Scalar(value, ..) if value == "value")));
+    assert!(events.iter().any(
+        |(event, _)| matches!(event, Event::Scalar(value, ..) if value == "value")
+    ));
 }
 
 #[test]
@@ -210,7 +203,6 @@ fn suppressed_custom_comment_after_nested_document_end_is_not_a_second_document(
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn suppressed_replay_comment_after_nested_document_end_is_not_a_second_document() {
     let mut stack = stack_with_parent();
     stack.push_replay_parser(

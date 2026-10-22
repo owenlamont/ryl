@@ -1,6 +1,6 @@
 use ryl_yaml_parser::{
-    input::{SkipTabs, WhitespaceResult},
     BufferedInput, ErrorKind, Input, StrInput,
+    input::{SkipTabs, WhitespaceResult},
 };
 
 const NO_WHITESPACE: WhitespaceResult = WhitespaceResult::new(false, false);

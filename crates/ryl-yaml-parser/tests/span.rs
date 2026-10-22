@@ -22,7 +22,9 @@ fn span_offsets(input: &str, start: Marker, end: Marker) -> (usize, usize) {
 }
 
 /// Run the parser through the string, returning all the scalars, and collecting their spans to strings.
-fn run_parser_and_deref_scalar_spans(input: &str) -> Result<Vec<(String, String)>, ScanError> {
+fn run_parser_and_deref_scalar_spans(
+    input: &str,
+) -> Result<Vec<(String, String)>, ScanError> {
     let mut events = vec![];
     for x in Parser::new_from_str(input) {
         let x = x?;
@@ -62,7 +64,10 @@ fn deref_pairs(pairs: &[(String, String)]) -> Vec<(&str, &str)> {
         .collect()
 }
 
-fn first_event_slice(yaml: &str, matches_event: impl Fn(&Event<'_>) -> bool) -> Option<String> {
+fn first_event_slice(
+    yaml: &str,
+    matches_event: impl Fn(&Event<'_>) -> bool,
+) -> Option<String> {
     Parser::new_from_str(yaml)
         .filter_map(Result::ok)
         .find_map(|(event, span)| {
@@ -86,7 +91,8 @@ fn span_helpers_report_length_empty_and_byte_range() {
     assert_eq!(span.byte_range(), Some(5..13));
     assert_eq!(span.tag_start(), None);
 
-    let empty = ryl_yaml_parser::Span::empty(Marker::new(6, 1, 6).with_byte_offset(Some(13)));
+    let empty =
+        ryl_yaml_parser::Span::empty(Marker::new(6, 1, 6).with_byte_offset(Some(13)));
     assert!(empty.is_empty());
     assert_eq!(empty.byte_range(), Some(13..13));
 
@@ -146,7 +152,9 @@ fn indentless_sequence_end_spans_preserve_unicode_and_document_boundaries() {
         }
         let ends: Vec<_> = from_str
             .iter()
-            .filter_map(|(event, span)| matches!(event, Event::SequenceEnd).then_some(span))
+            .filter_map(|(event, span)| {
+                matches!(event, Event::SequenceEnd).then_some(span)
+            })
             .collect();
         assert_eq!(ends.len(), 1, "{yaml:?}");
         let span = ends[0];
@@ -186,7 +194,8 @@ fn stream_and_block_collection_end_spans_use_physical_eof() {
             assert_eq!(other.unwrap(), from_str, "{yaml:?}");
         }
         let marker = Marker::new(yaml.chars().count(), line, col);
-        let (last, stream_end) = from_str.last().expect("stream must have an end event");
+        let (last, stream_end) =
+            from_str.last().expect("stream must have an end event");
         assert_eq!(last, &Event::StreamEnd);
 
         // Flow endings cover their closing delimiter; block endings and StreamEnd
@@ -194,8 +203,9 @@ fn stream_and_block_collection_end_spans_use_physical_eof() {
         let block_ends: Vec<_> = from_str
             .iter()
             .filter_map(|(event, span)| {
-                (matches!(event, Event::SequenceEnd | Event::MappingEnd) && span.is_empty())
-                    .then_some(span)
+                (matches!(event, Event::SequenceEnd | Event::MappingEnd)
+                    && span.is_empty())
+                .then_some(span)
             })
             .collect();
         assert_eq!(block_ends.len(), block_end_count, "{yaml:?}");
@@ -219,7 +229,8 @@ fn flow_collection_event_spans_cover_only_the_indicators() {
         Some("[")
     );
     assert_eq!(
-        first_event_slice("[a] # c\n", |event| matches!(event, Event::SequenceEnd)).as_deref(),
+        first_event_slice("[a] # c\n", |event| matches!(event, Event::SequenceEnd))
+            .as_deref(),
         Some("]")
     );
     assert_eq!(
@@ -231,7 +242,8 @@ fn flow_collection_event_spans_cover_only_the_indicators() {
         Some("{")
     );
     assert_eq!(
-        first_event_slice("{a: b} # c\n", |event| matches!(event, Event::MappingEnd)).as_deref(),
+        first_event_slice("{a: b} # c\n", |event| matches!(event, Event::MappingEnd))
+            .as_deref(),
         Some("}")
     );
 }
@@ -362,7 +374,8 @@ fn parser_spans_use_byte_offsets_for_non_ascii_input() {
 #[test]
 fn span_slice_handles_empty_spans() {
     let source = "key: value";
-    let empty = ryl_yaml_parser::Span::empty(Marker::new(4, 1, 4).with_byte_offset(Some(4)));
+    let empty =
+        ryl_yaml_parser::Span::empty(Marker::new(4, 1, 4).with_byte_offset(Some(4)));
 
     assert_eq!(empty.slice(source), Some(""));
 }
@@ -459,7 +472,9 @@ fn test_plain() {
     );
 
     assert_eq!(
-        deref_pairs(&run_parser_and_deref_scalar_spans("foo :  \n  - bar\n  - baz\n ").unwrap()),
+        deref_pairs(
+            &run_parser_and_deref_scalar_spans("foo :  \n  - bar\n  - baz\n ").unwrap()
+        ),
         [("foo", "foo"), ("bar", "bar"), ("baz", "baz")]
     );
 }
@@ -496,7 +511,9 @@ fn test_literal() {
         [("foo", "foo"), ("bar\n", "bar"),]
     );
     assert_eq!(
-        deref_pairs(&run_parser_and_deref_scalar_spans("foo: |\n  bar\n  more").unwrap()),
+        deref_pairs(
+            &run_parser_and_deref_scalar_spans("foo: |\n  bar\n  more").unwrap()
+        ),
         [("foo", "foo"), ("bar\nmore\n", "bar\n  more"),]
     );
 }
@@ -508,7 +525,9 @@ fn test_block() {
         [("foo", "foo"), ("bar\n", "bar"),]
     );
     assert_eq!(
-        deref_pairs(&run_parser_and_deref_scalar_spans("foo: >\n  bar\n  more").unwrap()),
+        deref_pairs(
+            &run_parser_and_deref_scalar_spans("foo: >\n  bar\n  more").unwrap()
+        ),
         [("foo", "foo"), ("bar more\n", "bar\n  more"),]
     );
 }
@@ -528,7 +547,8 @@ fn test_seq() {
         ["- a\n  - b"]
     );
     assert_eq!(
-        run_parser_and_deref_seq_spans("foo:\n  - a\n  - bar:\n    - b\n    - c").unwrap(),
+        run_parser_and_deref_seq_spans("foo:\n  - a\n  - bar:\n    - b\n    - c")
+            .unwrap(),
         ["b\n    - c", "- a\n  - bar:\n    - b\n    - c"]
     );
 }
@@ -536,7 +556,9 @@ fn test_seq() {
 #[test]
 fn test_literal_utf8() {
     assert_eq!(
-        deref_pairs(&run_parser_and_deref_scalar_spans("foo: |\n  \u{4F60}\u{5273}").unwrap()),
+        deref_pairs(
+            &run_parser_and_deref_scalar_spans("foo: |\n  \u{4F60}\u{5273}").unwrap()
+        ),
         [("foo", "foo"), ("\u{4F60}\u{5273}\n", "\u{4F60}\u{5273}"),]
     );
     assert_eq!(
@@ -559,7 +581,9 @@ fn test_literal_utf8() {
 #[test]
 fn test_block_utf8() {
     assert_eq!(
-        deref_pairs(&run_parser_and_deref_scalar_spans("foo: >\n  \u{4F60}\u{5273}").unwrap()),
+        deref_pairs(
+            &run_parser_and_deref_scalar_spans("foo: >\n  \u{4F60}\u{5273}").unwrap()
+        ),
         [("foo", "foo"), ("\u{4F60}\u{5273}\n", "\u{4F60}\u{5273}")],
     );
     assert_eq!(
@@ -585,7 +609,8 @@ fn span_slice_for_quoted_scalar_excludes_trailing_comment() {
     let slices: Vec<_> = Parser::new_from_str(yaml)
         .filter_map(|parsed| {
             let (event, span) = parsed.unwrap();
-            matches!(event, Event::Scalar(..)).then(|| span.slice(yaml).unwrap().to_string())
+            matches!(event, Event::Scalar(..))
+                .then(|| span.slice(yaml).unwrap().to_string())
         })
         .collect();
 
@@ -598,7 +623,8 @@ fn span_slice_for_single_quoted_scalar_excludes_trailing_comment() {
     let slices: Vec<_> = Parser::new_from_str(yaml)
         .filter_map(|parsed| {
             let (event, span) = parsed.unwrap();
-            matches!(event, Event::Scalar(..)).then(|| span.slice(yaml).unwrap().to_string())
+            matches!(event, Event::Scalar(..))
+                .then(|| span.slice(yaml).unwrap().to_string())
         })
         .collect();
 

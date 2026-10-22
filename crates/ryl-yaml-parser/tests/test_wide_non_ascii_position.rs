@@ -42,7 +42,9 @@ fn test_wide_chars_in_comments() {
     let yaml = "key: value # \u{1F602} emoji comment\nnext: item";
     let mut parser = Parser::new_from_str(yaml);
 
-    while !matches!(parser.next().unwrap().unwrap().0, Event::Scalar(ref v, ..) if v == "value") {}
+    while !matches!(parser.next().unwrap().unwrap().0, Event::Scalar(ref v, ..) if v == "value")
+    {
+    }
 
     let (event, span) = parser.next().unwrap().unwrap();
     if let Event::Scalar(v, ..) = event {
@@ -58,7 +60,9 @@ fn test_wide_chars_in_comments() {
 fn test_block_scalar_wide_chars() {
     let yaml = "key: |\n  \u{1F602}\n  \u{1F680}";
     let mut parser = Parser::new_from_str(yaml);
-    while !matches!(parser.next().unwrap().unwrap().0, Event::Scalar(ref v, ..) if v == "key") {}
+    while !matches!(parser.next().unwrap().unwrap().0, Event::Scalar(ref v, ..) if v == "key")
+    {
+    }
 
     let (event, span) = parser.next().unwrap().unwrap();
     if let Event::Scalar(v, _, _, _) = event {

@@ -1,5 +1,4 @@
 mod support;
-#[cfg(feature = "comments")]
 use ryl_yaml_parser::Placement;
 use ryl_yaml_parser::{Event, Parser, ScalarStyle, ScanError, Span};
 
@@ -51,7 +50,8 @@ fn run_parser_with_span(input: &str) -> Result<Vec<(Event<'_>, Span)>, ScanError
 
 #[test]
 fn root_block_scalars_stop_at_document_markers() {
-    for (indicator, style) in [('|', ScalarStyle::Literal), ('>', ScalarStyle::Folded)] {
+    for (indicator, style) in [('|', ScalarStyle::Literal), ('>', ScalarStyle::Folded)]
+    {
         for (chomping, content, expected) in [
             ("", "text\n", "text\n"),
             ("", "", ""),
@@ -81,7 +81,8 @@ fn root_block_scalars_stop_at_document_markers() {
                     assert_eq!(spanned_events[4].1.start.index(), marker_start);
                     assert_eq!(spanned_events[4].1.slice(&yaml), Some("---"));
                 }
-                let events: Vec<_> = spanned_events.into_iter().map(|(event, _)| event).collect();
+                let events: Vec<_> =
+                    spanned_events.into_iter().map(|(event, _)| event).collect();
                 assert_eq!(
                     events,
                     [
@@ -109,9 +110,11 @@ fn root_block_scalars_preserve_folding_and_unicode_positions_before_document_mar
     ] {
         for (chomping, tail) in [("-", ""), ("", "\n"), ("+", "\n\n")] {
             for newline in ["\n", "\r\n", "\r"] {
-                let prefix =
-                    format!("{indicator}{chomping}{newline}{newline}α{newline}β{newline}{newline}");
-                let yaml = format!("{prefix}--- # next document{newline}second{newline}");
+                let prefix = format!(
+                    "{indicator}{chomping}{newline}{newline}α{newline}β{newline}{newline}"
+                );
+                let yaml =
+                    format!("{prefix}--- # next document{newline}second{newline}");
                 let events = run_parser_with_span(&yaml).unwrap();
 
                 assert_eq!(
@@ -125,14 +128,13 @@ fn root_block_scalars_preserve_folding_and_unicode_positions_before_document_mar
                         Event::Scalar(format!("{body}{tail}").into(), style, 0, None),
                         Event::DocumentEnd,
                         Event::DocumentStart(true, None),
-                        #[cfg(feature = "comments")]
                         Event::Comment(" next document".into(), Placement::Right),
                         Event::Scalar("second".into(), ScalarStyle::Plain, 0, None),
                         Event::DocumentEnd,
                         Event::StreamEnd,
                     ]
                     .into_iter()
-                    .filter(|event| cfg!(feature = "comments") || !support::is_comment_event(event))
+                    .filter(|event| true || !support::is_comment_event(event))
                     .collect::<Vec<_>>(),
                     "input: {yaml:?}",
                 );
@@ -157,7 +159,8 @@ fn root_block_scalars_preserve_folding_and_unicode_positions_before_document_mar
 
 #[test]
 fn block_scalars_preserve_content_resembling_document_markers() {
-    for (indicator, style) in [('|', ScalarStyle::Literal), ('>', ScalarStyle::Folded)] {
+    for (indicator, style) in [('|', ScalarStyle::Literal), ('>', ScalarStyle::Folded)]
+    {
         for (content, expected) in [
             ("---text\n", "---text\n"),
             ("---#text\n", "---#text\n"),

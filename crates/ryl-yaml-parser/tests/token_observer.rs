@@ -1,4 +1,6 @@
-use ryl_yaml_parser::{options, BufferedInput, Parser, Scanner, Span, StrInput, TokenKind};
+use ryl_yaml_parser::{
+    BufferedInput, Parser, Scanner, Span, StrInput, TokenKind, options,
+};
 
 fn observed(text: &str) -> Vec<(Span, String)> {
     let mut tokens = Vec::new();
@@ -16,7 +18,8 @@ fn observed(text: &str) -> Vec<(Span, String)> {
 
 #[test]
 fn observer_matches_settled_scanner_order_with_synthetic_keys_and_comments() {
-    let text = "%YAML 1.2\n---\n# heading\n? [é, 🦀]\n: {a: &a 'x', b: *a} # tail\n...\n";
+    let text =
+        "%YAML 1.2\n---\n# heading\n? [é, 🦀]\n: {a: &a 'x', b: *a} # tail\n...\n";
     let actual = observed(text);
     let expected: Vec<_> = Scanner::new(StrInput::new(text))
         .map(|token| {
@@ -46,9 +49,11 @@ fn buffered_observation_preserves_character_coordinates_and_decoded_values() {
     );
     assert!(parser.collect::<Result<Vec<_>, _>>().is_ok());
     assert_eq!(actual, expected);
-    assert!(actual
-        .iter()
-        .all(|(span, _)| span.start.byte_offset().is_none()));
+    assert!(
+        actual
+            .iter()
+            .all(|(span, _)| span.start.byte_offset().is_none())
+    );
 }
 
 #[test]
@@ -61,8 +66,9 @@ fn failed_parse_has_no_completion_token_and_keeps_the_parser_error() {
         |_: &Span, kind: TokenKind<'_>| tokens.push(format!("{kind:?}")),
     )
     .collect::<Result<Vec<_>, _>>();
-    let expected = Parser::new_from_str_with_options(text, options! { strict_indentation: true })
-        .collect::<Result<Vec<_>, _>>();
+    let expected =
+        Parser::new_from_str_with_options(text, options! { strict_indentation: true })
+            .collect::<Result<Vec<_>, _>>();
     assert_eq!(actual, expected);
     assert!(actual.is_err());
     assert!(!tokens.iter().any(|kind| kind == "StreamEnd"));

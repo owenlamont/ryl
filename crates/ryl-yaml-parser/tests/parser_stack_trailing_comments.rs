@@ -1,9 +1,8 @@
 mod support;
-#[cfg(feature = "comments")]
 use ryl_yaml_parser::Placement;
 use ryl_yaml_parser::{
-    ErrorKind, Event, Marker, Options, Parser, ParserStack, ParserTrait, ReplayParser, ScalarStyle,
-    ScanError, Span, StrInput,
+    ErrorKind, Event, Marker, Options, Parser, ParserStack, ParserTrait, ReplayParser,
+    ScalarStyle, ScanError, Span, StrInput,
 };
 
 type Stack = ParserStack<'static, std::vec::IntoIter<char>, StrInput<'static>>;
@@ -70,17 +69,26 @@ fn stack_with_child(backend: Backend, yaml: &'static str, options: Options) -> S
         }
         Backend::Iterator => {
             let chars = yaml.chars().collect::<Vec<_>>().into_iter();
-            stack.push_iter_parser(Parser::new_from_iter(chars), "child.yaml".to_owned());
+            stack.push_iter_parser(
+                Parser::new_from_iter(chars),
+                "child.yaml".to_owned(),
+            );
         }
         Backend::Custom => {
-            stack.push_custom_parser(Parser::new(StrInput::new(yaml)), "child.yaml".to_owned());
+            stack.push_custom_parser(
+                Parser::new(StrInput::new(yaml)),
+                "child.yaml".to_owned(),
+            );
         }
         Backend::Replay | Backend::ReplayWithoutStreamEnd => {
             let mut events = ordinary_events(yaml);
             if matches!(backend, Backend::ReplayWithoutStreamEnd) {
                 assert!(matches!(events.pop().unwrap().0, Event::StreamEnd));
             }
-            stack.push_replay_parser(ReplayParser::new(events, 1), "child.yaml".to_owned());
+            stack.push_replay_parser(
+                ReplayParser::new(events, 1),
+                "child.yaml".to_owned(),
+            );
         }
         Backend::OwnedInclude => {
             stack.set_resolver(move |_| Ok(yaml.to_owned()));
@@ -94,7 +102,9 @@ fn stack_with_child(backend: Backend, yaml: &'static str, options: Options) -> S
     stack
 }
 
-fn next_with_repeated_peek(stack: &mut Stack) -> Option<Result<(Event<'static>, Span), ScanError>> {
+fn next_with_repeated_peek(
+    stack: &mut Stack,
+) -> Option<Result<(Event<'static>, Span), ScanError>> {
     let peeked = stack.peek().map(Result::<&_, _>::cloned);
     assert_eq!(stack.peek().map(Result::<&_, _>::cloned), peeked);
     let next = stack.next_event();
@@ -112,7 +122,6 @@ fn assert_multiple_documents_error(stack: &mut Stack, error: &ScanError) {
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn included_trailing_comments_are_emitted_before_parent_resumes() {
     // Keep the semantic oracle independent of the parser used by every backend.
     let expected = vec![
@@ -158,26 +167,24 @@ fn included_trailing_comments_are_emitted_before_parent_resumes() {
 fn trailing_comments_do_not_hide_a_second_included_document() {
     for backend in BACKENDS {
         for &emit_comments in support::comment_modes() {
-            let options = ryl_yaml_parser::options! { #[cfg(feature = "comments")] emit_comments: emit_comments };
+            let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
             let mut stack = stack_with_child(backend, TWO_DOCUMENTS, options);
             let mut actual = Vec::new();
             let error = loop {
-                match next_with_repeated_peek(&mut stack).expect("second document must fail") {
+                match next_with_repeated_peek(&mut stack)
+                    .expect("second document must fail")
+                {
                     Ok(event) => actual.push(event),
                     Err(error) => break error,
                 }
             };
             let expected = vec![
                 Event::Scalar("child".into(), ScalarStyle::Plain, 0, None),
-                #[cfg(feature = "comments")]
                 Event::Comment(" trailing".into(), Placement::Right),
-                #[cfg(feature = "comments")]
                 Event::Comment(" after".into(), Placement::Above),
             ]
             .into_iter()
-            .filter(|event| {
-                (cfg!(feature = "comments") && emit_comments) || !support::is_comment_event(event)
-            })
+            .filter(|event| emit_comments || !support::is_comment_event(event))
             .collect::<Vec<_>>();
             assert_eq!(
                 actual
@@ -205,22 +212,26 @@ fn replayed_trailing_comments_do_not_allow_events_after_document_end() {
             events.push((unexpected.clone(), Span::empty(Marker::new(29, 4, 0))));
 
             let mut stack = Stack::with_options(ryl_yaml_parser::options! {
-                #[cfg(feature = "comments")]
                 emit_comments: emit_comments,
             });
-            stack.push_str_parser(Parser::new_from_str(PARENT), "parent.yaml".to_owned());
-            stack.push_replay_parser(ReplayParser::new(events, 1), "child.yaml".to_owned());
+            stack.push_str_parser(
+                Parser::new_from_str(PARENT),
+                "parent.yaml".to_owned(),
+            );
+            stack.push_replay_parser(
+                ReplayParser::new(events, 1),
+                "child.yaml".to_owned(),
+            );
 
             let expected = [
                 Event::Scalar("child".into(), ScalarStyle::Plain, 0, None),
-                #[cfg(feature = "comments")]
                 Event::Comment(" trailing".into(), Placement::Right),
-                #[cfg(feature = "comments")]
                 Event::Comment(" after".into(), Placement::Last),
             ];
-            for event in expected.into_iter().filter(|event| {
-                (cfg!(feature = "comments") && emit_comments) || !support::is_comment_event(event)
-            }) {
+            for event in expected
+                .into_iter()
+                .filter(|event| emit_comments || !support::is_comment_event(event))
+            {
                 assert_eq!(
                     next_with_repeated_peek(&mut stack).unwrap().unwrap().0,
                     event
@@ -234,7 +245,6 @@ fn replayed_trailing_comments_do_not_allow_events_after_document_end() {
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn nested_second_document_error_uses_its_own_pending_end_and_source() {
     const GRANDCHILD: &str = "grandchild\n... # grandchild tail\n---\nextra\n";
 
@@ -278,7 +288,6 @@ fn nested_second_document_error_uses_its_own_pending_end_and_source() {
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn pushing_during_a_peeked_trailing_comment_preserves_each_sources_validation() {
     const GRANDCHILD: &str = "grandchild\n... # grandchild tail\n";
 
@@ -322,12 +331,10 @@ fn scan_errors_after_trailing_comments_keep_their_kind_and_source() {
         let mut stack = stack_with_child(backend, INVALID_TAIL, Options::default());
         let expected = nested_events(CHILD);
         assert_eq!(stack.next_event().unwrap().unwrap(), expected[0]);
-        if cfg!(feature = "comments") {
-            assert_eq!(
-                next_with_repeated_peek(&mut stack).unwrap().unwrap(),
-                expected[1]
-            );
-        }
+        assert_eq!(
+            next_with_repeated_peek(&mut stack).unwrap().unwrap(),
+            expected[1]
+        );
 
         let error = next_with_repeated_peek(&mut stack).unwrap().unwrap_err();
         assert_eq!(

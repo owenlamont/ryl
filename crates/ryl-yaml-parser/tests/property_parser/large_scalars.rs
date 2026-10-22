@@ -1,15 +1,8 @@
-#![cfg_attr(not(test), no_main)]
-
-#[cfg(not(test))]
-mod common;
-#[cfg(test)]
-use crate::common;
+use super::common;
 
 use std::str;
 
-use common::parse_with_both_inputs;
-#[cfg(not(test))]
-use libfuzzer_sys::fuzz_target;
+use common::{cap_at_utf8_boundary, parse_with_both_inputs};
 use ryl_yaml_parser::{Event, Parser, ScalarStyle};
 
 const SIZE_BUCKETS: [usize; 5] = [64, 1 << 10, 16 << 10, 64 << 10, 256 << 10];
@@ -18,8 +11,6 @@ const MAX_SEED_BYTES: usize = 16 << 10;
 // Stress scalar scanning at several useful sizes. The first two bytes select a
 // construction and a size bucket, so even tiny inputs exercise the parser and
 // only a fraction of iterations pay for the largest allocation.
-#[cfg(not(test))]
-fuzz_target!(|data: &[u8]| check_input(data));
 
 pub fn check_input(data: &[u8]) {
     let mode = data.first().copied().unwrap_or(0);
@@ -96,7 +87,8 @@ pub fn check_input(data: &[u8]) {
 
 fn root_block_document(seed: &[u8], bucket: u8, target_len: usize) -> String {
     let variant = seed.first().copied().unwrap_or(0);
-    let scalar = expanded_scalar(&hex_seed(seed.get(1..).unwrap_or_default()), target_len);
+    let scalar =
+        expanded_scalar(&hex_seed(seed.get(1..).unwrap_or_default()), target_len);
     let width = [16, 64, 256, 1024][usize::from(bucket / 5) % 4];
     let mut wrapped = wrap_ascii_lines(&scalar, width);
     // A non-ASCII prefix makes byte-offset assertions distinct from character offsets.
@@ -174,7 +166,11 @@ fn hex_seed(data: &[u8]) -> String {
     encoded
 }
 
-fn assert_generated_scalar(input: &str, expected_style: ScalarStyle, expected_value: &str) {
+fn assert_generated_scalar(
+    input: &str,
+    expected_style: ScalarStyle,
+    expected_value: &str,
+) {
     let events = Parser::new_from_str(input)
         .collect::<Result<Vec<_>, _>>()
         .expect("generated scalar document must parse");
@@ -225,9 +221,12 @@ fn wrap_ascii_lines(scalar: &str, width: usize) -> String {
 fn block_document(header: &str, scalar: &str) -> String {
     let line_breaks = scalar
         .chars()
-        .filter(|character| matches!(character, '\r' | '\n' | '\u{85}' | '\u{2028}' | '\u{2029}'))
+        .filter(|character| {
+            matches!(character, '\r' | '\n' | '\u{85}' | '\u{2028}' | '\u{2029}')
+        })
         .count();
-    let mut yaml = String::with_capacity(header.len() + scalar.len() + line_breaks * 2 + 10);
+    let mut yaml =
+        String::with_capacity(header.len() + scalar.len() + line_breaks * 2 + 10);
     yaml.push_str("value: ");
     yaml.push_str(header);
     yaml.push('\n');
@@ -261,16 +260,4 @@ fn block_document(header: &str, scalar: &str) -> String {
     }
 
     yaml
-}
-
-fn cap_at_utf8_boundary(data: &[u8], max_len: usize) -> &[u8] {
-    if data.len() <= max_len {
-        return data;
-    }
-
-    let mut end = max_len;
-    while end > 0 && data[end] & 0xc0 == 0x80 {
-        end -= 1;
-    }
-    &data[..end]
 }

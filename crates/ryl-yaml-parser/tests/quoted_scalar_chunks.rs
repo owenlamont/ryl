@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 
-use ryl_yaml_parser::{ErrorKind, Event, InputIoError, Marker, Parser, ScanError, Span};
+use ryl_yaml_parser::{
+    ErrorKind, Event, InputIoError, Marker, Parser, ScanError, Span,
+};
 
 /// Compare values, styles, and character-based spans across all built-in input backends.
 /// Marker equality deliberately ignores the optional byte offsets of string input.
@@ -11,9 +13,10 @@ fn parse_all_inputs(source: &str) -> Vec<(Event<'_>, Span)> {
     let from_iter = Parser::new_from_iter(source.chars())
         .collect::<Result<Vec<_>, _>>()
         .expect("iterator input should parse");
-    let from_fallible = Parser::new_from_fallible_iter(source.chars().map(Ok::<_, ErrorKind>))
-        .collect::<Result<Vec<_>, _>>()
-        .expect("fallible input should parse");
+    let from_fallible =
+        Parser::new_from_fallible_iter(source.chars().map(Ok::<_, ErrorKind>))
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fallible input should parse");
     assert_eq!(from_str, from_iter);
     assert_eq!(from_str, from_fallible);
     from_str
@@ -80,7 +83,9 @@ fn unescaped_ascii_runs_remain_borrowed_at_short_and_long_boundaries() {
 fn printable_ascii_and_unicode_boundaries_preserve_values_and_offsets() {
     for quote in ['\'', '"'] {
         let ascii: String = ('!'..='~')
-            .filter(|&character| character != quote && (quote == '\'' || character != '\\'))
+            .filter(|&character| {
+                character != quote && (quote == '\'' || character != '\\')
+            })
             .collect();
         // Single quotes allow literal backslashes and double quotes; double quotes
         // allow literal single quotes. Unicode interrupts and then resumes ASCII runs.

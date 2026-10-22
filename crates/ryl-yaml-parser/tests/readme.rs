@@ -64,11 +64,11 @@ fn minimal_example_output_matches_readme() {
     let yaml = extract_yaml_input(section);
     let expected = extract_expected_output(section)
         .lines()
-        .filter(|line| cfg!(feature = "comments") || !line.starts_with("Comment("))
+        .filter(|line| true || !line.starts_with("Comment("))
         .collect::<Vec<_>>()
         .join("\n");
-    let actual =
-        render_readme_example(yaml).expect("README example YAML should parse successfully");
+    let actual = render_readme_example(yaml)
+        .expect("README example YAML should parse successfully");
 
     println!("Actual output:\n{actual}");
     println!("Expected output:\n{expected}");

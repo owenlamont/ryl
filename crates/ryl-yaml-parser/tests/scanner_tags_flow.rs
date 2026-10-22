@@ -10,8 +10,8 @@
 use std::cell::Cell;
 
 use ryl_yaml_parser::{
-    BorrowedInput, BufferedInput, Event, Input, Parser, ScalarStyle, ScanError, Scanner, StrInput,
-    Tag,
+    BorrowedInput, BufferedInput, Event, Input, Parser, ScalarStyle, ScanError,
+    Scanner, StrInput, Tag,
 };
 
 // --- Custom inputs ------------------------------------------------------------------------
@@ -238,7 +238,8 @@ fn primary_handle_overrides_are_scoped_to_documents_with_nested_non_specific_tag
     );
     let tags = events.iter().filter_map(Event::tag).collect::<Vec<_>>();
     assert_eq!(tags.len(), expected_tags.len());
-    for (tag, (handle, suffix, original, core_suffix)) in tags.iter().zip(expected_tags) {
+    for (tag, (handle, suffix, original, core_suffix)) in tags.iter().zip(expected_tags)
+    {
         assert_eq!(tag.parts(), (handle, suffix));
         assert_eq!(tag.original(), original);
         assert_eq!(tag.core_suffix(), core_suffix);
@@ -398,8 +399,9 @@ fn no_borrow_input_scans_primary_handle_tag_as_owned() {
 
 #[test]
 fn no_borrow_input_scans_anchor_and_alias_as_owned() {
-    let events = collect_events(OpaqueInput::new("- &a 1\n- *a\n", SliceMode::Delegate))
-        .expect("anchors must parse without zero-copy borrowing");
+    let events =
+        collect_events(OpaqueInput::new("- &a 1\n- *a\n", SliceMode::Delegate))
+            .expect("anchors must parse without zero-copy borrowing");
 
     let anchor_id = events
         .iter()
@@ -477,8 +479,11 @@ fn empty_range_sliceless_input_decodes_tag_directive_prefix_escape() {
 
 #[test]
 fn empty_range_sliceless_input_decodes_tag_suffix_escape() {
-    let events = collect_events(OpaqueInput::new("!%61bc 1\n", SliceMode::NoneWhenEmpty))
-        .expect("tag suffix starting with an escape must parse without empty-range slices");
+    let events = collect_events(OpaqueInput::new(
+        "!%61bc 1\n",
+        SliceMode::NoneWhenEmpty,
+    ))
+    .expect("tag suffix starting with an escape must parse without empty-range slices");
 
     let (value, tag) = first_tagged_scalar(&events);
     assert_eq!(value, "1");

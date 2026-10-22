@@ -1,24 +1,25 @@
 mod support;
 use ryl_yaml_parser::{
-    BufferedInput, ErrorKind, Event, FallibleBufferedInput, Options, Parser, Scanner, StrInput,
-    TokenType,
+    BufferedInput, ErrorKind, Event, FallibleBufferedInput, Options, Parser, Scanner,
+    StrInput, TokenType,
 };
 
 fn assert_comment_free_value(events: &[(Event<'_>, ryl_yaml_parser::Span)]) {
-    assert!(events
-        .iter()
-        .all(|(event, _)| !support::is_comment_event(event)));
-    assert!(events
-        .iter()
-        .any(|(event, _)| { matches!(event, Event::Scalar(value, ..) if value == "value") }));
+    assert!(
+        events
+            .iter()
+            .all(|(event, _)| !support::is_comment_event(event))
+    );
+    assert!(events.iter().any(|(event, _)| {
+        matches!(event, Event::Scalar(value, ..) if value == "value")
+    }));
 }
 
 #[test]
 fn options_macro_starts_with_defaults_and_applies_fields() {
     let defaults = Options::default();
     assert!(!defaults.strict_indentation);
-    assert_eq!(defaults.emit_comments, cfg!(feature = "comments"));
-    #[cfg(feature = "comments")]
+    assert!(defaults.emit_comments);
     assert_eq!(defaults.max_buffered_comment_events, 96);
     assert_eq!(defaults.simple_key_max_lookahead, 1024);
     assert_eq!(defaults.flow_nesting_limit, 255);
@@ -30,7 +31,6 @@ fn options_macro_starts_with_defaults_and_applies_fields() {
     let options = ryl_yaml_parser::options! {
         strict_indentation: true,
         emit_comments: false,
-        #[cfg(feature = "comments")]
         max_buffered_comment_events: 7,
         simple_key_max_lookahead: 11,
         flow_nesting_limit: 13,
@@ -41,7 +41,6 @@ fn options_macro_starts_with_defaults_and_applies_fields() {
 
     assert!(options.strict_indentation);
     assert!(!options.emit_comments);
-    #[cfg(feature = "comments")]
     assert_eq!(options.max_buffered_comment_events, 7);
     assert_eq!(options.simple_key_max_lookahead, 11);
     assert_eq!(options.flow_nesting_limit, 13);
@@ -71,10 +70,11 @@ fn comment_emission_option_is_available_with_and_without_comments() {
         let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
         setter_options.set_emit_comments(emit_comments);
         assert_eq!(options, setter_options);
-        let expect_comments = cfg!(feature = "comments") && emit_comments;
+        let expect_comments = emit_comments;
 
         for events in [
-            Parser::new_from_str_with_options(yaml, options.clone()).collect::<Result<Vec<_>, _>>(),
+            Parser::new_from_str_with_options(yaml, options.clone())
+                .collect::<Result<Vec<_>, _>>(),
             Parser::new_from_iter_with_options(yaml.chars(), setter_options.clone())
                 .collect::<Result<Vec<_>, _>>(),
             Parser::new_from_fallible_iter_with_options(
@@ -99,8 +99,11 @@ fn comment_emission_option_is_available_with_and_without_comments() {
         for tokens in [
             Scanner::with_options(StrInput::new(yaml), options.clone())
                 .collect::<Result<Vec<_>, _>>(),
-            Scanner::with_options(BufferedInput::new(yaml.chars()), setter_options.clone())
-                .collect::<Result<Vec<_>, _>>(),
+            Scanner::with_options(
+                BufferedInput::new(yaml.chars()),
+                setter_options.clone(),
+            )
+            .collect::<Result<Vec<_>, _>>(),
             Scanner::with_options(
                 FallibleBufferedInput::new(yaml.chars().map(Ok)),
                 setter_options.clone(),
@@ -141,9 +144,10 @@ fn common_input_constructors_accept_options() {
         .expect("string constructor should parse with custom options");
     assert_comment_free_value(&string_events);
 
-    let iterator_events = Parser::new_from_iter_with_options(yaml.chars(), options.clone())
-        .collect::<Result<Vec<_>, _>>()
-        .expect("iterator constructor should parse with custom options");
+    let iterator_events =
+        Parser::new_from_iter_with_options(yaml.chars(), options.clone())
+            .collect::<Result<Vec<_>, _>>()
+            .expect("iterator constructor should parse with custom options");
     assert_comment_free_value(&iterator_events);
 
     let fallible_events =
@@ -154,7 +158,6 @@ fn common_input_constructors_accept_options() {
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn buffered_comment_limit_can_be_raised() {
     let default_limit = Options::default().max_buffered_comment_events;
     let raised_limit = default_limit + 1;
@@ -188,7 +191,6 @@ fn buffered_comment_limit_can_be_raised() {
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn buffered_comment_limit_honors_lower_and_zero_boundaries() {
     let one_comment = "key: # one\nnext: value\n";
     let options = ryl_yaml_parser::options! {
@@ -217,7 +219,6 @@ fn buffered_comment_limit_honors_lower_and_zero_boundaries() {
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn zero_comment_limit_still_precedes_indentless_sequence_start() {
     let options = ryl_yaml_parser::options! {
         max_buffered_comment_events: 0,

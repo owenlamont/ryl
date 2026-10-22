@@ -1,9 +1,5 @@
-#![cfg_attr(not(test), no_main)]
-
 use std::str;
 
-#[cfg(not(test))]
-use libfuzzer_sys::fuzz_target;
 use ryl_yaml_parser::{
     ErrorKind, Event, FallibleBufferedInput, InputIoError, Parser, Scanner, TokenType,
 };
@@ -56,9 +52,6 @@ pub fn check_input(data: &[u8]) {
     check_scanner(&yaml, position, &error);
 }
 
-#[cfg(not(test))]
-fuzz_target!(|data: &[u8]| check_input(data));
-
 fn check_parser(input: &str, position: usize, expected: &ErrorKind) {
     let source = ErrorAt {
         chars: input.chars(),
@@ -70,7 +63,9 @@ fn check_parser(input: &str, position: usize, expected: &ErrorKind) {
 
     let actual = loop {
         match parser.next() {
-            Some(Ok((event, _))) => emitted_stream_end |= matches!(event, Event::StreamEnd),
+            Some(Ok((event, _))) => {
+                emitted_stream_end |= matches!(event, Event::StreamEnd)
+            }
             Some(Err(error)) => break error,
             None => panic!("source error was mistaken for clean EOF"),
         }
@@ -93,7 +88,8 @@ fn check_scanner(input: &str, position: usize, expected: &ErrorKind) {
     let actual = loop {
         match scanner.next() {
             Some(Ok(token)) => {
-                emitted_stream_end |= matches!(token.token_type(), TokenType::StreamEnd);
+                emitted_stream_end |=
+                    matches!(token.token_type(), TokenType::StreamEnd);
             }
             Some(Err(error)) => break error,
             None => panic!("source error was mistaken for clean EOF"),
@@ -111,10 +107,10 @@ fn injected_error(selector: u8) -> ErrorKind {
             limit: selector as usize,
         },
         1 => ErrorKind::InputDecoding {
-            message: "fuzz-injected decoding error".to_owned(),
+            message: "injected decoding error".to_owned(),
         },
         _ => ErrorKind::InputIo {
-            error: InputIoError::from_message("fuzz-injected I/O error"),
+            error: InputIoError::from_message("injected I/O error"),
         },
     }
 }

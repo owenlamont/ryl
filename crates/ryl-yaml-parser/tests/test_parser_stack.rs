@@ -1,4 +1,3 @@
-#[cfg(feature = "comments")]
 use ryl_yaml_parser::Placement;
 extern crate alloc;
 
@@ -10,9 +9,9 @@ use alloc::{
 };
 use core::iter::Empty;
 use ryl_yaml_parser::{
-    BorrowedInput, ErrorKind, Event, Marker, Parser, ParserStack, ParserTrait, ReplayParser,
-    ScalarStyle, ScanError, Span, SpannedEventReceiver, StrInput, StructureStyle, TryEventReceiver,
-    TryLoadError,
+    BorrowedInput, ErrorKind, Event, Marker, Parser, ParserStack, ParserTrait,
+    ReplayParser, ScalarStyle, ScanError, Span, SpannedEventReceiver, StrInput,
+    StructureStyle, TryEventReceiver, TryLoadError,
 };
 
 type MyStack<'a> = ParserStack<'a, Empty<char>, StrInput<'a>>;
@@ -25,7 +24,9 @@ fn plain_scalar(value: &'static str, anchor_id: usize) -> Event<'static> {
     Event::Scalar(value.into(), ScalarStyle::Plain, anchor_id, None)
 }
 
-fn collect_events<'a, I, T>(stack: &mut ParserStack<'a, I, T>) -> Result<Vec<Event<'a>>, String>
+fn collect_events<'a, I, T>(
+    stack: &mut ParserStack<'a, I, T>,
+) -> Result<Vec<Event<'a>>, String>
 where
     I: Iterator<Item = char>,
     T: BorrowedInput<'a>,
@@ -60,17 +61,19 @@ fn find_anchor_id(events: &[Event], value: &str) -> Option<usize> {
 fn stack_after_first_parent_anchor() -> MyStack<'static> {
     let mut stack = ParserStack::new();
     stack.push_str_parser(
-        Parser::new_from_str("before: &parent parent-value\nafter: &after resumed-parent-value\n"),
+        Parser::new_from_str(
+            "before: &parent parent-value\nafter: &after resumed-parent-value\n",
+        ),
         "parent.yaml".to_string(),
     );
 
     loop {
         let event = stack.next_event().unwrap().unwrap().0;
-        if let Event::Scalar(value, _, anchor_id, _) = event {
-            if value == "parent-value" {
-                assert_eq!(anchor_id, 1);
-                break;
-            }
+        if let Event::Scalar(value, _, anchor_id, _) = event
+            && value == "parent-value"
+        {
+            assert_eq!(anchor_id, 1);
+            break;
         }
     }
 
@@ -92,7 +95,6 @@ fn format_events(events: &[Event]) -> Vec<String> {
             Event::StreamEnd => "StreamEnd".to_string(),
             Event::DocumentStart(..) => "DocStart".to_string(),
             Event::DocumentEnd => "DocEnd".to_string(),
-            #[cfg(feature = "comments")]
             Event::Comment(text, _) => alloc::format!("Comment({})", text.as_ref()),
             Event::Scalar(val, _, _, _) => alloc::format!("Scalar({})", val.as_ref()),
             Event::MappingStart(..) => "MapStart".to_string(),
@@ -166,9 +168,10 @@ fn test_two_parsers_second_has_two_docs_error() {
 
     let res = collect_events(&mut stack);
     assert!(res.is_err());
-    assert!(res
-        .unwrap_err()
-        .contains("multiple documents not supported here"));
+    assert!(
+        res.unwrap_err()
+            .contains("multiple documents not supported here")
+    );
 }
 
 #[test]
@@ -184,7 +187,10 @@ fn nested_parser_scan_error_after_document_end_preserves_kind_and_adds_source_st
         match stack.next_event() {
             Some(Ok(_)) => {}
             Some(Err(err)) => {
-                assert_eq!(err.kind(), &ErrorKind::UnclosedFlowCollection { open: '[' });
+                assert_eq!(
+                    err.kind(),
+                    &ErrorKind::UnclosedFlowCollection { open: '[' }
+                );
                 assert_eq!(
                     err.info(),
                     "unclosed bracket '['\nwhile parsing parent -> child"
@@ -369,7 +375,8 @@ impl<'input> TryEventReceiver<'input> for TryTestReceiver<'input> {
     type Error = &'static str;
 
     fn on_event(&mut self, ev: Event<'input>) -> Result<(), Self::Error> {
-        let should_fail = matches!(&ev, Event::Scalar(value, ..) if value.as_ref() == "stop");
+        let should_fail =
+            matches!(&ev, Event::Scalar(value, ..) if value.as_ref() == "stop");
         self.events.push(ev);
         if should_fail {
             Err("stop requested")
@@ -433,14 +440,17 @@ fn test_parser_stack_try_load_stops_on_receiver_error() {
     let err = stack.try_load(&mut recv, true).unwrap_err();
 
     assert_eq!(err, TryLoadError::Receiver("stop requested"));
-    assert!(recv
-        .events
-        .iter()
-        .any(|event| matches!(event, Event::Scalar(value, ..) if value == "stop")));
-    assert!(!recv
-        .events
-        .iter()
-        .any(|event| matches!(event, Event::Scalar(value, ..) if value == "after")));
+    assert!(
+        recv.events
+            .iter()
+            .any(|event| matches!(event, Event::Scalar(value, ..) if value == "stop"))
+    );
+    assert!(
+        !recv
+            .events
+            .iter()
+            .any(|event| matches!(event, Event::Scalar(value, ..) if value == "after"))
+    );
 }
 
 #[test]
@@ -553,11 +563,11 @@ fn borrowed_include_resolver_preserves_borrowed_event_text() {
     stack.push_include("borrowed.yaml").unwrap();
 
     while let Some(event) = stack.next_event() {
-        if let Event::Scalar(value, _, _, _) = event.unwrap().0 {
-            if value == "borrowed-value" {
-                assert!(matches!(value, Cow::Borrowed("borrowed-value")));
-                return;
-            }
+        if let Event::Scalar(value, _, _, _) = event.unwrap().0
+            && value == "borrowed-value"
+        {
+            assert!(matches!(value, Cow::Borrowed("borrowed-value")));
+            return;
         }
     }
 
@@ -589,9 +599,11 @@ fn empty_stack_include_preserves_fresh_parser_anchor_offset() {
     let owned_events = collect_events(&mut owned).unwrap();
 
     assert_eq!(find_anchor_id(&owned_events, "anchored"), Some(1));
-    assert!(owned_events
-        .iter()
-        .any(|event| matches!(event, Event::Alias(1))));
+    assert!(
+        owned_events
+            .iter()
+            .any(|event| matches!(event, Event::Alias(1)))
+    );
 
     let mut borrowed: MyStack<'static> = ParserStack::new();
     borrowed.set_borrowed_resolver(|_| Ok(INCLUDED));
@@ -599,9 +611,11 @@ fn empty_stack_include_preserves_fresh_parser_anchor_offset() {
     let borrowed_events = collect_events(&mut borrowed).unwrap();
 
     assert_eq!(find_anchor_id(&borrowed_events, "anchored"), Some(1));
-    assert!(borrowed_events
-        .iter()
-        .any(|event| matches!(event, Event::Alias(1))));
+    assert!(
+        borrowed_events
+            .iter()
+            .any(|event| matches!(event, Event::Alias(1)))
+    );
 }
 
 #[test]
@@ -883,7 +897,6 @@ fn replay_parser_try_load_multi_reads_stream_end() {
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn replay_parser_preserves_comment_events() {
     let span = test_span();
     let replay_events = vec![
@@ -913,7 +926,6 @@ fn replay_parser_preserves_comment_events() {
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn parser_stack_forwards_comment_events_from_stacked_parsers() {
     let mut stack: MyStack = ParserStack::new();
     stack.push_str_parser(
@@ -941,7 +953,6 @@ fn parser_stack_forwards_comment_events_from_stacked_parsers() {
 }
 
 #[test]
-#[cfg(feature = "comments")]
 fn parser_stack_include_preserves_comment_events_and_local_spans() {
     let included = "# inc\nincluded: value\n";
     let mut stack: MyStack = ParserStack::new();
@@ -1027,16 +1038,19 @@ fn parser_stack_include_without_resolver_reports_error() {
 
     let err = stack.push_include("missing").unwrap_err();
 
-    assert!(err
-        .to_string()
-        .contains("No include resolver set for parser stack."));
+    assert!(
+        err.to_string()
+            .contains("No include resolver set for parser stack.")
+    );
 }
 
 #[test]
 fn parser_stack_resolver_can_construct_a_scan_error() {
     let mut stack: MyStack = ParserStack::new();
     stack.push_str_parser(Parser::new_from_str("root: value"), "root".to_string());
-    stack.set_resolver(|_| Err(ScanError::new(Marker::new(0, 1, 0), "include not found")));
+    stack.set_resolver(|_| {
+        Err(ScanError::new(Marker::new(0, 1, 0), "include not found"))
+    });
 
     let err = stack.push_include("missing").unwrap_err();
 
@@ -1114,7 +1128,9 @@ fn multi_document_include_does_not_splice_into_parent() {
 
     while let Some(result) = stack.next_event() {
         match result {
-            Ok((Event::Scalar(value, _, _, Some(_)), _)) if value.as_ref() == "two.yaml" => {
+            Ok((Event::Scalar(value, _, _, Some(_)), _))
+                if value.as_ref() == "two.yaml" =>
+            {
                 stack.push_include(value.as_ref()).unwrap();
             }
             Ok((Event::Scalar(value, ..), _)) if value.as_ref() == "y" => {

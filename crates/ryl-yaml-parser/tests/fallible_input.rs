@@ -1,6 +1,6 @@
 use ryl_yaml_parser::{
-    BorrowedInput, ErrorKind, Event, EventReceiver, FallibleBufferedInput, Input, InputIoError,
-    Marker, Parser, ScanError, Scanner,
+    BorrowedInput, ErrorKind, Event, EventReceiver, FallibleBufferedInput, Input,
+    InputIoError, Marker, Parser, ScanError, Scanner,
 };
 
 fn io_error(message: &str) -> ErrorKind {
@@ -30,7 +30,9 @@ fn source_error_cannot_be_mistaken_for_clean_eof() {
 
     let error = loop {
         match parser.next() {
-            Some(Ok((event, _))) => emitted_stream_end |= matches!(event, Event::StreamEnd),
+            Some(Ok((event, _))) => {
+                emitted_stream_end |= matches!(event, Event::StreamEnd)
+            }
             Some(Err(error)) => break error,
             None => panic!("source failure was silently treated as EOF"),
         }
@@ -62,16 +64,18 @@ fn source_error_after_trailing_whitespace_preserves_physical_position() {
                     .map(Ok)
                     .chain(core::iter::once(Err(io_error("read failed"))))
             };
-            let mut parser = Parser::new_from_fallible_iter_with_options(input(), options.clone());
-            let parser_error = parser
-                .by_ref()
-                .collect::<Result<Vec<_>, _>>()
-                .expect_err("a source failure must not become clean EOF or a syntax error");
-            let mut scanner = Scanner::with_options(FallibleBufferedInput::new(input()), options);
-            let scanner_error = scanner
-                .by_ref()
-                .collect::<Result<Vec<_>, _>>()
-                .expect_err("a source failure must not become clean EOF or a syntax error");
+            let mut parser =
+                Parser::new_from_fallible_iter_with_options(input(), options.clone());
+            let parser_error =
+                parser.by_ref().collect::<Result<Vec<_>, _>>().expect_err(
+                    "a source failure must not become clean EOF or a syntax error",
+                );
+            let mut scanner =
+                Scanner::with_options(FallibleBufferedInput::new(input()), options);
+            let scanner_error =
+                scanner.by_ref().collect::<Result<Vec<_>, _>>().expect_err(
+                    "a source failure must not become clean EOF or a syntax error",
+                );
 
             assert_eq!(parser_error.kind(), &io_error("read failed"), "{context}");
             assert_eq!(scanner_error, parser_error, "{context}");
@@ -93,65 +97,70 @@ fn source_errors_during_empty_nodes_and_properties_keep_valid_source_positions()
     for line_break in ["\n", "\r", "\r\n"] {
         for tail in ["?", "? &a", "&a", "!!str", "&a !local", "[&a", "? # café"] {
             let source = format!("---{line_break}{tail}");
-            let source_error = ErrorKind::InputDecoding {
-                message: "incomplete UTF-8 character".to_owned(),
-            };
             for emit_comments in [false, true] {
-                let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
-                let context = format!("{source:?}, comments={emit_comments}");
-                let input = || {
-                    source
-                        .chars()
-                        .map(Ok)
-                        .chain(core::iter::once(Err(source_error.clone())))
-                        .chain(core::iter::from_fn(|| {
-                            panic!("the source must not be polled after an error")
-                        }))
-                };
-                let mut parser =
-                    Parser::new_from_fallible_iter_with_options(input(), options.clone());
-                let parser_error = parser
-                    .by_ref()
-                    .collect::<Result<Vec<_>, _>>()
-                    .expect_err("a source failure must not complete an empty node");
-                let mut scanner =
-                    Scanner::with_options(FallibleBufferedInput::new(input()), options);
-                let scanner_error = scanner
-                    .by_ref()
-                    .collect::<Result<Vec<_>, _>>()
-                    .expect_err("a source failure must not complete an empty node");
-
-                assert_eq!(parser_error.kind(), &source_error, "{context}");
-                assert_eq!(scanner_error, parser_error, "{context}");
-                // Lookahead may discover an error before consuming the buffered prefix.
-                // The reported cursor must still describe a physical source position.
-                let marker = parser_error.marker();
-                assert!(marker.index() <= source.chars().count(), "{context}");
-                let consumed: String = source.chars().take(marker.index()).collect();
-                let normalized_breaks = consumed.replace("\r\n", "\n").replace('\r', "\n");
-                assert_eq!(
-                    (marker.line(), marker.col()),
-                    (
-                        normalized_breaks.matches('\n').count() + 1,
-                        normalized_breaks
-                            .rsplit('\n')
-                            .next()
-                            .unwrap()
-                            .chars()
-                            .count(),
-                    ),
-                    "{context}",
-                );
-                assert!(parser.next().is_none(), "{context}");
-                assert!(scanner.next().is_none(), "{context}");
+                assert_source_error_keeps_valid_position(&source, emit_comments);
             }
         }
     }
 }
 
+fn assert_source_error_keeps_valid_position(source: &str, emit_comments: bool) {
+    let source_error = ErrorKind::InputDecoding {
+        message: "incomplete UTF-8 character".to_owned(),
+    };
+    let options = ryl_yaml_parser::options! { emit_comments: emit_comments };
+    let context = format!("{source:?}, comments={emit_comments}");
+    let input = || {
+        source
+            .chars()
+            .map(Ok)
+            .chain(core::iter::once(Err(source_error.clone())))
+            .chain(core::iter::from_fn(|| {
+                panic!("the source must not be polled after an error")
+            }))
+    };
+    let mut parser =
+        Parser::new_from_fallible_iter_with_options(input(), options.clone());
+    let parser_error = parser
+        .by_ref()
+        .collect::<Result<Vec<_>, _>>()
+        .expect_err("a source failure must not complete an empty node");
+    let mut scanner =
+        Scanner::with_options(FallibleBufferedInput::new(input()), options);
+    let scanner_error = scanner
+        .by_ref()
+        .collect::<Result<Vec<_>, _>>()
+        .expect_err("a source failure must not complete an empty node");
+
+    assert_eq!(parser_error.kind(), &source_error, "{context}");
+    assert_eq!(scanner_error, parser_error, "{context}");
+    // Lookahead may discover an error before consuming the buffered prefix.
+    // The reported cursor must still describe a physical source position.
+    let marker = parser_error.marker();
+    assert!(marker.index() <= source.chars().count(), "{context}");
+    let consumed: String = source.chars().take(marker.index()).collect();
+    let normalized_breaks = consumed.replace("\r\n", "\n").replace('\r', "\n");
+    assert_eq!(
+        (marker.line(), marker.col()),
+        (
+            normalized_breaks.matches('\n').count() + 1,
+            normalized_breaks
+                .rsplit('\n')
+                .next()
+                .unwrap()
+                .chars()
+                .count(),
+        ),
+        "{context}",
+    );
+    assert!(parser.next().is_none(), "{context}");
+    assert!(scanner.next().is_none(), "{context}");
+}
+
 #[test]
 fn source_error_takes_priority_over_eof_derived_syntax_error() {
-    let input = core::iter::once(Ok('[')).chain(core::iter::once(Err(io_error("read failed"))));
+    let input =
+        core::iter::once(Ok('[')).chain(core::iter::once(Err(io_error("read failed"))));
     let error = Parser::new_from_fallible_iter(input)
         .find_map(Result::err)
         .expect("source failure should be reported");

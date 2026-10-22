@@ -1,28 +1,16 @@
-#![cfg_attr(not(test), no_main)]
-#[cfg(feature = "comments")]
 use ryl_yaml_parser::Placement;
-
-#[cfg(not(test))]
-mod common;
-#[cfg(test)]
-use crate::common;
 
 use std::fmt::Write;
 
-#[cfg(not(test))]
-use libfuzzer_sys::fuzz_target;
 use ryl_yaml_parser::{
-    ErrorKind, Event, Marker, Parser, ParserStack, ParserTrait, ReplayParser, ScalarStyle,
-    ScanError, Span, StrInput,
+    ErrorKind, Event, Marker, Parser, ParserStack, ParserTrait, ReplayParser,
+    ScalarStyle, ScanError, Span, StrInput,
 };
 
 type Stack<'a> = ParserStack<'a, std::vec::IntoIter<char>, StrInput<'a>>;
 
 const PARENT: &str = "parent\n";
 const MIDDLE: &str = "middle\n... # middle tail\n";
-
-#[cfg(not(test))]
-fuzz_target!(|data: &[u8]| check_input(data));
 
 /// The first five bytes select backend, tail, comment count, line ending, and nested insertion.
 /// Remaining bytes become bounded printable comment text; no UTF-8 input is required.
@@ -62,7 +50,6 @@ pub fn check_input(data: &[u8]) {
     let mut source = format!("child{newline}... # tail {payload}{newline}");
     let mut expected = vec![
         scalar("child"),
-        #[cfg(feature = "comments")]
         Event::Comment(format!(" tail {payload}").into(), Placement::Right),
     ];
     for index in 0..comment_count {
@@ -70,7 +57,6 @@ pub fn check_input(data: &[u8]) {
         source.push('#');
         source.push_str(&text);
         source.push_str(newline);
-        #[cfg(feature = "comments")]
         expected.push(Event::Comment(
             text.into(),
             // Placement::Last requires no further token before StreamEnd. A following
@@ -107,20 +93,21 @@ pub fn check_input(data: &[u8]) {
         }
     };
 
-    for &emit_comments in common::comment_modes() {
+    for &emit_comments in crate::support::comment_modes() {
         for peek in [false, true] {
             let mut stack = Stack::with_options(ryl_yaml_parser::options! {
-                #[cfg(feature = "comments")]
                 emit_comments: emit_comments,
             });
             stack.push_str_parser(Parser::new_from_str(PARENT), "parent.yaml".into());
             if nested {
-                stack.push_str_parser(Parser::new_from_str(MIDDLE), "middle.yaml".into());
+                stack.push_str_parser(
+                    Parser::new_from_str(MIDDLE),
+                    "middle.yaml".into(),
+                );
                 assert_eq!(
                     next_checked(&mut stack, peek).unwrap().unwrap().0,
                     scalar("middle")
                 );
-                #[cfg(feature = "comments")]
                 if emit_comments {
                     // Suspend the middle source after its DocumentEnd has been consumed,
                     // leaving its trailing-comment validation pending during the child.
@@ -133,7 +120,7 @@ pub fn check_input(data: &[u8]) {
             push_child(&mut stack, backend, &source);
 
             for event in expected.iter().filter(|event| {
-                (cfg!(feature = "comments") && emit_comments) || !common::is_comment_event(event)
+                emit_comments || !crate::support::is_comment_event(event)
             }) {
                 let (actual, _) = next_checked(&mut stack, peek)
                     .expect("generated source ended before its expected events")
@@ -147,7 +134,9 @@ pub fn check_input(data: &[u8]) {
             if let Some((kind, marker)) = &expected_error {
                 let error = next_checked(&mut stack, peek)
                     .expect("included source failure was mistaken for EOF")
-                    .expect_err("an included source emitted content after its document ended");
+                    .expect_err(
+                        "an included source emitted content after its document ended",
+                    );
                 assert_eq!(error.kind(), kind);
                 assert_eq!(error.marker(), marker);
                 let mut sources = vec!["parent.yaml"];
@@ -206,7 +195,10 @@ fn push_child<'a>(stack: &mut Stack<'a>, backend: u8, source: &'a str) {
             Parser::new_from_iter(source.chars().collect::<Vec<_>>().into_iter()),
             "child.yaml".into(),
         ),
-        2 => stack.push_custom_parser(Parser::new(StrInput::new(source)), "child.yaml".into()),
+        2 => stack.push_custom_parser(
+            Parser::new(StrInput::new(source)),
+            "child.yaml".into(),
+        ),
         3 | 4 => {
             let mut events = Parser::new_from_str(source)
                 .collect::<Result<Vec<_>, _>>()

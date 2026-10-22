@@ -1,6 +1,6 @@
 use ryl_yaml_parser::{
-    BufferedInput, ErrorKind, Event, FallibleBufferedInput, Marker, Parser, ScalarStyle, ScanError,
-    Scanner, StrInput, StructureStyle, Tag,
+    BufferedInput, ErrorKind, Event, FallibleBufferedInput, Marker, Parser,
+    ScalarStyle, ScanError, Scanner, StrInput, StructureStyle, Tag,
 };
 use std::borrow::Cow;
 
@@ -10,20 +10,30 @@ fn events_with_inputs(
 ) -> Vec<Result<Vec<Event<'_>>, ScanError>> {
     let options = ryl_yaml_parser::options! { strict_indentation: strict_indentation };
     [
-        Parser::with_options(StrInput::new(yaml), options.clone()).collect::<Result<Vec<_>, _>>(),
-        Parser::new_from_str_with_options(yaml, options.clone()).collect::<Result<Vec<_>, _>>(),
+        Parser::with_options(StrInput::new(yaml), options.clone())
+            .collect::<Result<Vec<_>, _>>(),
+        Parser::new_from_str_with_options(yaml, options.clone())
+            .collect::<Result<Vec<_>, _>>(),
         Parser::new_from_iter_with_options(yaml.chars(), options.clone())
             .collect::<Result<Vec<_>, _>>(),
         Parser::new_from_fallible_iter_with_options(yaml.chars().map(Ok), options)
             .collect::<Result<Vec<_>, _>>(),
     ]
     .into_iter()
-    .map(|result| result.map(|events| events.into_iter().map(|(event, _)| event).collect()))
+    .map(|result| {
+        result.map(|events| events.into_iter().map(|(event, _)| event).collect())
+    })
     .collect()
 }
 
 fn assert_relaxed_only(yaml: &str, reference: &str, line: usize, col: usize) {
-    assert_relaxed_only_with_kind(yaml, reference, line, col, &ErrorKind::InvalidIndentation);
+    assert_relaxed_only_with_kind(
+        yaml,
+        reference,
+        line,
+        col,
+        &ErrorKind::InvalidIndentation,
+    );
 }
 
 fn assert_relaxed_only_with_kind(
@@ -47,7 +57,9 @@ fn assert_relaxed_only_with_kind(
 
     for result in events_with_inputs(yaml, false) {
         assert_eq!(
-            result.unwrap_or_else(|error| panic!("relaxed mode rejected {yaml:?}: {error}")),
+            result.unwrap_or_else(|error| panic!(
+                "relaxed mode rejected {yaml:?}: {error}"
+            )),
             expected,
             "relaxed mode changed events for {yaml:?}"
         );
@@ -90,7 +102,13 @@ fn assert_relaxed_only_with_kind(
     }
 }
 
-fn assert_indent_error(error: &ScanError, yaml: &str, line: usize, col: usize, kind: &ErrorKind) {
+fn assert_indent_error(
+    error: &ScanError,
+    yaml: &str,
+    line: usize,
+    col: usize,
+    kind: &ErrorKind,
+) {
     assert_eq!(error.kind(), kind, "input: {yaml:?}");
     assert_eq!(
         (error.marker().line(), error.marker().col()),
@@ -135,7 +153,8 @@ fn strict_rejects_under_indented_flow_entries_in_all_scalar_styles() {
             let closing_indent = " ".repeat(parent_indent + 1);
             for indent in 0..=parent_indent {
                 let spaces = " ".repeat(indent);
-                let yaml = format!("{prefix}\n{spaces}{value}\n{closing_indent}{suffix}");
+                let yaml =
+                    format!("{prefix}\n{spaces}{value}\n{closing_indent}{suffix}");
                 assert_relaxed_only(&yaml, &reference, line, indent);
             }
         }
@@ -255,7 +274,9 @@ fn strict_rejects_under_indented_escaped_line_breaks_in_block_context() {
 #[test]
 fn strict_rejects_under_indented_closing_quotes_after_folded_line_breaks() {
     for quote in ['\'', '"'] {
-        for (prefix, indent, line) in [("key: ", 0, 2), ("- ", 0, 2), ("outer:\n  key: ", 2, 3)] {
+        for (prefix, indent, line) in
+            [("key: ", 0, 2), ("- ", 0, 2), ("outer:\n  key: ", 2, 3)]
+        {
             let spaces = " ".repeat(indent);
             let yaml = format!("{prefix}{quote}first\n{spaces}{quote}\n");
             let reference = format!("{prefix}{quote}first\n{spaces} {quote}\n");
@@ -451,7 +472,10 @@ fn strict_errors_preserve_unicode_positions_and_terminate_iteration() {
                 marker,
             );
             check(
-                Parser::new_from_fallible_iter_with_options(yaml.chars().map(Ok), options.clone()),
+                Parser::new_from_fallible_iter_with_options(
+                    yaml.chars().map(Ok),
+                    options.clone(),
+                ),
                 &kind,
                 marker,
             );
@@ -461,12 +485,18 @@ fn strict_errors_preserve_unicode_positions_and_terminate_iteration() {
                 byte_marker,
             );
             check(
-                Scanner::with_options(BufferedInput::new(yaml.chars()), options.clone()),
+                Scanner::with_options(
+                    BufferedInput::new(yaml.chars()),
+                    options.clone(),
+                ),
                 &kind,
                 marker,
             );
             check(
-                Scanner::with_options(FallibleBufferedInput::new(yaml.chars().map(Ok)), options),
+                Scanner::with_options(
+                    FallibleBufferedInput::new(yaml.chars().map(Ok)),
+                    options,
+                ),
                 &kind,
                 marker,
             );
@@ -476,9 +506,9 @@ fn strict_errors_preserve_unicode_positions_and_terminate_iteration() {
 
 #[test]
 fn strict_flow_indentation_follows_dedents_and_document_boundaries() {
-    let yaml =
-        "---\nouter:\n  inner: [\n   nested\n   ]\nshallow: [\n value\n ]\n...\n---\n[\nroot\n]\n";
-    let reference = "---\nouter:\n  inner: [nested]\nshallow: [value]\n...\n---\n[root]\n";
+    let yaml = "---\nouter:\n  inner: [\n   nested\n   ]\nshallow: [\n value\n ]\n...\n---\n[\nroot\n]\n";
+    let reference =
+        "---\nouter:\n  inner: [nested]\nshallow: [value]\n...\n---\n[root]\n";
     let expected = Parser::new_from_str(reference)
         .map(|result| result.unwrap().0)
         .collect::<Vec<_>>();
@@ -541,8 +571,8 @@ fn strict_escaped_continuations_require_indentation_after_empty_lines_and_proper
             ("outer:\n  key: [&a !custom ", "]\n", 4),
         ] {
             for continuation in ["字", ""] {
-                let yaml =
-                    format!("{prefix}\"é\\\n \n  {continuation}\"{suffix}").replace('\n', newline);
+                let yaml = format!("{prefix}\"é\\\n \n  {continuation}\"{suffix}")
+                    .replace('\n', newline);
                 let reference = format!("{prefix}\"é\\n{continuation}\"{suffix}");
                 assert_relaxed_only(&yaml, &reference, line, 2);
             }

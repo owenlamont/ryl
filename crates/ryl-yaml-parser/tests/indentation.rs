@@ -47,10 +47,10 @@ fn indentation_is_not_reported_in_flow_mappings() {
 
     for x in Parser::new_from_str(yaml) {
         let (ev, span) = x.expect("valid yaml");
-        if let Some(v) = scalar_value(&ev) {
-            if v == "a" || v == "b" {
-                assert_eq!(span.indent, None);
-            }
+        if let Some(v) = scalar_value(&ev)
+            && (v == "a" || v == "b")
+        {
+            assert_eq!(span.indent, None);
         }
     }
 }
@@ -88,7 +88,8 @@ fn under_indented_flow_sequence_entries_are_accepted() {
             let reference = format!("{prefix}{first}, {second},{suffix}");
             for indent in 0..=3 {
                 let spaces = " ".repeat(indent);
-                let yaml = format!("{prefix}\n{spaces}{first},\n{spaces}{second},\n{suffix}");
+                let yaml =
+                    format!("{prefix}\n{spaces}{first},\n{spaces}{second},\n{suffix}");
                 assert_same_events(&yaml, &reference);
             }
         }
@@ -265,9 +266,10 @@ fn root_block_sequence_can_have_anchor_on_previous_line() {
         .map(|event| event.expect("valid yaml").0)
         .collect::<Vec<_>>();
 
-    assert!(events
-        .iter()
-        .any(|event| matches!(event, Event::SequenceStart(StructureStyle::Block, 1, None))));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::SequenceStart(StructureStyle::Block, 1, None)
+    )));
 }
 
 #[test]
@@ -277,9 +279,10 @@ fn indented_mapping_value_sequence_can_have_anchor_and_comment_on_previous_lines
         .map(|event| event.expect("valid yaml").0)
         .collect::<Vec<_>>();
 
-    assert!(events
-        .iter()
-        .any(|event| matches!(event, Event::SequenceStart(StructureStyle::Block, 1, None))));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::SequenceStart(StructureStyle::Block, 1, None)
+    )));
 }
 
 #[test]

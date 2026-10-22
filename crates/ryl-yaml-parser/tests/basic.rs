@@ -1,9 +1,10 @@
 #![allow(clippy::bool_assert_comparison)]
 #![allow(clippy::float_cmp)]
 mod support;
-#[cfg(feature = "comments")]
 use ryl_yaml_parser::Placement;
-use ryl_yaml_parser::{Event, Parser, ScalarStyle, ScanError, StructureStyle, YamlVersion};
+use ryl_yaml_parser::{
+    Event, Parser, ScalarStyle, ScanError, StructureStyle, YamlVersion,
+};
 
 /// Run the parser through the string.
 ///
@@ -65,10 +66,12 @@ fn collection_styles(input: &str) -> Vec<(&'static str, StructureStyle)> {
         .collect()
 }
 
-fn expected_events<'input>(events: impl IntoIterator<Item = Event<'input>>) -> Vec<Event<'input>> {
+fn expected_events<'input>(
+    events: impl IntoIterator<Item = Event<'input>>,
+) -> Vec<Event<'input>> {
     events
         .into_iter()
-        .filter(|event| cfg!(feature = "comments") || !support::is_comment_event(event))
+        .filter(|event| true || !support::is_comment_event(event))
         .collect()
 }
 
@@ -179,17 +182,13 @@ a: b # This is another comment
         run_parser(s).unwrap(),
         expected_events([
             Event::StreamStart,
-            #[cfg(feature = "comments")]
             Event::Comment(" This is a comment".into(), Placement::Above),
             Event::DocumentStart(false, None),
             Event::MappingStart(StructureStyle::Block, 0, None),
             Event::Scalar("a".into(), ScalarStyle::Plain, 0, None),
             Event::Scalar("b".into(), ScalarStyle::Plain, 0, None),
-            #[cfg(feature = "comments")]
             Event::Comment(" This is another comment".into(), Placement::Right),
-            #[cfg(feature = "comments")]
             Event::Comment("#".into(), Placement::Above),
-            #[cfg(feature = "comments")]
             Event::Comment("".into(), Placement::Above),
             Event::MappingEnd,
             Event::DocumentEnd,
@@ -266,21 +265,22 @@ fn test_github_27() {
 
 #[test]
 fn test_missing_node_with_anchor_is_null_scalar_but_tag_keeps_empty_content() {
-    let scalar_events = |input: &str| -> Vec<(String, ScalarStyle, usize, Option<String>)> {
-        run_parser(input)
-            .unwrap()
-            .into_iter()
-            .filter_map(|event| match event {
-                Event::Scalar(value, style, anchor, tag) => Some((
-                    value.into_owned(),
-                    style,
-                    anchor,
-                    tag.map(|tag| tag.original()),
-                )),
-                _ => None,
-            })
-            .collect()
-    };
+    let scalar_events =
+        |input: &str| -> Vec<(String, ScalarStyle, usize, Option<String>)> {
+            run_parser(input)
+                .unwrap()
+                .into_iter()
+                .filter_map(|event| match event {
+                    Event::Scalar(value, style, anchor, tag) => Some((
+                        value.into_owned(),
+                        style,
+                        anchor,
+                        tag.map(|tag| tag.original()),
+                    )),
+                    _ => None,
+                })
+                .collect()
+        };
 
     assert_eq!(
         scalar_events("a: &x\n"),
@@ -337,10 +337,8 @@ foobar";
         run_parser(s).unwrap(),
         expected_events([
             Event::StreamStart,
-            #[cfg(feature = "comments")]
             Event::Comment(" This is a comment".into(), Placement::Above),
             Event::DocumentStart(true, Some(YamlVersion::new(1, 2))),
-            #[cfg(feature = "comments")]
             Event::Comment("-------".into(), Placement::Right),
             Event::Scalar("foobar".into(), ScalarStyle::Plain, 0, None),
             Event::DocumentEnd,
@@ -352,8 +350,9 @@ foobar";
 #[test]
 fn test_directive_followed_by_comment_then_content_errors() {
     for yaml in ["%YAML 1.2\n# c\nfoo\n--- bar\n", "%YAML 1.2\n# c\n"] {
-        let error = run_parser(yaml)
-            .expect_err("directives must still be followed by an explicit document start");
+        let error = run_parser(yaml).expect_err(
+            "directives must still be followed by an explicit document start",
+        );
 
         assert_eq!(error.info(), "did not find expected <document start>");
     }
@@ -366,7 +365,9 @@ fn test_empty_block_scalar_value_does_not_depend_on_eof() {
             .unwrap()
             .into_iter()
             .find_map(|event| match event {
-                Event::Scalar(value, ScalarStyle::Literal, _, _) => Some(value.into_owned()),
+                Event::Scalar(value, ScalarStyle::Literal, _, _) => {
+                    Some(value.into_owned())
+                }
                 _ => None,
             })
             .unwrap()
@@ -424,7 +425,6 @@ fn test_bad_docstart() {
         expected_events([
             Event::StreamStart,
             Event::DocumentStart(true, None),
-            #[cfg(feature = "comments")]
             Event::Comment("comment".into(), Placement::Right),
             Event::Scalar("~".into(), ScalarStyle::Plain, 0, None),
             Event::DocumentEnd,
@@ -438,7 +438,6 @@ fn test_bad_docstart() {
             Event::StreamStart,
             Event::DocumentStart(false, None),
             Event::Scalar("----".into(), ScalarStyle::Plain, 0, None),
-            #[cfg(feature = "comments")]
             Event::Comment("comment".into(), Placement::Right),
             Event::DocumentEnd,
             Event::StreamEnd,

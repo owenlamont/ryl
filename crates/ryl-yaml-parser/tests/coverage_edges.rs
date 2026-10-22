@@ -53,9 +53,11 @@ fn flow_mapping_entry_without_colon_gets_null_value() {
 
     assert_eq!(scalar_values(&events), vec!["foo", "~"]);
     assert!(matches!(events.get(2), Some(Event::MappingStart(..))));
-    assert!(events
-        .iter()
-        .any(|event| matches!(event, Event::MappingEnd)));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::MappingEnd))
+    );
 }
 
 #[test]
@@ -63,12 +65,16 @@ fn flow_sequence_explicit_mapping_can_omit_key_and_value() {
     let events = parse_events("[? ]").unwrap();
 
     assert_eq!(scalar_values(&events), vec!["~", "~"]);
-    assert!(events
-        .iter()
-        .any(|event| matches!(event, Event::SequenceStart(..))));
-    assert!(events
-        .iter()
-        .any(|event| matches!(event, Event::MappingStart(..))));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::SequenceStart(..)))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::MappingStart(..)))
+    );
 }
 
 #[test]
@@ -76,9 +82,11 @@ fn flow_sequence_explicit_mapping_can_omit_value() {
     let events = parse_events("[? foo]").unwrap();
 
     assert_eq!(scalar_values(&events), vec!["foo", "~"]);
-    assert!(events
-        .iter()
-        .any(|event| matches!(event, Event::MappingEnd)));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::MappingEnd))
+    );
 }
 
 #[test]

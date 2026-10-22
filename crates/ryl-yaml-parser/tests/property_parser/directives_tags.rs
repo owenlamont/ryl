@@ -1,47 +1,16 @@
-#![cfg_attr(not(test), no_main)]
-#[cfg(feature = "comments")]
 use ryl_yaml_parser::Placement;
 
-#[cfg(not(test))]
-mod common;
-#[cfg(test)]
-use crate::common;
+use super::common;
 
-use common::{parse_with_both_inputs, parse_with_options, scan_with_options};
-#[cfg(not(test))]
-use libfuzzer_sys::fuzz_target;
-use ryl_yaml_parser::{ErrorKind, Event, Options, Parser, Scanner, StrInput, TokenType};
+use common::{
+    parse_with_both_inputs, parse_with_options, quoted_scalar, scan_with_options,
+};
+use ryl_yaml_parser::{
+    ErrorKind, Event, Options, Parser, Scanner, StrInput, TokenType,
+};
 
 const MAX_INPUT_LEN: usize = 8 * 1024;
 const HEX: &[u8; 16] = b"0123456789abcdef";
-
-fn quoted_scalar(value: &str) -> String {
-    let mut quoted = String::with_capacity(value.len() + 2);
-    quoted.push('"');
-    for character in value.chars() {
-        match character {
-            '\0' => quoted.push_str("\\0"),
-            '\x07' => quoted.push_str("\\a"),
-            '\x08' => quoted.push_str("\\b"),
-            '\t' => quoted.push_str("\\t"),
-            '\n' => quoted.push_str("\\n"),
-            '\x0b' => quoted.push_str("\\v"),
-            '\x0c' => quoted.push_str("\\f"),
-            '\r' => quoted.push_str("\\r"),
-            '\x1b' => quoted.push_str("\\e"),
-            '\u{85}' => quoted.push_str("\\N"),
-            '\u{2028}' => quoted.push_str("\\L"),
-            '\u{2029}' => quoted.push_str("\\P"),
-            '"' => quoted.push_str("\\\""),
-            '\\' => quoted.push_str("\\\\"),
-            '\u{feff}' | '\u{fffe}' | '\u{ffff}' => quoted.push('_'),
-            character if character.is_control() => quoted.push('_'),
-            character => quoted.push(character),
-        }
-    }
-    quoted.push('"');
-    quoted
-}
 
 fn uri_component(value: &str) -> String {
     let mut component = String::with_capacity(value.len() * 2 + 1);
@@ -116,7 +85,6 @@ fn check_reserved_directive_comment(selector: u8, payload: &str) {
     let separator = if selector & 4 == 0 { " " } else { "\t \t" };
     let yaml = format!("%{directive}{separator}#{comment}\n---\nvalue\n");
     let mut options = Options::default();
-    #[cfg(feature = "comments")]
     {
         options.emit_comments = selector & 8 != 0;
     }
@@ -130,12 +98,10 @@ fn check_reserved_directive_comment(selector: u8, payload: &str) {
         tokens[1].token_type(),
         &TokenType::ReservedDirective("FUTURE".into(), parameters.clone()),
     );
-    #[cfg(feature = "comments")]
     {
         let comments = tokens
             .iter()
             .filter_map(|token| match token.token_type() {
-                #[cfg(feature = "comments")]
                 TokenType::Comment(comment) => Some((comment, token.span())),
                 _ => None,
             })
@@ -153,13 +119,12 @@ fn check_reserved_directive_comment(selector: u8, payload: &str) {
     let events = Parser::new_from_str_with_options(&yaml, options.clone())
         .collect::<Result<Vec<_>, _>>()
         .expect("a separated directive comment must preserve the following document");
-    #[cfg(feature = "comments")]
     assert_eq!(
         events
             .iter()
             .filter(|(event, _)| matches!(event, Event::Comment(..)))
             .count(),
-        usize::from(cfg!(feature = "comments") && options.emit_comments),
+        usize::from(options.emit_comments),
     );
     assert_eq!(
         events
@@ -266,7 +231,9 @@ pub fn check_input(data: &[u8]) {
                 let limit = options.max_directive_bytes;
                 let error = Parser::new_from_str(&yaml)
                     .collect::<Result<Vec<_>, _>>()
-                    .expect_err("an oversized generated %TAG directive must be rejected");
+                    .expect_err(
+                        "an oversized generated %TAG directive must be rejected",
+                    );
                 assert_eq!(
                     error.kind(),
                     &ErrorKind::DirectiveByteLimitExceeded { limit }
@@ -304,6 +271,3 @@ pub fn check_input(data: &[u8]) {
 
     parse_with_both_inputs(&yaml);
 }
-
-#[cfg(not(test))]
-fuzz_target!(|data: &[u8]| check_input(data));

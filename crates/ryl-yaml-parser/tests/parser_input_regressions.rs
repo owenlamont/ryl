@@ -1,7 +1,8 @@
 use std::str::Chars;
 
 use ryl_yaml_parser::{
-    BorrowedInput, BufferedInput, ErrorKind, Event, Input, Marker, Parser, ScanError, StrInput,
+    BorrowedInput, BufferedInput, ErrorKind, Event, Input, Marker, Parser, ScanError,
+    StrInput,
 };
 
 /// Models a third-party input whose optimized chunk hook still follows the 1.0.0 contract.
@@ -62,7 +63,9 @@ impl Input for LegacyChunkInput<'_> {
         let mut chars_consumed = 0;
         for _ in 0..count {
             self.lookahead(1);
-            if self.next_is_blank_or_breakz() || !self.next_can_be_plain_scalar(flow_level_gt_0) {
+            if self.next_is_blank_or_breakz()
+                || !self.next_can_be_plain_scalar(flow_level_gt_0)
+            {
                 return (true, chars_consumed);
             }
             out.push(self.peek());
@@ -196,8 +199,8 @@ fn buffered_buflen_matches_str_input_lookahead_window() {
 fn non_printable_source_characters_are_rejected_by_both_inputs() {
     let prefix = "x".repeat(80);
     for character in [
-        '\0', '\u{1}', '\u{1f}', '\u{7f}', '\u{80}', '\u{84}', '\u{86}', '\u{9f}', '\u{fffe}',
-        '\u{ffff}',
+        '\0', '\u{1}', '\u{1f}', '\u{7f}', '\u{80}', '\u{84}', '\u{86}', '\u{9f}',
+        '\u{fffe}', '\u{ffff}',
     ] {
         let inputs = [
             format!("key: {prefix}{character}after\n"),

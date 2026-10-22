@@ -1,9 +1,9 @@
 use std::{borrow::Cow, cell::Cell, rc::Rc};
 
 use ryl_yaml_parser::{
-    BorrowedInput, BufferedInput, Comment, ErrorKind, Event, EventReceiver, Marker, Options,
-    Parser, Placement, ScalarStyle, ScanError, Scanner, Span, StrInput, Token, TokenType,
-    TryEventReceiver,
+    BorrowedInput, BufferedInput, Comment, ErrorKind, Event, EventReceiver, Marker,
+    Options, Parser, Placement, ScalarStyle, ScanError, Scanner, Span, StrInput, Token,
+    TokenType, TryEventReceiver,
 };
 
 fn parser_events(source: &str) -> Result<Vec<(Event<'_>, Span)>, ScanError> {
@@ -103,7 +103,9 @@ fn first_empty_scalar_span(events: &[(Event<'_>, Span)]) -> Span {
     events
         .iter()
         .find_map(|(event, span)| match event {
-            Event::Scalar(value, ScalarStyle::Plain, ..) if value.as_ref() == "~" => Some(*span),
+            Event::Scalar(value, ScalarStyle::Plain, ..) if value.as_ref() == "~" => {
+                Some(*span)
+            }
             _ => None,
         })
         .expect("empty scalar should be emitted")
@@ -180,7 +182,9 @@ fn scanner_emits_comment_tokens_in_source_order() {
     let comments: Vec<_> = tokens
         .iter()
         .filter_map(|token| match token.token_type() {
-            TokenType::Comment(comment) => Some((comment.text(), token.span().slice(yaml))),
+            TokenType::Comment(comment) => {
+                Some((comment.text(), token.span().slice(yaml)))
+            }
             _ => None,
         })
         .collect();
@@ -241,8 +245,8 @@ fn scanner_marks_same_line_comments_after_syntax_as_right() {
 
 #[test]
 fn scanner_emits_trailing_comment_after_plain_scalar_token() {
-    let tokens =
-        scanner_tokens("key: value # trailing\n").expect("valid YAML should scan without errors");
+    let tokens = scanner_tokens("key: value # trailing\n")
+        .expect("valid YAML should scan without errors");
 
     let value_index = tokens
         .iter()
@@ -343,7 +347,8 @@ fn scanner_emits_comments_after_syntax_tokens() {
     ];
 
     for case in cases {
-        let tokens = scanner_tokens(case.yaml).expect("valid YAML should scan without errors");
+        let tokens =
+            scanner_tokens(case.yaml).expect("valid YAML should scan without errors");
         let syntax_index = tokens
             .iter()
             .position(|token| (case.syntax_matches)(token.token_type()))
@@ -419,7 +424,9 @@ fn scanner_comment_span_stops_before_crlf() {
         .find_map(|token| {
             let (span, token_type) = token.into_parts();
             match token_type {
-                TokenType::Comment(comment) => Some((comment.into_text().into_owned(), span)),
+                TokenType::Comment(comment) => {
+                    Some((comment.into_text().into_owned(), span))
+                }
                 _ => None,
             }
         })
@@ -544,7 +551,8 @@ fn scanner_does_not_emit_comments_from_quoted_or_block_scalar_content() {
     ];
 
     for (yaml, style, expected_value) in cases {
-        let tokens = scanner_tokens(yaml).expect("valid YAML should scan without errors");
+        let tokens =
+            scanner_tokens(yaml).expect("valid YAML should scan without errors");
 
         assert!(
             !tokens
@@ -584,14 +592,17 @@ fn scanner_does_not_emit_unseparated_comment_after_quoted_scalar_error() {
 
 #[test]
 fn scanner_treats_unseparated_hash_after_plain_scalar_as_content() {
-    let tokens = scanner_tokens("key: value#bad\n").expect("valid YAML should scan without errors");
+    let tokens = scanner_tokens("key: value#bad\n")
+        .expect("valid YAML should scan without errors");
 
     assert!(tokens.iter().any(|token| {
         matches!(token.token_type(), TokenType::Scalar(ScalarStyle::Plain, value) if value == "value#bad")
     }));
-    assert!(!tokens
-        .iter()
-        .any(|token| matches!(token.token_type(), TokenType::Comment(_))));
+    assert!(
+        !tokens
+            .iter()
+            .any(|token| matches!(token.token_type(), TokenType::Comment(_)))
+    );
 }
 
 #[test]
@@ -660,7 +671,8 @@ fn scanner_preserves_comment_adjacent_plain_scalar_whitespace_rules() {
 #[test]
 fn scanner_accepts_tab_separated_explicit_key_with_comment() {
     let yaml = "?\tkey # key comment\n: value\n";
-    let tokens = scanner_tokens(yaml).expect("tabs may separate an explicit scalar key");
+    let tokens =
+        scanner_tokens(yaml).expect("tabs may separate an explicit scalar key");
     let scalars: Vec<_> = tokens
         .iter()
         .filter_map(|token| match token.token_type() {
@@ -798,7 +810,9 @@ next: value
     let comments: Vec<_> = events
         .iter()
         .filter_map(|(event, span)| match event {
-            Event::Comment(text, placement) => Some((text.as_ref(), *placement, span.slice(yaml))),
+            Event::Comment(text, placement) => {
+                Some((text.as_ref(), *placement, span.slice(yaml)))
+            }
             _ => None,
         })
         .collect();
@@ -836,7 +850,8 @@ fn parser_marks_consecutive_own_line_comments_as_above() {
 
 #[test]
 fn parser_emits_trailing_comment_after_plain_scalar_event() {
-    let events = parser_events("key: value # trailing\n").expect("parser should emit events");
+    let events =
+        parser_events("key: value # trailing\n").expect("parser should emit events");
 
     let value_index = events
         .iter()
@@ -950,7 +965,8 @@ fn max_buffered_empty_node_comment_runs_preserve_span_order() {
     ];
 
     for yaml in cases {
-        let events = parser_events(&yaml).expect("parser should accept capped comment run");
+        let events =
+            parser_events(&yaml).expect("parser should accept capped comment run");
         assert_monotonic_spans(&events);
     }
 }
@@ -1095,7 +1111,9 @@ fn later_empty_indentless_sequence_entry_after_comment_is_queued_before_next_key
     let names: Vec<_> = events
         .iter()
         .filter_map(|(event, _)| match event {
-            Event::Scalar(value, ScalarStyle::Plain, ..) => Some(format!("Scalar({value})")),
+            Event::Scalar(value, ScalarStyle::Plain, ..) => {
+                Some(format!("Scalar({value})"))
+            }
             Event::Comment(text, _) => Some(format!("Comment({text})")),
             Event::SequenceEnd => Some("SequenceEnd".into()),
             _ => None,
@@ -1124,7 +1142,9 @@ fn later_indentless_sequence_entry_after_comment_keeps_value_in_sequence() {
     let names: Vec<_> = events
         .iter()
         .filter_map(|(event, _)| match event {
-            Event::Scalar(value, ScalarStyle::Plain, ..) => Some(format!("Scalar({value})")),
+            Event::Scalar(value, ScalarStyle::Plain, ..) => {
+                Some(format!("Scalar({value})"))
+            }
             Event::Comment(text, _) => Some(format!("Comment({text})")),
             Event::SequenceEnd => Some("SequenceEnd".into()),
             _ => None,
@@ -1153,7 +1173,9 @@ fn first_indentless_sequence_entry_after_comment_keeps_value_in_sequence() {
     let names: Vec<_> = events
         .iter()
         .filter_map(|(event, _)| match event {
-            Event::Scalar(value, ScalarStyle::Plain, ..) => Some(format!("Scalar({value})")),
+            Event::Scalar(value, ScalarStyle::Plain, ..) => {
+                Some(format!("Scalar({value})"))
+            }
             Event::Comment(text, _) => Some(format!("Comment({text})")),
             Event::SequenceEnd => Some("SequenceEnd".into()),
             _ => None,
@@ -1181,7 +1203,9 @@ fn parser_handles_comments_in_flow_mapping_key_and_separator_states() {
     let names: Vec<_> = events
         .iter()
         .filter_map(|(event, _)| match event {
-            Event::Scalar(value, ScalarStyle::Plain, ..) => Some(format!("Scalar({value})")),
+            Event::Scalar(value, ScalarStyle::Plain, ..) => {
+                Some(format!("Scalar({value})"))
+            }
             Event::Comment(text, _) => Some(format!("Comment({text})")),
             _ => None,
         })
@@ -1208,7 +1232,9 @@ fn parser_handles_flow_mapping_value_after_comment() {
     let names: Vec<_> = events
         .iter()
         .filter_map(|(event, _)| match event {
-            Event::Scalar(value, ScalarStyle::Plain, ..) => Some(format!("Scalar({value})")),
+            Event::Scalar(value, ScalarStyle::Plain, ..) => {
+                Some(format!("Scalar({value})"))
+            }
             Event::Comment(text, _) => Some(format!("Comment({text})")),
             _ => None,
         })
@@ -1228,7 +1254,9 @@ fn parser_handles_implicit_flow_mapping_value_after_comment() {
     let names: Vec<_> = events
         .iter()
         .filter_map(|(event, _)| match event {
-            Event::Scalar(value, ScalarStyle::Plain, ..) => Some(format!("Scalar({value})")),
+            Event::Scalar(value, ScalarStyle::Plain, ..) => {
+                Some(format!("Scalar({value})"))
+            }
             Event::Comment(text, _) => Some(format!("Comment({text})")),
             _ => None,
         })
@@ -1269,7 +1297,9 @@ fn parser_peek_returns_and_preserves_pending_comment_event() {
     let second_peek = parser.peek().unwrap().unwrap().clone();
     let next = parser.next_event().unwrap().unwrap();
 
-    assert!(matches!(first_peek.0, Event::Comment(ref text, Placement::Above) if text == " first"));
+    assert!(
+        matches!(first_peek.0, Event::Comment(ref text, Placement::Above) if text == " first")
+    );
     assert_eq!(first_peek, second_peek);
     assert_eq!(first_peek, next);
 }
@@ -1319,7 +1349,8 @@ fn parser_load_and_try_load_deliver_comment_events() {
 #[test]
 fn parser_emits_comments_around_markers_flow_collections_and_stream_end() {
     let yaml = "# before doc\n--- # after start\n[ # after flow start\n  a, # after entry\n  b\n] # after flow end\n... # after end\n# before stream end\n";
-    let events = parser_events(yaml).expect("parser should emit comments in source order");
+    let events =
+        parser_events(yaml).expect("parser should emit comments in source order");
 
     let names: Vec<String> = events
         .iter()
@@ -1361,19 +1392,21 @@ fn parser_emits_comments_around_markers_flow_collections_and_stream_end() {
 #[test]
 fn parser_keeps_comment_events_out_of_mapping_state_and_node_properties() {
     let yaml = "? # key\n: &a # anchor\n  value\nref: *a # alias\n";
-    let events =
-        parser_events(yaml).expect("parser should preserve comments around mapping syntax");
+    let events = parser_events(yaml)
+        .expect("parser should preserve comments around mapping syntax");
 
     for expected in [" key", " anchor", " alias"] {
-        assert!(events
-            .iter()
-            .any(|(event, _)| matches!(event, Event::Comment(text, _) if text == expected)));
+        assert!(events.iter().any(
+            |(event, _)| matches!(event, Event::Comment(text, _) if text == expected)
+        ));
     }
 
     let anchored_value = events
         .iter()
         .find_map(|(event, _)| match event {
-            Event::Scalar(value, _, anchor_id, _) if value == "value" => Some(*anchor_id),
+            Event::Scalar(value, _, anchor_id, _) if value == "value" => {
+                Some(*anchor_id)
+            }
             _ => None,
         })
         .expect("anchored scalar should be emitted");
@@ -1387,10 +1420,13 @@ fn parser_keeps_comment_events_out_of_mapping_state_and_node_properties() {
 #[test]
 fn parser_combines_complementary_node_properties_across_comments() {
     for yaml in ["&a # anchor\n!t value\n", "!t # tag\n&a value\n"] {
-        let events = parser_events(yaml).expect("complementary node properties should parse");
-        assert!(events
-            .iter()
-            .any(|(event, _)| matches!(event, Event::Comment(..))));
+        let events =
+            parser_events(yaml).expect("complementary node properties should parse");
+        assert!(
+            events
+                .iter()
+                .any(|(event, _)| matches!(event, Event::Comment(..)))
+        );
 
         let (anchor_id, tag) = events
             .iter()
@@ -1420,7 +1456,7 @@ fn parser_preserves_self_reference_after_anchor_comment() {
         .expect("anchored sequence should be emitted");
 
     assert_ne!(anchor_id, 0);
-    assert!(events
-        .iter()
-        .any(|(event, _)| matches!(event, Event::Alias(alias_id) if *alias_id == anchor_id)));
+    assert!(events.iter().any(
+        |(event, _)| matches!(event, Event::Alias(alias_id) if *alias_id == anchor_id)
+    ));
 }

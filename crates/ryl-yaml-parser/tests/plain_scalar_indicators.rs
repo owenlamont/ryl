@@ -89,9 +89,11 @@ fn plain_scalar_dash_is_included_in_token_before_flow_delimiter() {
         let yaml = format!("[{first}, after]");
         for result in [
             Scanner::new(StrInput::new(&yaml)).collect::<Result<Vec<_>, _>>(),
-            Scanner::new(BufferedInput::new(yaml.chars())).collect::<Result<Vec<_>, _>>(),
+            Scanner::new(BufferedInput::new(yaml.chars()))
+                .collect::<Result<Vec<_>, _>>(),
         ] {
-            let tokens = result.unwrap_or_else(|error| panic!("input: {yaml:?}: {error}"));
+            let tokens =
+                result.unwrap_or_else(|error| panic!("input: {yaml:?}: {error}"));
             let types: Vec<_> = tokens
                 .iter()
                 .map(|token| token.token_type().clone())
@@ -121,7 +123,8 @@ fn plain_scalar_dash_before_closing_flow_delimiter() {
             Parser::new_from_str(yaml).collect::<Result<Vec<_>, _>>(),
             Parser::new_from_iter(yaml.chars()).collect::<Result<Vec<_>, _>>(),
         ] {
-            let events = result.unwrap_or_else(|error| panic!("input: {yaml:?}: {error}"));
+            let events =
+                result.unwrap_or_else(|error| panic!("input: {yaml:?}: {error}"));
             assert!(events.iter().any(|(event, _)| {
                 matches!(event, Event::Scalar(value, ScalarStyle::Plain, ..) if value == "a -")
             }));

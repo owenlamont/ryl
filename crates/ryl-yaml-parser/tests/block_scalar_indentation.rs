@@ -21,7 +21,8 @@ fn yaml_5llu_block_scalar_wrong_indent_should_fail() {
     }
 
     // It IS an error for any of the leading empty lines to contain MORE spaces than the first non-empty line.
-    let yaml_invalid = "block scalar: >\n\n                             \n   \n    invalid\n";
+    let yaml_invalid =
+        "block scalar: >\n\n                             \n   \n    invalid\n";
 
     let parser = Parser::new_from_str(yaml_invalid);
 

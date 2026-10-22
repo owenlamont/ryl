@@ -1,6 +1,6 @@
 use ryl_yaml_parser::{
-    BufferedInput, ErrorKind, Event, Options, Parser, ScalarStyle, ScanError, Scanner, Span,
-    StrInput, StructureStyle,
+    BufferedInput, ErrorKind, Event, Options, Parser, ScalarStyle, ScanError, Scanner,
+    Span, StrInput, StructureStyle,
 };
 use std::collections::BTreeSet;
 
@@ -86,7 +86,11 @@ fn block_scalar_indicators_cannot_start_nodes_in_flow_collections() {
             format!("{{outer: [pré,\r\n  {indicator}text]}}\n"),
         ] {
             assert_terminal_error(Parser::new_from_str(&yaml), &yaml, indicator);
-            assert_terminal_error(Parser::new_from_iter(yaml.chars()), &yaml, indicator);
+            assert_terminal_error(
+                Parser::new_from_iter(yaml.chars()),
+                &yaml,
+                indicator,
+            );
             assert_terminal_error(Scanner::new(StrInput::new(&yaml)), &yaml, indicator);
             assert_terminal_error(
                 Scanner::new(BufferedInput::new(yaml.chars())),
@@ -117,9 +121,10 @@ fn block_scalar_indicator_characters_remain_valid_in_scalar_content() {
         let iter_events = Parser::new_from_iter(yaml.chars())
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        let fallible_events = Parser::new_from_fallible_iter(yaml.chars().map(Ok::<_, ErrorKind>))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+        let fallible_events =
+            Parser::new_from_fallible_iter(yaml.chars().map(Ok::<_, ErrorKind>))
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
         assert_eq!(str_events, iter_events, "input: {yaml:?}");
         assert_eq!(str_events, fallible_events, "input: {yaml:?}");
         let scalars: Vec<_> = str_events
@@ -161,12 +166,15 @@ fn alias_anchor_edge_cases() {
     );
 
     let self_reference = collect_ok_events("&x [*x]\n");
-    assert!(self_reference
-        .iter()
-        .any(|(event, _)| matches!(event, Event::SequenceStart(StructureStyle::Flow, 1, None))));
-    assert!(self_reference
-        .iter()
-        .any(|(event, _)| matches!(event, Event::Alias(1))));
+    assert!(self_reference.iter().any(|(event, _)| matches!(
+        event,
+        Event::SequenceStart(StructureStyle::Flow, 1, None)
+    )));
+    assert!(
+        self_reference
+            .iter()
+            .any(|(event, _)| matches!(event, Event::Alias(1)))
+    );
 
     let redefinition = collect_ok_events("[&x 1, &x 2, *x]\n");
     assert!(redefinition.iter().any(|(event, _)| matches!(
@@ -177,9 +185,11 @@ fn alias_anchor_edge_cases() {
         event,
         Event::Scalar(value, _, 2, _) if value.as_ref() == "2"
     )));
-    assert!(redefinition
-        .iter()
-        .any(|(event, _)| matches!(event, Event::Alias(2))));
+    assert!(
+        redefinition
+            .iter()
+            .any(|(event, _)| matches!(event, Event::Alias(2)))
+    );
 }
 
 fn assert_emitted_aliases_reference_preceding_anchor_nodes(yaml: &str) {
@@ -287,7 +297,10 @@ fn directives_tags_fuzz_crash_is_expected_directive_limit() {
 
     options.max_directive_bytes = directive_bytes;
     let events = Parser::new_from_str_with_options(&yaml, options)
-        .map(|result| result.expect("generated YAML should parse with sufficient directive budget"))
+        .map(|result| {
+            result
+                .expect("generated YAML should parse with sufficient directive budget")
+        })
         .collect::<Vec<_>>();
     let tagged = events
         .iter()
@@ -305,7 +318,10 @@ fn crlf_and_wide_character_spans() {
     assert_eq!(scalar_values("a: 1\r\nb: 2\r\n"), ["a", "1", "b", "2"]);
     assert_eq!(scalar_values("a: 1\rb: 2\r"), ["a", "1", "b", "2"]);
     assert_eq!(
-        scalar_values_with_style("k: |\r\n  line1\r\n  line2\r\n", ScalarStyle::Literal),
+        scalar_values_with_style(
+            "k: |\r\n  line1\r\n  line2\r\n",
+            ScalarStyle::Literal
+        ),
         ["line1\nline2\n"]
     );
     assert_eq!(
@@ -322,7 +338,6 @@ fn crlf_and_wide_character_spans() {
                 span.byte_range(),
                 span.slice(yaml).map(ToOwned::to_owned),
             )),
-            #[cfg(feature = "comments")]
             Event::Comment(text, _) => Some((
                 format!("#{text}"),
                 span.byte_range(),
@@ -354,7 +369,7 @@ fn crlf_and_wide_character_spans() {
             ("2".to_string(), Some(21..22), Some("2".to_string())),
         ]
         .into_iter()
-        .filter(|(text, _, _)| cfg!(feature = "comments") || !text.starts_with('#'))
+        .filter(|(text, _, _)| true || !text.starts_with('#'))
         .collect::<Vec<_>>()
     );
 }
@@ -405,45 +420,59 @@ fn minimally_indented_quoted_continuations_preserve_folding_and_source_spans() {
         for newline in ["\n", "\r\n"] {
             for (prefix, indent) in [("clé: ", " "), ("outer:\n  clé: ", "   ")] {
                 for (blank_line, expected) in [("", "un deux"), (newline, "un\ndeux")] {
-                    let quoted = format!("{quote}un{newline}{blank_line}{indent}deux{quote}");
-                    let input = format!("{prefix}{quoted}{newline}after: done{newline}");
-                    let options = ryl_yaml_parser::options! { strict_indentation: true };
-                    let from_str = Parser::new_from_str_with_options(&input, options.clone())
-                        .collect::<Result<Vec<_>, _>>()
-                        .unwrap_or_else(|error| panic!("{input:?}: {error}"));
-                    for other in [
-                        Parser::new_from_iter_with_options(input.chars(), options.clone())
-                            .collect::<Result<Vec<_>, _>>(),
-                        Parser::new_from_fallible_iter_with_options(
-                            input.chars().map(Ok::<_, ErrorKind>),
-                            options,
-                        )
-                        .collect::<Result<Vec<_>, _>>(),
-                        Parser::new_from_str(&input).collect::<Result<Vec<_>, _>>(),
-                    ] {
-                        assert_eq!(other.unwrap(), from_str, "{input:?}");
-                    }
-                    let scalars: Vec<_> = from_str
-                        .iter()
-                        .filter_map(|(event, span)| {
-                            if let Event::Scalar(value, actual_style, ..) = event {
-                                Some((value.as_ref(), *actual_style, span))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    let (value, _, span) = scalars
-                        .iter()
-                        .find(|(_, actual_style, _)| *actual_style == style)
-                        .expect("quoted value");
-                    assert_eq!(*value, expected, "{input:?}");
-                    assert_eq!(span.slice(&input), Some(quoted.as_str()));
-                    assert_eq!(scalars.last().unwrap().0, "done");
+                    assert_quoted_continuation(
+                        quote, style, newline, prefix, indent, blank_line, expected,
+                    );
                 }
             }
         }
     }
+}
+
+fn assert_quoted_continuation(
+    quote: char,
+    style: ScalarStyle,
+    newline: &str,
+    prefix: &str,
+    indent: &str,
+    blank_line: &str,
+    expected: &str,
+) {
+    let quoted = format!("{quote}un{newline}{blank_line}{indent}deux{quote}");
+    let input = format!("{prefix}{quoted}{newline}after: done{newline}");
+    let options = ryl_yaml_parser::options! { strict_indentation: true };
+    let from_str = Parser::new_from_str_with_options(&input, options.clone())
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap_or_else(|error| panic!("{input:?}: {error}"));
+    for other in [
+        Parser::new_from_iter_with_options(input.chars(), options.clone())
+            .collect::<Result<Vec<_>, _>>(),
+        Parser::new_from_fallible_iter_with_options(
+            input.chars().map(Ok::<_, ErrorKind>),
+            options,
+        )
+        .collect::<Result<Vec<_>, _>>(),
+        Parser::new_from_str(&input).collect::<Result<Vec<_>, _>>(),
+    ] {
+        assert_eq!(other.unwrap(), from_str, "{input:?}");
+    }
+    let scalars: Vec<_> = from_str
+        .iter()
+        .filter_map(|(event, span)| {
+            if let Event::Scalar(value, actual_style, ..) = event {
+                Some((value.as_ref(), *actual_style, span))
+            } else {
+                None
+            }
+        })
+        .collect();
+    let (value, _, span) = scalars
+        .iter()
+        .find(|(_, actual_style, _)| *actual_style == style)
+        .expect("quoted value");
+    assert_eq!(*value, expected, "{input:?}");
+    assert_eq!(span.slice(&input), Some(quoted.as_str()));
+    assert_eq!(scalars.last().unwrap().0, "done");
 }
 
 #[test]

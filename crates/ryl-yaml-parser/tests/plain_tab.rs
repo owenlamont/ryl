@@ -1,17 +1,25 @@
-use ryl_yaml_parser::{ErrorKind, Event, Options, Parser, ScalarStyle, ScanError, StructureStyle};
+use ryl_yaml_parser::{
+    ErrorKind, Event, Options, Parser, ScalarStyle, ScanError, StructureStyle,
+};
 
 fn collect_events(input: &str) -> Result<Vec<Event<'_>>, ScanError> {
     collect_events_with_options(input, Options::default())
 }
 
-fn collect_events_with_options(input: &str, options: Options) -> Result<Vec<Event<'_>>, ScanError> {
-    let str_events =
-        Parser::new_from_str_with_options(input, options.clone()).collect::<Result<Vec<_>, _>>();
-    let iter_events = Parser::new_from_iter_with_options(input.chars(), options.clone())
+fn collect_events_with_options(
+    input: &str,
+    options: Options,
+) -> Result<Vec<Event<'_>>, ScanError> {
+    let str_events = Parser::new_from_str_with_options(input, options.clone())
         .collect::<Result<Vec<_>, _>>();
-    let fallible_events =
-        Parser::new_from_fallible_iter_with_options(input.chars().map(Ok::<_, ErrorKind>), options)
+    let iter_events =
+        Parser::new_from_iter_with_options(input.chars(), options.clone())
             .collect::<Result<Vec<_>, _>>();
+    let fallible_events = Parser::new_from_fallible_iter_with_options(
+        input.chars().map(Ok::<_, ErrorKind>),
+        options,
+    )
+    .collect::<Result<Vec<_>, _>>();
     assert_eq!(str_events, iter_events, "input: {input:?}");
     assert_eq!(str_events, fallible_events, "input: {input:?}");
     Ok(str_events?.into_iter().map(|(event, _)| event).collect())
@@ -33,14 +41,7 @@ fn collect_structural_events_with_options(
 ) -> Result<Vec<Event<'_>>, ScanError> {
     Ok(collect_events_with_options(input, options)?
         .into_iter()
-        .filter(|event| {
-            #[cfg(feature = "comments")]
-            if matches!(event, Event::Comment(..)) {
-                return false;
-            }
-            let _ = event;
-            true
-        })
+        .filter(|event| !matches!(event, Event::Comment(..)))
         .collect())
 }
 
@@ -216,14 +217,7 @@ fn explicit_key_tabs_after_comments_require_space_indentation() {
                 let events: Vec<_> = collect_events_with_options(yaml, options)
                     .unwrap_or_else(|error| panic!("{yaml:?}: {error}"))
                     .into_iter()
-                    .filter(|event| {
-                        #[cfg(feature = "comments")]
-                        if matches!(event, Event::Comment(..)) {
-                            return false;
-                        }
-                        let _ = event;
-                        true
-                    })
+                    .filter(|event| !matches!(event, Event::Comment(..)))
                     .collect();
                 assert_eq!(
                     events, expected,
@@ -289,9 +283,14 @@ fn explicit_key_properties_survive_tab_separation_and_comment_lines() {
         "&a !local # properties\n\t# comment",
         "&a # anchor\n \t!local # tag",
     ] {
-        let yaml = format!("?\t{properties}\n \t[é, item]\n: first\n?\t*a\n: second\nnext: done\n");
+        let yaml = format!(
+            "?\t{properties}\n \t[é, item]\n: first\n?\t*a\n: second\nnext: done\n"
+        );
         for line_break in ["\n", "\r", "\r\n"] {
-            assert_structural_events_in_all_modes(&yaml.replace('\n', line_break), &expected);
+            assert_structural_events_in_all_modes(
+                &yaml.replace('\n', line_break),
+                &expected,
+            );
         }
     }
 }
@@ -300,8 +299,7 @@ fn explicit_key_properties_survive_tab_separation_and_comment_lines() {
 fn explicit_key_tab_state_ends_at_a_line_break_and_respects_parent_dedents() {
     // A tab cannot indent a compact mapping on its own line, but a subsequent line can
     // introduce a block mapping with space indentation. Dedents close the key and parent.
-    let yaml =
-        "- ?\t# key follows\n\t# comment\n    inner: value\n  : selected\n  next: done\n- tail\n";
+    let yaml = "- ?\t# key follows\n\t# comment\n    inner: value\n  : selected\n  next: done\n- tail\n";
     let expected = [
         Event::StreamStart,
         Event::DocumentStart(false, None),
@@ -321,7 +319,10 @@ fn explicit_key_tab_state_ends_at_a_line_break_and_respects_parent_dedents() {
         Event::StreamEnd,
     ];
     for line_break in ["\n", "\r", "\r\n"] {
-        assert_structural_events_in_all_modes(&yaml.replace('\n', line_break), &expected);
+        assert_structural_events_in_all_modes(
+            &yaml.replace('\n', line_break),
+            &expected,
+        );
     }
 }
 
@@ -362,7 +363,9 @@ fn explicit_key_property_indentation_is_strict_only() {
                 "key".into(),
                 ScalarStyle::Plain,
                 anchor,
-                tagged.then(|| std::borrow::Cow::Owned(ryl_yaml_parser::Tag::new("!", "local"))),
+                tagged.then(|| {
+                    std::borrow::Cow::Owned(ryl_yaml_parser::Tag::new("!", "local"))
+                }),
             ),
             Event::Scalar("value".into(), ScalarStyle::Plain, 0, None),
             Event::MappingEnd,
@@ -413,18 +416,13 @@ fn tabs_cannot_indent_compact_explicit_key_collections_in_either_mode() {
 #[test]
 fn tabs_after_flow_explicit_keys_preserve_collection_keys_and_alias_values() {
     for separator in ["\t", "\t# key\r\n "] {
-        let yaml = format!("{{?{separator}[é, b]: &v value, ?{separator}{{nested: key}}: *v}}");
+        let yaml = format!(
+            "{{?{separator}[é, b]: &v value, ?{separator}{{nested: key}}: *v}}"
+        );
         let events: Vec<_> = collect_events(&yaml)
             .unwrap()
             .into_iter()
-            .filter(|event| {
-                #[cfg(feature = "comments")]
-                if matches!(event, Event::Comment(..)) {
-                    return false;
-                }
-                let _ = event;
-                true
-            })
+            .filter(|event| !matches!(event, Event::Comment(..)))
             .collect();
         assert_eq!(
             events,
@@ -451,7 +449,8 @@ fn tabs_after_flow_explicit_keys_preserve_collection_keys_and_alias_values() {
     }
 
     // Leaving flow context must restore the prohibition on a tab indenting a block key.
-    let error = collect_events("first: {?\tkey: value}\n?\n\tinvalid\n: value\n").unwrap_err();
+    let error =
+        collect_events("first: {?\tkey: value}\n?\n\tinvalid\n: value\n").unwrap_err();
     assert_eq!(error.kind(), &ErrorKind::TabNotAllowed);
     assert_eq!((error.marker().line(), error.marker().col()), (3, 0));
 }
@@ -583,7 +582,8 @@ fn tabs_after_colons_cannot_indent_compact_block_collections() {
 fn tab_in_block_literal_body_is_allowed() {
     // A tab in the body of a literal block scalar (|) should be accepted.
     let yaml = "key: |\n  a\tb"; // 'a\tb' inside the block content
-    let scalars = collect_scalars(yaml).expect("parser should accept tab inside block scalar body");
+    let scalars = collect_scalars(yaml)
+        .expect("parser should accept tab inside block scalar body");
     // Literal style preserves newlines; a single content line ends with a trailing \n
     assert_eq!(scalars, vec!["key".to_string(), "a\tb\n".to_string()]);
 }
@@ -592,8 +592,8 @@ fn tab_in_block_literal_body_is_allowed() {
 fn tab_in_block_folded_body_is_allowed() {
     // A tab in the body of a folded block scalar (>) should be accepted as content.
     let yaml = "key: >\n  a\tb";
-    let scalars =
-        collect_scalars(yaml).expect("parser should accept tab inside folded block scalar body");
+    let scalars = collect_scalars(yaml)
+        .expect("parser should accept tab inside folded block scalar body");
     // For a single content line, folded and literal both end with a trailing \n
     assert_eq!(scalars, vec!["key".to_string(), "a\tb\n".to_string()]);
 }
@@ -615,11 +615,11 @@ fn tab_at_start_of_block_scalar_is_rejected() {
         }
     }
 
-    let err =
-        got_err.expect("expected a ScanError due to leading tab at start of block scalar content");
+    let err = got_err.expect(
+        "expected a ScanError due to leading tab at start of block scalar content",
+    );
     // The scanner has a specific error for this case.
     assert_eq!(err.kind(), &ErrorKind::TabAtBlockScalarStart);
-    #[cfg(feature = "error_messages")]
     assert!(
         err.info()
             .contains("a block scalar content cannot start with a tab"),
@@ -631,15 +631,16 @@ fn tab_at_start_of_block_scalar_is_rejected() {
 #[test]
 fn explicit_indent_root_literal_can_end_before_document_start() {
     let yaml = "|2\n---\n";
-    let scalars =
-        collect_scalars(yaml).expect("parser should accept empty explicit-indented block scalar");
+    let scalars = collect_scalars(yaml)
+        .expect("parser should accept empty explicit-indented block scalar");
     assert_eq!(scalars.first().map(String::as_str), Some(""));
 }
 
 #[test]
 fn explicit_indent_root_literal_can_end_before_comment() {
     let yaml = "|2\n# comment\n";
-    let scalars = collect_scalars(yaml)
-        .expect("parser should accept empty explicit-indented block scalar before comment");
+    let scalars = collect_scalars(yaml).expect(
+        "parser should accept empty explicit-indented block scalar before comment",
+    );
     assert_eq!(scalars, vec![String::new()]);
 }

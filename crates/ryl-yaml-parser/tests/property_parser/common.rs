@@ -1,10 +1,8 @@
-#![allow(dead_code)]
-
 use std::collections::BTreeSet;
 
 use ryl_yaml_parser::{
-    BufferedInput, ErrorKind, Event, FallibleBufferedInput, Marker, Options, Parser, ScanError,
-    Scanner, Span, StrInput, Token, TokenType,
+    BufferedInput, ErrorKind, Event, FallibleBufferedInput, Marker, Options, Parser,
+    ScanError, Scanner, Span, StrInput, Token, TokenType,
 };
 
 #[derive(Debug)]
@@ -20,7 +18,7 @@ pub fn parse_with_both_inputs(input: &str) {
 
 /// Parse with string, buffered, and fallible-buffered inputs and compare their full traces.
 ///
-/// Invalid YAML is useful fuzz input. Consequently, this retains and compares both the events
+/// Invalid YAML is useful generated input. Consequently, this retains and compares both the events
 /// emitted before the first error and the error itself instead of discarding either one.
 pub fn parse_with_options(input: &str, options: Options) {
     let string = trace(Parser::new_from_str_with_options(input, options.clone()));
@@ -103,7 +101,6 @@ pub fn check_comment_suppression(input: &str) {
 pub fn check_comment_suppression_with_options(input: &str, mut options: Options) {
     // Prevent the enabled parser from failing at the buffered-comment resource limit. That limit
     // intentionally does not apply when comment emission is disabled.
-    #[cfg(feature = "comments")]
     {
         options.max_buffered_comment_events = usize::MAX;
     }
@@ -126,7 +123,7 @@ pub fn check_comment_suppression_with_options(input: &str, mut options: Options)
     let parser_non_comments: Vec<_> = parser_with
         .items
         .into_iter()
-        .filter(|(event, _)| !is_comment_event(event))
+        .filter(|(event, _)| !crate::support::is_comment_event(event))
         .collect();
     assert_eq!(
         parser_non_comments, parser_without.items,
@@ -137,7 +134,8 @@ pub fn check_comment_suppression_with_options(input: &str, mut options: Options)
         "comment suppression changed the parser error"
     );
 
-    let scanner_with = trace(Scanner::with_options(StrInput::new(input), with_comments));
+    let scanner_with =
+        trace(Scanner::with_options(StrInput::new(input), with_comments));
     let scanner_without = trace(Scanner::with_options(
         StrInput::new(input),
         without_comments,
@@ -148,7 +146,7 @@ pub fn check_comment_suppression_with_options(input: &str, mut options: Options)
     let scanner_non_comments: Vec<_> = scanner_with
         .items
         .into_iter()
-        .filter(|token| !is_comment_token(token.token_type()))
+        .filter(|token| !crate::support::is_comment_token(token.token_type()))
         .collect();
     assert_eq!(
         scanner_non_comments, scanner_without.items,
@@ -411,37 +409,44 @@ fn validate_scanner_bounds(tokens: &[Token<'_>], complete: bool) {
     );
 }
 
-pub fn is_comment_event(event: &Event<'_>) -> bool {
-    #[cfg(feature = "comments")]
-    {
-        matches!(event, Event::Comment(..))
+/// Render `value` as a double-quoted YAML scalar that every backend reads back exactly.
+pub fn quoted_scalar(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('"');
+    for character in value.chars() {
+        match character {
+            '\0' => quoted.push_str("\\0"),
+            '\x07' => quoted.push_str("\\a"),
+            '\x08' => quoted.push_str("\\b"),
+            '\t' => quoted.push_str("\\t"),
+            '\n' => quoted.push_str("\\n"),
+            '\x0b' => quoted.push_str("\\v"),
+            '\x0c' => quoted.push_str("\\f"),
+            '\r' => quoted.push_str("\\r"),
+            '\x1b' => quoted.push_str("\\e"),
+            '\u{85}' => quoted.push_str("\\N"),
+            '\u{2028}' => quoted.push_str("\\L"),
+            '\u{2029}' => quoted.push_str("\\P"),
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            '\u{feff}' | '\u{fffe}' | '\u{ffff}' => quoted.push('_'),
+            character if character.is_control() => quoted.push('_'),
+            character => quoted.push(character),
+        }
     }
-    #[cfg(not(feature = "comments"))]
-    {
-        let _ = event;
-        false
-    }
+    quoted.push('"');
+    quoted
 }
 
-pub fn is_comment_token(token: &TokenType<'_>) -> bool {
-    #[cfg(feature = "comments")]
-    {
-        matches!(token, TokenType::Comment(_))
+/// Truncate `data` to at most `max_len` bytes without splitting a UTF-8 sequence.
+pub fn cap_at_utf8_boundary(data: &[u8], max_len: usize) -> &[u8] {
+    if data.len() <= max_len {
+        return data;
     }
-    #[cfg(not(feature = "comments"))]
-    {
-        let _ = token;
-        false
-    }
-}
 
-pub fn comment_modes() -> &'static [bool] {
-    #[cfg(feature = "comments")]
-    {
-        &[true, false]
+    let mut end = max_len;
+    while end > 0 && data[end] & 0xc0 == 0x80 {
+        end -= 1;
     }
-    #[cfg(not(feature = "comments"))]
-    {
-        &[false]
-    }
+    &data[..end]
 }

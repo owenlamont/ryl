@@ -1,6 +1,7 @@
 use ryl_yaml_parser::{
+    BorrowedInput, ErrorKind, Event, Input, Parser, ScanError, Scanner, Span, StrInput,
+    Token,
     input::{SkipTabs, WhitespaceResult},
-    BorrowedInput, ErrorKind, Event, Input, Parser, ScanError, Scanner, Span, StrInput, Token,
 };
 
 struct CommentEnabledStrInput<'input> {
@@ -72,7 +73,10 @@ impl Input for CommentEnabledStrInput<'_> {
         self.inner.skip_ws_to_eol(skip_tabs)
     }
 
-    fn skip_ws_to_eol_blanks(&mut self, skip_tabs: SkipTabs) -> (usize, WhitespaceResult) {
+    fn skip_ws_to_eol_blanks(
+        &mut self,
+        skip_tabs: SkipTabs,
+    ) -> (usize, WhitespaceResult) {
         self.inner.skip_ws_to_eol_blanks(skip_tabs)
     }
 }
