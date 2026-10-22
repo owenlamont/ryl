@@ -398,3 +398,74 @@ fn an_unfixable_new_lines_still_sets_the_appended_final_newline() {
 
     assert_eq!(fixed, "a: 1\nb: 2\r\n");
 }
+
+fn fix_toml(toml: &str, input: &str) -> String {
+    let cfg = YamlLintConfig::from_toml_str(toml).expect("test config parses");
+    apply_safe_fixes(input, &cfg, Path::new("input.yaml"), Path::new("."))
+}
+
+#[test]
+fn ambiguous_block_scalars_still_get_verified_key_ordering() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules]\nkey-ordering = \"enable\"\n",
+            "b: 1\naé: 1\nz: |1\n \n\n...\n"
+        ),
+        "aé: 1\nb: 1\nz: |1\n \n\n...\n"
+    );
+}
+
+#[test]
+fn forbidden_flow_mappings_keep_the_comma_spacing_fix() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules]\ncommas = \"enable\"\n[lint.rules.braces]\nforbid = \"non-empty\"\n",
+            "café: {b: 1,}\n"
+        ),
+        "café: {b: 1, }\n"
+    );
+}
+
+#[test]
+fn markers_bracket_an_unterminated_document() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules]\ndocument-start = \"enable\"\n[lint.rules.document-end]\npresent = true\n",
+            "café: 1"
+        ),
+        "---\ncafé: 1\n...\n"
+    );
+}
+
+#[test]
+fn guarded_magic_lines_move_below_the_marker_once_spaced() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules]\ndocument-start = \"enable\"\n[lint.rules.comments]\nignore-shebangs = false\n",
+            "#cloud-config\ncafé: 1  # ryl disable-line rule:colons\n"
+        ),
+        "---\n# cloud-config\ncafé: 1  # ryl disable-line rule:colons\n"
+    );
+}
+
+#[test]
+fn closing_brackets_keep_a_comma_spacing_they_allow() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules.commas]\nmin-spaces-after = 2\nmax-spaces-after = 2\n[lint.rules.brackets]\nmax-spaces-inside = 1\n",
+            "café: [b, ]\n"
+        ),
+        "café: [b, ]\n"
+    );
+}
+
+#[test]
+fn keep_scalar_newlines_precede_the_document_end() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules]\ntrailing-spaces = \"enable\"\n[lint.rules.document-end]\npresent = true\n",
+            "café: |+\n  x\n  "
+        ),
+        "café: |+\n  x\n\n...\n"
+    );
+}

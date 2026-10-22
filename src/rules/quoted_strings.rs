@@ -908,21 +908,6 @@ type Replacement = (BytePos, BytePos, String);
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    fix_with_events(buffer, cfg, None)
-}
-
-pub(crate) fn fix_with_events(
-    buffer: &str,
-    cfg: &Config,
-    events: Option<crate::text_version::Analysis<'_>>,
-) -> Option<String> {
-    if let Some(events) = events {
-        let mut fixer = QuotedStringsFixer::new(cfg, buffer);
-        for (event, span) in events.event_iter() {
-            fixer.on_event(event, span);
-        }
-        return fixer.finish();
-    }
     let mut parser = Parser::new_from_str(buffer);
     let mut fixer = QuotedStringsFixer::new(cfg, buffer);
     let _ = parser.load(&mut fixer, true);

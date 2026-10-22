@@ -1264,9 +1264,6 @@ pub(crate) fn rewrite<'a>(
             match crate::format::layout::format(&mut current, passes, tracking) {
                 Ok(output) => (output, false),
                 Err(Fallback::Ambiguous) => (current, true),
-                Err(_) if tracking.unprobed && ambiguous(current.analysis()) => {
-                    (current, true)
-                }
                 Err(reason) => {
                     crate::format::layout::stats::Recording::fallback(reason);
                     return TextVersion::new(input.to_string());

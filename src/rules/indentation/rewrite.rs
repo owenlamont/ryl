@@ -215,28 +215,20 @@ impl<'a> Layout<'a> {
         }))
     }
 
+    pub(crate) fn frozen(&self, refused: &[Option<Cause>], line: usize) -> bool {
+        refused[self.starts.partition_point(|&at| at <= line) - 1].is_some()
+    }
+
     pub(crate) fn freeze_targets(&self, targets: &mut Targets) -> Vec<Refusal> {
-        let frozen = |line| {
-            let document = self.starts.partition_point(|&at| at <= line) - 1;
-            targets.refused[document].is_some()
-        };
-        let byte_starts = self.input.byte_line_starts();
-        for (at, column) in &mut targets.scalar_owners {
-            let origin = byte_starts.partition_point(|&start| start <= *at) - 1;
-            if frozen(origin) {
-                *column = column.saturating_add_signed(
-                    -targets.deltas[self.project_line(origin, *at)],
-                );
-            }
-        }
         for (index, line) in self.lines.iter().enumerate() {
-            if frozen(line.origin) {
+            if self.frozen(&targets.refused, line.origin) {
                 targets.deltas[index] = 0;
             }
         }
+        let refused = &targets.refused;
         targets
             .gaps
-            .retain(|gap| !frozen(self.lines[gap.line].origin));
+            .retain(|gap| !self.frozen(refused, self.lines[gap.line].origin));
         self.result(String::new(), &targets.refused, self.input.line_count())
             .refused
     }
@@ -385,12 +377,11 @@ impl<'a> Layout<'a> {
             } else {
                 output.analysis()
             };
-            if refuse_inconsistent(verified, cfg, &mut refused) {
-                let plan = output.analysis().plan(render(&refused));
-                output
-                    .apply(plan)
-                    .expect("consistency plan belongs to the current epoch");
-            }
+            refuse_inconsistent(verified, cfg, &mut refused);
+            let plan = output.analysis().plan(render(&refused));
+            output
+                .apply(plan)
+                .expect("consistency plan belongs to the current epoch");
         }
         (
             self.result(output.to_string(), &refused, original_line_count),
@@ -887,16 +878,13 @@ fn refuse_inconsistent(
     input: Analysis<'_>,
     cfg: &Config,
     refused: &mut [Option<Cause>],
-) -> bool {
+) {
     let mut starts = input.parsed().document_starts.clone();
     starts[0] = 0;
-    let mut rollback = false;
     for violation in super::check_with_analysis(input, &cfg.with_consistent_spaces()) {
         let document = starts.partition_point(|&start| start < violation.line) - 1;
-        rollback |= refused[document].is_none();
         refused[document].get_or_insert(Cause::Inconsistent);
     }
-    rollback
 }
 
 /// `buffer` with each block mapping in a block sequence joined onto its `-` line, or

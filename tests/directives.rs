@@ -380,6 +380,25 @@ fn reconcile_with_empty_before_emits_all_insertions() {
     );
 }
 
+#[test]
+fn reconcile_settles_trailing_insertions_and_deletions_line_by_line() {
+    let directives = Directives::parse("x\n# ryl disable-line rule:colons\n");
+    assert_eq!(
+        directives.reconcile("colons", "a\n", "a\nINS\n"),
+        "a\nINS\n"
+    );
+    assert_eq!(
+        directives.reconcile("colons", "a\nDEL\nkept\n", "a\n"),
+        "a\nkept\n",
+        "a trailing deletion reverts only on the disabled third line"
+    );
+    assert_eq!(
+        directives.reconcile("colons", "a\nb\nc\n", "a\nb\nc\nINS\n"),
+        "a\nb\nc\n",
+        "a trailing insertion anchored to the disabled third line is dropped"
+    );
+}
+
 fn colons_lines(input: &str) -> Vec<usize> {
     rule_lines(input, &cfg(COLONS))
         .into_iter()

@@ -691,12 +691,6 @@ impl ParsedFacts {
     }
 }
 
-impl From<String> for TextVersion<'static> {
-    fn from(text: String) -> Self {
-        Self::new(text)
-    }
-}
-
 fn prefetch_enabled(text: &str) -> bool {
     text.len() >= 1_048_576
         && std::thread::available_parallelism().is_ok_and(|cpus| cpus.get() > 1)

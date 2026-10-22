@@ -75,6 +75,7 @@ struct FormatStep {
     output: Option<TextVersion<'static>>,
     frozen: Vec<Option<indentation::Cause>>,
     settled: bool,
+    restart: bool,
 }
 
 impl FormatStep {
@@ -83,14 +84,16 @@ impl FormatStep {
             output: Some(output),
             frozen: Vec::new(),
             settled,
+            restart: false,
         }
     }
 
-    fn replan(frozen: Vec<Option<indentation::Cause>>) -> Self {
+    fn replan(frozen: Vec<Option<indentation::Cause>>, restart: bool) -> Self {
         Self {
             output: None,
             frozen,
             settled: false,
+            restart,
         }
     }
 }
@@ -101,22 +104,11 @@ pub(crate) fn format(
     tracking: &mut PassTracking<'_>,
 ) -> Result<TextVersion<'static>, Fallback> {
     let Some(cfg) = passes.collection_style else {
-        let staged = passes.line_length.is_some();
         let edited = tracking.edited.len();
-        let result = match prepare_quotes(source.analysis(), passes, staged)? {
-            Some(mut quoted) => probe(tracking, source.analysis())
-                .and_then(|()| format_quoted(&mut quoted, passes, tracking)),
-            None => format_document(source, passes, tracking),
-        };
-        return match result {
-            Err(Fallback::ScalarInteraction) if !staged => {
-                tracking.edited.truncate(edited);
-                probe(tracking, source.analysis())?;
-                prepare_quotes(source.analysis(), passes, true)?
-                    .ok_or(Fallback::ScalarInteraction)
-                    .and_then(|mut quoted| format_quoted(&mut quoted, passes, tracking))
-            }
-            Err(Fallback::ScalarInteraction) if passes.indentation.is_some() => {
+        return match with_quote_stage(source, passes, tracking, format_document) {
+            Err(Fallback::ScalarInteraction)
+                if passes.line_length.is_some() && passes.indentation.is_some() =>
+            {
                 tracking.edited.truncate(edited);
                 let mut unindented = passes.clone();
                 unindented.indentation = None;
@@ -128,6 +120,34 @@ pub(crate) fn format(
     format_collections(source, passes, tracking, cfg)
 }
 
+/// `plan` over `input` with its quote edits applied first, when folding needs settled
+/// scalar lengths or collapsed quotes cannot share a virtual line.
+fn with_quote_stage(
+    input: &mut TextVersion<'_>,
+    passes: &Passes<'_>,
+    tracking: &mut PassTracking<'_>,
+    mut plan: impl FnMut(
+        &mut TextVersion<'_>,
+        &Passes<'_>,
+        &mut PassTracking<'_>,
+    ) -> Result<TextVersion<'static>, Fallback>,
+) -> Result<TextVersion<'static>, Fallback> {
+    let staged = passes.line_length.is_some();
+    if !staged {
+        let edited = tracking.edited.len();
+        match plan(input, passes, tracking) {
+            Err(Fallback::ScalarInteraction) => tracking.edited.truncate(edited),
+            result => return result,
+        }
+    }
+    prepare_quotes(input.analysis(), passes).and_then(|quoted| match quoted {
+        Some(mut quoted) => probe(tracking, input.analysis())
+            .and_then(|()| plan(&mut quoted, passes, tracking))
+            .inspect(|_| tracking.edited.push(quoted_strings::ID)),
+        None => plan(input, passes, tracking),
+    })
+}
+
 /// Refuses the rewrite pass's input once, before its first plan, when it is ambiguous.
 fn probe(tracking: &mut PassTracking<'_>, input: Analysis<'_>) -> Result<(), Fallback> {
     if std::mem::take(&mut tracking.unprobed) && crate::fix::ambiguous(input) {
@@ -135,16 +155,6 @@ fn probe(tracking: &mut PassTracking<'_>, input: Analysis<'_>) -> Result<(), Fal
     } else {
         Ok(())
     }
-}
-
-fn format_quoted(
-    quoted: &mut TextVersion<'static>,
-    passes: &Passes<'_>,
-    tracking: &mut PassTracking<'_>,
-) -> Result<TextVersion<'static>, Fallback> {
-    let output = format_document(quoted, passes, tracking)?;
-    tracking.edited.push(quoted_strings::ID);
-    Ok(output)
 }
 
 fn format_collections(
@@ -175,25 +185,26 @@ fn format_collections(
                     Vec::new(),
                 )
             });
-        if let Some(quoted) =
-            prepare_quotes(converted.analysis(), passes, passes.line_length.is_some())?
-        {
-            converted = quoted;
-            tracking.edited.push(quoted_strings::ID);
-        }
-        let output = if !rules.is_empty()
-            && passes.comments_indentation.is_some()
-            && converted
-                .analysis()
-                .event_iter()
-                .any(|(event, _)| matches!(event, Event::Comment(..)))
-        {
-            let mut staged = passes.clone();
-            staged.comments_indentation = None;
-            format_document_staged(&mut converted, passes, tracking, Some(&staged))
-        } else {
-            format_document(&mut converted, passes, tracking)
-        }?;
+        let output = with_quote_stage(
+            &mut converted,
+            passes,
+            tracking,
+            |input, passes, tracking| {
+                if !rules.is_empty()
+                    && passes.comments_indentation.is_some()
+                    && input
+                        .analysis()
+                        .event_iter()
+                        .any(|(event, _)| matches!(event, Event::Comment(..)))
+                {
+                    let mut staged = passes.clone();
+                    staged.comments_indentation = None;
+                    format_document_staged(input, passes, tracking, Some(&staged))
+                } else {
+                    format_document(input, passes, tracking)
+                }
+            },
+        )?;
         tracking.edited.extend(rules);
         if rejected.as_deref() == Some(output.analysis().text()) {
             return Ok(output);
@@ -239,12 +250,17 @@ fn format_document_staged(
         };
         let step = format_document_refused(input, active, tracking, frozen.as_deref())?;
         if step.settled && (epoch > 0 || first.is_none()) {
-            result = Ok(step.output.expect("a settled layout has output"));
+            let output = step.output.expect("a settled layout has output");
+            result = Ok(output);
             break;
         }
-        current = step.output;
-        if current.is_none() {
+        if step.output.is_some() {
+            current = step.output;
+        } else {
             frozen = Some(step.frozen);
+            if step.restart {
+                current = None;
+            }
         }
     }
     result
@@ -302,52 +318,65 @@ fn format_document_refused(
         guard.as_deref(),
         frozen,
     )? {
-        return Ok(FormatStep::replan(frozen));
+        return Ok(FormatStep::replan(frozen, false));
     }
     output.mark_strict_valid();
     source.take_facts();
-    let dry = DocumentPlan::new(
+    DocumentPlan::new(
         output.analysis(),
         passes,
         &mut quotes,
         Sink::Validate,
         frozen,
     )
-    .inspect_err(|_| {
-        stats::count(stats::Counter::Rollback);
-    })?;
-    tracking.cycles.extend_from_slice(&dry.cycles);
-    if dry.dirty {
-        stats::count(stats::Counter::Rollback);
-        drop(dry);
-        if output.analysis().text() == source.analysis().text() {
-            return Err(Fallback::DryEdits);
+    .map(|dry| {
+        tracking.cycles.extend_from_slice(&dry.cycles);
+        if dry.dirty {
+            Dry::Dirty
+        } else if let Some(rejected) = dry.rejected_documents(passes, frozen) {
+            Dry::Rejected(rejected)
+        } else {
+            Dry::Clean(dry.layout.kept_dash_lines.clone(), dry.refused.clone())
         }
-        tracking.edited.extend(rules);
-        return Ok(FormatStep::output(output, false));
-    }
-    if let Some(rejected) = dry.rejected_documents(passes, frozen) {
-        drop(dry);
-        return Ok(FormatStep::replan(rejected));
-    }
-    remember(
-        tracking,
-        &output,
-        passes.indentation,
-        dry.layout.kept_dash_lines.clone(),
-        dry.refused.clone(),
-    );
-    drop(dry);
-    output.release_tokens();
-    tracking.edited.extend(rules);
-    let plan = source.analysis().plan_version(output);
-    source
-        .apply(plan)
-        .expect("layout plan belongs to the input epoch");
-    Ok(FormatStep::output(
-        std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
-        true,
-    ))
+    })
+    .and_then(|dry| match dry {
+        Dry::Dirty => {
+            stats::count(stats::Counter::Rollback);
+            (output.analysis().text() != source.analysis().text())
+                .then(|| {
+                    tracking.edited.extend(rules);
+                    FormatStep::output(output, false)
+                })
+                .ok_or(Fallback::DryEdits)
+        }
+        Dry::Rejected(rejected) => Ok(FormatStep::replan(rejected, true)),
+        Dry::Clean(kept_dash_lines, refused) => {
+            remember(
+                tracking,
+                &output,
+                passes.indentation,
+                kept_dash_lines,
+                refused,
+            );
+            output.release_tokens();
+            tracking.edited.extend(rules);
+            let plan = source.analysis().plan_version(output);
+            source
+                .apply(plan)
+                .expect("layout plan belongs to the input epoch");
+            Ok(FormatStep::output(
+                std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
+                true,
+            ))
+        }
+    })
+}
+
+/// The dry plan's verdict on a verified candidate.
+enum Dry {
+    Dirty,
+    Rejected(Vec<Option<indentation::Cause>>),
+    Clean(Vec<(usize, usize)>, Vec<indentation::Refusal>),
 }
 
 /// `Ok(None)` for a verified layout, or the documents to freeze before replanning one
@@ -464,11 +493,7 @@ fn expected_events<'a>(
 fn prepare_quotes(
     input: Analysis<'_>,
     passes: &Passes<'_>,
-    staged: bool,
 ) -> Result<Option<TextVersion<'static>>, Fallback> {
-    if !staged {
-        return Ok(None);
-    }
     let presentation = Presentation::quotes(input, passes, &mut HashMap::new())
         .and_then(|mut presentation| presentation.settle().map(|()| presentation))?;
     if presentation.edits.is_empty() {
@@ -520,10 +545,11 @@ impl Presentation {
         layout: &mut indentation::Layout<'_>,
         cache: &mut HashMap<String, Option<bool>>,
     ) -> Result<Self, Fallback> {
-        let mut presentation = Self::pre_scan(input, passes, cache)?;
-        presentation.comments(input, passes, layout);
-        presentation.spacing(input, passes.colons, passes.hyphens);
-        presentation.settle().map(|()| presentation)
+        Self::pre_scan(input, passes, cache).and_then(|mut presentation| {
+            presentation.comments(input, passes, layout);
+            presentation.spacing(input, passes.colons, passes.hyphens);
+            presentation.settle().map(|()| presentation)
+        })
     }
 
     fn lint_spacing(&mut self, input: Analysis<'_>, passes: &Passes<'_>) {
@@ -626,8 +652,7 @@ impl Presentation {
         if templates && let Some(cfg) = &passes.brackets {
             presentation.extend(brackets::ID, brackets::edits(input, cfg));
         }
-        presentation.settle()?;
-        Ok(presentation)
+        presentation.settle().map(|()| presentation)
     }
 
     fn closing_comma(
@@ -765,40 +790,38 @@ impl Presentation {
             targets.gaps.clear();
             targets.refused.clear();
         }
-        if let Some(frozen) = frozen {
-            for (target, previous) in targets.refused.iter_mut().zip(frozen) {
-                *target = target.or(*previous);
-            }
-        }
+        merge_frozen(&mut targets.refused, frozen);
         if !targets.refused.iter().any(Option::is_some) {
             return Ok(Vec::new());
         }
         let refused = targets.refused.clone();
-        if !layout.keep_refused(&refused, &self.edits) {
-            return Err(Fallback::ScalarInteraction);
-        }
-        *targets = layout.targets(cfg, &self.edits, passes.line_length.is_some());
-        targets.refused = refused;
-        self.align_comments(input, passes, layout);
-        self.settle().map(|()| layout.freeze_targets(targets))
+        layout
+            .keep_refused(&refused, &self.edits)
+            .then_some(())
+            .ok_or(Fallback::ScalarInteraction)
+            .and_then(|()| {
+                *targets =
+                    layout.targets(cfg, &self.edits, passes.line_length.is_some());
+                targets.refused = refused;
+                self.align_comments(input, passes, layout);
+                self.settle().map(|()| layout.freeze_targets(targets))
+            })
     }
 
     fn settle(&mut self) -> Result<(), Fallback> {
         self.edits
             .sort_by_key(|(start, end, _)| (start.get(), end.get()));
-        if self
+        let disjoint = !self
             .edits
             .windows(2)
             .any(|pair| pair[0].1 > pair[1].0 || pair[0].0 == pair[1].0)
-        {
-            self.edits.dedup();
-            if self.edits.windows(2).any(|pair| {
-                pair[0].1 > pair[1].0
-                    || (pair[0].0 == pair[1].0 && pair[1].0 == pair[1].1)
-            }) {
-                return Err(Fallback::Overlap);
-            }
-        }
+            || {
+                self.edits.dedup();
+                !self.edits.windows(2).any(|pair| {
+                    pair[0].1 > pair[1].0
+                        || (pair[0].0 == pair[1].0 && pair[1].0 == pair[1].1)
+                })
+            };
 
         self.rules.sort_by_key(|rule| {
             super::FORMAT_RULE_IDS
@@ -806,7 +829,29 @@ impl Presentation {
                 .position(|candidate| candidate == rule)
         });
         self.rules.dedup();
-        Ok(())
+        disjoint.then_some(()).ok_or(Fallback::Overlap)
+    }
+
+    fn normalized<'a>(
+        input: Analysis<'a>,
+        passes: &Passes<'_>,
+        cache: &mut HashMap<String, Option<bool>>,
+        cfg: &indentation::Config,
+    ) -> Result<(indentation::Layout<'a>, indentation::Targets, Self), Fallback> {
+        facts::prepare_input(input, passes.line_length.is_some()).and_then(|()| {
+            let mut layout = indentation::Layout::new(input, cfg);
+            Self::new(input, passes, &mut layout, cache).and_then(|presentation| {
+                if !layout.collapse_scalars(&presentation.edits) {
+                    return Err(Fallback::ScalarInteraction);
+                }
+                let targets = layout.targets(
+                    cfg,
+                    &presentation.edits,
+                    passes.line_length.is_some(),
+                );
+                Ok((layout, targets, presentation))
+            })
+        })
     }
 
     fn stream<'a>(
@@ -929,11 +974,7 @@ impl<'a> DocumentPlan<'a> {
         }
         stats::count(stats::Counter::Rollback);
         let mut rejected = self.layout.inconsistent_documents(&cfg);
-        if let Some(frozen) = frozen {
-            for (rejected, previous) in rejected.iter_mut().zip(frozen) {
-                *rejected = rejected.or(*previous);
-            }
-        }
+        merge_frozen(&mut rejected, frozen);
         Some(rejected)
     }
 
@@ -952,38 +993,45 @@ impl<'a> DocumentPlan<'a> {
                 false,
             )
         });
-        let (mut layout, mut targets, mut presentation) = if input
-            .text()
-            .contains('\u{feff}')
-        {
-            facts::prepare_input(input, passes.line_length.is_some()).and_then(|()| {
-                let mut layout = indentation::Layout::new(input, &cfg);
-                let presentation =
-                    Presentation::new(input, passes, &mut layout, quotes)?;
-                if !layout.collapse_scalars(&presentation.edits) {
-                    return Err(Fallback::ScalarInteraction);
-                }
-                let targets = layout.targets(
-                    &cfg,
-                    &presentation.edits,
-                    passes.line_length.is_some(),
-                );
-                Ok((layout, targets, presentation))
-            })
+        let planned = if input.text().contains('\u{feff}') {
+            Presentation::normalized(input, passes, quotes, &cfg)
         } else {
             if sink == Sink::Validate {
                 stats::count(stats::Counter::DryScan);
             }
             Presentation::stream(input, passes, quotes, &cfg)
-        }?;
-        let refused = presentation.retain_documents(
-            input,
-            passes,
-            &mut layout,
-            &mut targets,
-            &cfg,
-            frozen,
-        )?;
+        };
+        planned.and_then(|(mut layout, mut targets, mut presentation)| {
+            presentation
+                .retain_documents(
+                    input,
+                    passes,
+                    &mut layout,
+                    &mut targets,
+                    &cfg,
+                    frozen,
+                )
+                .and_then(|refused| {
+                    Self::assemble(
+                        input,
+                        passes,
+                        layout,
+                        targets,
+                        presentation,
+                        refused,
+                    )
+                })
+        })
+    }
+
+    fn assemble(
+        input: Analysis<'a>,
+        passes: &Passes<'_>,
+        layout: indentation::Layout<'a>,
+        targets: indentation::Targets,
+        presentation: Presentation,
+        refused: Vec<indentation::Refusal>,
+    ) -> Result<Self, Fallback> {
         let Presentation {
             edits,
             styles,
@@ -1095,7 +1143,7 @@ impl<'a> DocumentPlan<'a> {
                 && self.layout.lines.last().is_some_and(VirtualLine::is_empty));
         let keep_magic = !self.edits_magic_first_line(passes);
         let input = self.input;
-        let edits = &mut self.edits;
+
         let boundaries = &mut self.boundaries;
         let rules = &mut self.rules;
         for (rule, mut next) in [
@@ -1120,8 +1168,7 @@ impl<'a> DocumentPlan<'a> {
             }
             for mut edit in next {
                 if edit.0 != edit.1 {
-                    let blank = blank_whitespace_line(input, &mut self.layout, edit.0);
-                    edits.extend((!blank).then(|| plan_edit(edit)));
+                    blank_whitespace_line(input, &mut self.layout, edit.0);
                     continue;
                 }
                 if rule == document_start::ID {
@@ -1133,11 +1180,7 @@ impl<'a> DocumentPlan<'a> {
                     guard.add_start(input, edit.0);
                 }
                 if rule == document_end::ID
-                    && (final_newline
-                        || boundaries.iter().any(|(at, _, text)| {
-                            at.get() == input.text().len()
-                                && text.ends_with(['\n', '\r'])
-                        }))
+                    && final_newline
                     && edit.0.get() == input.text().len()
                     && !input.text().ends_with(['\n', '\r'])
                 {
@@ -1347,71 +1390,82 @@ impl<'a> DocumentPlan<'a> {
             crate::rules::support::line_syntax::buffer_newline(source)
         });
         let mut boundary = 0;
-        for (index, line) in self.layout.lines.iter().enumerate() {
-            let line_start = self.input.byte_line_starts()[line.origin];
-            if line.bom {
-                output.push('\u{feff}');
-            }
-            while self.boundaries.get(boundary).is_some_and(|edit| {
-                edit.0.get() <= line_start + usize::from(line.bom) * 3
-            }) {
-                let (at, _, text) = &self.boundaries[boundary];
-                output.push_str(&self.ending(text, *at));
-                boundary += 1;
-            }
-            let removed = self
-                .removed
-                .get(
-                    self.removed
-                        .partition_point(|range| range.end <= line_start),
-                )
-                .is_some_and(|range| range.start <= line_start);
-            if removed {
-                continue;
-            }
-            let prefix = line
-                .prefix
-                .saturating_add_signed(self.targets.deltas[index]);
-            output.extend(std::iter::repeat_n(
-                ' ',
-                prefix * usize::from(!line.is_empty()),
-            ));
-            let first = self.folds.partition_point(|site| site.line < index);
-            let last = self.folds.partition_point(|site| site.line <= index);
-            let mut fold = first;
-            let mut position = prefix + usize::from(line.bom) * 3;
-            self.visit_body(index, |text| {
-                let mut from = 0;
-                while fold < last && self.folds[fold].byte < position + text.len() {
-                    let site = &self.folds[fold];
-                    let at = site.byte - position;
-                    text.slice(from..at).append(&mut output);
-                    output.push_str(fold_newline);
-                    output.extend(std::iter::repeat_n(' ', site.indent));
-                    from = at + 1;
-                    fold += 1;
-                }
-                text.slice(from..text.len()).append(&mut output);
-                position += text.len();
-            })?;
-            output.push_str(
-                self.newline
-                    .filter(|_| !line.ending.is_empty())
-                    .filter(|_| {
-                        !GUARDED
-                            || self
-                                .guard
-                                .as_ref()
-                                .expect("guarded emission has a guard")
-                                .line(new_lines::ID, line.origin)
+        let emitted =
+            self.layout
+                .lines
+                .iter()
+                .enumerate()
+                .try_for_each(|(index, line)| {
+                    let line_start = self.input.byte_line_starts()[line.origin];
+                    if line.bom {
+                        output.push('\u{feff}');
+                    }
+                    while self.boundaries.get(boundary).is_some_and(|edit| {
+                        edit.0.get() <= line_start + usize::from(line.bom) * 3
+                    }) {
+                        let (at, _, text) = &self.boundaries[boundary];
+                        output.push_str(&self.ending(text, *at));
+                        boundary += 1;
+                    }
+                    let removed = self
+                        .removed
+                        .get(
+                            self.removed
+                                .partition_point(|range| range.end <= line_start),
+                        )
+                        .is_some_and(|range| range.start <= line_start);
+                    if removed {
+                        return Ok(());
+                    }
+                    let prefix = line
+                        .prefix
+                        .saturating_add_signed(self.targets.deltas[index]);
+                    output.extend(std::iter::repeat_n(
+                        ' ',
+                        prefix * usize::from(!line.is_empty()),
+                    ));
+                    let first = self.folds.partition_point(|site| site.line < index);
+                    let last = self.folds.partition_point(|site| site.line <= index);
+                    let mut fold = first;
+                    let mut position = prefix + usize::from(line.bom) * 3;
+                    self.visit_body(index, |text| {
+                        let mut from = 0;
+                        while fold < last
+                            && self.folds[fold].byte < position + text.len()
+                        {
+                            let site = &self.folds[fold];
+                            let at = site.byte - position;
+                            text.slice(from..at).append(&mut output);
+                            output.push_str(fold_newline);
+                            output.extend(std::iter::repeat_n(' ', site.indent));
+                            from = at + 1;
+                            fold += 1;
+                        }
+                        text.slice(from..text.len()).append(&mut output);
+                        position += text.len();
                     })
-                    .unwrap_or(line.ending),
-            );
-        }
-        for (at, _, text) in &self.boundaries[boundary..] {
-            output.push_str(&self.ending(text, *at));
-        }
-        Ok(output)
+                    .map(|()| {
+                        output.push_str(
+                            self.newline
+                                .filter(|_| !line.ending.is_empty())
+                                .filter(|_| {
+                                    !GUARDED
+                                        || self
+                                            .guard
+                                            .as_ref()
+                                            .expect("guarded emission has a guard")
+                                            .line(new_lines::ID, line.origin)
+                                })
+                                .unwrap_or(line.ending),
+                        );
+                    })
+                });
+        emitted.map(|()| {
+            for (at, _, text) in &self.boundaries[boundary..] {
+                output.push_str(&self.ending(text, *at));
+            }
+            output
+        })
     }
 
     fn visit_body<'s>(
@@ -1518,7 +1572,21 @@ impl<'a> DocumentPlan<'a> {
         crate::rules::line_length::fold::foldable_scalars(self.input)
             .into_iter()
             .try_for_each(|scalar| {
-                self.plan_scalar_fold(scalar.content, scalar.style, cfg, &projection)
+                let line = self
+                    .input
+                    .byte_line_starts()
+                    .partition_point(|&start| start <= scalar.content.start)
+                    - 1;
+                let frozen_owner = (!self.targets.refused.is_empty()
+                    && self.layout.frozen(&self.targets.refused, line))
+                .then(|| scalar.owner.map_or(0, |(_, column)| column));
+                self.plan_scalar_fold(
+                    scalar.content,
+                    scalar.style,
+                    frozen_owner,
+                    cfg,
+                    &projection,
+                )
             })
             .map(|()| self.folds.sort_by_key(|site| (site.line, site.byte)))
     }
@@ -1527,6 +1595,7 @@ impl<'a> DocumentPlan<'a> {
         &mut self,
         range: std::ops::Range<usize>,
         style: ScalarStyle,
+        frozen_owner: Option<usize>,
         cfg: crate::rules::line_length::Fold,
         projection: &projection::Projection,
     ) -> Result<(), Fallback> {
@@ -1552,12 +1621,13 @@ impl<'a> DocumentPlan<'a> {
             .map(|at| at + quotes)
             .ok_or(Fallback::ScalarInteraction)
             .and_then(|content| {
-                let owner = self
-                    .targets
-                    .scalar_owners
-                    .partition_point(|&(at, _)| at <= full.start)
-                    .checked_sub(1)
-                    .map_or(0, |index| self.targets.scalar_owners[index].1);
+                let owner = frozen_owner.unwrap_or_else(|| {
+                    self.targets
+                        .scalar_owners
+                        .partition_point(|&(at, _)| at <= full.start)
+                        .checked_sub(1)
+                        .map_or(0, |index| self.targets.scalar_owners[index].1)
+                });
                 let folded = style == ScalarStyle::Folded;
                 let min_step = if style == ScalarStyle::Plain { 1 } else { 2 };
                 let existing = (first + 1..=last)
@@ -1701,6 +1771,15 @@ impl<'a> DocumentPlan<'a> {
                 indent,
             }));
         })
+    }
+}
+
+fn merge_frozen(
+    refused: &mut [Option<indentation::Cause>],
+    frozen: Option<&[Option<indentation::Cause>]>,
+) {
+    for (refused, previous) in refused.iter_mut().zip(frozen.unwrap_or_default()) {
+        *refused = refused.or(*previous);
     }
 }
 

@@ -1118,3 +1118,109 @@ fn tabbed_blank_lines_are_erased() {
     assert_eq!(output, "café: 1\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
+
+#[test]
+fn folded_partially_suppressed_quotes_roll_back() {
+    let input =
+        "a: 'one\n  two'  # ryl disable-line rule:quoted-strings\ncafé: \"x\"\n";
+    let (output, statistics) = format_with_statistics(
+        input,
+        "line-length = 20\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(output, input);
+    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+}
+
+#[test]
+fn bom_partially_suppressed_quotes_roll_back() {
+    let input = "\u{feff}a: 'one\n  two'  # ryl disable-line rule:quoted-strings\ncafé: \"x\"\n";
+    let (output, statistics) = format_with_statistics(input, "[format]\n");
+    assert_eq!(output, input);
+    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+}
+
+#[test]
+fn closing_commas_compose_with_bracket_and_tab_spacing() {
+    let (output, statistics) =
+        format_with_statistics("café: [ x,\ty, z,  ]\n", "[format]\n");
+    assert_eq!(output, "café: [x,\ty, z,]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn suppressed_closing_commas_keep_their_spacing() {
+    let (output, statistics) = format_with_statistics(
+        "a: [x,]  # ryl disable-line rule:commas\ncafé: [y,  ]\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "a: [x,]  # ryl disable-line rule:commas\ncafé: [y,]\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn padded_braces_accept_the_trailing_comma_spacing() {
+    let (output, statistics) =
+        format_with_statistics("café: {b: 1,  }\n", "[format]\nbrace-spacing = true\n");
+    assert_eq!(output, "café: { b: 1, }\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn suppression_guards_comment_alignment() {
+    let (output, statistics) = format_with_statistics(
+        "a:\n  b: 1\n      # note\n  café: 2  # ryl disable-line rule:colons\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "a:\n  b: 1\n  # note\n  café: 2  # ryl disable-line rule:colons\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn refused_documents_collapse_quotes_in_a_separate_stage() {
+    let (output, statistics) = format_with_statistics(
+        "# ryl disable rule:indentation\ncafé: ['first\n  second', 'third\n  fourth']\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "# ryl disable rule:indentation\ncafé: [first second, third fourth]\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn suppressed_blank_runs_merge_removed_lines() {
+    let (output, statistics) = format_with_statistics(
+        "a: 1\n\n\n\n\n\ncafé: 2  # ryl disable-line rule:colons\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "a: 1\n\n\ncafé: 2  # ryl disable-line rule:colons\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn disabled_files_count_a_skip() {
+    let input = "# ryl disable-file\ncafé:   1\n";
+    let (output, statistics) = format_with_statistics(input, "[format]\n");
+    assert_eq!(output, input);
+    assert_eq!(statistics["skips"], 1, "{statistics}");
+}
+
+#[test]
+fn repair_reindents_alongside_inconsistent_mappings() {
+    let (output, statistics) = format_with_statistics(
+        "a:\n  b: 1\nc:\n    d: 2\ncafé: [x,\ny]\n",
+        "[format]\n",
+    );
+    assert_eq!(output, "a:\n  b: 1\nc:\n  d: 2\ncafé: [x,\n       y]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
