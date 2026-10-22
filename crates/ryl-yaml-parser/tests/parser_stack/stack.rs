@@ -1516,3 +1516,18 @@ fn custom_parser_with_current_inherits_parent_anchor_offset() {
     assert_eq!(find_anchor_id(&events, "v2"), Some(2));
     assert_eq!(find_anchor_id(&events, "v3"), Some(3));
 }
+
+#[test]
+fn parser_stack_load_propagates_a_scan_error() {
+    struct Ignore;
+    impl SpannedEventReceiver<'_> for Ignore {
+        fn on_event(&mut self, _: Event<'_>, _: Span) {}
+    }
+    let mut stack: MyStack = ParserStack::new();
+    stack.push_str_parser(Parser::new_from_str("[a"), "p".to_string());
+    let error = stack.load(&mut Ignore, true).unwrap_err();
+    assert!(
+        matches!(error.kind(), ErrorKind::UnclosedFlowCollection { .. }),
+        "{error}"
+    );
+}

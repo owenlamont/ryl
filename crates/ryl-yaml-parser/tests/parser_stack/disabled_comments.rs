@@ -226,3 +226,13 @@ fn suppressed_replay_comment_after_nested_document_end_is_not_a_second_document(
 
     assert_nested_trailing_comment_is_suppressed(stack);
 }
+
+#[test]
+fn no_comments_stack_keeps_a_preconsumed_non_comment_current() {
+    let mut parser = Parser::new_from_str("value\n");
+    let current = parser.next_event().unwrap().unwrap();
+    let mut stack = Stack::with_options(no_comment_options());
+    stack.push_custom_parser_with_current(parser, "custom".to_owned(), current);
+    let events = stack.collect::<Result<Vec<_>, _>>().unwrap();
+    assert!(matches!(events[0].0, Event::StreamStart));
+}

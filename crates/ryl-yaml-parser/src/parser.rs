@@ -1578,7 +1578,8 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         // Skipping a leading document-end marker can expose a comment that the normal
         // `next_event_impl` pre-dispatch check could not see yet. Emit it before deciding whether
         // another document starts; presentation-only comments must not create an implicit document.
-        if let Some(comment) = self.maybe_next_comment_event()? {
+        // The loop above leaves that token peeked.
+        if let Some(comment) = self.take_comment_event() {
             return Ok(comment);
         }
 
@@ -1599,9 +1600,6 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                 self.explicit_document_start()
             }
             QueuedToken(span, _) if implicit => {
-                if !self.keep_tags {
-                    self.tags.clear();
-                }
                 self.push_state(State::DocumentEnd);
                 self.state = State::BlockNode;
                 Ok((Event::DocumentStart(false, None), span))
@@ -1686,7 +1684,8 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                 continuing_directives,
                 pending_tag_handles,
             )?;
-            if let Some(comment) = self.maybe_next_comment_event()? {
+            // Directive processing stops on a peeked non-directive token.
+            if let Some(comment) = self.take_comment_event() {
                 self.pending_document_version = version;
                 self.pending_document_directives = true;
                 self.pending_document_tag_handles = document_tag_handles;
@@ -1767,7 +1766,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                 QueuedTokenType::VersionDirective(..)
                 | QueuedTokenType::TagDirective(..)
                 | QueuedTokenType::ReservedDirective(..),
-            ) = *self.peek_token()?
+            ) = *self.peeked()
             {
                 return Err(ScanError::from_kind(
                     span.start,
@@ -2006,30 +2005,11 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                 ))
             }
             QueuedToken(span, _) => {
+                // Nodes are parsed only from the three node states.
                 let kind = match self.state {
-                    State::FlowSequenceFirstEntry | State::FlowSequenceEntry => {
-                        ErrorKind::UnexpectedEofFlowSequence
-                    }
-                    State::FlowMappingFirstKey
-                    | State::FlowMappingKey
-                    | State::FlowMappingValue
-                    | State::FlowMappingEmptyValue => {
-                        ErrorKind::UnexpectedEofFlowMapping
-                    }
-                    State::FlowSequenceEntryMappingKey
-                    | State::FlowSequenceEntryMappingValue
-                    | State::FlowSequenceEntryMappingEnd
-                    | State::FlowNode => ErrorKind::UnexpectedEofImplicitFlowMapping,
-                    State::BlockSequenceFirstEntry
-                    | State::BlockSequenceEntry
-                    | State::BlockNode => ErrorKind::UnexpectedEofBlockSequence,
-                    State::BlockMappingFirstKey
-                    | State::BlockMappingKey
-                    | State::BlockMappingValue
-                    | State::BlockNodeOrIndentlessSequence => {
-                        ErrorKind::UnexpectedEofBlockMapping
-                    }
-                    _ => ErrorKind::ExpectedNodeContent,
+                    State::FlowNode => ErrorKind::UnexpectedEofImplicitFlowMapping,
+                    State::BlockNode => ErrorKind::UnexpectedEofBlockSequence,
+                    _ => ErrorKind::UnexpectedEofBlockMapping,
                 };
                 Err(ScanError::from_kind(span.start, kind))
             }
@@ -2209,7 +2189,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                 }
             }
 
-            self.peek_token()?.0
+            self.peeked().0
         };
 
         self.pop_state();

@@ -1162,3 +1162,13 @@ fn default_try_load_propagates_a_caller_parser_error() {
         Err(TryLoadError::Scan(error))
     );
 }
+
+#[test]
+fn try_load_after_the_stream_was_read_still_reports_stream_end() {
+    let mut parser = Parser::new_from_str("a");
+    while parser.next_event().is_some() {}
+    let error = parser
+        .try_load(&mut RejectWhen(|ev| *ev == Event::StreamEnd), true)
+        .unwrap_err();
+    assert_eq!(error, TryLoadError::Receiver(Rejected));
+}

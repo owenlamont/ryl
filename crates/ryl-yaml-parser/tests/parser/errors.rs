@@ -104,14 +104,6 @@ fn every_error_kind_renders_its_message() {
             "input exceeds the configured limit of 8 bytes",
         ),
         (
-            ErrorKind::UnexpectedEofFlowSequence,
-            "unexpected EOF while parsing a flow sequence",
-        ),
-        (
-            ErrorKind::UnexpectedEofFlowMapping,
-            "unexpected EOF while parsing a flow mapping",
-        ),
-        (
             ErrorKind::UnexpectedEofImplicitFlowMapping,
             "unexpected EOF while parsing an implicit flow mapping",
         ),
@@ -146,10 +138,6 @@ fn every_error_kind_renders_its_message() {
         (
             ErrorKind::UnknownAnchor,
             "while parsing node, found unknown anchor",
-        ),
-        (
-            ErrorKind::ExpectedNodeContent,
-            "while parsing a node, did not find expected node content",
         ),
         (
             ErrorKind::ExpectedBlockMappingKey,
@@ -201,7 +189,6 @@ fn every_error_kind_renders_its_message() {
             "invalid global tag character",
         ),
         (ErrorKind::SimpleKeyExpected, "simple key expected ':'"),
-        (ErrorKind::InvalidSimpleKey, "simple key is no longer valid"),
         (
             ErrorKind::InvalidDocumentEnd,
             "invalid content after document end marker",
@@ -224,7 +211,6 @@ fn every_error_kind_renders_its_message() {
             ErrorKind::CommentInterceptedScalar,
             "comment intercepting the multiline text",
         ),
-        (ErrorKind::ExpectedWhitespace, "expected whitespace"),
         (
             ErrorKind::CommentNotSeparated,
             "comments must be separated from other tokens by whitespace",
@@ -397,10 +383,6 @@ fn every_error_kind_renders_its_message() {
         (
             ErrorKind::TabInPlainScalar,
             "while scanning a plain scalar, found a tab",
-        ),
-        (
-            ErrorKind::UnexpectedEndOfPlainScalar,
-            "unexpected end of plain scalar",
         ),
         (
             ErrorKind::MappingKeyNotAllowed,

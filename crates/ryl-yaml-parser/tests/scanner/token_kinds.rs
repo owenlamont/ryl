@@ -55,13 +55,13 @@ fn every_scanned_token_reports_its_kind() {
 
 #[test]
 fn double_quoted_escapes_decode_every_named_character() {
-    let (event, _) = Parser::new_from_str(r#""\a\v\e\N\_\L\P""#)
+    let (event, _) = Parser::new_from_str(r#""\a\f\v\e\N\_\L\P""#)
         .nth(2)
         .unwrap()
         .unwrap();
     assert_eq!(
         event.scalar().unwrap().0,
-        "\u{7}\u{b}\u{1b}\u{85}\u{a0}\u{2028}\u{2029}"
+        "\u{7}\u{c}\u{b}\u{1b}\u{85}\u{a0}\u{2028}\u{2029}"
     );
 }
 
@@ -71,4 +71,18 @@ fn byte_range_needs_offsets_at_both_ends() {
     let without = Span::new(with_offsets.start, Marker::new(1, 1, 1));
     assert_eq!(with_offsets.byte_range(), Some(0..1));
     assert_eq!(without.byte_range(), None);
+}
+
+#[test]
+fn verbatim_tags_decode_multibyte_escapes_and_reject_malformed_ones() {
+    use ryl_yaml_parser::ErrorKind;
+    let (event, _) = Parser::new_from_str("!<%E2%82%AC> a")
+        .nth(2)
+        .unwrap()
+        .unwrap();
+    assert_eq!(event.tag().unwrap().suffix(), "\u{20ac}");
+    let error = Parser::new_from_iter("!<%zz> a".chars())
+        .find_map(Result::err)
+        .unwrap();
+    assert_eq!(error.kind(), &ErrorKind::InvalidTagEscape);
 }

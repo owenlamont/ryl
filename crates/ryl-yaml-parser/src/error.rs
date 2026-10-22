@@ -137,10 +137,6 @@ pub enum ErrorKind {
         /// Maximum number of raw input bytes accepted by the adapter.
         limit: usize,
     },
-    /// Input ended while parsing a flow sequence.
-    UnexpectedEofFlowSequence,
-    /// Input ended while parsing a flow mapping.
-    UnexpectedEofFlowMapping,
     /// Input ended while parsing an implicit flow mapping.
     UnexpectedEofImplicitFlowMapping,
     /// Input ended while parsing a block sequence.
@@ -161,8 +157,6 @@ pub enum ErrorKind {
     AnchorCountOverflow,
     /// An alias referred to an unknown anchor.
     UnknownAnchor,
-    /// The parser did not find expected node content.
-    ExpectedNodeContent,
     /// A block mapping key was expected.
     ExpectedBlockMappingKey,
     /// A flow mapping separator or closing brace was expected.
@@ -191,8 +185,6 @@ pub enum ErrorKind {
     InvalidGlobalTagCharacter,
     /// A required simple key was not followed by a value indicator.
     SimpleKeyExpected,
-    /// A previously saved simple key was no longer valid.
-    InvalidSimpleKey,
     /// Invalid content followed a document-end marker.
     InvalidDocumentEnd,
     /// Indentation was invalid for the current parser context.
@@ -210,8 +202,6 @@ pub enum ErrorKind {
     TabInBlockIndentation,
     /// A comment interrupted a multiline plain scalar.
     CommentInterceptedScalar,
-    /// Required whitespace was not found.
-    ExpectedWhitespace,
     /// A comment was not separated from the preceding token by whitespace.
     CommentNotSeparated,
     /// A directive did not end with a comment or line break.
@@ -314,8 +304,6 @@ pub enum ErrorKind {
     PlainScalarStartsWithDashFlowIndicator,
     /// A tab appeared where a plain scalar could not accept it.
     TabInPlainScalar,
-    /// A plain scalar ended before consuming any content.
-    UnexpectedEndOfPlainScalar,
     /// A mapping key appeared in a context that does not allow one.
     MappingKeyNotAllowed,
     /// A flow mapping value indicator was adjacent to a collection start.
@@ -343,12 +331,6 @@ impl fmt::Display for ErrorKind {
             Self::InputByteLimitExceeded { limit } => {
                 write!(f, "input exceeds the configured limit of {limit} bytes")
             }
-            Self::UnexpectedEofFlowSequence => {
-                f.write_str("unexpected EOF while parsing a flow sequence")
-            }
-            Self::UnexpectedEofFlowMapping => {
-                f.write_str("unexpected EOF while parsing a flow mapping")
-            }
             Self::UnexpectedEofImplicitFlowMapping => {
                 f.write_str("unexpected EOF while parsing an implicit flow mapping")
             }
@@ -372,9 +354,6 @@ impl fmt::Display for ErrorKind {
                 f.write_str("missing explicit document end marker before directive")
             }
             Self::UnknownAnchor => f.write_str("while parsing node, found unknown anchor"),
-            Self::ExpectedNodeContent => {
-                f.write_str("while parsing a node, did not find expected node content")
-            }
             Self::ExpectedBlockMappingKey => {
                 f.write_str("while parsing a block mapping, did not find expected key")
             }
@@ -409,7 +388,6 @@ impl fmt::Display for ErrorKind {
             }
             Self::InvalidGlobalTagCharacter => f.write_str("invalid global tag character"),
             Self::SimpleKeyExpected => f.write_str("simple key expected ':'"),
-            Self::InvalidSimpleKey => f.write_str("simple key is no longer valid"),
             Self::InvalidDocumentEnd => {
                 f.write_str("invalid content after document end marker")
             }
@@ -427,7 +405,6 @@ impl fmt::Display for ErrorKind {
             Self::CommentInterceptedScalar => {
                 f.write_str("comment intercepting the multiline text")
             }
-            Self::ExpectedWhitespace => f.write_str("expected whitespace"),
             Self::CommentNotSeparated => {
                 f.write_str("comments must be separated from other tokens by whitespace")
             }
@@ -554,7 +531,6 @@ impl fmt::Display for ErrorKind {
             Self::TabInPlainScalar => {
                 f.write_str("while scanning a plain scalar, found a tab")
             }
-            Self::UnexpectedEndOfPlainScalar => f.write_str("unexpected end of plain scalar"),
             Self::MappingKeyNotAllowed => {
                 f.write_str("mapping keys are not allowed in this context")
             }

@@ -138,22 +138,28 @@ impl BorrowedInput<'static> for WindowedInput {
 /// This models an input that owns its backing storage: it can hand out `&str` slices tied to
 /// `&self` (`slice_bytes`) but not slices with the `'input` lifetime (`slice_borrowed`).
 struct SliceableStreamInput {
-    source: String,
+    source: &'static str,
     /// Current byte offset into `source`.
     pos: usize,
     /// Sticky lookahead window, mirroring `StrInput`.
     window: usize,
     /// Whether `slice_bytes` is offered.
     provide_slices: bool,
+    /// Whether `slice_borrowed` lends `'static` slices of the source.
+    borrow: bool,
+    /// What `may_contain_comments` reports, regardless of the source.
+    comment_hint: bool,
 }
 
 impl SliceableStreamInput {
-    fn new(source: &str, provide_slices: bool) -> Self {
+    fn new(source: &'static str, provide_slices: bool) -> Self {
         Self {
-            source: source.to_owned(),
+            source,
             pos: 0,
             window: 0,
             provide_slices,
+            borrow: false,
+            comment_hint: true,
         }
     }
 
@@ -219,6 +225,10 @@ impl Input for SliceableStreamInput {
         Some(self.pos)
     }
 
+    fn may_contain_comments(&self) -> bool {
+        self.comment_hint
+    }
+
     fn slice_bytes(&self, start: usize, end: usize) -> Option<&str> {
         if self.provide_slices {
             self.source.get(start..end)
@@ -229,8 +239,8 @@ impl Input for SliceableStreamInput {
 }
 
 impl BorrowedInput<'static> for SliceableStreamInput {
-    fn slice_borrowed(&self, _start: usize, _end: usize) -> Option<&'static str> {
-        None
+    fn slice_borrowed(&self, start: usize, end: usize) -> Option<&'static str> {
+        self.source.get(start..end).filter(|_| self.borrow)
     }
 }
 
@@ -462,6 +472,7 @@ fn sequence_indented_one_column_under_mapping_key() {
 const SLICED_INPUTS: &[&str] = &[
     "\"a\\tb\"\n",
     "\"a\\\n  b\"\n",
+    "\"a\n  b\"\n",
     "'it''s'\n",
     "\"a  \n  b\"\n",
     "'a\n\n  b'\n",
@@ -502,4 +513,29 @@ fn offset_inputs_copy_slices_or_report_their_absence() {
             ),
         }
     }
+}
+
+/// A borrowing input without its own plain-scalar fast path uses the trait's chunked default,
+/// which must stop after each chunk of a scalar longer than the lookahead window.
+#[test]
+fn borrowing_input_reads_long_plain_scalars_in_chunks() {
+    let yaml: &'static str =
+        Box::leak(format!("key: {}\n", "v".repeat(300)).into_boxed_str());
+    let mut input = SliceableStreamInput::new(yaml, true);
+    input.borrow = true;
+    let events: Result<Vec<Event<'static>>, ScanError> = Parser::new(input)
+        .map(|event| event.map(|(event, _)| event))
+        .collect();
+    assert_eq!(events, parse_events(yaml));
+}
+
+/// An input may claim to hold no comments; one it does hold is still validated.
+#[test]
+fn comment_hint_does_not_skip_comment_separation_checks() {
+    let mut input = SliceableStreamInput::new("\"a\"#c\n", true);
+    input.comment_hint = false;
+    let error = Parser::new(input)
+        .find_map(Result::err)
+        .expect("an unseparated comment fails");
+    assert_eq!(error.kind(), &ErrorKind::CommentNotSeparated);
 }

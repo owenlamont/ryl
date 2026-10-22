@@ -64,8 +64,8 @@ impl<'input> ParserTrait<'input> for ReplayParser<'input> {
         recv: &mut R,
         multi: bool,
     ) -> Result<(), ScanError> {
-        while let Some(res) = self.next_event() {
-            let (ev, span) = res?;
+        // Replayed events never fail.
+        while let Some(Ok((ev, span))) = self.next_event() {
             let is_doc_end = matches!(ev, Event::DocumentEnd);
             let is_stream_end = matches!(ev, Event::StreamEnd);
             recv.on_event(ev, span);

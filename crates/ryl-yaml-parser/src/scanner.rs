@@ -1558,10 +1558,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
 
         let end_mark = self.mark;
         let span = Span::new(start_mark, end_mark);
-        Ok(QueuedToken(
-            span,
-            QueuedTokenType::Comment(Comment { text, placement }),
-        ))
+        Ok(Token(span, TokenType::Comment(Comment { text, placement })).into())
     }
 
     fn push_comment_token(&mut self) -> ScanResult {
@@ -1658,18 +1655,12 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         self.tokens.insert(pos, tok.into());
     }
 
-    fn simple_key_token_index(
-        &self,
-        sk: &SimpleKey,
-        mark: Marker,
-    ) -> Result<usize, ScanError> {
-        let Some(index) = sk.token_number.checked_sub(self.tokens_parsed) else {
-            return Err(ScanError::from_kind(mark, ErrorKind::InvalidSimpleKey));
-        };
-        if index > self.tokens.len() {
-            return Err(ScanError::from_kind(mark, ErrorKind::InvalidSimpleKey));
-        }
-        Ok(index)
+    /// The queue position of a possible simple key's token, which stays queued until the key
+    /// is resolved.
+    fn simple_key_token_index(&self, sk: &SimpleKey) -> usize {
+        sk.token_number
+            .checked_sub(self.tokens_parsed)
+            .expect("a possible simple key's token is still queued")
     }
 
     #[inline]
@@ -1806,15 +1797,9 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
     pub(crate) fn next_queued_token(
         &mut self,
     ) -> Result<Option<QueuedToken<'input>>, ScanError> {
-        if self.deferred_error.is_some() {
-            if !matches!(
-                self.tokens.front().map(|token| &token.1),
-                Some(QueuedTokenType::Comment(_))
-            ) && let Some(error) = self.deferred_error.take()
-            {
-                return error.into_result();
-            }
-            self.token_available = true;
+        // An error is deferred only behind the one comment queued with it, which was returned.
+        if let Some(error) = self.deferred_error.take() {
+            return error.into_result();
         }
 
         if self.stream_end_produced {
@@ -1833,9 +1818,10 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                 return Err(error);
             }
         }
-        let Some(t) = self.tokens.pop_front() else {
-            unreachable!("fetch_more_tokens succeeded without producing a token")
-        };
+        let t = self
+            .tokens
+            .pop_front()
+            .expect("fetch_more_tokens succeeded without producing a token");
         self.token_available = false;
         self.tokens_parsed += 1;
 
@@ -2084,54 +2070,25 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         Ok(())
     }
 
-    /// Skip separation whitespace after a block explicit-key indicator.
-    ///
-    /// The function returns after one separated comment, whether it was queued or ignored, so a
-    /// caller can publish completed syntax before validating later input.
-    ///
-    /// # Errors
-    /// This function returns an error if no whitespace was found or a tab supplies required
-    /// indentation for the key node.
+    /// Skip the separation after a block explicit key indicator, which the dispatcher only
+    /// recognizes before a blank, a line break or the end of input. Returns whether it stopped
+    /// after a comment.
     fn skip_yaml_whitespace(&mut self) -> Result<bool, ScanError> {
-        let mut need_whitespace = true;
         loop {
             match self.input.look_ch() {
-                ' ' => {
-                    self.skip_blank();
-
-                    need_whitespace = false;
-                }
-                '\t' => {
-                    self.skip_explicit_key_tab()?;
-                    need_whitespace = false;
-                }
+                ' ' => self.skip_blank(),
+                '\t' => self.skip_explicit_key_tab()?,
                 '\n' | '\r' => {
                     self.input.lookahead(2);
                     self.skip_linebreak();
-                    if self.flow_level == 0 {
-                        self.allow_simple_key();
-                    }
-                    need_whitespace = false;
+                    self.allow_simple_key();
                 }
                 '#' => {
-                    if need_whitespace {
-                        self.skip_comment()?;
-                    } else {
-                        self.consume_comment()?;
-                        return Ok(true);
-                    }
+                    self.consume_comment()?;
+                    return Ok(true);
                 }
-                _ => break,
+                _ => return Ok(false),
             }
-        }
-
-        // End of input also separates: `?` is a key indicator when followed by a blank, a line
-        // break or the end of input (`is_blank_or_breakz`), so `?` as the last character is a
-        // complete (empty) explicit key, like `?\n`.
-        if need_whitespace && !self.input.next_is_z() {
-            Err(self.scan_error(ErrorKind::ExpectedWhitespace))
-        } else {
-            Ok(false)
         }
     }
 
@@ -2193,7 +2150,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         self.first_simple_key = None;
 
         self.unroll_indent(-1);
-        self.remove_simple_key()?;
+        self.clear_simple_key();
         self.disallow_simple_key();
 
         self.tokens
@@ -2203,7 +2160,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
 
     fn fetch_directive(&mut self) -> ScanResult {
         self.unroll_indent(-1);
-        self.remove_simple_key()?;
+        self.clear_simple_key();
 
         self.disallow_simple_key();
 
@@ -2565,15 +2522,9 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                     .and_then(|start| start.checked_add(1))
                     .zip(self.input.byte_offset())
                     .and_then(|(start, end)| self.try_borrow_slice(start, end));
-                borrowed.map_or_else(
-                    || {
-                        let mut combined =
-                            String::with_capacity(handle.len() - 1 + remaining.len());
-                        combined.push_str(&handle[1..]);
-                        combined.push_str(remaining);
-                        Cow::Owned(combined)
-                    },
-                    Cow::Borrowed,
+                // Both parts were borrowed from the source, so together they are contiguous.
+                Cow::Borrowed(
+                    borrowed.expect("a borrowed local tag is contiguous in the source"),
                 )
             }
             (Cow::Borrowed(handle), Cow::Owned(mut remaining)) => {
@@ -2601,7 +2552,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             suffix = self.scan_verbatim_tag(start_mark)?;
         } else {
             // The tag has either the '!suffix' or the '!handle!suffix'
-            handle = self.scan_tag_handle(false, start_mark)?;
+            handle = self.scan_tag_handle();
             // Check if it is, indeed, handle.
             if handle.len() >= 2 && handle.starts_with('!') && handle.ends_with('!') {
                 // A tag handle starting with "!!" is a secondary tag handle.
@@ -2650,13 +2601,10 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         &mut self,
         mark: &Marker,
     ) -> Result<Cow<'input, str>, ScanError> {
-        let Some(start) = self.input.byte_offset() else {
-            return Ok(Cow::Owned(self.scan_tag_handle(false, mark)?));
-        };
-
-        if self.input.look_ch() != '!' {
-            return Err(ScanError::from_kind(*mark, ErrorKind::ExpectedTagBang));
-        }
+        let start = self
+            .input
+            .byte_offset()
+            .expect("the borrowing tag scanner runs only on inputs with offsets");
 
         // Consume the leading '!'.
         self.skip_non_blank();
@@ -2701,11 +2649,10 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         mark: &Marker,
         require_non_empty: bool,
     ) -> Result<Cow<'input, str>, ScanError> {
-        let Some(start) = self.input.byte_offset() else {
-            return Ok(Cow::Owned(
-                self.scan_tag_shorthand_suffix(false, false, "", mark)?,
-            ));
-        };
+        let start = self
+            .input
+            .byte_offset()
+            .expect("the borrowing tag scanner runs only on inputs with offsets");
 
         // Scan tag characters, checking for URI escapes.
         while is_tag_char(self.input.look_ch()) {
@@ -2725,11 +2672,10 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             self.skip_non_blank();
         }
 
-        let Some(end) = self.input.byte_offset() else {
-            return Ok(Cow::Owned(
-                self.scan_tag_shorthand_suffix(false, false, "", mark)?,
-            ));
-        };
+        let end = self
+            .input
+            .byte_offset()
+            .expect("byte_offset() must remain available once enabled");
 
         if require_non_empty && start == end {
             return Err(ScanError::from_kind(*mark, ErrorKind::MissingTagUri));
@@ -2745,16 +2691,10 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         }
     }
 
-    fn scan_tag_handle(
-        &mut self,
-        directive: bool,
-        mark: &Marker,
-    ) -> Result<String, ScanError> {
+    /// Scan a tag token's handle, starting at its `!`.
+    fn scan_tag_handle(&mut self) -> String {
         let mut string = String::new();
-        if self.input.look_ch() != '!' {
-            return Err(ScanError::from_kind(*mark, ErrorKind::ExpectedTagBang));
-        }
-
+        self.input.lookahead(1);
         string.push(self.input.peek());
         self.skip_non_blank();
 
@@ -2764,19 +2704,12 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         self.mark.offsets.bytes = self.input.byte_offset();
 
         // Check if the trailing character is '!' and copy it.
+        // Without a trailing '!', the scanned word is the start of a local tag's suffix.
         if self.input.peek() == '!' {
             string.push(self.input.peek());
             self.skip_non_blank();
-        } else if directive && string != "!" {
-            // It's either the '!' tag or not really a tag handle.  If it's a %TAG
-            // directive, it's an error.  If it's a tag token, it must be a part of
-            // URI.
-            return Err(ScanError::from_kind(
-                *mark,
-                ErrorKind::ExpectedTagDirectiveBang,
-            ));
         }
-        Ok(string)
+        string
     }
 
     /// Scan for a verbatim tag.
@@ -2911,10 +2844,9 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         let s = core::str::from_utf8(&bytes[..bytes_len])
             .map_err(|_| ScanError::from_kind(*mark, ErrorKind::InvalidTagUtf8))?;
 
-        let Some(ch) = s.chars().next() else {
-            unreachable!("a validated URI escape cannot decode to an empty string")
-        };
-        Ok(ch)
+        Ok(s.chars()
+            .next()
+            .expect("a validated URI escape cannot decode to an empty string"))
     }
 
     fn fetch_anchor(&mut self, alias: bool) -> ScanResult {
@@ -3034,9 +2966,10 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             return Err(self.scan_error(ErrorKind::MisplacedFlowCollectionEnd));
         }
 
-        let Some((open_mark, open_ch)) = self.flow_markers.pop() else {
-            return Err(self.scan_error(ErrorKind::MisplacedFlowCollectionEnd));
-        };
+        let (open_mark, open_ch) = self
+            .flow_markers
+            .pop()
+            .expect("each open flow collection has a marker");
 
         if open_ch != expected_open {
             return Err(ScanError::from_kind(
@@ -3050,7 +2983,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
 
         let flow_level = self.flow_level;
 
-        self.remove_simple_key()?;
+        self.clear_simple_key();
 
         if matches!(tok, TokenType::FlowSequenceEnd) {
             self.end_implicit_mapping(self.mark, flow_level);
@@ -3116,13 +3049,11 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
     }
 
     fn decrease_flow_level(&mut self) {
-        if self.flow_level > 0 {
-            // The closing delimiter removes this level's possible key before popping it.
-            debug_assert!(!self.simple_keys.last().unwrap().possible);
-            debug_assert_ne!(self.first_simple_key, Some(self.flow_level));
-            self.flow_level -= 1;
-            self.simple_keys.pop().unwrap();
-        }
+        // The closing delimiter removes this level's possible key before popping it.
+        debug_assert!(!self.simple_keys.last().unwrap().possible);
+        debug_assert_ne!(self.first_simple_key, Some(self.flow_level));
+        self.flow_level -= 1;
+        self.simple_keys.pop().unwrap();
     }
 
     /// Push the `Block*` token(s) and skip over the `-`.
@@ -3156,13 +3087,12 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             return Err(self.scan_error(ErrorKind::InvalidBlockEntryWhitespace));
         }
 
-        self.skip_ws_to_eol(SkipTabs::No)?;
         self.input.lookahead(1);
         if self.input.next_is_break() || self.input.next_is_flow() {
             self.roll_one_col_indent();
         }
 
-        self.remove_simple_key()?;
+        self.clear_simple_key();
         self.allow_simple_key();
 
         self.insert_token(
@@ -3182,7 +3112,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         }
 
         self.unroll_indent(-1);
-        self.remove_simple_key()?;
+        self.clear_simple_key();
         self.disallow_simple_key();
 
         let mark = self.mark;
@@ -3728,9 +3658,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         self.mark.col += consumed;
         self.mark.offsets.bytes = self.input.byte_offset();
         self.leading_whitespace = false;
-        if let Some(new_end) = self.mark.offsets.bytes {
-            buf.end = new_end;
-        }
+        buf.end = self.mark.offsets.bytes.unwrap_or(buf.end);
         true
     }
 
@@ -3926,15 +3854,14 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         &self,
         start: Option<usize>,
         end_mark: Marker,
-        start_mark: Marker,
-    ) -> Result<&'input str, ScanError> {
+    ) -> &'input str {
         let start = start.expect("borrowed scalar has a start offset");
         end_mark
             .byte_offset()
             .and_then(|end| self.try_borrow_slice(start, end))
-            .ok_or_else(|| {
-                ScanError::from_kind(start_mark, ErrorKind::InputOffsetsWithoutSlice)
-            })
+            .expect(
+                "an input that borrowed the scalar's start borrows the whole scalar",
+            )
     }
 
     /// Append the blanks between two content runs on one plain scalar line to `output`.
@@ -4091,8 +4018,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             {
                 // A continuation line can't be borrowed: folding transforms the source.
                 if self.leading_whitespace && has_content && string.is_none() {
-                    let prefix =
-                        self.borrowed_plain_scalar(borrow_start, end_mark, start_mark)?;
+                    let prefix = self.borrowed_plain_scalar(borrow_start, end_mark);
                     string = Some(prefix.to_owned());
                 }
                 if self.leading_whitespace {
@@ -4139,7 +4065,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         }
 
         let borrowed_contents = if string.is_none() {
-            Some(self.borrowed_plain_scalar(borrow_start, end_mark, start_mark)?)
+            Some(self.borrowed_plain_scalar(borrow_start, end_mark))
         } else {
             None
         };
@@ -4156,26 +4082,16 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         }
         self.ensure_current_char_is_printable()?;
 
-        if has_content {
-            let contents = if let Some(slice) = borrowed_contents {
-                Cow::Borrowed(slice)
-            } else {
-                Cow::Owned(string.expect("owned plain scalar has an output buffer"))
-            };
-
-            Ok(Token(
-                Span::new(start_mark, end_mark),
-                TokenType::Scalar(ScalarStyle::Plain, contents),
-            ))
+        // The dispatcher only starts a plain scalar on a character that can begin one.
+        let contents = if let Some(slice) = borrowed_contents {
+            Cow::Borrowed(slice)
         } else {
-            // `fetch_plain_scalar` must absolutely consume at least one byte. Otherwise,
-            // `fetch_next_token` will never stop calling it. An empty plain scalar may happen with
-            // erroneous inputs such as "{...".
-            Err(ScanError::from_kind(
-                start_mark,
-                ErrorKind::UnexpectedEndOfPlainScalar,
-            ))
-        }
+            Cow::Owned(string.expect("owned plain scalar has an output buffer"))
+        };
+        Ok(Token(
+            Span::new(start_mark, end_mark),
+            TokenType::Scalar(ScalarStyle::Plain, contents),
+        ))
     }
 
     fn fetch_key(&mut self) -> ScanResult {
@@ -4196,7 +4112,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             self.set_current_flow_mapping_started(true);
         }
 
-        self.remove_simple_key()?;
+        self.clear_simple_key();
 
         if self.flow_level == 0 {
             self.allow_simple_key();
@@ -4293,7 +4209,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                     ErrorKind::InvalidColonPlacement,
                 ));
             }
-            let token_index = self.simple_key_token_index(&sk, start_mark)?;
+            let token_index = self.simple_key_token_index(&sk);
             self.validate_flow_key_indentation(&sk, token_index, start_mark)?;
             // insert simple key
             let tok = Token(Span::empty(sk.mark), TokenType::Key);
@@ -4516,15 +4432,16 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                 && self.indent == (self.mark.col as isize)
                 && self.indents.last().unwrap().needs_block_end;
 
-            if let Some(last) = self.simple_keys.last_mut() {
-                *last = SimpleKey {
-                    mark: self.mark,
-                    possible: true,
-                    required,
-                    token_number: self.tokens_parsed + self.tokens.len(),
-                };
-                self.first_simple_key.get_or_insert(self.flow_level);
-            }
+            *self
+                .simple_keys
+                .last_mut()
+                .expect("every flow level has a simple-key slot") = SimpleKey {
+                mark: self.mark,
+                possible: true,
+                required,
+                token_number: self.tokens_parsed + self.tokens.len(),
+            };
+            self.first_simple_key.get_or_insert(self.flow_level);
         }
     }
 
@@ -4582,9 +4499,10 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
     }
 
     fn set_current_flow_mapping_started(&mut self, started: bool) {
-        if let Some(current) = self.flow_mapping_started.last_mut() {
-            *current = started;
-        }
+        *self
+            .flow_mapping_started
+            .last_mut()
+            .expect("only called inside a flow collection") = started;
     }
 }
 

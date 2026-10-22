@@ -202,36 +202,24 @@ impl<T: Iterator<Item = char>> BorrowedInput<'static> for BufferedInput<T> {
 struct FallibleChars<T: Iterator<Item = Result<char, ErrorKind>>> {
     input: T,
     error: Option<ErrorKind>,
-    finished: bool,
 }
 
 impl<T: Iterator<Item = Result<char, ErrorKind>>> FallibleChars<T> {
     fn new(input: T) -> Self {
-        Self {
-            input,
-            error: None,
-            finished: false,
-        }
+        Self { input, error: None }
     }
 }
 
 impl<T: Iterator<Item = Result<char, ErrorKind>>> Iterator for FallibleChars<T> {
     type Item = char;
 
+    /// `BufferedInput` stops polling once this returns `None`, so the source is never read
+    /// after its first error or end.
     fn next(&mut self) -> Option<Self::Item> {
-        if self.finished {
-            return None;
-        }
-
-        match self.input.next() {
-            Some(Ok(c)) => Some(c),
-            Some(Err(error)) => {
+        match self.input.next()? {
+            Ok(c) => Some(c),
+            Err(error) => {
                 self.error = Some(error);
-                self.finished = true;
-                None
-            }
-            None => {
-                self.finished = true;
                 None
             }
         }
