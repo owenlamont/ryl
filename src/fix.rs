@@ -1215,6 +1215,7 @@ pub fn apply_safe_fixes_filtered(
         reindented: None,
         strict_input: None,
         cycles: Vec::new(),
+        unprobed: false,
     };
     rewrite(
         input,
@@ -1237,6 +1238,7 @@ pub(crate) fn rewrite<'a>(
     err: &mut dyn Write,
     tracking: &mut PassTracking<'_>,
 ) -> TextVersion<'static> {
+    use crate::format::layout::Fallback;
     if crate::directives::disables_file(input) {
         crate::format::layout::stats::count(
             crate::format::layout::stats::Counter::Skip,
@@ -1257,22 +1259,19 @@ pub(crate) fn rewrite<'a>(
     }
     let mut current = source.into_owned();
     for _ in 0..FIX_PIPELINE_MAX_PASSES {
-        let ambiguous =
-            crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
-                current.analysis(),
-            )
-            .is_some();
-        let mut output = if ambiguous {
-            current
-        } else {
+        tracking.unprobed = true;
+        let (mut output, ambiguous) =
             match crate::format::layout::format(&mut current, passes, tracking) {
-                Ok(output) => output,
+                Ok(output) => (output, false),
+                Err(Fallback::Ambiguous) => (current, true),
+                Err(_) if tracking.unprobed && ambiguous(current.analysis()) => {
+                    (current, true)
+                }
                 Err(reason) => {
                     crate::format::layout::stats::Recording::fallback(reason);
                     return TextVersion::new(input.to_string());
                 }
-            }
-        };
+            };
         let truthy = !ambiguous
             && fix_rule(
                 &mut output,
@@ -1313,6 +1312,11 @@ pub(crate) fn rewrite<'a>(
         return TextVersion::new(input.to_string());
     }
     current
+}
+
+pub(crate) fn ambiguous(input: Analysis<'_>) -> bool {
+    crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(input)
+        .is_some()
 }
 
 fn fix_rule<C>(
@@ -1508,6 +1512,7 @@ pub(crate) struct PassTracking<'a> {
     pub reindented: Option<&'a mut ReindentCache>,
     pub strict_input: Option<bool>,
     pub cycles: Vec<&'static str>,
+    pub unprobed: bool,
 }
 
 /// `input` re-indented to the repair target, where that alone makes it strictly valid

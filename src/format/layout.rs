@@ -29,6 +29,7 @@ pub(crate) enum Fallback {
     Refusal,
     Verification,
     DryEdits,
+    Ambiguous,
 }
 
 struct DocumentPlan<'a> {
@@ -103,12 +104,14 @@ pub(crate) fn format(
         let staged = passes.line_length.is_some();
         let edited = tracking.edited.len();
         let result = match prepare_quotes(source.analysis(), passes, staged)? {
-            Some(mut quoted) => format_quoted(&mut quoted, passes, tracking),
+            Some(mut quoted) => probe(tracking, source.analysis())
+                .and_then(|()| format_quoted(&mut quoted, passes, tracking)),
             None => format_document(source, passes, tracking),
         };
         return match result {
             Err(Fallback::ScalarInteraction) if !staged => {
                 tracking.edited.truncate(edited);
+                probe(tracking, source.analysis())?;
                 prepare_quotes(source.analysis(), passes, true)?
                     .ok_or(Fallback::ScalarInteraction)
                     .and_then(|mut quoted| format_quoted(&mut quoted, passes, tracking))
@@ -123,6 +126,15 @@ pub(crate) fn format(
         };
     };
     format_collections(source, passes, tracking, cfg)
+}
+
+/// Refuses the rewrite pass's input once, before its first plan, when it is ambiguous.
+fn probe(tracking: &mut PassTracking<'_>, input: Analysis<'_>) -> Result<(), Fallback> {
+    if std::mem::take(&mut tracking.unprobed) && crate::fix::ambiguous(input) {
+        Err(Fallback::Ambiguous)
+    } else {
+        Ok(())
+    }
 }
 
 fn format_quoted(
@@ -148,6 +160,7 @@ fn format_collections(
         passes.indentation.as_ref(),
         passes.comments_indentation,
     );
+    probe(tracking, source.analysis())?;
     let mut result = Err(Fallback::DryEdits);
     for _ in 0..crate::fix::FIX_PIPELINE_MAX_PASSES {
         let input = current.as_mut().unwrap_or(source);
@@ -247,6 +260,7 @@ fn format_document_refused(
     let (prepared, kept) =
         DocumentPlan::new(source.analysis(), passes, &mut quotes, Sink::Emit, frozen)
             .and_then(|plan| {
+            probe(tracking, plan.input)?;
             tracking.cycles.extend_from_slice(&plan.cycles);
             let consistent = plan.dirty
                 || !passes.indentation.is_some_and(|cfg| {
@@ -1455,7 +1469,10 @@ impl<'a> DocumentPlan<'a> {
         let line = &self.layout.lines[index];
         let source = self.input.text();
         let body = line.body.as_ptr() as usize - source.as_ptr() as usize;
-        if !line.body.is_empty() && byte < body && body - byte <= line.prefix {
+        if byte <= body
+            && body - byte <= line.prefix
+            && (byte < body || line.body.is_empty())
+        {
             return self.prefix(index).checked_sub(body - byte);
         }
         let mut position = self.prefix(index) + usize::from(line.bom) * 3;

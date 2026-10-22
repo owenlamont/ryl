@@ -230,6 +230,7 @@ pub fn format_str(
             reindented: None,
             strict_input: Some(parsed.strict_error.is_none()),
             cycles: Vec::new(),
+            unprobed: false,
         },
         Some(&mut parsed),
     )
@@ -381,6 +382,7 @@ impl FormatCache {
                     reindented: Some(&mut self.reindented),
                     strict_input,
                     cycles: Vec::new(),
+                    unprobed: false,
                 },
                 parsed,
             );
@@ -473,6 +475,7 @@ fn lines_changed_by(
             reindented: None,
             strict_input: None,
             cycles: Vec::new(),
+            unprobed: false,
         },
         None,
     );
