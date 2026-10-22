@@ -240,6 +240,7 @@ fn format_document_staged(
 ) -> Result<TextVersion<'static>, Fallback> {
     let mut frozen = None;
     let mut current = None;
+    let mut base: Option<String> = None;
     let mut result = Err(Fallback::Refusal);
     for epoch in 0..crate::fix::FIX_PIPELINE_MAX_PASSES {
         let input = current.as_mut().unwrap_or(source);
@@ -254,12 +255,15 @@ fn format_document_staged(
             result = Ok(output);
             break;
         }
-        if step.output.is_some() {
-            current = step.output;
+        if let Some(output) = step.output {
+            if step.settled {
+                base = Some(output.analysis().text().to_owned());
+            }
+            current = Some(output);
         } else {
             frozen = Some(step.frozen);
             if step.restart {
-                current = None;
+                current = base.clone().map(TextVersion::new);
             }
         }
     }

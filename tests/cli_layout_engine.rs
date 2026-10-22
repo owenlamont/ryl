@@ -1232,3 +1232,17 @@ fn indicator_bodies_follow_their_collection_past_a_spaced_value() {
     assert_eq!(output, "? café\n: - x2: 1\n  - |1\n   x\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
+
+#[test]
+fn consistency_restarts_after_a_staged_epoch_keep_every_document() {
+    let input = "a:\n    body: |\n      \tinside\n    list: [ a,b ] #note\n\n---\ncafé:\n    body: >\n      alpha beta gamma delta\n\n ";
+    let (output, statistics) = format_with_statistics(
+        input,
+        "line-length = 12\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(
+        output,
+        "a:\n    body: |\n      \tinside\n    list: [a, b]  # note\n\n---\ncafé:\n    body: >\n      alpha\n      beta\n      gamma\n      delta\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}

@@ -1257,6 +1257,7 @@ pub(crate) fn rewrite<'a>(
         tracking.edited.push(indentation::ID);
         source = repaired;
     }
+    let events = source.analysis().parsed().event_count();
     let mut current = source;
     for _ in 0..FIX_PIPELINE_MAX_PASSES {
         tracking.unprobed = true;
@@ -1299,9 +1300,11 @@ pub(crate) fn rewrite<'a>(
         convergence_warning(err, path, FIX_PIPELINE_MAX_PASSES, &rules);
     }
     let text = current.analysis().text();
+    let output = current.analysis();
     if text != input
-        && ((!current.analysis().strict_valid()
-            && crate::lint::strict_parse_error(text).is_some())
+        && (output.parsed().event_count() != events
+            || (!output.strict_valid()
+                && crate::lint::strict_parse_error(text).is_some())
             || (!strict
                 && (!repair_events_match(input, text)
                     || (passes.preserve_events && !format_events_match(input, text)))))
