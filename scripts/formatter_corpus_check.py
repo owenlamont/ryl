@@ -820,8 +820,8 @@ class Remote(Protocol):
 class GitRemote:
     """A `Remote` over `git ls-remote` and depth-1 treeless mirrors in `cache`.
 
-    Every method raises `CalledProcessError` or `TimeoutExpired` when git cannot
-    reach the pin's repo.
+    Every method raises `CorpusError` when a git command fails, and `TimeoutExpired`
+    when one hangs.
     """
 
     def __init__(self, cache: Path) -> None:
@@ -830,14 +830,18 @@ class GitRemote:
 
     @staticmethod
     def _run(cwd: Path, *args: str) -> bytes:
-        return subprocess.run(
+        done = subprocess.run(
             ["git", *args],
             cwd=cwd,
-            check=True,
+            check=False,
             capture_output=True,
             timeout=_GIT_TIMEOUT_S,
             env=os.environ | {"GIT_TERMINAL_PROMPT": "0"},
-        ).stdout
+        )
+        if done.returncode:
+            msg = f"git {' '.join(args)}: {done.stderr.decode().strip()}"
+            raise CorpusError(msg)
+        return done.stdout
 
     def _mirror(self, pin: Pin, sha: str) -> Path:
         mirror = self._cache / "refresh" / pin.name.replace("/", "__")
@@ -887,10 +891,9 @@ class GitRemote:
             Its SHA-256, or None when the commit has no such file.
         """
         mirror = self._mirror(pin, sha)
-        try:
-            data = self._run(mirror, "cat-file", "blob", f"{sha}:{path}")
-        except subprocess.CalledProcessError:
+        if not self._run(mirror, "ls-tree", sha, "--", path):
             return None
+        data = self._run(mirror, "cat-file", "blob", f"{sha}:{path}")
         return hashlib.sha256(data).hexdigest()
 
 
@@ -947,7 +950,7 @@ def rewrite_shas(text: str, moves: Iterable[Move]) -> str:
         if len(hits) != 1:
             msg = f"{move.pin.name}: expected one `{old}` line, found {len(hits)}"
             raise CorpusError(msg)
-        lines[hits[0]] = lines[hits[0]].replace(move.pin.sha, move.sha)
+        lines[hits[0]] = f'sha = "{move.sha}"' + lines[hits[0]].removeprefix(old)
     return "".join(lines)
 
 
@@ -958,7 +961,7 @@ def _restamp(text: str, today: date) -> str:
     if len(hits) != 1:
         msg = f"expected one `{old}` line, found {len(hits)}"
         raise CorpusError(msg)
-    lines[hits[0]] = lines[hits[0]].replace(old, f"tested-date = {today}")
+    lines[hits[0]] = f"tested-date = {today}" + lines[hits[0]].removeprefix(old)
     return "".join(lines)
 
 

@@ -12,6 +12,7 @@ from datetime import date, datetime, UTC
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import sys
 from typing import Final
 
@@ -615,11 +616,11 @@ WAIVED_SHA256: Final = "e" * 64
 NOW: Final = datetime(2026, 10, 22, tzinfo=UTC)
 TODAY: Final = date(2026, 10, 23)
 MANIFEST: Final = f"""# comment kept
-tested-date = 2026-01-01
+tested-date = 2026-01-01  # was tested-date = 2026-01-01
 
 [[repo]]
 url = "https://github.com/o/a"
-sha = "{OLD_A}"  # trailing
+sha = "{OLD_A}"  # was sha = "{OLD_A}"
 note = "x"
 
 [[repo.yaml12-known-errors]]
@@ -665,10 +666,10 @@ def test_refresh_rewrites_only_the_sha_lines(manifest: Path) -> None:
         manifest, names=(), dry_run=False, remote=FakeRemote(), today=TODAY
     )
     expected = (
-        MANIFEST.replace(OLD_A, NEW_A)
+        MANIFEST.replace(f'sha = "{OLD_A}"  #', f'sha = "{NEW_A}"  #')
         .replace(OLD_B, NEW_B)
         .replace(OLD_D, NEW_B)
-        .replace("tested-date = 2026-01-01", f"tested-date = {TODAY}")
+        .replace("tested-date = 2026-01-01  #", f"tested-date = {TODAY}  #")
     )
     assert manifest.read_bytes().decode() == expected
 
@@ -704,3 +705,36 @@ def test_dry_run_reports_moves_and_lapsing_waivers_without_writing(
         f"waiver may lapse: yaml12 o/a: {WAIVED_PATH} (file removed)",
         f"1 of 1 pins move; oldest current pin: o/a {OLD_A[:12]} (2026-01-01)",
     ]
+
+
+@pytest.fixture
+def origin(tmp_path: Path) -> gate.Pin:
+    repo = tmp_path / "origin"
+    repo.mkdir()
+    (repo / WAIVED_PATH).write_bytes(BEFORE)
+    gate._git(repo, "init", "-q")
+    gate._git(repo, "config", "uploadpack.allowFilter", "true")
+    gate._git(repo, "add", ".")
+    gate._git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "c")
+    sha = gate._git(repo, "rev-parse", "HEAD")
+    return gate.Pin(section="repo", index=0, url=repo.as_uri(), sha=sha)
+
+
+def test_a_file_absent_from_the_commit_hashes_to_none(
+    origin: gate.Pin, tmp_path: Path
+) -> None:
+    remote = gate.GitRemote(tmp_path / "cache")
+    assert remote.sha256(origin, origin.sha, WAIVED_PATH) == (
+        hashlib.sha256(BEFORE).hexdigest()
+    )
+    assert remote.sha256(origin, origin.sha, "absent.yaml") is None
+
+
+def test_an_unreachable_mirror_fails_instead_of_reporting_a_removed_file(
+    origin: gate.Pin, tmp_path: Path
+) -> None:
+    remote = gate.GitRemote(tmp_path / "cache")
+    remote.committed(origin, origin.sha)
+    shutil.rmtree(origin.url.removeprefix("file://"))
+    with pytest.raises(gate.CorpusError, match="git ls-tree"):
+        remote.sha256(origin, origin.sha, WAIVED_PATH)
