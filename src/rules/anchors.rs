@@ -121,7 +121,7 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Viola
     let mut doc = DocState::new();
     let mut violations = Vec::new();
 
-    for (span, token_type) in input.tokens().iter() {
+    for (span, token_type) in input.tokens().iter(input.text()) {
         match token_type {
             Kind::DocumentStart | Kind::DocumentEnd => {
                 finish_doc(&doc, cfg, &mut violations);

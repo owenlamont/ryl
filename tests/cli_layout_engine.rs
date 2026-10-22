@@ -51,14 +51,14 @@ fn multiline_quotes_share_layout_and_a_dry_plan() {
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     for (name, count) in [
         ("analyses", 2),
-        ("lexical_scans", 2),
+        ("lexical_scans", 0),
         ("streamed_dry_scans", 1),
         ("planning_invocations", 2),
         ("emissions", 1),
         ("strict_parses", 2),
         ("verification_parses", 1),
         ("rollback", 0),
-        ("cached_lexical_tapes", 0),
+        ("cached_lexical_tapes", 2),
         ("line_table_builds", 2),
         ("token_normalizations", 2),
     ] {
@@ -95,7 +95,7 @@ fn a_directive_keyword_inside_a_scalar_does_not_cache_tokens() {
         format_with_statistics("word: 'ryl message'\n", "[format]\n");
     assert_eq!(output, "word: ryl message\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["cached_lexical_tapes"], 0, "{statistics}");
+    assert_eq!(statistics["cached_lexical_tapes"], 2, "{statistics}");
 }
 
 #[test]
@@ -622,7 +622,7 @@ fn threshold_input(bytes: usize, body: &str) -> String {
     format!("# {}\n{body}", "p".repeat(bytes - body.len() - 3))
 }
 
-fn assert_threshold(bytes: usize, tapes: usize) {
+fn assert_threshold(bytes: usize, scans: usize) {
     let input = threshold_input(bytes, "é:  x\n");
     let (output, stats) = format_with_statistics(&input, "[format]\n");
     assert!(
@@ -630,15 +630,18 @@ fn assert_threshold(bytes: usize, tapes: usize) {
         "only the colon gap changes"
     );
     assert_eq!(stats["fallback"], Value::Null);
-    let parallel = std::thread::available_parallelism().unwrap().get() > 1;
-    assert_eq!(
-        stats["cached_lexical_tapes"],
-        if parallel { tapes } else { 0 }
-    );
+    assert_eq!(stats["cached_lexical_tapes"], 2);
     for (name, count) in [
         ("analyses", 2),
         ("strict_parses", 2),
-        ("lexical_scans", 2),
+        (
+            "lexical_scans",
+            if std::thread::available_parallelism().unwrap().get() > 1 {
+                scans
+            } else {
+                0
+            },
+        ),
         ("planning_invocations", 2),
         ("emissions", 1),
     ] {
@@ -647,17 +650,17 @@ fn assert_threshold(bytes: usize, tapes: usize) {
 }
 
 #[test]
-fn below_prefetch_threshold_keeps_streaming() {
+fn small_epochs_capture_tokens() {
     assert_threshold(1_048_575, 0);
 }
 
 #[test]
-fn exact_prefetch_threshold_only_prefetches_the_original() {
+fn one_mib_epochs_capture_both_tapes() {
     assert_threshold(1_048_576, 1);
 }
 
 #[test]
-fn above_prefetch_threshold_counts_both_worker_scans() {
+fn large_epochs_keep_parallel_prefetch() {
     assert_threshold(1_048_577, 2);
 }
 
@@ -669,23 +672,27 @@ fn one_worker_keeps_large_epochs_serial() {
         output == input.replace("é:  x", "é: x"),
         "only the colon gap changes"
     );
-    assert_eq!(stats["cached_lexical_tapes"], 0);
-    assert_eq!(stats["lexical_scans"], 2);
+    assert_eq!(stats["cached_lexical_tapes"], 2);
+    assert_eq!(stats["lexical_scans"], 0);
 }
 
 #[test]
-fn prefetched_bom_reuses_the_cached_tape() {
+fn large_bom_reuses_cached_tokens() {
     let input = format!("\u{feff}{}", threshold_input(1_048_580, "é:  x\n"));
     let (output, stats) = format_with_workers(&input, "[format]\n", 4);
     assert!(
         output == input.replace("é:  x", "é: x"),
         "only the colon gap changes"
     );
-    assert_eq!(stats["lexical_scans"], 2, "{stats}");
+    assert_eq!(
+        stats["lexical_scans"],
+        2 * usize::from(std::thread::available_parallelism().unwrap().get() > 1),
+        "{stats}"
+    );
 }
 
 #[test]
-fn prefetched_late_parse_error_keeps_original_bytes_and_error() {
+fn late_parse_error_keeps_original_bytes_and_error() {
     let input = threshold_input(1_048_580, "é:  x\nbroken: [\n");
     let (code, _, diagnostics, output) =
         common::cli::ryl_on(Some("[format]\n"), &input, &["format", "--no-cache"]);
@@ -695,7 +702,7 @@ fn prefetched_late_parse_error_keeps_original_bytes_and_error() {
 }
 
 #[test]
-fn prefetched_candidate_verification_failure_joins_before_rollback() {
+fn candidate_verification_failure_preserves_rollback() {
     let input = threshold_input(1_048_620, "empty:\n-\n- null\nmap: {a:,b: null}\n");
     let (output, stats) = format_with_statistics(&input, "[format]\n");
     assert!(output == input.replace("{a:,b:", "{a:, b:"));
@@ -704,7 +711,7 @@ fn prefetched_candidate_verification_failure_joins_before_rollback() {
 }
 
 #[test]
-fn prefetched_dirty_dry_plan_restarts_from_original_bytes() {
+fn dirty_dry_plan_restarts_from_original_bytes() {
     let input = threshold_input(1_048_620, "---\n{ \"foo\"\n  :bar }\n");
     let (output, stats) = format_with_statistics(&input, "[format]\n");
     assert!(output == input.replace("{ \"foo\"\n  :bar }", "{foo\n : bar}"));
@@ -765,6 +772,10 @@ fn assert_independent_recordings(preview: bool) {
         assert_eq!(row["fallback"], Value::Null, "{row}");
         assert_eq!(row["analyses"], 2, "{row}");
         assert_eq!(row["strict_parses"], 2, "{row}");
-        assert_eq!(row["lexical_scans"], 2, "{row}");
+        assert_eq!(
+            row["lexical_scans"],
+            2 * usize::from(std::thread::available_parallelism().unwrap().get() > 1),
+            "{row}"
+        );
     }
 }

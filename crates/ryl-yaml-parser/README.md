@@ -372,3 +372,22 @@ Licensed under either:
 At your option.
 
 This project inherits licensing terms from its upstream origins. See the `LICENSE` file and `.licenses/` directory for details.
+
+## Observe lexical tokens
+
+An observer receives scanner emission order, including synthetic keys, comments
+and stream end. Callback payloads borrow scanner storage; parser errors can stop
+observation before stream end. Existing constructors retain a no-op observer.
+
+```rust
+use ryl_yaml_parser::{options, Parser, Span, StrInput, TokenKind};
+
+let mut tokens = 0;
+let parser = Parser::with_options_and_observer(
+    StrInput::new("key: value\n"),
+    options! { strict_indentation: true },
+    |_: &Span, _: TokenKind<'_>| tokens += 1,
+);
+assert!(parser.collect::<Result<Vec<_>, _>>().is_ok());
+assert!(tokens > 0);
+```

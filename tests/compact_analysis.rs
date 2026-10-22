@@ -11,10 +11,6 @@ mod lexical {
         "/src/text_version/lexical.rs"
     ));
 }
-#[expect(
-    clippy::excessive_nesting,
-    reason = "include! adds artificial nesting to the production module"
-)]
 mod spans {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -36,12 +32,16 @@ const INPUTS: &[&str] = &[
 
 #[test]
 fn scanner_failure_has_no_stream_end_certificate() {
+    let complete = "key: value\n";
+    let incomplete = "key: ['unterminated";
     assert!(
-        lexical::stream("key: value\n")
+        lexical::scan(complete)
+            .iter(complete)
             .any(|(_, kind)| matches!(kind, lexical::Kind::StreamEnd))
     );
     assert!(
-        !lexical::stream("key: ['unterminated")
+        !lexical::scan(incomplete)
+            .iter(incomplete)
             .any(|(_, kind)| matches!(kind, lexical::Kind::StreamEnd))
     );
 }
@@ -52,7 +52,7 @@ fn streaming_verification_keeps_exact_events_and_ignores_layout() {
         let expected = Parser::new_from_str(source).map(|item| item.unwrap().0);
         let mut observed = Vec::new();
         assert!(
-            events::verify_strict(expected, source, |event, span| {
+            events::verify_strict(expected, source, (), |event, span| {
                 observed.push((event, span));
             })
             .unwrap()
@@ -70,6 +70,7 @@ fn streaming_verification_keeps_exact_events_and_ignores_layout() {
         events::verify_strict(
             expected,
             "# heading\né:\n  - &a café # inline\n  - *a\n",
+            (),
             |_, _| {}
         )
         .unwrap()
@@ -98,7 +99,7 @@ fn streaming_verification_rejects_each_significant_event_difference() {
     ] {
         let expected = Parser::new_from_str(source).map(|item| item.unwrap().0);
         assert!(
-            !events::verify_strict(expected, output, |_, _| {}).unwrap(),
+            !events::verify_strict(expected, output, (), |_, _| {}).unwrap(),
             "{source:?}: {output:?}"
         );
     }
@@ -113,7 +114,7 @@ fn streaming_verification_parses_strictly_through_mismatches_and_suffixes() {
     ] {
         let expected = Parser::new_from_str("a: b\n").map(|item| item.unwrap().0);
         assert!(
-            events::verify_strict(expected, output, |_, _| {}).is_err(),
+            events::verify_strict(expected, output, (), |_, _| {}).is_err(),
             "{output:?}"
         );
     }
@@ -134,19 +135,12 @@ fn every_event_and_span_reconstructs_exactly() {
     for &source in INPUTS {
         for pair in Parser::new_from_str(source) {
             let (event, span) = pair.unwrap();
-            let significant = !matches!(
-                event,
-                Event::Comment(..) | Event::StreamStart | Event::StreamEnd
-            );
-            let stored = events::StoredEvent::new(source, event.clone());
-            assert_eq!(stored.borrow(source), event, "{source:?}");
-            assert_eq!(stored.significant(), significant);
-            assert!(stored.equivalent(
-                &events::StoredEvent::new(source, event),
-                source,
-                source
-            ));
-            assert_span_eq(spans::StoredSpan::new(span).get(), span);
+            let mut tables = events::Tables::default();
+            let stored = events::StoredEvent::new(source, event.clone(), &mut tables);
+            assert_eq!(stored.borrow(source, &tables), event, "{source:?}");
+            let mut spans = spans::Spans::default();
+            let stored = spans.store(&span);
+            assert_span_eq(spans.get(stored), span);
         }
     }
 }
@@ -156,7 +150,7 @@ fn scanner_spans_preserve_unicode_and_zero_width_tokens() {
     let mut zero_width = 0;
     for &source in INPUTS {
         let tokens = lexical::scan(source);
-        let mut reconstructed = tokens.iter();
+        let mut reconstructed = tokens.iter(source);
         for pair in Scanner::new(StrInput::new(source)) {
             let (original, token) = pair.unwrap().into_parts();
             let (span, kind) = reconstructed.next().unwrap();
@@ -188,15 +182,15 @@ fn scanner_spans_preserve_unicode_and_zero_width_tokens() {
                     lexical::Kind::Scalar { style, empty },
                     TokenType::Scalar(original_style, value),
                 ) => {
-                    assert_eq!(*style, original_style);
-                    assert_eq!(*empty, value.is_empty());
+                    assert_eq!(style, original_style);
+                    assert_eq!(empty, value.is_empty());
                 }
                 (
                     lexical::Kind::Comment { text, placement },
                     TokenType::Comment(comment),
                 ) => {
-                    assert_eq!(*placement, comment.placement());
-                    assert_eq!(text.as_ref(), comment.text());
+                    assert_eq!(placement, comment.placement());
+                    assert_eq!(text, comment.text());
                 }
                 (_, token) => panic!("incorrect stored kind for {token:?}"),
             }
@@ -205,10 +199,13 @@ fn scanner_spans_preserve_unicode_and_zero_width_tokens() {
         }
         assert!(reconstructed.next().is_none());
         assert!(matches!(
-            tokens.iter().next().unwrap().1,
+            tokens.iter(source).next().unwrap().1,
             lexical::Kind::StreamStart
         ));
-        assert_eq!(tokens.iter_from(1).count() + 1, tokens.iter().count());
+        assert_eq!(
+            tokens.iter(source).skip(1).count() + 1,
+            tokens.iter(source).count()
+        );
     }
     assert!(zero_width > 10);
 }
@@ -218,7 +215,9 @@ fn compact_spans_preserve_absent_byte_offsets_and_indent() {
     for indent in [None, Some(0), Some(17)] {
         let span =
             Span::new(Marker::new(0, 1, 0), Marker::new(3, 2, 1)).with_indent(indent);
-        assert_span_eq(spans::StoredSpan::new(span).get(), span);
+        let mut spans = spans::Spans::default();
+        let stored = spans.store(&span);
+        assert_span_eq(spans.get(stored), span);
     }
 }
 
@@ -232,9 +231,9 @@ fn wide_spans_preserve_sentinel_and_large_offsets() {
             Span::empty(Marker::new(0, 1, 0).with_byte_offset(Some(value))),
             Span::empty(Marker::new(0, 1, 0)).with_indent(Some(value)),
         ] {
-            let stored = spans::StoredSpan::new(span);
-            assert!(matches!(stored, spans::StoredSpan::Wide(_)));
-            assert_span_eq(stored.get(), span);
+            let mut spans = spans::Spans::default();
+            let stored = spans.store(&span);
+            assert_span_eq(spans.get(stored), span);
         }
     }
 }
@@ -242,12 +241,73 @@ fn wide_spans_preserve_sentinel_and_large_offsets() {
 #[test]
 fn borrowed_scalar_outside_source_survives_reconstruction() {
     let event = Event::Scalar(Cow::Borrowed("outside"), ScalarStyle::Plain, 0, None);
-    let stored = events::StoredEvent::new("input", event.clone());
-    assert_eq!(stored.borrow("input"), event);
+    let mut tables = events::Tables::default();
+    let stored = events::StoredEvent::new("input", event.clone(), &mut tables);
+    assert_eq!(stored.borrow("input", &tables), event);
 }
 
 #[test]
 fn compact_records_are_smaller_than_parser_records() {
-    assert!(size_of::<spans::StoredSpan>() < size_of::<Span>());
+    assert_eq!(size_of::<spans::StoredSpan>(), 32);
+    assert_eq!(size_of::<(spans::StoredSpan, u32)>(), 36);
+    assert!(size_of::<(events::StoredEvent, spans::StoredSpan)>() <= 56);
     assert!(size_of::<events::StoredEvent>() < size_of::<Event<'_>>());
+}
+
+#[test]
+fn stored_spans_keep_earlier_positions_exact_after_unicode() {
+    let mut tokens = spans::Spans::default();
+    let mut events = spans::Spans::default();
+    let before = Span::empty(Marker::new(1, 1, 1).with_byte_offset(Some(1)));
+    let after = Span::empty(Marker::new(2, 1, 2).with_byte_offset(Some(3)));
+    let bom = Span::empty(Marker::new(1, 1, 0).with_byte_offset(Some(3)));
+    let first = tokens.store(&before);
+    let second = events.store(&after);
+    let third = events.store(&bom);
+    assert_span_eq(tokens.get(first), before);
+    assert_span_eq(events.get(second), after);
+    assert_span_eq(events.get(third), bom);
+}
+
+#[test]
+fn inconsistent_marker_coordinates_preserve_explicit_positions() {
+    let mut spans = spans::Spans::default();
+    for marker in [
+        Marker::new(0, 0, 0).with_byte_offset(Some(0)),
+        Marker::new(0, u32::MAX as usize, 0).with_byte_offset(Some(0)),
+        Marker::new(0, 2, 0).with_byte_offset(Some(0)),
+        Marker::new(0, 1, 1).with_byte_offset(Some(0)),
+        Marker::new(3, 1, 0).with_byte_offset(Some(0)),
+    ] {
+        let span = Span::empty(marker);
+        let stored = spans.store(&span);
+        assert_span_eq(spans.get(stored), span);
+    }
+    let span = Span::new(
+        Marker::new(0, 1, 0).with_byte_offset(Some(0)),
+        Marker::new(0, 1 << 31, 0).with_byte_offset(Some(0)),
+    );
+    let stored = spans.store(&span);
+    assert_span_eq(spans.get(stored), span);
+}
+
+#[test]
+fn sparse_lines_preserve_event_and_token_positions() {
+    let source = format!("{}🦀: ['é', 世] # fin\r\n", "\n".repeat(8192));
+    let mut stored = spans::Spans::default();
+    let mut tokens = lexical::Tokens::default();
+    let parser = Parser::with_options_and_observer(
+        StrInput::new(&source),
+        ryl_yaml_parser::options! { strict_indentation: true },
+        |span: &Span, kind: ryl_yaml_parser::TokenKind<'_>| tokens.push(span, kind),
+    );
+    for item in parser {
+        let (_, span) = item.unwrap();
+        let compact = stored.store(&span);
+        assert_span_eq(stored.get(compact), span);
+    }
+    let original = Scanner::new(StrInput::new(&source)).map(|item| item.unwrap());
+    for ((span, _), token) in tokens.iter(&source).zip(original) {
+        assert_span_eq(span, token.span());
+    }
 }

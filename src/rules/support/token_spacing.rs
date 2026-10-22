@@ -75,8 +75,8 @@ impl Site {
 
 pub(crate) fn sites_with_analysis(input: Analysis<'_>) -> Vec<Site> {
     let mut sites = Sites::new(input);
-    for (span, kind) in input.tokens().iter() {
-        sites.push(span, kind);
+    for (span, kind) in input.tokens().iter(input.text()) {
+        sites.push(span, &kind);
     }
     sites.finish()
 }
@@ -155,7 +155,11 @@ impl<'a> Sites<'a> {
         edits
     }
 
-    pub(crate) fn push(&mut self, span: ryl_yaml_parser::Span, token: &LexicalKind) {
+    pub(crate) fn push(
+        &mut self,
+        span: ryl_yaml_parser::Span,
+        token: &LexicalKind<'_>,
+    ) {
         self.open.retain_mut(|(index, line, depth)| {
             match token {
                 LexicalKind::BlockMappingStart | LexicalKind::BlockSequenceStart => {

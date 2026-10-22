@@ -134,8 +134,8 @@ pub(crate) fn foldable_scalars(input: Analysis<'_>) -> Vec<FoldableScalar> {
         return facts.folds.clone();
     }
     let mut scalars = Foldables::default();
-    for (span, kind) in input.tokens().iter() {
-        scalars.push(span, kind);
+    for (span, kind) in input.tokens().iter(input.text()) {
+        scalars.push(span, &kind);
     }
     scalars.finish()
 }

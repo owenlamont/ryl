@@ -311,7 +311,8 @@ fn format_tracked(
     let passes = Passes::format(cfg, input, skip);
     let mut source = TextVersion::new(input);
     if let Some(parsed) = parsed {
-        if std::mem::take(&mut parsed.prefetched) {
+        let prefetched = std::mem::take(&mut parsed.prefetched);
+        if prefetched {
             layout::stats::prefetched();
         }
         source.analysis().seed_facts(
@@ -321,6 +322,9 @@ fn format_tracked(
                 .expect("format facts are transferred once"),
         );
         if let Some(tokens) = parsed.tokens.take() {
+            if !prefetched {
+                layout::stats::captured();
+            }
             source.analysis().seed_tokens(tokens);
         }
     }

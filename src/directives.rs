@@ -49,12 +49,13 @@ pub fn disables_file(buffer: &str) -> bool {
     let first_line = split_lines_preserve_endings(buffer)
         .next()
         .map_or("", |(_, content, _)| content);
-    DISABLE_FILE.is_match(first_line)
-        || first_line.strip_prefix('#').is_some_and(|payload| {
-            SEGMENT_BREAK
-                .split(payload)
-                .any(|segment| segment.trim_end() == " ryl disable-file")
-        })
+    first_line.contains("disable-file")
+        && (DISABLE_FILE.is_match(first_line)
+            || first_line.strip_prefix('#').is_some_and(|payload| {
+                SEGMENT_BREAK
+                    .split(payload)
+                    .any(|segment| segment.trim_end() == " ryl disable-file")
+            }))
 }
 
 enum Action {

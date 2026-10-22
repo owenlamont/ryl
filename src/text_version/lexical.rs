@@ -1,6 +1,7 @@
-use ryl_yaml_parser::{Placement, ScalarStyle, Scanner, Span, StrInput, TokenType};
+use ryl_yaml_parser::{Placement, ScalarStyle, Scanner, Span, StrInput, TokenKind};
 
-pub(crate) enum Kind {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Kind<'text> {
     StreamStart,
     StreamEnd,
     DocumentStart,
@@ -23,70 +24,144 @@ pub(crate) enum Kind {
         empty: bool,
     },
     Comment {
-        text: Box<str>,
+        text: &'text str,
         placement: Placement,
     },
     Other,
 }
 
-pub(crate) struct Tokens(Box<[(super::spans::StoredSpan, Kind)]>);
+#[derive(Default)]
+pub(crate) struct Tokens {
+    records: Vec<(super::spans::StoredSpan, u32)>,
+    spans: super::spans::Spans,
+}
 
 impl Tokens {
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (Span, &Kind)> {
-        self.iter_from(0)
+    #[inline]
+    pub(super) fn push(&mut self, span: &Span, kind: TokenKind<'_>) {
+        let index = match kind {
+            TokenKind::StreamStart => 0,
+            TokenKind::StreamEnd => 1,
+            TokenKind::DocumentStart => 2,
+            TokenKind::DocumentEnd => 3,
+            TokenKind::BlockSequenceStart => 4,
+            TokenKind::BlockMappingStart => 5,
+            TokenKind::BlockEnd => 6,
+            TokenKind::FlowSequenceStart => 7,
+            TokenKind::FlowSequenceEnd => 8,
+            TokenKind::FlowMappingStart => 9,
+            TokenKind::FlowMappingEnd => 10,
+            TokenKind::BlockEntry => 11,
+            TokenKind::Key => 12,
+            TokenKind::Value => 13,
+            TokenKind::Alias => 14,
+            TokenKind::Anchor => 15,
+            TokenKind::Tag => 16,
+            TokenKind::Scalar { style, value } => {
+                18 + 2 * match style {
+                    ScalarStyle::Plain => 0,
+                    ScalarStyle::SingleQuoted => 1,
+                    ScalarStyle::DoubleQuoted => 2,
+                    ScalarStyle::Literal => 3,
+                    ScalarStyle::Folded => 4,
+                } + u32::from(value.is_empty())
+            }
+            TokenKind::Comment { placement, .. } => {
+                28 + u32::try_from(
+                    PLACEMENTS
+                        .iter()
+                        .position(|&value| value == placement)
+                        .expect("all scanner placements are represented"),
+                )
+                .expect("placement index fits u32")
+            }
+            _ => 17,
+        };
+        self.records.push((self.spans.store(span), index));
     }
 
-    pub(crate) fn iter_from(
-        &self,
-        start: usize,
-    ) -> impl Iterator<Item = (Span, &Kind)> {
-        self.0[start..]
-            .iter()
-            .map(|(span, kind)| (span.get(), kind))
+    pub(crate) fn iter<'a>(
+        &'a self,
+        source: &'a str,
+    ) -> impl Iterator<Item = (Span, Kind<'a>)> {
+        self.records.iter().map(move |&(span, kind)| {
+            let span = self.spans.get(span);
+            let kind = if kind < 18 {
+                COMMON[kind as usize]
+            } else if kind < 28 {
+                Kind::Scalar {
+                    style: STYLES[((kind - 18) / 2) as usize],
+                    empty: kind % 2 != 0,
+                }
+            } else {
+                Kind::Comment {
+                    text: "",
+                    placement: PLACEMENTS[(kind - 28) as usize],
+                }
+            };
+            (span, kind.with_source(source, &span))
+        })
+    }
+}
+
+impl<'text> Kind<'text> {
+    fn with_source(mut self, source: &'text str, span: &Span) -> Self {
+        if let Self::Comment { text, .. } = &mut self {
+            let start = span
+                .start
+                .byte_offset()
+                .expect("source token has byte offset")
+                + 1;
+            let end = span
+                .end
+                .byte_offset()
+                .expect("source token has byte offset");
+            *text = &source[start..end];
+        }
+        self
     }
 }
 
 pub(super) fn scan(text: &str) -> Tokens {
-    Tokens(
-        stream(text)
-            .map(|(span, kind)| (super::spans::StoredSpan::new(span), kind))
-            .collect(),
-    )
+    let mut tokens = Tokens::default();
+    for token in Scanner::new(StrInput::new(text)).map_while(Result::ok) {
+        tokens.push(&token.span(), token.token_type().kind());
+    }
+    tokens
 }
 
-pub(crate) fn stream(text: &str) -> impl Iterator<Item = (Span, Kind)> {
-    Scanner::new(StrInput::new(text))
-        .map_while(Result::ok)
-        .map(|token| {
-            let (span, kind) = token.into_parts();
-            let kind = match kind {
-                TokenType::StreamStart => Kind::StreamStart,
-                TokenType::StreamEnd => Kind::StreamEnd,
-                TokenType::DocumentStart => Kind::DocumentStart,
-                TokenType::DocumentEnd => Kind::DocumentEnd,
-                TokenType::BlockSequenceStart => Kind::BlockSequenceStart,
-                TokenType::BlockMappingStart => Kind::BlockMappingStart,
-                TokenType::BlockEnd => Kind::BlockEnd,
-                TokenType::FlowSequenceStart => Kind::FlowSequenceStart,
-                TokenType::FlowSequenceEnd => Kind::FlowSequenceEnd,
-                TokenType::FlowMappingStart => Kind::FlowMappingStart,
-                TokenType::FlowMappingEnd => Kind::FlowMappingEnd,
-                TokenType::BlockEntry => Kind::BlockEntry,
-                TokenType::Key => Kind::Key,
-                TokenType::Value => Kind::Value,
-                TokenType::Alias(_) => Kind::Alias,
-                TokenType::Anchor(_) => Kind::Anchor,
-                TokenType::Tag(..) => Kind::Tag,
-                TokenType::Scalar(style, value) => Kind::Scalar {
-                    style,
-                    empty: value.is_empty(),
-                },
-                TokenType::Comment(comment) => Kind::Comment {
-                    placement: comment.placement(),
-                    text: comment.into_text().into_owned().into_boxed_str(),
-                },
-                _ => Kind::Other,
-            };
-            (span, kind)
-        })
-}
+static COMMON: &[Kind<'static>] = &[
+    Kind::StreamStart,
+    Kind::StreamEnd,
+    Kind::DocumentStart,
+    Kind::DocumentEnd,
+    Kind::BlockSequenceStart,
+    Kind::BlockMappingStart,
+    Kind::BlockEnd,
+    Kind::FlowSequenceStart,
+    Kind::FlowSequenceEnd,
+    Kind::FlowMappingStart,
+    Kind::FlowMappingEnd,
+    Kind::BlockEntry,
+    Kind::Key,
+    Kind::Value,
+    Kind::Alias,
+    Kind::Anchor,
+    Kind::Tag,
+    Kind::Other,
+];
+
+const STYLES: &[ScalarStyle] = &[
+    ScalarStyle::Plain,
+    ScalarStyle::SingleQuoted,
+    ScalarStyle::DoubleQuoted,
+    ScalarStyle::Literal,
+    ScalarStyle::Folded,
+];
+
+const PLACEMENTS: &[Placement] = &[
+    Placement::Above,
+    Placement::Right,
+    Placement::Free,
+    Placement::Last,
+];

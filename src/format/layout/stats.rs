@@ -61,6 +61,10 @@ pub(crate) fn unrecorded<T>(f: impl FnOnce() -> T) -> T {
 
 pub(crate) fn prefetched() {
     count(Counter::Scan);
+    captured();
+}
+
+pub(crate) fn captured() {
     count(Counter::Tape);
 }
 

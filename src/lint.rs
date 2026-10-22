@@ -386,12 +386,39 @@ pub fn lint_str(
     let mut diagnostics: Vec<LintProblem> = Vec::new();
     let snapshot = TextVersion::new(content);
     let input = snapshot.analysis();
-    let facts = ParsedFacts::parse_with_options(content, 0, true);
+    let lexical = [
+        "anchors",
+        "block-scalar-chomping",
+        "braces",
+        "brackets",
+        "colons",
+        "commas",
+        "comments",
+        "comments-indentation",
+        "hyphens",
+        "indentation",
+        "line-length",
+        "trailing-spaces",
+        "empty-lines",
+        "key-ordering",
+    ]
+    .iter()
+    .any(|rule| {
+        cfg.rule_level(rule).is_some() && !cfg.is_rule_ignored(rule, path, base_dir)
+    });
+    let (facts, tokens) = if lexical {
+        ParsedFacts::parse_observed(content, 0, true)
+    } else {
+        (ParsedFacts::parse_with_options(content, 0, true), None)
+    };
     if let Some(syntax) = syntax_diagnostic(content, facts.error.as_ref()) {
         return vec![syntax];
     }
     if facts.valid {
         input.seed_facts(facts);
+        if let Some(tokens) = tokens {
+            input.seed_tokens(tokens);
+        }
     }
     collect_layout_diagnostics(&mut diagnostics, input, cfg, path, base_dir);
     collect_value_diagnostics(&mut diagnostics, input, cfg, path, base_dir);

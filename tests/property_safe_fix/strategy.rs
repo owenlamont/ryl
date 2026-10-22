@@ -360,7 +360,10 @@ fn arb_inline_comment() -> impl Strategy<Value = InlineComment> {
 }
 
 fn arb_leading_comment() -> impl Strategy<Value = Option<String>> {
-    prop::option::weighted(0.3, "[a-z][a-z0-9]{0,6}")
+    prop::option::weighted(
+        0.3,
+        prop_oneof!["[a-z][a-z0-9]{0,6}", Just("ascii é🦀 tail".to_owned())],
+    )
 }
 
 /// Keys from a two-letter alphabet half the time, so nested mappings are often
