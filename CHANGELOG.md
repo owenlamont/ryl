@@ -39,6 +39,9 @@ summarize user-visible changes from the tagged commits and published release rec
   file contains a byte order mark.
 - Formatting preserves a compact collection's opening gap when the collection's
   indentation cannot be changed safely.
+- Formatting and lint fixes preserve ytt `#@` directives and their inline spacing
+  instead of converting them into ordinary comments.
+  ([#780](https://github.com/owenlamont/ryl/issues/780))
 
 ## v0.26.1
 

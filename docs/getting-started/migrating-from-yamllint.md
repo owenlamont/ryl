@@ -524,6 +524,13 @@ Helm and kubectl use, loads them as booleans, as the YAML 1.1 spec does. So
 `'y'` keeps its quotes, and `required: true` leaves a plain `y` alone as it
 does a plain `no`.
 
+### ytt directives
+
+ryl's `comments` rule skips ytt `#@` directives, including their inline spacing.
+yamllint reports missing comment spacing there. Inserting a space after `#` turns
+the directive into a plain comment, changing what ytt renders; see
+[ytt annotations](https://carvel.dev/ytt/docs/v0.52.x/yaml-primer/).
+
 ### Comments after a block scalar header
 
 ryl's `comments` rule checks a comment that follows a block scalar header (`|`, `>`

@@ -69,6 +69,7 @@ pub struct Comment {
     /// before that sequence's start, regardless of when the parser emits the start.
     pub after_events: usize,
     pub inline: bool,
+    pub ytt: bool,
     /// Payload with whitespace trimmed around it and after its leading `#` run: the
     /// `comments` rule may add the space after `###`, and trailing whitespace is not content.
     pub text: String,
@@ -204,6 +205,7 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
                 self.comments.push(Comment {
                     after_events,
                     inline,
+                    ytt: text.starts_with('@'),
                     text: comment_text(text.trim()),
                 });
                 return;
