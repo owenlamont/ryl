@@ -1259,3 +1259,16 @@ fn only_the_folded_tail_document_folds_before_reindenting() {
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
+
+#[test]
+fn a_directive_on_the_next_line_does_not_stop_a_block_fold() {
+    let (output, statistics) = format_with_statistics(
+        "a: >-\n  more text here\ncafé : 1 # ryl disable-line\n",
+        "line-length = 12\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(
+        output,
+        "a: >-\n  more text\n  here\ncafé : 1 # ryl disable-line\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
