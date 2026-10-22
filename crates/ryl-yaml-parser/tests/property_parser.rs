@@ -32,7 +32,7 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::sample::select;
 use proptest::test_runner::FileFailurePersistence;
-use ryl_yaml_parser::ErrorKind;
+use ryl_yaml_parser::{ErrorKind, Options};
 
 fn raw_bytes(max_len: usize) -> impl Strategy<Value = Vec<u8>> {
     vec(any::<u8>(), 0..max_len)
@@ -63,13 +63,25 @@ fn raw_regressions_keep_backends_in_agreement() {
 }
 
 #[test]
-fn error_path_inputs_keep_backends_in_agreement_in_both_indentation_modes() {
-    let strict = ryl_yaml_parser::options! { strict_indentation: true };
+fn error_path_inputs_keep_backends_in_agreement_under_every_option_set() {
+    let option_sets = [
+        Options::default(),
+        ryl_yaml_parser::options! { strict_indentation: true },
+        ryl_yaml_parser::options! {
+            max_buffered_comment_events: 1,
+            simple_key_max_lookahead: 16,
+            flow_nesting_limit: 2,
+            block_nesting_limit: 3,
+            max_directive_bytes: 16,
+            max_reserved_directive_params: 1,
+        },
+    ];
     for input in seeds::ERROR_PATH_INPUTS {
-        check_raw_text(input);
-        common::parse_with_options(input, strict.clone());
-        common::scan_with_options(input, strict.clone());
-        common::check_comment_suppression_with_options(input, strict.clone());
+        for options in &option_sets {
+            common::parse_with_options(input, options.clone());
+            common::scan_with_options(input, options.clone());
+            common::check_comment_suppression_with_options(input, options.clone());
+        }
     }
 }
 

@@ -35,9 +35,18 @@ pub const RAW_INPUTS: &[&str] = &[
     "clé:\r\n- é\r\n? suivant\r\n",
 ];
 
-/// Prefixes of yaml-test-suite inputs, cut and extended until a scanner or parser error path
-/// that no construction reaches fires; distilled from a sweep over every prefix.
+/// Inputs reaching scanner and parser paths that no construction reaches, distilled from a
+/// sweep over yaml-test-suite prefixes and generated token sequences under every option set.
 pub const ERROR_PATH_INPUTS: &[&str] = &[
+    "---\nnested sequences:\n- - -",
+    "!x:%41",
+    "|+\n...",
+    "{foo: you,} #c",
+    "[\n? foo\n bar :]",
+    "!\u{1}",
+    "'\n'",
+    "%YAML 1.",
+    "one:\n- 2\n-",
     "!f@",
     "  # Leading comment line spaces are\n   # neither content nor indentation.\n    \nNot indented:\n By one space: |\n    By four\n      spaces\n Flow style: [    #\u{1}",
     "-\n\t",
