@@ -69,9 +69,9 @@ pub(crate) struct Layout<'a> {
 }
 
 impl<'a> Layout<'a> {
-    pub(crate) fn collapse_scalars(
+    pub(crate) fn collapse_scalars<'b>(
         &mut self,
-        edits: &[crate::format::layout::PlanEdit],
+        edits: impl IntoIterator<Item = &'b crate::format::layout::PlanEdit>,
     ) -> bool {
         let source = self.input.text();
         let starts = self.input.byte_line_starts();
@@ -172,6 +172,83 @@ impl<'a> Layout<'a> {
     }
     pub(crate) fn new(input: Analysis<'a>, cfg: &Config) -> Self {
         Self::with_shapes(input, cfg, false)
+    }
+
+    pub(crate) fn keep_refused(
+        &mut self,
+        refused: &[Option<Cause>],
+        edits: &[crate::format::layout::PlanEdit],
+    ) -> bool {
+        let starts = self.starts.clone();
+        let frozen =
+            |line| refused[starts.partition_point(|&at| at <= line) - 1].is_some();
+        let mut previous = std::mem::take(&mut self.lines).into_iter().peekable();
+        for (origin, content, ending) in self.input.lines() {
+            if frozen(origin) {
+                while previous.peek().is_some_and(|line| line.origin <= origin) {
+                    previous.next();
+                }
+                self.lines.push(VirtualLine::new(
+                    origin,
+                    content,
+                    ending,
+                    self.source_starts[origin] > self.input.byte_line_starts()[origin],
+                ));
+            } else {
+                while previous.peek().is_some_and(|line| line.origin == origin) {
+                    self.lines
+                        .push(previous.next().expect("the line was inspected"));
+                }
+            }
+        }
+        self.shaped = self.lines.len() != self.input.line_count()
+            || self.lines.iter().any(|line| !line.tail.is_empty());
+        self.reindex();
+        let input = self.input;
+        self.collapse_scalars(edits.iter().filter(|(start, _, _)| {
+            frozen(
+                input
+                    .byte_line_starts()
+                    .partition_point(|&at| at <= start.get())
+                    - 1,
+            )
+        }))
+    }
+
+    pub(crate) fn freeze_targets(&self, targets: &mut Targets) -> Vec<Refusal> {
+        let frozen = |line| {
+            let document = self.starts.partition_point(|&at| at <= line) - 1;
+            targets.refused[document].is_some()
+        };
+        for (index, line) in self.lines.iter().enumerate() {
+            if frozen(line.origin) {
+                targets.deltas[index] = 0;
+            }
+        }
+        targets
+            .gaps
+            .retain(|gap| !frozen(self.lines[gap.line].origin));
+        self.result(String::new(), &targets.refused, self.input.line_count())
+            .refused
+    }
+
+    pub(crate) fn inconsistent_documents(&self, cfg: &Config) -> Vec<Option<Cause>> {
+        let mut refused = vec![None; self.starts.len()];
+        refuse_inconsistent(self.input, cfg, &mut refused);
+        refused
+    }
+
+    pub(crate) fn consistent_except(&self, cfg: &Config, refused: &[Refusal]) -> bool {
+        if refused.is_empty() {
+            return self.consistent(cfg);
+        }
+        super::check_with_analysis(self.input, &cfg.with_consistent_spaces())
+            .iter()
+            .all(|problem| {
+                refused
+                    .iter()
+                    .any(|item| item.lines.contains(&problem.line))
+            })
     }
 
     pub(crate) fn format(input: Analysis<'a>, cfg: &Config) -> Self {

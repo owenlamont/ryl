@@ -44,6 +44,7 @@ struct DocumentPlan<'a> {
     dirty: bool,
     removed: Vec<std::ops::Range<usize>>,
     folds: Vec<FoldBreak>,
+    refused: Vec<indentation::Refusal>,
 }
 
 struct ScalarFold {
@@ -66,6 +67,11 @@ struct FoldBreak {
 enum Sink {
     Emit,
     Validate,
+}
+
+struct FormatStep {
+    output: Option<TextVersion<'static>>,
+    frozen: Vec<Option<indentation::Cause>>,
 }
 
 pub(crate) fn format(
@@ -153,34 +159,58 @@ fn format_document(
     passes: &Passes<'_>,
     tracking: &mut PassTracking<'_>,
 ) -> Result<TextVersion<'static>, Fallback> {
+    let mut frozen = None;
+    let mut result = Err(Fallback::Refusal);
+    for _ in 0..crate::fix::FIX_PIPELINE_MAX_PASSES {
+        let step =
+            format_document_refused(source, passes, tracking, frozen.as_deref())?;
+        if let Some(output) = step.output {
+            result = Ok(output);
+            break;
+        }
+        frozen = Some(step.frozen);
+    }
+    result
+}
+
+fn format_document_refused(
+    source: &mut TextVersion<'_>,
+    passes: &Passes<'_>,
+    tracking: &mut PassTracking<'_>,
+    frozen: Option<&[Option<indentation::Cause>]>,
+) -> Result<FormatStep, Fallback> {
     let mut quotes = HashMap::new();
     let (prepared, kept) =
-        DocumentPlan::new(source.analysis(), passes, &mut quotes, Sink::Emit)
+        DocumentPlan::new(source.analysis(), passes, &mut quotes, Sink::Emit, frozen)
             .and_then(|plan| {
-                let consistent = plan.dirty
-                    || !passes.indentation.is_some_and(|cfg| {
-                        cfg.requires_consistency() && !plan.layout.consistent(&cfg)
-                    });
-                let kept = plan.layout.kept_dash_lines.clone();
-                consistent
-                    .then_some(())
-                    .ok_or(Fallback::Refusal)
-                    .and_then(|()| {
-                        plan.dirty
-                            .then(|| {
-                                plan.emit().map(|text| (text, plan.styles, plan.rules))
-                            })
-                            .transpose()
-                            .map(|prepared| (prepared, kept))
-                    })
-            })?;
+            let consistent = plan.dirty
+                || !passes.indentation.is_some_and(|cfg| {
+                    cfg.requires_consistency()
+                        && !plan.layout.consistent_except(&cfg, &plan.refused)
+                });
+            let kept = (plan.layout.kept_dash_lines.clone(), plan.refused.clone());
+            consistent
+                .then_some(())
+                .ok_or(Fallback::Refusal)
+                .and_then(|()| {
+                    plan.dirty
+                        .then(|| {
+                            plan.emit().map(|text| (text, plan.styles, plan.rules))
+                        })
+                        .transpose()
+                        .map(|prepared| (prepared, kept))
+                })
+        })?;
     let Some((text, styles, rules)) = prepared else {
-        remember(tracking, source, passes.indentation, kept);
+        remember(tracking, source, passes.indentation, kept.0, kept.1);
         source.release_tokens();
         source.mark_strict_valid();
-        return Ok(
-            std::mem::replace(source, TextVersion::new(String::new())).into_owned()
-        );
+        return Ok(FormatStep {
+            output: Some(
+                std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
+            ),
+            frozen: Vec::new(),
+        });
     };
     source.release_layout();
     let input = source.analysis();
@@ -196,26 +226,43 @@ fn format_document(
     }
     output.mark_strict_valid();
     source.take_facts();
-    let dry = DocumentPlan::new(output.analysis(), passes, &mut quotes, Sink::Validate)
-        .inspect_err(|_| {
-            stats::count(stats::Counter::Rollback);
-        })?;
+    let dry = DocumentPlan::new(
+        output.analysis(),
+        passes,
+        &mut quotes,
+        Sink::Validate,
+        frozen,
+    )
+    .inspect_err(|_| {
+        stats::count(stats::Counter::Rollback);
+    })?;
     if dry.dirty {
         stats::count(stats::Counter::Rollback);
         return Err(Fallback::DryEdits);
     }
     if let Some(cfg) = passes.indentation
         && cfg.requires_consistency()
-        && !dry.layout.consistent(&cfg)
+        && !dry.layout.consistent_except(&cfg, &dry.refused)
     {
         stats::count(stats::Counter::Rollback);
-        return Err(Fallback::Refusal);
+        let mut rejected = dry.layout.inconsistent_documents(&cfg);
+        if let Some(frozen) = frozen {
+            for (rejected, previous) in rejected.iter_mut().zip(frozen) {
+                *rejected = rejected.or(*previous);
+            }
+        }
+        drop(dry);
+        return Ok(FormatStep {
+            output: None,
+            frozen: rejected,
+        });
     }
     remember(
         tracking,
         &output,
         passes.indentation,
         dry.layout.kept_dash_lines.clone(),
+        dry.refused.clone(),
     );
     drop(dry);
     output.release_tokens();
@@ -224,7 +271,12 @@ fn format_document(
     source
         .apply(plan)
         .expect("layout plan belongs to the input epoch");
-    Ok(std::mem::replace(source, TextVersion::new(String::new())).into_owned())
+    Ok(FormatStep {
+        output: Some(
+            std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
+        ),
+        frozen: Vec::new(),
+    })
 }
 
 fn expected_events<'a>(
@@ -286,12 +338,13 @@ fn remember(
     text: &TextVersion<'_>,
     target: Option<indentation::Config>,
     kept_dash_lines: Vec<(usize, usize)>,
+    refused: Vec<indentation::Refusal>,
 ) {
     if let (Some(slot), Some(target)) = (tracking.reindented.as_deref_mut(), target) {
         *slot = Some(crate::fix::ReindentEvidence::new(
             text.analysis(),
             target,
-            Vec::new(),
+            refused,
             kept_dash_lines,
         ));
     }
@@ -419,6 +472,15 @@ impl Presentation {
         if let Some(cfg) = &passes.comments {
             self.extend(comments::ID, comments::edits(input, cfg));
         }
+        self.align_comments(input, passes, layout);
+    }
+
+    fn align_comments(
+        &mut self,
+        input: Analysis<'_>,
+        passes: &Passes<'_>,
+        layout: &mut indentation::Layout<'_>,
+    ) {
         if let Some(cfg) = passes.comments_indentation {
             let prefixes = comments_indentation::edits(input, cfg);
             if !prefixes.is_empty() {
@@ -438,6 +500,38 @@ impl Presentation {
                 line.prefix = text.len();
             }
         }
+    }
+
+    fn retain_documents(
+        &mut self,
+        input: Analysis<'_>,
+        passes: &Passes<'_>,
+        layout: &mut indentation::Layout<'_>,
+        targets: &mut indentation::Targets,
+        cfg: &indentation::Config,
+        frozen: Option<&[Option<indentation::Cause>]>,
+    ) -> Result<Vec<indentation::Refusal>, Fallback> {
+        if passes.indentation.is_none() {
+            targets.deltas.fill(0);
+            targets.gaps.clear();
+            targets.refused.clear();
+        }
+        if let Some(frozen) = frozen {
+            for (target, previous) in targets.refused.iter_mut().zip(frozen) {
+                *target = target.or(*previous);
+            }
+        }
+        if !targets.refused.iter().any(Option::is_some) {
+            return Ok(Vec::new());
+        }
+        let refused = targets.refused.clone();
+        if !layout.keep_refused(&refused, &self.edits) {
+            return Err(Fallback::ScalarInteraction);
+        }
+        *targets = layout.targets(cfg, &self.edits, passes.line_length.is_some());
+        targets.refused = refused;
+        self.align_comments(input, passes, layout);
+        self.settle().map(|()| layout.freeze_targets(targets))
     }
 
     fn settle(&mut self) -> Result<(), Fallback> {
@@ -552,6 +646,7 @@ impl<'a> DocumentPlan<'a> {
         passes: &Passes<'_>,
         quotes: &mut HashMap<String, Option<bool>>,
         sink: Sink,
+        frozen: Option<&[Option<indentation::Cause>]>,
     ) -> Result<Self, Fallback> {
         stats::count(stats::Counter::Plan);
         if crate::directives::disables_file(input.text())
@@ -569,7 +664,10 @@ impl<'a> DocumentPlan<'a> {
                 false,
             )
         });
-        let (layout, mut targets, presentation) = if input.text().contains('\u{feff}') {
+        let (mut layout, mut targets, mut presentation) = if input
+            .text()
+            .contains('\u{feff}')
+        {
             facts::prepare_input(input, passes.line_length.is_some()).and_then(|()| {
                 let mut layout = indentation::Layout::new(input, &cfg);
                 let presentation =
@@ -590,11 +688,14 @@ impl<'a> DocumentPlan<'a> {
             }
             Presentation::stream(input, passes, quotes, &cfg)
         }?;
-        if passes.indentation.is_none() {
-            targets.deltas.fill(0);
-            targets.gaps.clear();
-            targets.refused.clear();
-        }
+        let refused = presentation.retain_documents(
+            input,
+            passes,
+            &mut layout,
+            &mut targets,
+            &cfg,
+            frozen,
+        )?;
         if crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
             input,
         )
@@ -607,9 +708,6 @@ impl<'a> DocumentPlan<'a> {
             styles,
             mut rules,
         } = presentation;
-        if targets.refused.iter().any(Option::is_some) {
-            return Err(Fallback::Refusal);
-        }
         if passes.line_length.is_some()
             && folded_tail_interacts(input, &layout, &targets)
         {
@@ -646,6 +744,7 @@ impl<'a> DocumentPlan<'a> {
             dirty: false,
             removed: Vec::new(),
             folds: Vec::new(),
+            refused,
         };
         plan.finish(passes).map(|()| plan)
     }
@@ -1337,6 +1436,11 @@ pub(crate) struct VirtualLine<'a> {
 }
 
 impl<'a> VirtualLine<'a> {
+    #[expect(
+        clippy::inline_always,
+        reason = "Keep the streamed layout's per-line constructor inlined."
+    )]
+    #[inline(always)]
     pub(crate) fn new(
         origin: usize,
         content: &'a str,

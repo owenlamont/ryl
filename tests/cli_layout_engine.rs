@@ -31,6 +31,33 @@ fn empty_documents_complete_a_clean_layout_plan() {
     assert_eq!(statistics["planning_invocations"], 1, "{statistics}");
 }
 
+#[test]
+fn tabbed_scalar_documents_keep_their_original_indentation() {
+    let (output, statistics) = format_with_statistics(
+        "first :\n    body: |\n      \tinside\n    list: [ a,b ] #note\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "first:\n    body: |\n      \tinside\n    list: [a, b]  # note\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn inconsistent_sibling_documents_replan_from_original_bytes() {
+    let (output, statistics) = format_with_statistics(
+        "first :\n    body: |\n      \tinside\n    list: [ a,b ] #note\n---\nsecond :\n    mapping:\n        key: 'café'\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "first:\n    body: |\n      \tinside\n    list: [a, b]  # note\n---\nsecond:\n    mapping:\n        key: café\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["rollback"], 1, "{statistics}");
+}
+
 fn format_with_workers(input: &str, config: &str, workers: usize) -> (String, Value) {
     let directory = tempfile::tempdir().unwrap();
     let file = directory.path().join("layout.yaml");
@@ -658,7 +685,7 @@ fn a_blank_folded_scalar_does_not_fold_the_next_root_node() {
 fn an_empty_flow_string_rolls_back_inconsistent_dry_indentation() {
     let (output, statistics) = format_with_statistics("[\n  \"\",\n]\n", "[format]\n");
     assert_eq!(output, "[\n  '',\n]\n");
-    assert_eq!(statistics["fallback"], "Refusal", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(statistics["rollback"], 1, "{statistics}");
     assert_eq!(format_with_statistics(&output, "[format]\n").0, output);
 }
