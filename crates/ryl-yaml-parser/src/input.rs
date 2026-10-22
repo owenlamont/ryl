@@ -41,8 +41,7 @@ pub trait BorrowedInput<'a>: Input {
 }
 
 pub use crate::char_traits::{
-    is_alpha, is_blank, is_blank_or_breakz, is_break, is_breakz, is_digit, is_flow,
-    is_z,
+    is_alpha, is_blank, is_blank_or_breakz, is_break, is_breakz, is_flow, is_z,
 };
 
 /// Interface for a source of characters.
@@ -550,21 +549,6 @@ pub trait Input {
         is_flow(self.peek())
     }
 
-    /// Check whether the next character is [a digit].
-    ///
-    /// The character must have previously been fetched through [`lookahead`]
-    ///
-    /// # Return
-    /// Returns true if the character is [a digit], false otherwise.
-    ///
-    /// [`lookahead`]: Input::lookahead
-    /// [a digit]: is_digit
-    #[inline]
-    #[must_use]
-    fn next_is_digit(&self) -> bool {
-        is_digit(self.peek())
-    }
-
     /// Check whether the next character is [a letter].
     ///
     /// The character must have previously been fetched through [`lookahead`]
@@ -636,28 +620,6 @@ pub trait Input {
             self.skip();
         }
         n_bytes
-    }
-
-    /// Fetch characters as long as they satisfy `is_yaml_non_space(c)`.
-    ///
-    /// The characters are consumed from the input.
-    ///
-    /// # Return
-    /// Return the number of characters that were consumed. The number of characters returned can
-    /// be used to advance the index and column, since no end-of-line character will be consumed.
-    fn fetch_while_is_yaml_non_space(&mut self, out: &mut String) -> usize {
-        let mut chars_consumed = 0;
-        loop {
-            let c = self.look_ch();
-            if !crate::char_traits::is_yaml_non_space(c) || is_z(c) {
-                break;
-            }
-            let c = self.peek();
-            out.push(c);
-            self.skip();
-            chars_consumed += 1;
-        }
-        chars_consumed
     }
 
     /// Append a block scalar's content line to `out`, stopping before CR, LF, NUL, or EOF.

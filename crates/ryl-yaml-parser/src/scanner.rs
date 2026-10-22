@@ -20,9 +20,9 @@ use std::{
 use crate::{
     Options,
     char_traits::{
-        as_hex, find_non_printable, is_anchor_char, is_blank_or_breakz, is_bom,
-        is_break, is_breakz, is_flow, is_hex, is_printable, is_tag_char, is_uri_char,
-        is_yaml_non_space, is_z,
+        find_non_printable, is_anchor_char, is_blank_or_breakz, is_bom, is_break,
+        is_breakz, is_flow, is_printable, is_tag_char, is_uri_char, is_yaml_non_space,
+        is_z,
     },
     error::{ErrorKind, ScanError},
     input::{BorrowedInput, SkipTabs, WhitespaceResult},
@@ -2920,15 +2920,17 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             let c = self.input.peek_nth(1);
             let nc = self.input.peek_nth(2);
 
-            if !(self.input.peek() == '%' && is_hex(c) && is_hex(nc)) {
+            let (true, Some(high), Some(low)) =
+                (self.input.peek() == '%', c.to_digit(16), nc.to_digit(16))
+            else {
                 return Err(ScanError::from_kind(*mark, ErrorKind::InvalidTagEscape));
-            }
+            };
 
             if let Some(budget) = directive_budget.as_deref_mut() {
                 self.spend_directive_bytes(budget, 3, *mark)?;
             }
 
-            let byte = u8::try_from((as_hex(c) << 4) + as_hex(nc))
+            let byte = u8::try_from((high << 4) + low)
                 .expect("two hex nibbles always fit in a byte");
             if width == 0 {
                 width = match byte {
@@ -3953,10 +3955,10 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         let mut value = 0u32;
         for i in 0..len {
             let c = self.input.peek_nth(i);
-            if !is_hex(c) {
+            let Some(digit) = c.to_digit(16) else {
                 return Err(ScanError::from_kind(*start_mark, kind));
-            }
-            value = (value << 4) + as_hex(c);
+            };
+            value = (value << 4) + digit;
         }
         self.skip_n_non_blank(len);
         Ok(value)

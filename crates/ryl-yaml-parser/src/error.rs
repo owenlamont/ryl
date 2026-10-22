@@ -147,8 +147,6 @@ pub enum ErrorKind {
     UnexpectedEofBlockSequence,
     /// Input ended while parsing a block mapping.
     UnexpectedEofBlockMapping,
-    /// Input ended unexpectedly in another parser state.
-    UnexpectedEof,
     /// A stream-start token was expected.
     ExpectedStreamStart,
     /// More than one YAML version directive was found for a document.
@@ -314,8 +312,6 @@ pub enum ErrorKind {
     UnpairedLowSurrogate,
     /// A quoted scalar escape did not represent a valid Unicode scalar value.
     InvalidUnicodeEscape,
-    /// A flow scalar started at invalid indentation.
-    InvalidFlowScalarIndent,
     /// A plain scalar began with a dash followed by a flow indicator.
     PlainScalarStartsWithDashFlowIndicator,
     /// A tab appeared where a plain scalar could not accept it.
@@ -326,8 +322,6 @@ pub enum ErrorKind {
     MappingKeyNotAllowed,
     /// A flow mapping value indicator was adjacent to a collection start.
     FlowMappingValueAdjacentCollection,
-    /// A mapping value indicator was followed by invalid whitespace.
-    InvalidMappingValueWhitespace,
     /// A value indicator was placed illegally in an implicit flow mapping.
     InvalidColonPlacement,
     /// A mapping value appeared in a context that does not allow one.
@@ -363,7 +357,6 @@ impl fmt::Display for ErrorKind {
             Self::UnexpectedEofBlockMapping => {
                 f.write_str("unexpected EOF while parsing a block mapping")
             }
-            Self::UnexpectedEof => f.write_str("unexpected eof"),
             Self::ExpectedStreamStart => f.write_str("did not find expected <stream-start>"),
             Self::DuplicateVersionDirective => f.write_str("duplicate version directive"),
             Self::UnsupportedYamlMajorVersion => {
@@ -558,9 +551,6 @@ impl fmt::Display for ErrorKind {
             Self::InvalidUnicodeEscape => f.write_str(
                 "while parsing a quoted scalar, found invalid Unicode character escape code",
             ),
-            Self::InvalidFlowScalarIndent => {
-                f.write_str("invalid indentation in flow construct")
-            }
             Self::PlainScalarStartsWithDashFlowIndicator => {
                 f.write_str("plain scalar cannot start with '-' followed by ,[]{}")
             }
@@ -573,9 +563,6 @@ impl fmt::Display for ErrorKind {
             }
             Self::FlowMappingValueAdjacentCollection => {
                 f.write_str("':' may not precede any of `[{` in flow mapping")
-            }
-            Self::InvalidMappingValueWhitespace => {
-                f.write_str("':' must be followed by a valid YAML whitespace")
             }
             Self::InvalidColonPlacement => f.write_str("illegal placement of ':' indicator"),
             Self::MappingValueNotAllowed => {
@@ -674,7 +661,7 @@ impl ScanError {
     #[must_use]
     pub fn info(&self) -> String {
         let mut info = self.kind.to_string();
-        if !info.is_empty() && self.source_stack().len() > 1 {
+        if self.source_stack().len() > 1 {
             info.push_str("\nwhile parsing ");
             info.push_str(&self.source_stack().join(" -> "));
         }

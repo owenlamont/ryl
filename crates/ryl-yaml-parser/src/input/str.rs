@@ -385,11 +385,6 @@ impl Input for StrInput<'_> {
             && matches!(self.buffer.as_bytes()[0], b',' | b'[' | b']' | b'{' | b'}')
     }
 
-    #[inline]
-    fn next_is_digit(&self) -> bool {
-        !self.buffer.is_empty() && self.buffer.as_bytes()[0].is_ascii_digit()
-    }
-
     /// Check if the next character is an ASCII alphanumeric, `_`, or `-`.
     ///
     /// This is used as a heuristic for error detection (e.g., when `:` is followed
@@ -466,26 +461,6 @@ impl Input for StrInput<'_> {
         self.buffer = &self.buffer[i..];
 
         i
-    }
-
-    fn fetch_while_is_yaml_non_space(&mut self, out: &mut String) -> usize {
-        let mut byte_pos = 0;
-        let mut chars_consumed = 0;
-
-        for (i, c) in self.buffer.char_indices() {
-            if !crate::char_traits::is_yaml_non_space(c) || crate::char_traits::is_z(c)
-            {
-                break;
-            }
-
-            byte_pos = i + c.len_utf8();
-            chars_consumed += 1;
-        }
-
-        out.push_str(&self.buffer[..byte_pos]);
-        self.buffer = &self.buffer[byte_pos..];
-
-        chars_consumed
     }
 
     #[inline]

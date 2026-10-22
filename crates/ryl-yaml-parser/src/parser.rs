@@ -1067,9 +1067,9 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                     Ok(self.apply_pending_key_indent(event))
                 } else if let Some(error) = self.deferred_error.take() {
                     return Err(error);
-                } else if self.state == State::End {
-                    self.parse()
-                } else if let Some(comment) = self.maybe_next_comment_event()? {
+                } else if self.state != State::End
+                    && let Some(comment) = self.maybe_next_comment_event()?
+                {
                     Ok(comment)
                 } else {
                     self.parse()
@@ -1120,6 +1120,14 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         }
     }
 
+    /// The token peeked before dispatch: every state handler is entered with the next token
+    /// already peeked.
+    fn peeked(&self) -> &QueuedToken<'input> {
+        self.token
+            .as_ref()
+            .expect("the next token is peeked before state dispatch")
+    }
+
     /// Extract and return the next token from the scanner.
     ///
     /// This function does _not_ make use of `self.token`.
@@ -1145,6 +1153,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         if self.scanner.comments_possible() {
             self.next_comment_event()
         } else {
+            self.peek_token()?;
             Ok(None)
         }
     }
@@ -1376,9 +1385,6 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        if self.state == State::End {
-            return Ok((Event::StreamEnd, Span::empty(self.scanner.mark())));
-        }
         let event = self.state_machine()?;
         Ok(self.apply_pending_key_indent(event))
     }
@@ -1539,9 +1545,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
             }
             State::FlowMappingEmptyValue => self.flow_mapping_value(true),
 
-            State::End => {
-                unreachable!("end state is handled before state-machine dispatch")
-            }
+            State::End => Ok((Event::StreamEnd, Span::empty(self.scanner.mark()))),
         }
     }
 
@@ -1549,7 +1553,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        match *self.peek_token()? {
+        match *self.peeked() {
             QueuedToken(span, QueuedTokenType::StreamStart) => {
                 self.state = State::ImplicitDocumentStart;
                 self.skip();
@@ -1731,7 +1735,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
             | QueuedTokenType::DocumentStart
             | QueuedTokenType::DocumentEnd
             | QueuedTokenType::StreamEnd,
-        ) = *self.peek_token()?
+        ) = *self.peeked()
         {
             self.pop_state();
             let span = self
@@ -1749,7 +1753,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         'input: 'a,
     {
         let mut explicit_end = false;
-        let span: Span = match *self.peek_token()? {
+        let span: Span = match *self.peeked() {
             QueuedToken(span, QueuedTokenType::DocumentEnd) => {
                 explicit_end = true;
                 self.skip();
@@ -2068,7 +2072,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        match *self.peek_token()? {
+        match *self.peeked() {
             QueuedToken(_, QueuedTokenType::Key) => {
                 // Indentation is only meaningful for block mapping keys.
                 if let QueuedToken(key_span, QueuedTokenType::Key) =
@@ -2108,7 +2112,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         if let QueuedToken(
             mark,
             QueuedTokenType::Key | QueuedTokenType::Value | QueuedTokenType::BlockEnd,
-        ) = *self.peek_token()?
+        ) = *self.peeked()
         {
             self.state = State::BlockMappingValue;
             Ok((Event::empty_scalar(), Span::empty(mark.start)))
@@ -2126,7 +2130,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        match *self.peek_token()? {
+        match *self.peeked() {
             QueuedToken(mark, QueuedTokenType::Value) => {
                 self.skip();
                 let comments = self.next_comment_events()?;
@@ -2198,7 +2202,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         'input: 'a,
     {
         let span: Span = if let QueuedToken(mark, QueuedTokenType::FlowMappingEnd) =
-            *self.peek_token()?
+            *self.peeked()
         {
             mark
         } else {
@@ -2259,7 +2263,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
             QueuedTokenType::Value
             | QueuedTokenType::FlowEntry
             | QueuedTokenType::FlowMappingEnd,
-        ) = *self.peek_token()?
+        ) = *self.peeked()
         {
             self.state = State::FlowMappingValue;
             Ok((Event::empty_scalar(), Span::empty(mark.start)))
@@ -2279,7 +2283,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     {
         let span: Span = {
             if empty {
-                let QueuedToken(mark, _) = *self.peek_token()?;
+                let QueuedToken(mark, _) = *self.peeked();
                 self.state = State::FlowMappingKey;
                 return Ok((Event::empty_scalar(), Span::empty(mark.start)));
             }
@@ -2351,7 +2355,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        match *self.peek_token()? {
+        match *self.peeked() {
             QueuedToken(mark, QueuedTokenType::FlowSequenceEnd) => {
                 self.pop_state();
                 self.skip();
@@ -2396,7 +2400,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        match *self.peek_token()? {
+        match *self.peeked() {
             QueuedToken(mark, QueuedTokenType::BlockEntry) => {
                 self.skip();
                 let comments = self.next_comment_events()?;
@@ -2474,7 +2478,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        match *self.peek_token()? {
+        match *self.peeked() {
             QueuedToken(mark, QueuedTokenType::BlockEnd) => {
                 self.end_block_collection();
                 self.pop_state();
@@ -2550,7 +2554,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         if let QueuedToken(
             mark,
             QueuedTokenType::FlowEntry | QueuedTokenType::FlowSequenceEnd,
-        ) = *self.peek_token()?
+        ) = *self.peeked()
         {
             self.state = State::FlowSequenceEntryMappingValue;
             Ok((Event::empty_scalar(), Span::empty(mark.start)))
@@ -2568,7 +2572,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        match *self.peek_token()? {
+        match *self.peeked() {
             QueuedToken(_, QueuedTokenType::Value) => {
                 self.skip();
                 if let Some(comment) = self.maybe_next_comment_event()? {
@@ -2588,7 +2592,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        let QueuedToken(span, ref tok) = *self.peek_token()?;
+        let QueuedToken(span, ref tok) = *self.peeked();
         if matches!(
             tok,
             QueuedTokenType::FlowEntry | QueuedTokenType::FlowSequenceEnd
@@ -2611,7 +2615,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         'input: 'a,
     {
         self.state = State::FlowSequenceEntry;
-        let QueuedToken(span, _) = *self.peek_token()?;
+        let QueuedToken(span, _) = *self.peeked();
         Ok((Event::MappingEnd, Span::empty(span.start)))
     }
 

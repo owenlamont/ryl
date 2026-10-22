@@ -37,13 +37,6 @@ pub fn is_blank_or_breakz(c: char) -> bool {
     is_blank(c) || is_breakz(c)
 }
 
-/// Check whether the character is an ASCII digit.
-#[inline]
-#[must_use]
-pub fn is_digit(c: char) -> bool {
-    c.is_ascii_digit()
-}
-
 /// Check whether the character is an ASCII alphanumeric, `_` or `-`.
 ///
 /// This is used for scanning tag handles and similar constructs.
@@ -55,29 +48,6 @@ pub fn is_digit(c: char) -> bool {
 #[must_use]
 pub fn is_alpha(c: char) -> bool {
     matches!(c, '0'..='9' | 'a'..='z' | 'A'..='Z' | '_' | '-')
-}
-
-/// Check whether the character is a hexadecimal character (case insensitive).
-#[inline]
-#[must_use]
-pub fn is_hex(c: char) -> bool {
-    c.is_ascii_digit() || ('a'..='f').contains(&c) || ('A'..='F').contains(&c)
-}
-
-/// Convert the hexadecimal digit to an integer.
-///
-/// # Panics
-/// Panics if `c` is not an ASCII hexadecimal digit.
-#[track_caller]
-#[inline]
-#[must_use]
-pub fn as_hex(c: char) -> u32 {
-    match c {
-        '0'..='9' => (c as u32) - ('0' as u32),
-        'a'..='f' => (c as u32) - ('a' as u32) + 10,
-        'A'..='F' => (c as u32) - ('A' as u32) + 10,
-        _ => unreachable!("as_hex called with a non-hexadecimal character"),
-    }
 }
 
 /// Check whether the character is a YAML flow character (one of `,[]{}`).
