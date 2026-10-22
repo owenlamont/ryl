@@ -1059,3 +1059,21 @@ fn trailing_commas_use_the_closing_collections_spacing_target() {
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(statistics["emissions"], 1, "{statistics}");
 }
+
+#[test]
+fn joining_a_mapping_discards_the_dashes_trailing_whitespace() {
+    let (output, statistics) = format_with_statistics("- \n  café:", "[format]\n");
+    assert_eq!(output, "- café:\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["emissions"], 1, "{statistics}");
+}
+
+#[test]
+fn splitting_a_mapping_discards_the_old_dash_spacing() {
+    let (output, statistics) = format_with_statistics(
+        "-  café: ''",
+        "indent-width = 4\n[format]\nindent-sequences = false\ndash-on-own-line = true\n",
+    );
+    assert_eq!(output, "-\n    café: ''\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}

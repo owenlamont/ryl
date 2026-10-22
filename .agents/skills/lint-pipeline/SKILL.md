@@ -171,9 +171,9 @@ events; a failed comparison rolls the rewrite back to the original input.
 
 The fallback formatter batches comment/comma, punctuation, and compatible finishing
 edits against one analysis per group. Quotes, indentation and newline conversion
-retain their separate epochs. Conflicting byte ranges, suppression directives,
-marker changes and newly blank
-lines retain the sequential fixed-point path; `check --fix` always uses that path.
+retain their separate epochs. Layout handles suppression and indentation refusals
+while retaining source bytes for refused documents. Unmigrated scalar interactions
+and strict-invalid repairs still enter the driver; `check --fix` also uses the driver.
 Flow spacing shares cached punctuation sites; brackets retain their existing traversal
 when template text occurs, because braces and commas skip template spans.
 
@@ -182,8 +182,9 @@ Column-zero document-marker checks run before the value-only cache lookup.
 Unguarded ladder replacements settle locally before indentation measures
 the resulting scalar lengths; a no-edit certificate avoids a whole-document quote
 probe. Multiline collapses change virtual lines; multiline style changes compose
-line-local edits. Unsettled, line-leading or suppressed quote interactions retain
-the bounded fixed-point path. Every quote replacement retains
+line-local edits. Quote and dirty dry-plan interactions settle through bounded,
+verified layout epochs; partially suppressed multiline quotes preserve rollback.
+Every quote replacement retains
 the existing schema and snippet checks;
 unchanged plain and block scalars need no quote decision.
 
@@ -196,8 +197,8 @@ conversion, defer further comment alignment until after reindentation, then run
 the full layout and dry plan. A dry collection plan must also have no remaining
 edits. A remaining conversion plan becomes the next verified stage. Rejected
 conversions can retry after a changed layout stage, retaining the existing
-fixed-point bound; unsettled stages restart the ordered driver from the original
-bytes.
+fixed-point bound. Dirty dry plans continue from the verified candidate;
+consistency refusals replan from original bytes with the refused documents frozen.
 
 The layout planner retains source provenance through dash joins, scalar collapses,
 comment shifts, folding and boundary finishing. Refusal-sensitive combinations use
@@ -209,7 +210,8 @@ Both plans collect shared header, comment, sparse spacing and folding facts duri
 lexical scanning. The input buffers the unresolved line, projects tokens against
 settled local gaps and quotes, and feeds the indentation analyzer directly.
 The dry pass invokes the same producers and layout planner on fresh candidate facts;
-any remaining edit or refusal restarts the bounded driver from the original bytes.
+remaining edits start another verified layout epoch, and consistency refusals
+freeze the affected documents before replanning from original bytes.
 Strict candidate verification compares expected events and semantic events in
 the same parse. Refusal reporting stores epoch-bound evidence without text copies.
 BOM dry inputs retain the

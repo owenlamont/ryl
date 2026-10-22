@@ -1783,6 +1783,23 @@ pub(crate) fn lines<'a>(input: Analysis<'a>, starts: &[usize]) -> Vec<VirtualLin
         .collect()
 }
 
+fn discarded_dash_spacing(
+    source: &str,
+    line: &VirtualLine<'_>,
+    from: usize,
+    to: usize,
+) -> bool {
+    line.bridge.is_none()
+        && line.body.ends_with('-')
+        && from
+            == line.body.as_ptr() as usize - source.as_ptr() as usize + line.body.len()
+        && (line.tail.is_empty()
+            || to <= line.tail.as_ptr() as usize - source.as_ptr() as usize)
+        && source[from..to]
+            .bytes()
+            .all(|byte| byte.is_ascii_whitespace())
+}
+
 fn visit_body<'a>(
     source: &'a str,
     line: &VirtualLine<'a>,
@@ -1860,7 +1877,14 @@ fn visit_body<'a>(
                             return Ok(());
                         }
                         if from.get() < start || to.get() > end {
-                            return Err(Fallback::Overlap);
+                            return discarded_dash_spacing(
+                                source,
+                                line,
+                                from.get(),
+                                to.get(),
+                            )
+                            .then_some(())
+                            .ok_or(Fallback::Overlap);
                         }
                         let result = append(Piece::Text(&source[at..from.get()]))
                             .and_then(|()| append(text.piece()));
