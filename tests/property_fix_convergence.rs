@@ -40,6 +40,7 @@ use ryl::rules::{
     document_start, empty_lines, hyphens, key_ordering, new_line_at_end_of_file,
     new_lines, quoted_strings, trailing_spaces, truthy,
 };
+use ryl_yaml_parser::{Scanner, StrInput, TokenType};
 
 use config::{
     SAFE_FIX_RULES, named_config, parse_for_compare, reference_safe_eof_append,
@@ -92,7 +93,17 @@ fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
         ),
         (
             commas::ID,
-            Box::new(move |buffer| commas::fix(buffer, &commas_cfg)),
+            Box::new(move |buffer| {
+                let kept = drop_contradicted_commas(
+                    buffer,
+                    &commas_cfg,
+                    &brackets_cfg,
+                    &braces_cfg,
+                );
+                let spaced =
+                    commas::fix(kept.as_deref().unwrap_or(buffer), &commas_cfg);
+                spaced.or(kept)
+            }),
         ),
         (
             braces::ID,
@@ -158,6 +169,82 @@ fn fix_rule_to_fixed_point(
     Err(TestCaseError::fail(format!(
         "'{rule}' fix still changing after {RULE_FIX_MAX_ITERATIONS} iterations under config '{cfg_name}'; input {input:?}; last {current:?}"
     )))
+}
+
+/// `buffer` without each trailing flow comma whose `commas` spacing the closing rule
+/// overrides with a gap `commas` would respace again.
+fn drop_contradicted_commas(
+    buffer: &str,
+    commas: &commas::Config,
+    brackets: &brackets::Config,
+    braces: &braces::Config,
+) -> Option<String> {
+    let target = |current: usize, min: i64, max: i64| {
+        let (min, max) = (
+            usize::try_from(min).unwrap_or(0),
+            usize::try_from(max).unwrap_or(usize::MAX),
+        );
+        if min > max {
+            current
+        } else {
+            current.clamp(min, max)
+        }
+    };
+    let tokens: Vec<_> = Scanner::new(StrInput::new(buffer))
+        .map_while(Result::ok)
+        .map(|token| {
+            let (span, kind) = token.into_parts();
+            (
+                span.start
+                    .byte_offset()
+                    .expect("string input has byte offsets"),
+                kind,
+            )
+        })
+        .filter(|(_, kind)| !matches!(kind, TokenType::Comment(..)))
+        .collect();
+    let mut dropped = Vec::new();
+    for pair in tokens.windows(2) {
+        let [(comma, TokenType::FlowEntry), (close, closing)] = pair else {
+            continue;
+        };
+        let (min, max) = match closing {
+            TokenType::FlowSequenceEnd
+                if brackets.forbid() == brackets::Forbid::None =>
+            {
+                (brackets.min_spaces_inside(), brackets.max_spaces_inside())
+            }
+            TokenType::FlowMappingEnd if braces.forbid() == braces::Forbid::None => {
+                (braces.min_spaces_inside(), braces.max_spaces_inside())
+            }
+            _ => continue,
+        };
+        let gap = &buffer[comma + 1..*close];
+        let wanted = target(
+            gap.len(),
+            commas.min_spaces_after(),
+            commas.max_spaces_after(),
+        );
+        if !gap.bytes().all(|byte| byte == b' ') || wanted == gap.len() {
+            continue;
+        }
+        let closing_gap = target(wanted, min, max);
+        if target(
+            closing_gap,
+            commas.min_spaces_after(),
+            commas.max_spaces_after(),
+        ) != closing_gap
+        {
+            dropped.push(*comma);
+        }
+    }
+    (!dropped.is_empty()).then(|| {
+        let mut text = buffer.to_string();
+        for comma in dropped.into_iter().rev() {
+            text.remove(comma);
+        }
+        text
+    })
 }
 
 /// One `apply_safe_fixes` pass rebuilt from the rules' own `fix` functions. Mirrors the

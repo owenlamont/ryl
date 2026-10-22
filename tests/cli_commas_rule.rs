@@ -164,26 +164,54 @@ fn fix_leaves_double_curly_template_unchanged() {
 }
 
 #[test]
-fn comma_spacing_contradicting_brackets_reports_the_cycle() {
+fn fix_drops_a_trailing_comma_the_default_preset_contradicts() {
     let dir = tempdir().unwrap();
-    let file = dir.path().join("cycle.yaml");
-    fs::write(&file, "café: [one,]\n").unwrap();
+    let file = dir.path().join("trailing.yaml");
+    let config = "extends: default\n";
+    let input = "---\ncafé: [one,]\nmap: {a: 1,}\n";
+    fs::write(&file, input).unwrap();
+    let ryl = || {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_ryl"));
+        command.args(["check", "-d", config]);
+        command
+    };
 
-    let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
-        .arg("check")
-        .arg("--fix")
-        .arg("-d")
-        .arg("rules:\n  commas: enable\n  brackets: enable\n")
-        .arg(&file));
+    let (code, stdout, stderr) = run(ryl()
+        .arg("--diff")
+        .arg("-")
+        .stdin(fs::File::open(&file).unwrap()));
     assert_eq!(code, 1, "{stderr}");
-    assert_eq!(fs::read_to_string(&file).unwrap(), "café: [one,]\n");
-    for expected in [
-        "error: Failed to converge after 100 iterations.",
-        "the rule ids commas, brackets,",
+    assert!(stdout.contains("+café: [one]\n+map: {a: 1}"), "{stdout}");
+
+    let (code, _, stderr) = run(ryl().arg("--fix").arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "---\ncafé: [one]\nmap: {a: 1}\n"
+    );
+}
+
+#[test]
+fn closing_commas_in_fix_take_the_closing_rule_spacing_unless_suppressed() {
+    let dir = tempdir().unwrap();
+    for (input, config, expected) in [
+        (
+            "a: {b: 1,  }\n",
+            "rules:\n  commas:\n    min-spaces-after: 0\n  braces: enable\n",
+            "a: {b: 1,}\n",
+        ),
+        (
+            "c: [d,  ]  # yamllint disable-line rule:commas\n",
+            "rules:\n  commas: enable\n  brackets: enable\n",
+            "c: [d,]  # yamllint disable-line rule:commas\n",
+        ),
     ] {
-        assert!(
-            stderr.contains(expected),
-            "missing {expected:?} in {stderr}"
-        );
+        let file = dir.path().join("closing.yaml");
+        fs::write(&file, input).unwrap();
+        let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .args(["check", "--fix", "-d", config])
+            .arg(&file));
+        assert_eq!(code, 0, "{input:?}: {stderr}");
+        assert_eq!(fs::read_to_string(&file).unwrap(), expected);
     }
 }

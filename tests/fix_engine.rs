@@ -449,13 +449,13 @@ fn guarded_magic_lines_move_below_the_marker_once_spaced() {
 }
 
 #[test]
-fn closing_brackets_keep_a_comma_spacing_they_allow() {
+fn a_comma_spacing_the_closing_bracket_forbids_drops_the_comma() {
     assert_eq!(
         fix_toml(
             "[lint.rules.commas]\nmin-spaces-after = 2\nmax-spaces-after = 2\n[lint.rules.brackets]\nmax-spaces-inside = 1\n",
             "café: [b, ]\n"
         ),
-        "café: [b, ]\n"
+        "café: [b ]\n"
     );
 }
 

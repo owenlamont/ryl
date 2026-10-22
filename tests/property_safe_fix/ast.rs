@@ -27,6 +27,7 @@ pub enum Node {
 pub struct MultilineFlowSpec {
     pub items: Vec<(u8, Scalar)>,
     pub closer: u8,
+    pub trailing_comma: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -346,6 +347,9 @@ impl MultilineFlowSpec {
                 buffer.push_str(&" ".repeat(base + 1 + usize::from(*extra)));
             }
             item.render(buffer);
+        }
+        if self.trailing_comma {
+            buffer.push(',');
         }
         buffer.push_str(line_term);
         buffer.push_str(&" ".repeat(base + 1 + usize::from(self.closer)));

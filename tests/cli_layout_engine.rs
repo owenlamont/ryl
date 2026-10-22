@@ -751,11 +751,10 @@ fn a_blank_folded_scalar_does_not_fold_the_next_root_node() {
 }
 
 #[test]
-fn an_empty_flow_string_rolls_back_inconsistent_dry_indentation() {
+fn an_empty_flow_string_keeps_its_indentation() {
     let (output, statistics) = format_with_statistics("[\n  \"\",\n]\n", "[format]\n");
-    assert_eq!(output, "[\n  '',\n]\n");
+    assert_eq!(output, "[\n  ''\n]\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["rollback"], 1, "{statistics}");
     assert_eq!(format_with_statistics(&output, "[format]\n").0, output);
 }
 
@@ -1052,10 +1051,10 @@ fn converted_trailing_comments_align_before_document_end_insertion() {
 }
 
 #[test]
-fn trailing_commas_use_the_closing_collections_spacing_target() {
+fn trailing_commas_drop_inside_padded_collections() {
     let (output, statistics) =
         format_with_statistics("café: [ one, two, ]\nmap: { a : b , }\n", "[format]\n");
-    assert_eq!(output, "café: [one, two,]\nmap: {a: b,}\n");
+    assert_eq!(output, "café: [one, two]\nmap: {a: b}\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
@@ -1152,31 +1151,31 @@ fn bom_partially_suppressed_quotes_roll_back() {
 }
 
 #[test]
-fn closing_commas_compose_with_bracket_and_tab_spacing() {
+fn trailing_commas_drop_beside_tab_spacing() {
     let (output, statistics) =
         format_with_statistics("café: [ x,\ty, z,  ]\n", "[format]\n");
-    assert_eq!(output, "café: [x,\ty, z,]\n");
+    assert_eq!(output, "café: [x,\ty, z]\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
-fn suppressed_closing_commas_keep_their_spacing() {
+fn suppressed_trailing_commas_are_kept() {
     let (output, statistics) = format_with_statistics(
         "a: [x,]  # ryl disable-line rule:commas\ncafé: [y,  ]\n",
         "[format]\n",
     );
     assert_eq!(
         output,
-        "a: [x,]  # ryl disable-line rule:commas\ncafé: [y,]\n"
+        "a: [x,]  # ryl disable-line rule:commas\ncafé: [y]\n"
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
-fn padded_braces_accept_the_trailing_comma_spacing() {
+fn padded_braces_keep_their_padding_without_the_trailing_comma() {
     let (output, statistics) =
         format_with_statistics("café: {b: 1,  }\n", "[format]\nbrace-spacing = true\n");
-    assert_eq!(output, "café: { b: 1, }\n");
+    assert_eq!(output, "café: { b: 1 }\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
@@ -1310,4 +1309,40 @@ fn a_trimmed_comment_does_not_freeze_its_document_beside_a_refused_one() {
         format_with_statistics("a: |\n  #g\n # x \n---\na: |\n  #g\n # x\n", config);
     assert_eq!(output, reindented);
     assert_eq!(format_with_statistics(&output, config).0, reindented);
+}
+
+#[test]
+fn trailing_flow_commas_are_dropped_on_one_line_and_across_lines() {
+    let (output, statistics) = format_with_statistics(
+        "a: [one, two ,]\nb: {c: 1, }\nd: [\n  e, # note\n]\n",
+        "[format]\n",
+    );
+    assert_eq!(output, "a: [one, two]\nb: {c: 1}\nd: [\n  e  # note\n ]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn spacing_keeps_the_separation_an_empty_explicit_key_needs() {
+    let (output, statistics) =
+        format_with_statistics("a:  1\nb: [ ?   , ? ]\nc: {?  , d: 1}\n", "[format]\n");
+    assert_eq!(output, "a: 1\nb: [? , ? ]\nc: {? , d: 1}\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn an_unseparated_flow_key_is_reported_then_repaired() {
+    let (status, _, diagnostics, _) = common::cli::ryl_on(
+        Some("[lint.rules.anchors]\n"),
+        "k: [?, ?]\n",
+        &["check", "--no-cache"],
+    );
+    assert_eq!(status, 1, "{diagnostics}");
+    assert!(
+        diagnostics.contains("help: ryl check --fix or ryl format can repair it"),
+        "{diagnostics}"
+    );
+    let (output, statistics) = format_with_statistics("k: [?, ?]\n", "[format]\n");
+    assert_eq!(output, "k: [? , ? ]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, "[format]\n").0, output);
 }

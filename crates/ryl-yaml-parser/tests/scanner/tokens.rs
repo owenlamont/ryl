@@ -381,7 +381,7 @@ fn required_simple_key_requires_value_at_stream_end() {
 fn plain_scalar_rejects_dash_before_flow_indicator() {
     assert_eq!(
         first_scanner_error_kind("[-]\n"),
-        ErrorKind::PlainScalarStartsWithDashFlowIndicator
+        ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator { indicator: '-' }
     );
 }
 

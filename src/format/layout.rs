@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use ryl_yaml_parser::{Event, ScalarStyle};
 
 use crate::fix::{PassTracking, Passes};
+use crate::rules::support::span_utils::BytePos;
 use crate::rules::support::{collection_style, event_compare};
 use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
@@ -46,7 +47,6 @@ struct DocumentPlan<'a> {
     folds: Vec<FoldBreak>,
     refused: Vec<indentation::Refusal>,
     guard: Option<Box<Guard>>,
-    cycles: Vec<&'static str>,
 }
 
 struct ScalarFold {
@@ -307,7 +307,6 @@ fn prepare_candidate(
     } else {
         DocumentPlan::new(input, passes, quotes, Sink::Emit, frozen).and_then(|plan| {
             probe(tracking, plan.input)?;
-            tracking.cycles.extend_from_slice(&plan.cycles);
             let consistent = plan.dirty
                 || !passes.indentation.is_some_and(|cfg| {
                     cfg.requires_consistency()
@@ -372,7 +371,6 @@ fn format_document_refused(
         frozen,
     )
     .map(|dry| {
-        tracking.cycles.extend_from_slice(&dry.cycles);
         if dry.dirty {
             Dry::Dirty
         } else if let Some(rejected) = dry.rejected_documents(passes, frozen) {
@@ -417,6 +415,43 @@ fn format_document_refused(
 /// Whether `text` is a stream of LF-only blank lines that the resolved passes empty, so its
 /// candidate needs no line records; verification and the dry plan still check it, and with
 /// no block scalar it cannot be ambiguous, so it skips the probe.
+/// `edits` keeping the separation an explicit `?` key needs before what follows it.
+fn separate_keys(
+    text: &str,
+    edits: Vec<crate::rules::support::token_spacing::SpaceEdit>,
+) -> Vec<crate::rules::support::token_spacing::SpaceEdit> {
+    let bytes = text.as_bytes();
+    edits
+        .into_iter()
+        .filter_map(|(from, to, count)| {
+            let at = from.get();
+            let key = bytes[..at].ends_with(b"?")
+                && (at < 2 || b"[{, \t\r\n".contains(&bytes[at - 2]));
+            if key && count == 0 {
+                (to.get() - at != 1 || bytes[at] != b' ').then_some((from, to, 1))
+            } else {
+                Some((from, to, count))
+            }
+        })
+        .collect()
+}
+
+/// Whether only blanks and comments separate `from` from a closing `]` or `}`.
+fn closes_after(text: &[u8], mut from: usize) -> bool {
+    loop {
+        match text.get(from) {
+            Some(b' ' | b'\t' | b'\n' | b'\r') => from += 1,
+            Some(b'#') => {
+                from += text[from..]
+                    .iter()
+                    .position(|&byte| matches!(byte, b'\n' | b'\r'))
+                    .unwrap_or(text.len() - from);
+            }
+            next => return matches!(next, Some(b']' | b'}')),
+        }
+    }
+}
+
 fn blank_stream(
     text: &str,
     passes: &Passes<'_>,
@@ -583,7 +618,6 @@ struct Presentation {
     styles: Vec<(usize, ScalarStyle)>,
     rules: Vec<&'static str>,
     guard: Option<Box<Guard>>,
-    cycles: Vec<&'static str>,
 }
 
 impl Presentation {
@@ -661,35 +695,32 @@ impl Presentation {
                         at,
                         &mut comma_edits,
                     );
-                    if let Some(edit) = comma_edits.last_mut()
-                        && edit.0.get() == at + 1
-                        && presentation.closing_comma(input, passes, edit)
-                    {
-                        closing_edits.push((edit.0, edit.1));
+                    if presentation.drops_comma(
+                        input,
+                        passes,
+                        at,
+                        &mut comma_edits,
+                        &mut closing_edits,
+                    ) {
+                        comma_edits.retain(|edit| edit.0.get() != at + 1);
+                        comma_edits.push((BytePos::new(at), BytePos::new(at + 1), 0));
                     }
                 }
                 _ => {}
             }
         }
-        if !closing_edits.is_empty() {
-            comma_edits.retain(|(from, to, count)| {
-                to.get() - from.get() != *count
-                    || !input.text()[from.get()..to.get()]
-                        .bytes()
-                        .all(|byte| byte == b' ')
-            });
-        }
-        presentation.extend_spaces(commas::ID, comma_edits);
+        presentation
+            .extend_spaces(commas::ID, separate_keys(input.text(), comma_edits));
         let close = |edits: Vec<crate::rules::support::token_spacing::SpaceEdit>| {
-            if closing_edits.is_empty() {
-                return edits;
-            }
-            edits
-                .into_iter()
-                .filter(|(from, to, _)| {
-                    closing_edits.binary_search(&(*from, *to)).is_err()
-                })
-                .collect()
+            separate_keys(
+                input.text(),
+                edits
+                    .into_iter()
+                    .filter(|(from, to, _)| {
+                        closing_edits.binary_search(&(*from, *to)).is_err()
+                    })
+                    .collect(),
+            )
         };
         if let Some(edits) = braces {
             presentation.extend_spaces(braces::ID, close(edits.finish()));
@@ -703,12 +734,39 @@ impl Presentation {
         presentation.settle().map(|()| presentation)
     }
 
+    /// Whether the comma at `at` goes: always before a closing bracket when formatting,
+    /// and in a lint fix where the closing rule contradicts the commas spacing; a gap the
+    /// closing rule owns otherwise joins `closing_edits`.
+    fn drops_comma(
+        &self,
+        input: Analysis<'_>,
+        passes: &Passes<'_>,
+        at: usize,
+        comma_edits: &mut [crate::rules::support::token_spacing::SpaceEdit],
+        closing_edits: &mut Vec<(BytePos, BytePos)>,
+    ) -> bool {
+        if passes.preserve_events && closes_after(input.text().as_bytes(), at + 1) {
+            return true;
+        }
+        let Some(edit) = comma_edits.last_mut().filter(|edit| edit.0.get() == at + 1)
+        else {
+            return false;
+        };
+        let contradicts = self.closing_comma(input, passes, edit);
+        if contradicts == Some(false) {
+            closing_edits.push((edit.0, edit.1));
+        }
+        contradicts == Some(true)
+    }
+
+    /// Whether the commas spacing contradicts the closing bracket's, or `None` when the
+    /// closing rule does not own the gap `edit` respaces to its own target.
     fn closing_comma(
-        &mut self,
+        &self,
         input: Analysis<'_>,
         passes: &Passes<'_>,
         edit: &mut crate::rules::support::token_spacing::SpaceEdit,
-    ) -> bool {
+    ) -> Option<bool> {
         let (cfg, rule) = match input.text().as_bytes().get(edit.1.get()) {
             Some(b'}') => (
                 passes
@@ -726,30 +784,25 @@ impl Presentation {
                     .map(|cfg| (cfg.min_spaces_inside(), cfg.max_spaces_inside())),
                 brackets::ID,
             ),
-            _ => return false,
+            _ => return None,
         };
-        let Some((minimum, maximum)) = cfg else {
-            return false;
-        };
+        let (minimum, maximum) = cfg?;
         if self.guard.as_ref().is_some_and(|guard| {
             !guard.allows(rule, edit.0, edit.1)
                 || !guard.allows(commas::ID, edit.0, edit.1)
         }) {
-            return false;
+            return None;
         }
         edit.2 = crate::rules::support::punctuation::target_spacing(
             edit.2, minimum, maximum,
         );
-        if passes.commas.is_some_and(|cfg| {
+        Some(passes.commas.is_some_and(|cfg| {
             crate::rules::support::punctuation::target_spacing(
                 edit.2,
                 cfg.min_spaces_after(),
                 cfg.max_spaces_after(),
             ) != edit.2
-        }) {
-            self.cycles.push(rule);
-        }
-        true
+        }))
     }
 
     fn extend(&mut self, rule: &'static str, mut edits: Vec<Edit>) {
@@ -1002,7 +1055,6 @@ impl Presentation {
                 styles,
                 rules,
                 guard,
-                cycles: Vec::new(),
             }
         })
     }
@@ -1085,7 +1137,6 @@ impl<'a> DocumentPlan<'a> {
             styles,
             mut rules,
             guard,
-            cycles,
         } = presentation;
         if passes.line_length.is_some()
             && folded_tail_interacts(input, &layout, &targets)
@@ -1128,7 +1179,6 @@ impl<'a> DocumentPlan<'a> {
             folds: Vec::new(),
             refused,
             guard,
-            cycles,
         };
         plan.finish(passes).map(|()| plan)
     }

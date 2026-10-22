@@ -58,9 +58,7 @@ fn check_rejects_9c9n_until_format_or_fix_repairs_indentation() {
             .unwrap();
         assert_eq!(preview.status.code(), Some(1), "{preview:?}");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), INPUT);
-        assert!(
-            String::from_utf8_lossy(&preview.stderr).contains("repaired indentation")
-        );
+        assert!(String::from_utf8_lossy(&preview.stderr).contains("repaired it"));
         let fixed = Command::new(env!("CARGO_BIN_EXE_ryl"))
             .args(mode)
             .args(["-d", "{rules: {document-start: enable}}"])
@@ -98,7 +96,7 @@ fn check_explains_repairable_invalid_indentation() {
         assert_eq!(
             String::from_utf8(output.stderr).unwrap(),
             format!(
-                "{}\n  5:3       error    syntax error: invalid indentation (syntax); help: ryl check --fix or ryl format can repair the indentation\n\n",
+                "{}\n  5:3       error    syntax error: invalid indentation (syntax); help: ryl check --fix or ryl format can repair it\n\n",
                 file.display()
             )
         );
@@ -133,7 +131,7 @@ fn hint_names_only_the_available_repair() {
     assert!(
         diagnostics[0]
             .message
-            .ends_with("help: ryl format can repair the indentation"),
+            .ends_with("help: ryl format can repair it"),
         "{diagnostics:?}"
     );
 }
@@ -168,7 +166,7 @@ fn check_diff_previews_a_strictly_valid_repair() {
     assert!(result.changed);
     assert!(result.diff.unwrap().contains("+       b,"));
     assert_eq!(result.skipped.len(), 1);
-    assert!(result.skipped[0].message.contains("repaired indentation"));
+    assert!(result.skipped[0].message.contains("repaired it"));
 }
 
 #[test]
@@ -319,7 +317,7 @@ fn markdown_repair_notices_do_not_report_a_syntax_skip() {
         );
         assert!(preview.changed);
         assert_eq!(preview.skipped.len(), 1, "{:?}", preview.skipped);
-        assert!(preview.skipped[0].message.contains("repaired indentation"));
+        assert!(preview.skipped[0].message.contains("repaired it"));
         let (output, notices) = rewrite_str(
             &input,
             &cfg,
@@ -330,7 +328,7 @@ fn markdown_repair_notices_do_not_report_a_syntax_skip() {
         );
         assert_eq!(output.unwrap(), format!("```yaml\n{OUTPUT}```\n"));
         assert_eq!(notices.len(), 1, "{notices:?}");
-        assert!(notices[0].message.contains("repaired indentation"));
+        assert!(notices[0].message.contains("repaired it"));
     }
 }
 

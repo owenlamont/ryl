@@ -740,7 +740,7 @@ fn rewrite_parse_notice(
         if original != fixed {
             problem.level = crate::lint::Severity::Warning;
             problem.message =
-                "input was YAML the spec rejects; repaired indentation".to_string();
+                "input was YAML the spec rejects; repaired it".to_string();
         }
         problem
     })
@@ -1215,28 +1215,16 @@ pub fn apply_safe_fixes_filtered(
         edited: &mut Vec::new(),
         reindented: None,
         strict_input: None,
-        cycles: Vec::new(),
         unprobed: false,
     };
-    rewrite(
-        input,
-        TextVersion::new(input),
-        &passes,
-        path,
-        &mut std::io::stderr(),
-        &mut tracking,
-    )
-    .into_text()
+    rewrite(input, TextVersion::new(input), &passes, &mut tracking).into_text()
 }
 
-/// `input` (whose analysis is `source`) rewritten by `passes`, reporting a comma-spacing
-/// cycle between conflicting lint options to `err` as main's pass cap did.
+/// `input` (whose analysis is `source`) rewritten by `passes`.
 pub(crate) fn rewrite<'a>(
     input: &'a str,
     mut source: TextVersion<'a>,
     passes: &Passes,
-    path: &Path,
-    err: &mut dyn Write,
     tracking: &mut PassTracking<'_>,
 ) -> TextVersion<'static> {
     use crate::format::layout::Fallback;
@@ -1292,13 +1280,6 @@ pub(crate) fn rewrite<'a>(
         if !truthy && !ordered {
             break;
         }
-    }
-    if !tracking.cycles.is_empty() {
-        let mut rules = std::mem::take(&mut tracking.cycles);
-        rules.push(commas::ID);
-        rules.sort_by_key(|rule| SAFE_FIX_RULE_IDS.iter().position(|id| id == rule));
-        rules.dedup();
-        convergence_warning(err, path, FIX_PIPELINE_MAX_PASSES, &rules);
     }
     let text = current.analysis().text();
     let output = current.analysis();
@@ -1512,7 +1493,6 @@ pub(crate) struct PassTracking<'a> {
     pub edited: &'a mut Vec<&'static str>,
     pub reindented: Option<&'a mut ReindentCache>,
     pub strict_input: Option<bool>,
-    pub cycles: Vec<&'static str>,
     pub unprobed: bool,
 }
 
@@ -1523,11 +1503,13 @@ pub(crate) fn repair(
     passes: &Passes,
 ) -> Option<TextVersion<'static>> {
     let target = passes.repair_indentation?;
-    let repaired = Directives::parse_per_line_with_analysis(input, &passes.per_line)
+    let spaced = separate_flow_keys(input.text()).map(TextVersion::new);
+    let source = spaced.as_ref().map_or(input, TextVersion::analysis);
+    let repaired = Directives::parse_per_line_with_analysis(source, &passes.per_line)
         .reconcile(
             indentation::ID,
-            input.text(),
-            &indentation::reindent_with_analysis(input, &target).0.text,
+            source.text(),
+            &indentation::reindent_with_analysis(source, &target).0.text,
         );
     (repaired != input.text()
         && crate::lint::strict_parse_error(&repaired).is_none()
@@ -1539,22 +1521,22 @@ pub(crate) fn repair(
     })
 }
 
-fn convergence_warning(
-    err: &mut dyn Write,
-    path: &Path,
-    max_passes: usize,
-    rules: &[&'static str],
-) {
-    let warning = format!(
-        "\nerror: Failed to converge after {max_passes} iterations.\n\n\
-             This indicates a bug in ryl. If you could open an issue at:\n\n    \
-             https://github.com/owenlamont/ryl/issues/new?title=%5BInfinite%20loop%5D\n\n\
-             ...quoting the contents of `{}`, the rule ids {}, along with the ryl config \
-             and executed command, we'd be very appreciative!\n\n",
-        cwd_relative_label(path),
-        rules.join(", "),
-    );
-    crate::cli_support::write_file_stderr(err, warning.as_bytes());
+/// `text` with a space after each flow `?` that a flow indicator follows, which relaxed
+/// parsing reads as an empty explicit key.
+fn separate_flow_keys(text: &str) -> Option<String> {
+    let mut spaced: Option<String> = None;
+    while let Err(error) = crate::lint::scan(spaced.as_deref().unwrap_or(text), true)
+        && matches!(
+            error.kind(),
+            ryl_yaml_parser::ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator {
+                indicator: '?'
+            }
+        )
+    {
+        let at = error.marker().byte_offset().expect("string input has byte offsets");
+        spaced.get_or_insert_with(|| text.to_owned()).insert(at + 1, ' ');
+    }
+    spaced
 }
 
 fn rule_enabled(

@@ -233,8 +233,13 @@ fn arb_multiline_flow_spec() -> impl Strategy<Value = MultilineFlowSpec> {
     (
         prop::collection::vec((0u8..=3, arb_scalar()), 1..=3),
         0u8..=2,
+        any::<bool>(),
     )
-        .prop_map(|(items, closer)| MultilineFlowSpec { items, closer })
+        .prop_map(|(items, closer, trailing_comma)| MultilineFlowSpec {
+            items,
+            closer,
+            trailing_comma,
+        })
 }
 
 fn arb_multiline_plain_spec() -> impl Strategy<Value = MultilinePlainSpec> {
