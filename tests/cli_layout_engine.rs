@@ -329,13 +329,13 @@ fn empty_flow_scalar_verification_rolls_back_before_the_ordered_driver() {
 }
 
 #[test]
-fn a_collapsed_root_scalar_folds_through_the_ordered_driver() {
+fn a_collapsed_root_scalar_folds_after_quote_settling() {
     let (output, statistics) = format_with_statistics(
         "--- \"a\n...x\nb\"\n",
         "[format]\nfold-long-lines = true\n",
     );
     assert_eq!(output, "--- a ...x b\n");
-    assert_eq!(statistics["fallback"], "ScalarInteraction", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
@@ -839,13 +839,13 @@ fn non_ascii_marker_rolls_back_the_quote_stage() {
 }
 
 #[test]
-fn quote_shortening_restarts_a_dirty_collection_dry_plan() {
+fn quote_shortening_reuses_a_dirty_collection_dry_plan() {
     let (output, statistics) = format_with_statistics(
         "key:\n  - 'a'\n  - 'b'\n",
         "line-length = 11\n[format]\nsequence-style = 'flow'\n",
     );
     assert_eq!(output, "key: [a, b]\n");
-    assert_eq!(statistics["fallback"], "DryEdits", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
@@ -856,4 +856,34 @@ fn forced_style_keeps_the_unsettled_root_quote_fallback() {
     );
     assert_eq!(output, "---\nfoo\n");
     assert_eq!(statistics["fallback"], "unsettled-quote:4", "{statistics}");
+}
+
+#[test]
+fn indentless_sequences_retry_conversion_after_verified_layout() {
+    let input = "café:\n- é\n- 世\n";
+    let config = "[format]\nsequence-style = 'flow'\n";
+    let (output, statistics) = format_with_statistics(input, config);
+    assert_eq!(output, "café: [é, 世]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn folding_settles_multiline_quote_offsets_without_collection_targets() {
+    let config = "line-length = 16\n[format]\nfold-long-lines = true\n";
+    let (output, statistics) =
+        format_with_statistics("é: 'one two three\n  user''s four five six'\n", config);
+    assert_eq!(output, "é: one two three\n  user's four\n  five six\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["verification_parses"], 2, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn rejected_collection_without_layout_progress_restarts_the_ordered_driver() {
+    let input = "---\u{a0}x\n---\nitems: [a, b]\n";
+    let (output, statistics) =
+        format_with_statistics(input, "[format]\nsequence-style = 'block'\n");
+    assert_eq!(output, input);
+    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
 }

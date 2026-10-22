@@ -73,27 +73,61 @@ pub(crate) fn format(
     passes: &Passes<'_>,
     tracking: &mut PassTracking<'_>,
 ) -> Result<TextVersion<'static>, Fallback> {
-    if let Some(cfg) = passes.collection_style {
-        let mut prepared = collection_style::prepare(
-            source.analysis(),
-            cfg,
-            passes.indentation.as_ref(),
-        )?;
-        let input = prepared
-            .as_ref()
-            .map_or(source.analysis(), |(text, _)| text.analysis());
-        if let Some(quoted) = prepare_quotes(input, passes)? {
-            let mut rules = prepared.map_or_else(Vec::new, |(_, rules)| rules);
-            rules.push(quoted_strings::ID);
-            prepared = Some((quoted, rules));
-        }
-        if let Some((mut converted, rules)) = prepared {
-            let output = format_document(&mut converted, passes, tracking)?;
-            tracking.edited.extend(rules);
+    let Some(cfg) = passes.collection_style else {
+        if let Some(mut quoted) = prepare_quotes(source.analysis(), passes)? {
+            let output = format_document(&mut quoted, passes, tracking)?;
+            tracking.edited.push(quoted_strings::ID);
             return Ok(output);
         }
+        return format_document(source, passes, tracking);
+    };
+    format_collections(source, passes, tracking, cfg)
+}
+
+fn format_collections(
+    source: &mut TextVersion<'_>,
+    passes: &Passes<'_>,
+    tracking: &mut PassTracking<'_>,
+    cfg: collection_style::Config,
+) -> Result<TextVersion<'static>, Fallback> {
+    let mut current = None;
+    let mut prepared =
+        collection_style::prepare(source.analysis(), cfg, passes.indentation.as_ref());
+    let mut result = Err(Fallback::DryEdits);
+    for _ in 0..crate::fix::FIX_PIPELINE_MAX_PASSES {
+        let input = current.as_mut().unwrap_or(source);
+        let rejected = prepared
+            .is_err()
+            .then(|| input.analysis().text().to_owned());
+        let (mut converted, rules) =
+            prepared.unwrap_or_default().unwrap_or_else(|| {
+                (
+                    std::mem::replace(input, TextVersion::new(String::new()))
+                        .into_owned(),
+                    Vec::new(),
+                )
+            });
+        if let Some(quoted) = prepare_quotes(converted.analysis(), passes)? {
+            converted = quoted;
+            tracking.edited.push(quoted_strings::ID);
+        }
+        let output = format_document(&mut converted, passes, tracking)?;
+        tracking.edited.extend(rules);
+        if rejected.as_deref() == Some(output.analysis().text()) {
+            return Err(Fallback::Verification);
+        }
+        prepared = collection_style::prepare(
+            output.analysis(),
+            cfg,
+            passes.indentation.as_ref(),
+        );
+        if matches!(prepared, Ok(None)) {
+            result = Ok(output);
+            break;
+        }
+        current = Some(output);
     }
-    format_document(source, passes, tracking)
+    result
 }
 
 fn format_document(
@@ -123,7 +157,6 @@ fn format_document(
                     })
             })?;
     let Some((text, styles, rules)) = prepared else {
-        dry_collections(source.analysis(), passes)?;
         remember(tracking, source, passes.indentation, kept);
         source.release_tokens();
         source.mark_strict_valid();
@@ -153,7 +186,6 @@ fn format_document(
         stats::count(stats::Counter::Rollback);
         return Err(Fallback::DryEdits);
     }
-    dry_collections(output.analysis(), passes)?;
     if let Some(cfg) = passes.indentation
         && cfg.requires_consistency()
         && !dry.layout.consistent(&cfg)
@@ -229,16 +261,6 @@ fn prepare_quotes(
     }
     output.mark_strict_valid();
     Ok(Some(output))
-}
-
-fn dry_collections(input: Analysis<'_>, passes: &Passes<'_>) -> Result<(), Fallback> {
-    if passes.collection_style.is_some_and(|cfg| {
-        collection_style::dirty(input, cfg, passes.indentation.as_ref())
-    }) {
-        stats::count(stats::Counter::Rollback);
-        return Err(Fallback::DryEdits);
-    }
-    Ok(())
 }
 
 fn remember(

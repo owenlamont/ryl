@@ -112,14 +112,6 @@ pub(crate) fn prepare(
     )))
 }
 
-pub(crate) fn dirty(
-    input: Analysis<'_>,
-    cfg: Config,
-    indent: Option<&indentation::Config>,
-) -> bool {
-    !plan(input.text(), cfg, indent, Some(input)).0.is_empty()
-}
-
 #[must_use]
 pub fn findings(
     buffer: &str,
@@ -222,7 +214,9 @@ fn skip_reindent_dependent(
     indent: Option<&indentation::Config>,
     require_consistent_indent: bool,
 ) -> Vec<Edit> {
-    let Some(indent) = indent.filter(|_| !edits.is_empty()) else {
+    let Some(indent) =
+        indent.filter(|_| edits.iter().any(|(_, finding)| !findings[*finding].to_flow))
+    else {
         return edits.into_iter().map(|(edit, _)| edit).collect();
     };
     let candidate = apply_replacements(
