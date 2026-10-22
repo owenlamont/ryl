@@ -372,25 +372,26 @@ fn hard_link_batches(files: &[LintFile]) -> Vec<std::ops::Range<usize>> {
     batches
 }
 
-/// `compute` over each file in parallel, never reading a symlink, paired with the stderr it
-/// produced so the caller can replay both in input order.
+/// Never reads a symlink; pairs each result with stderr for ordered replay.
 fn read_in_parallel<T: Send>(
     files: &[LintFile],
     compute: impl Fn(decoder::DecodedFile, &LintFile) -> T + Sync,
 ) -> Vec<(Result<T, String>, Vec<u8>)> {
-    files
-        .par_iter()
-        .map(|file| {
-            crate::cli_support::capture_file_stderr(|| {
-                if is_symlink(&file.0) {
-                    Err(format!("skipped symlink {}", file.0.display()))
-                } else {
-                    decoder::read_file_lossless(&file.0)
-                        .map(|decoded| compute(decoded, file))
-                }
-            })
+    let compute_file = |file: &LintFile| {
+        crate::cli_support::capture_file_stderr(|| {
+            if is_symlink(&file.0) {
+                Err(format!("skipped symlink {}", file.0.display()))
+            } else {
+                decoder::read_file_lossless(&file.0)
+                    .map(|decoded| compute(decoded, file))
+            }
         })
-        .collect()
+    };
+    if crate::cli_support::small_file_batch(files) {
+        files.iter().map(compute_file).collect()
+    } else {
+        files.par_iter().map(compute_file).collect()
+    }
 }
 
 /// A rewrite preview; formatting changes can have no applicable text diff.
