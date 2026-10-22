@@ -8,6 +8,7 @@ uv run --with pytest --with typer --with py-yaml12 --with pyyaml --with platform
 pytest tests/test_formatter_corpus_check.py
 """
 
+from datetime import date, datetime, UTC
 import hashlib
 import json
 from pathlib import Path
@@ -601,3 +602,105 @@ def test_reference_events_keep_output_past_64_kib(
     events = sys.modules["reference_events"]
     monkeypatch.setattr(events, "_PARSER", parser)
     assert len(events._events("a: 1\n")) == 20000
+
+
+OLD_A: Final = "a" * 40
+OLD_B: Final = "b" * 40
+OLD_C: Final = "c" * 40
+OLD_D: Final = "d" * 40
+NEW_A: Final = "1" * 40
+NEW_B: Final = "2" * 40
+WAIVED_PATH: Final = "w.yaml"
+WAIVED_SHA256: Final = "e" * 64
+NOW: Final = datetime(2026, 10, 22, tzinfo=UTC)
+TODAY: Final = date(2026, 10, 23)
+MANIFEST: Final = f"""# comment kept
+tested-date = 2026-01-01
+
+[[repo]]
+url = "https://github.com/o/a"
+sha = "{OLD_A}"  # trailing
+note = "x"
+
+[[repo.yaml12-known-errors]]
+path = "{WAIVED_PATH}"
+before-sha256 = "{WAIVED_SHA256}"
+after-sha256 = "{"f" * 64}"
+
+[[repo]]
+url = "https://github.com/o/held"
+sha = "{OLD_C}"
+refresh = false
+
+[[repo]]
+url = "https://github.com/o/b"
+sha = "{OLD_B}"
+
+[[markdown-repo]]
+url = "https://github.com/o/b"
+sha = "{OLD_D}"
+"""
+
+
+class FakeRemote:
+    def head(self, pin: gate.Pin) -> str:
+        return {"o/a": NEW_A, "o/b": NEW_B}[pin.name]
+
+    def committed(self, pin: gate.Pin, sha: str) -> datetime:
+        return datetime(2026, 1, 1, tzinfo=UTC) if sha == OLD_A else NOW
+
+    def sha256(self, pin: gate.Pin, sha: str, path: str) -> str | None:
+        return None
+
+
+@pytest.fixture
+def manifest(tmp_path: Path) -> Path:
+    path = tmp_path / "corpus.toml"
+    path.write_bytes(MANIFEST.encode())
+    return path
+
+
+def test_refresh_rewrites_only_the_sha_lines(manifest: Path) -> None:
+    gate.refresh_manifest(
+        manifest, names=(), dry_run=False, remote=FakeRemote(), today=TODAY
+    )
+    expected = (
+        MANIFEST.replace(OLD_A, NEW_A)
+        .replace(OLD_B, NEW_B)
+        .replace(OLD_D, NEW_B)
+        .replace("tested-date = 2026-01-01", f"tested-date = {TODAY}")
+    )
+    assert manifest.read_bytes().decode() == expected
+
+
+def test_refresh_holds_an_opted_out_pin(manifest: Path) -> None:
+    report = gate.refresh_manifest(
+        manifest, names=("o/held",), dry_run=False, remote=FakeRemote(), today=TODAY
+    )
+    assert manifest.read_bytes().decode() == MANIFEST
+    assert report == [
+        f"o/held: held at {OLD_C[:12]} (refresh = false)",
+        (f"0 of 1 pins move; oldest current pin: o/held {OLD_C[:12]} (2026-10-22)"),
+    ]
+
+
+def test_refresh_moves_only_the_named_repo(manifest: Path) -> None:
+    gate.refresh_manifest(
+        manifest, names=("o/b",), dry_run=False, remote=FakeRemote(), today=TODAY
+    )
+    expected = MANIFEST.replace(OLD_B, NEW_B).replace(OLD_D, NEW_B)
+    assert manifest.read_bytes().decode() == expected
+
+
+def test_dry_run_reports_moves_and_lapsing_waivers_without_writing(
+    manifest: Path,
+) -> None:
+    report = gate.refresh_manifest(
+        manifest, names=("o/a",), dry_run=True, remote=FakeRemote(), today=TODAY
+    )
+    assert manifest.read_bytes().decode() == MANIFEST
+    assert report == [
+        f"o/a: {OLD_A[:12]} (2026-01-01) -> {NEW_A[:12]} (2026-10-22)",
+        f"waiver may lapse: yaml12 o/a: {WAIVED_PATH} (file removed)",
+        f"1 of 1 pins move; oldest current pin: o/a {OLD_A[:12]} (2026-01-01)",
+    ]

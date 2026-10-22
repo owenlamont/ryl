@@ -192,6 +192,10 @@ the Rust oracle still judges the pair. An
 entry waives that oracle's value verdict only while the original and formatted bytes
 match its `before-sha256` and `after-sha256`, and one the run no longer hits fails the
 gate as stale. Any ryl error, panic or timeout fails it too.
+`uv run scripts/formatter_corpus_check.py refresh` moves every pin to the head of its
+`branch`, else the default branch (`refresh = false` holds one; `--repo` limits it;
+`--dry-run` only reports; a full run sets `tested-date`), and lists each known-error
+waiver whose file changed at the new commit, so the waiver would stop applying.
 `uv run --with pytest --with typer --with py-yaml12 --with pyyaml --with platformdirs
 pytest tests/test_formatter_corpus_check.py tests/test_formatter_output_parity.py` tests
 both gate scripts. Minimise a failing

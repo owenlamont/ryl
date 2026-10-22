@@ -5,6 +5,11 @@
 # oracle's value verdict on one file only while its bytes match both pinned hashes;
 # `profile` selects a mixed corpus profile, or defaults to the standard profile.
 # `--markdown` selects the separate `[[markdown-repo]]` pins; `[[repo]]` stays YAML-only.
+# `formatter_corpus_check.py refresh` moves each `sha` to the head of its `branch`, else
+# the default branch; `refresh = false` holds a pin where it is. A full refresh sets
+# `tested-date`, which `run` prints.
+
+tested-date = 2026-10-15
 
 [[repo]]
 url = "https://github.com/kubernetes/examples"
@@ -152,6 +157,7 @@ sparse = ["/doc/"]
 [[repo]]
 url = "https://github.com/yaml/yaml-test-suite"
 sha = "6ad3d2c62885d82fc349026c136ef560838fdf3d"
+branch = "data"
 note = "spec edge cases; invalid inputs must stay byte-identical"
 sparse = ["*.yaml", "*.yml", "error"]
 # A case's in.yaml beside an `error` file is invalid YAML by the suite's own verdict.

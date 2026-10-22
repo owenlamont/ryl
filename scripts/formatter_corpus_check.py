@@ -29,8 +29,9 @@ Rust oracle with `cargo test --release`), `git` and `uv`. Run from the repo root
 """
 
 from collections import Counter
-from collections.abc import Callable, Container, Iterable, Mapping
+from collections.abc import Callable, Collection, Container, Iterable, Mapping
 from dataclasses import asdict, dataclass, field
+from datetime import date, datetime, UTC
 from enum import StrEnum
 import fnmatch
 from functools import partial
@@ -45,7 +46,7 @@ import shutil
 import subprocess
 import time
 import tomllib
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Protocol
 
 import platformdirs
 from reference_events import reference_equal
@@ -56,7 +57,6 @@ from yaml12 import parse_yaml
 
 app = typer.Typer(add_completion=False, help=__doc__)
 
-TESTED_DATE: Final = "2026-10-15"
 _ROOT: Final = Path(__file__).resolve().parent.parent
 _MANIFEST: Final = Path(__file__).with_name("formatter_corpus.toml")
 _RYL: Final = Path(
@@ -91,6 +91,9 @@ _RULE_RE: Final = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
 # `unreadable` means a side is not UTF-8, so the Rust oracle could not judge the pair.
 _RUST_PASSES: Final = frozenset({"ok", "unreadable"})
 _DEFAULT_CACHE: Final = Path(platformdirs.user_cache_dir("ryl-corpus"))
+_SECTIONS: Final = ("repo", "markdown-repo")
+_ORACLES: Final = ("rust", "yaml12")
+_GIT_TIMEOUT_S: Final = 300.0
 KnownError = tuple[str, str, str]
 
 
@@ -769,6 +772,257 @@ def _summary(results: Iterable[Result]) -> str:
     return header + "".join(rows)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, order=True)
+class Waiver:
+    oracle: str
+    path: str
+    before_sha256: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Pin:
+    """One manifest entry; `index` counts entries of its own `section` from zero."""
+
+    section: str
+    index: int
+    url: str
+    sha: str
+    branch: str | None = None
+    refresh: bool = True
+    waivers: frozenset[Waiver] = frozenset()
+
+    @property
+    def name(self) -> str:
+        """`owner/name`, shared by a repo's YAML and Markdown pins."""
+        return self.url.removeprefix("https://").split("/", 1)[1]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Move:
+    pin: Pin
+    sha: str
+
+
+class Remote(Protocol):
+    def head(self, pin: Pin) -> str:
+        """The commit `pin.branch`, else the default branch, points at."""
+        ...
+
+    def committed(self, pin: Pin, sha: str) -> datetime:
+        """When `sha` was committed."""
+        ...
+
+    def sha256(self, pin: Pin, sha: str, path: str) -> str | None:
+        """The file's digest at `sha`, or None when the commit has no such file."""
+        ...
+
+
+class GitRemote:
+    """A `Remote` over `git ls-remote` and depth-1 treeless mirrors in `cache`.
+
+    Every method raises `CalledProcessError` or `TimeoutExpired` when git cannot
+    reach the pin's repo.
+    """
+
+    def __init__(self, cache: Path) -> None:
+        self._cache = cache
+        self._fetched: set[tuple[str, str]] = set()
+
+    @staticmethod
+    def _run(cwd: Path, *args: str) -> bytes:
+        return subprocess.run(
+            ["git", *args],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            timeout=_GIT_TIMEOUT_S,
+            env=os.environ | {"GIT_TERMINAL_PROMPT": "0"},
+        ).stdout
+
+    def _mirror(self, pin: Pin, sha: str) -> Path:
+        mirror = self._cache / "refresh" / pin.name.replace("/", "__")
+        if not mirror.is_dir():
+            mirror.mkdir(parents=True)
+            self._run(mirror, "init", "-q", "--bare")
+            self._run(mirror, "remote", "add", "origin", pin.url)
+        if (pin.name, sha) not in self._fetched:
+            self._run(
+                mirror, "fetch", "-q", "--depth", "1", "--filter=tree:0", "origin", sha
+            )
+            self._fetched.add((pin.name, sha))
+        return mirror
+
+    def head(self, pin: Pin) -> str:
+        """Resolve `pin.branch`, else the default branch.
+
+        Returns:
+            The commit it points at.
+
+        Raises:
+            CorpusError: the remote lists no such ref, or several.
+        """
+        ref = f"refs/heads/{pin.branch}" if pin.branch else "HEAD"
+        self._cache.mkdir(parents=True, exist_ok=True)
+        listed = self._run(self._cache, "ls-remote", pin.url, ref).decode()
+        rows = (line.split("\t") for line in listed.splitlines())
+        shas = [sha for sha, name in rows if name == ref]
+        if len(shas) != 1:
+            msg = f"{pin.name}: expected one {ref}, found {len(shas)}"
+            raise CorpusError(msg)
+        return shas[0]
+
+    def committed(self, pin: Pin, sha: str) -> datetime:
+        """Read a commit's date.
+
+        Returns:
+            When `sha` was committed.
+        """
+        stamp = self._run(self._mirror(pin, sha), "log", "-1", "--format=%cI", sha)
+        return datetime.fromisoformat(stamp.decode().strip())
+
+    def sha256(self, pin: Pin, sha: str, path: str) -> str | None:
+        """Hash a file at a commit.
+
+        Returns:
+            Its SHA-256, or None when the commit has no such file.
+        """
+        mirror = self._mirror(pin, sha)
+        try:
+            data = self._run(mirror, "cat-file", "blob", f"{sha}:{path}")
+        except subprocess.CalledProcessError:
+            return None
+        return hashlib.sha256(data).hexdigest()
+
+
+def read_pins(text: str) -> list[Pin]:
+    """Parse a manifest's text.
+
+    Returns:
+        Every `[[repo]]` entry, then every `[[markdown-repo]]` entry.
+    """
+    manifest = tomllib.loads(text)
+    return [
+        Pin(
+            section=section,
+            index=index,
+            url=row["url"],
+            sha=row["sha"],
+            branch=row.get("branch"),
+            refresh=row.get("refresh", True),
+            waivers=frozenset(
+                Waiver(oracle=oracle, path=e["path"], before_sha256=e["before-sha256"])
+                for oracle in _ORACLES
+                for e in row.get(f"{oracle}-known-errors", ())
+            ),
+        )
+        for section in _SECTIONS
+        for index, row in enumerate(manifest[section])
+    ]
+
+
+def rewrite_shas(text: str, moves: Iterable[Move]) -> str:
+    """Replace each moved pin's one `sha = "..."` line inside its own table.
+
+    Returns:
+        `text` with only those lines changed.
+
+    Raises:
+        CorpusError: a pin's table holds no such line, or more than one.
+    """
+    lines = text.splitlines(keepends=True)
+    headers = {
+        section: [
+            i for i, line in enumerate(lines) if line.rstrip() == f"[[{section}]]"
+        ]
+        for section in _SECTIONS
+    }
+    for move in moves:
+        start = headers[move.pin.section][move.pin.index]
+        end = next(
+            (i for i in range(start + 1, len(lines)) if lines[i].startswith("[[")),
+            len(lines),
+        )
+        old = f'sha = "{move.pin.sha}"'
+        hits = [i for i in range(start + 1, end) if lines[i].startswith(old)]
+        if len(hits) != 1:
+            msg = f"{move.pin.name}: expected one `{old}` line, found {len(hits)}"
+            raise CorpusError(msg)
+        lines[hits[0]] = lines[hits[0]].replace(move.pin.sha, move.sha)
+    return "".join(lines)
+
+
+def _restamp(text: str, today: date) -> str:
+    old = f"tested-date = {tomllib.loads(text)['tested-date']}"
+    lines = text.splitlines(keepends=True)
+    hits = [i for i, line in enumerate(lines) if line.startswith(old)]
+    if len(hits) != 1:
+        msg = f"expected one `{old}` line, found {len(hits)}"
+        raise CorpusError(msg)
+    lines[hits[0]] = lines[hits[0]].replace(old, f"tested-date = {today}")
+    return "".join(lines)
+
+
+def refresh_manifest(
+    manifest: Path,
+    *,
+    names: Collection[str],
+    dry_run: bool,
+    remote: Remote,
+    today: date,
+) -> list[str]:
+    """Move each selected pin to its branch head and report what moved.
+
+    Writes the new shas into `manifest` unless `dry_run`, and sets its
+    `tested-date` to `today` when `names` is empty. The report also names
+    every known-error waiver whose file no longer matches its `before-sha256` at
+    the new commit, since that waiver stops applying.
+
+    Returns:
+        One line per moved or held pin and lapsing waiver, then a summary line.
+
+    Raises:
+        BadParameter: a name in `names` is not in the manifest.
+    """
+    text = manifest.read_bytes().decode()
+    every = read_pins(text)
+    if unknown := set(names) - {pin.name for pin in every}:
+        msg = f"not in the manifest: {', '.join(sorted(unknown))}"
+        raise typer.BadParameter(msg, param_hint="--repo")
+    selected = [pin for pin in every if not names or pin.name in names]
+    heads = ((pin, remote.head(pin)) for pin in selected if pin.refresh)
+    moves = [Move(pin=pin, sha=sha) for pin, sha in heads if sha != pin.sha]
+
+    def day(pin: Pin, sha: str) -> str:
+        return f"{sha[:12]} ({remote.committed(pin, sha).date()})"
+
+    report = [
+        f"{m.pin.name}: {day(m.pin, m.pin.sha)} -> {day(m.pin, m.sha)}" for m in moves
+    ]
+    report.extend(
+        f"{pin.name}: held at {pin.sha[:12]} (refresh = false)"
+        for pin in selected
+        if not pin.refresh
+    )
+    report.extend(
+        f"waiver may lapse: {w.oracle} {m.pin.name}: {w.path} "
+        f"({'file removed' if digest is None else 'file changed'})"
+        for m in moves
+        for w in sorted(m.pin.waivers)
+        if (digest := remote.sha256(m.pin, m.sha, w.path)) != w.before_sha256
+    )
+    oldest = min(selected, key=lambda pin: remote.committed(pin, pin.sha))
+    report.append(
+        f"{len(moves)} of {len(selected)} pins move; oldest current pin: "
+        f"{oldest.name} {day(oldest, oldest.sha)}"
+    )
+    if not dry_run:
+        updated = rewrite_shas(text, moves)
+        if not names:
+            updated = _restamp(updated, today)
+        manifest.write_bytes(updated.encode())
+    return report
+
+
 _CacheOption = Annotated[
     Path, typer.Option(help="Where pinned clones and the report go.")
 ]
@@ -823,7 +1077,8 @@ def run(
     """
     rows = _manifest(repo or (), profile, markdown=markdown)
     clone_dir = cache_dir / ("markdown-repos" if markdown else "repos")
-    typer.echo(f"Corpus pinned on {TESTED_DATE}")
+    tested = tomllib.loads(_MANIFEST.read_text(encoding="utf-8"))["tested-date"]
+    typer.echo(f"Corpus pinned on {tested}")
     subprocess.run(["cargo", "build", "--release"], cwd=_ROOT, check=True)
     work = cache_dir / "work" / str(time.time_ns())
     pair_dir = work / "pairs"
@@ -894,6 +1149,29 @@ def run(
     if failures:
         typer.secho(f"{failures} hard-gate failure(s)", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
+
+
+@app.command()
+def refresh(
+    cache_dir: _CacheOption = _DEFAULT_CACHE,
+    repo: _RepoOption = None,
+    dry_run: Annotated[
+        bool, typer.Option(help="Report old -> new shas without writing them.")
+    ] = False,
+) -> None:
+    """Move every pin, or each `--repo`, to its branch head and report waiver risk.
+
+    A pin follows its `branch`, else the default branch; `refresh = false` holds it.
+    A full refresh also restamps the manifest's `tested-date`.
+    """
+    report = refresh_manifest(
+        _MANIFEST,
+        names=repo or (),
+        dry_run=dry_run,
+        remote=GitRemote(cache_dir),
+        today=datetime.now(UTC).date(),
+    )
+    typer.echo("\n".join(report))
 
 
 if __name__ == "__main__":
