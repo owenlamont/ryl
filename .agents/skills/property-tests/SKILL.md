@@ -173,7 +173,7 @@ and named edge cases, including Markdown hosts. Use repeated `--repo` and `--pro
 options to split a long run into bounded batches; `--markdown-only` runs just the pinned
 Markdown repos. A full run covers every repo and profile across the batches. Run
 `uv run scripts/formatter_corpus_check.py run` independently for preservation and
-idempotence. Any output difference requires a separate correctness PR.
+idempotence. Any output difference a changelog entry does not explain blocks the release.
 Set `RYL_CORPUS_BINARY` to pin an immutable candidate; the Rust oracle build can
 replace `target/release/ryl` during the run.
 The checker disables ryl's result cache so the second format actually checks idempotence.
