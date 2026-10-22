@@ -38,6 +38,23 @@ pub const RAW_INPUTS: &[&str] = &[
 /// Inputs reaching scanner and parser paths that no construction reaches, distilled from a
 /// sweep over yaml-test-suite prefixes and generated token sequences under every option set.
 pub const ERROR_PATH_INPUTS: &[&str] = &[
+    "\t\u{feff}",
+    "!%",
+    "{![",
+    "one:\n- 2\n- \u{1}",
+    ">\u{1}",
+    ">\n\u{1}",
+    "\"q\"\u{1}",
+    "- #\u{1}",
+    ">\n\n\u{1}",
+    "[\n...",
+    "  ?: {?",
+    ">\n ab\n\u{1}",
+    ">\n ab\n \u{1}",
+    "---\nhr: #\u{1}",
+    "!t &a # c|2-\n'",
+    "[\n? foo\n bar\n: #c",
+    "---\nnested sequences:\n- - : #c",
     "---\nnested sequences:\n- - -",
     "!x:%41",
     "|+\n...",
