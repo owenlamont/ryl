@@ -132,6 +132,14 @@ hooks = [
     entry = "uv run scripts/source_size.py src --max-comment-ratio 0.10 --top 0",
     files = '^src/.*\.rs$',
     pass_filenames = false
+  },
+  {
+    id = "comment-ratio-parser",
+    name = "ryl-yaml-parser comment-to-code ratio",
+    language = "system",
+    entry = "uv run scripts/source_size.py crates/ryl-yaml-parser/src --max-comment-ratio 0.20 --top 0",
+    files = '^crates/ryl-yaml-parser/src/.*\.rs$',
+    pass_filenames = false
   }
 ]
 

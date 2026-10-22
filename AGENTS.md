@@ -148,8 +148,9 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   `uv run scripts/source_size.py --compare-to <branch-or-ref>` (the branch point or
   `HEAD`); it reports bytes/lines plus a per-root code/doc/comment split via `tokei`. If
   the increase looks large relative to the added functionality, make the implementation
-  DRYer or simplify it before committing. The `comment-ratio` prek hook (also run in CI)
-  gates `src` at `--max-comment-ratio 0.10`, so comments cannot outgrow code.
+  DRYer or simplify it before committing. The `comment-ratio` prek hooks (also run in CI)
+  gate `src` at `--max-comment-ratio 0.10` and `crates/ryl-yaml-parser/src` at `0.20`,
+  where `missing_docs` requires every public item to be documented.
 - For any behaviour or feature changes ensure all documentation is updated
   appropriately.
 
