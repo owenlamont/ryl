@@ -887,3 +887,26 @@ fn rejected_collection_without_layout_progress_restarts_the_ordered_driver() {
     assert_eq!(output, input);
     assert_eq!(statistics["fallback"], "Verification", "{statistics}");
 }
+
+#[test]
+fn block_conversion_keeps_trailing_comments_in_the_ordered_phase() {
+    let config = "[format]\nsequence-style = 'block'\n";
+    let (output, statistics) =
+        format_with_statistics("café:\n  seq: [a, b]\n  # note\nnext: value\n", config);
+    assert_eq!(
+        output,
+        "café:\n  seq:\n    - a\n    - b\n# note\nnext: value\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn flow_conversion_settles_misaligned_comments_before_reindentation() {
+    let config = "[format]\nmapping-style = 'flow'\n";
+    let (output, statistics) =
+        format_with_statistics("café:\n  key: value\n   # note\nnext: value\n", config);
+    assert_eq!(output, "café: {key: value}\n# note\nnext: value\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}

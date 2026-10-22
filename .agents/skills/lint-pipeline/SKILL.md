@@ -188,14 +188,16 @@ the existing schema and snippet checks;
 unchanged plain and block scalars need no quote decision.
 
 Forced collection targets plan conversion before layout, retaining the existing
-comment, key, width and reindent refusals. A strict parse compares significant events
-with only collection style relaxed, alongside the semantic comparison. All folding
-profiles settle quote edits in a separately verified epoch before measuring fold endpoints.
-Layout emission and fresh dry planning then run normally; a dry collection plan must
-also have no remaining edits. A remaining conversion plan becomes the next verified
-stage. Rejected conversions can retry after a changed layout stage, retaining the
-existing fixed-point bound; unsettled stages restart the ordered driver from the
-original bytes.
+comment, key, width and reindent refusals. A strict parse compares significant
+events with only collection style relaxed, alongside the semantic comparison.
+All folding profiles settle quote edits in a separately verified epoch before
+measuring fold endpoints. Conversions with comments align comments before
+conversion, defer further comment alignment until after reindentation, then run
+the full layout and dry plan. A dry collection plan must also have no remaining
+edits. A remaining conversion plan becomes the next verified stage. Rejected
+conversions can retry after a changed layout stage, retaining the existing
+fixed-point bound; unsettled stages restart the ordered driver from the original
+bytes.
 
 The layout planner retains source provenance through dash joins, scalar collapses,
 comment shifts, folding and boundary finishing. Refusal-sensitive combinations use

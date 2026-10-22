@@ -13,7 +13,7 @@ use crate::rules::support::line_syntax::{
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
-use crate::rules::{braces, brackets, indentation};
+use crate::rules::{braces, brackets, comments_indentation, indentation};
 use crate::text_version::{Analysis, TextVersion};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,13 +86,30 @@ pub(crate) fn prepare(
     input: Analysis<'_>,
     cfg: Config,
     indent: Option<&indentation::Config>,
+    comments: Option<comments_indentation::Config>,
 ) -> Result<
     Option<(TextVersion<'static>, Vec<&'static str>)>,
     crate::format::layout::Fallback,
 > {
-    let (edits, findings) = plan(input.text(), cfg, indent, Some(input));
+    let (mut edits, findings) = plan(input.text(), cfg, indent, Some(input));
     if edits.is_empty() {
         return Ok(None);
+    }
+    let mut rules: Vec<_> = findings
+        .into_iter()
+        .filter(|finding| finding.refused.is_none())
+        .map(|finding| finding.rule)
+        .collect();
+    if let Some(cfg) = comments
+        && input
+            .event_iter()
+            .any(|(event, _)| matches!(event, Event::Comment(..)))
+    {
+        let comments = comments_indentation::edits(input, cfg);
+        if !comments.is_empty() {
+            rules.push(comments_indentation::ID);
+            edits.extend(comments);
+        }
     }
     let mut output = TextVersion::new(apply_replacements(input.text(), edits));
     if !input
@@ -102,14 +119,7 @@ pub(crate) fn prepare(
         return Err(crate::format::layout::Fallback::Verification);
     }
     output.mark_strict_valid();
-    Ok(Some((
-        output,
-        findings
-            .into_iter()
-            .filter(|finding| finding.refused.is_none())
-            .map(|finding| finding.rule)
-            .collect(),
-    )))
+    Ok(Some((output, rules)))
 }
 
 #[must_use]

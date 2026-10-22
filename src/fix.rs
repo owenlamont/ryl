@@ -1237,6 +1237,7 @@ pub fn apply_safe_fixes_capped(
 }
 
 /// The line ending the final-newline fix appends.
+#[derive(Clone)]
 pub(crate) enum NewlinePolicy {
     Configured(String),
     /// Reuse the first line's ending so a `\r`-delimited file's appended final newline
@@ -1254,6 +1255,7 @@ impl NewlinePolicy {
 }
 
 /// Each fixer's resolved target, `None` (or `false`) where it does not run.
+#[derive(Clone)]
 pub(crate) struct Passes<'a> {
     pub(crate) preserve_events: bool,
     pub(crate) new_lines: Option<new_lines::Config>,

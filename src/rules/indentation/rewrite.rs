@@ -102,7 +102,6 @@ impl<'a> Layout<'a> {
                 Box::new(crate::format::layout::Bridge {
                     start: start.get(),
                     end: end.get(),
-                    bytes: text.len(),
                     characters: text.char_count(),
                     prefix_column: source[prefix..start.get()].chars().count(),
                     // BOM-normalized columns retain the byte-derived tail width.

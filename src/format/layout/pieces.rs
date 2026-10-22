@@ -85,12 +85,3 @@ impl<'a> Piece<'a> {
         }
     }
 }
-
-pub(super) fn bridge_width(
-    bridge: Option<&super::Bridge>,
-    byte: usize,
-) -> Option<usize> {
-    bridge.map_or(Some(0), |bridge| {
-        (byte >= bridge.end).then_some(bridge.bytes)
-    })
-}

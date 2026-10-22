@@ -91,8 +91,12 @@ fn format_collections(
     cfg: collection_style::Config,
 ) -> Result<TextVersion<'static>, Fallback> {
     let mut current = None;
-    let mut prepared =
-        collection_style::prepare(source.analysis(), cfg, passes.indentation.as_ref());
+    let mut prepared = collection_style::prepare(
+        source.analysis(),
+        cfg,
+        passes.indentation.as_ref(),
+        passes.comments_indentation,
+    );
     let mut result = Err(Fallback::DryEdits);
     for _ in 0..crate::fix::FIX_PIPELINE_MAX_PASSES {
         let input = current.as_mut().unwrap_or(source);
@@ -111,7 +115,20 @@ fn format_collections(
             converted = quoted;
             tracking.edited.push(quoted_strings::ID);
         }
-        let output = format_document(&mut converted, passes, tracking)?;
+        let output = if !rules.is_empty()
+            && passes.comments_indentation.is_some()
+            && converted
+                .analysis()
+                .event_iter()
+                .any(|(event, _)| matches!(event, Event::Comment(..)))
+        {
+            let mut staged = passes.clone();
+            staged.comments_indentation = None;
+            let mut output = format_document(&mut converted, &staged, tracking)?;
+            format_document(&mut output, passes, tracking)?
+        } else {
+            format_document(&mut converted, passes, tracking)?
+        };
         tracking.edited.extend(rules);
         if rejected.as_deref() == Some(output.analysis().text()) {
             return Err(Fallback::Verification);
@@ -120,6 +137,7 @@ fn format_collections(
             output.analysis(),
             cfg,
             passes.indentation.as_ref(),
+            passes.comments_indentation,
         );
         if matches!(prepared, Ok(None)) {
             result = Ok(output);
@@ -971,33 +989,20 @@ impl<'a> DocumentPlan<'a> {
         let mut valid = true;
         [line.body, line.tail]
             .into_iter()
-            .enumerate()
-            .find_map(|(piece, part)| {
+            .filter(|part| !part.is_empty())
+            .find_map(|part| {
+                let start = part.as_ptr() as usize - source.as_ptr() as usize;
+                let end = start + part.len();
+                valid &= byte >= start;
                 valid
                     .then(|| {
-                        let bridge = pieces::bridge_width(
-                            line.bridge.as_deref().filter(|_| piece == 1),
-                            byte,
+                        position = projection.byte_position(
+                            self.input,
+                            start,
+                            byte.min(end),
+                            position,
                         );
-                        valid &= bridge.is_some();
-                        position += bridge.unwrap_or_default();
-                        if part.is_empty() {
-                            return None;
-                        }
-                        let start = part.as_ptr() as usize - source.as_ptr() as usize;
-                        let end = start + part.len();
-                        valid &= byte >= start;
-                        valid
-                            .then(|| {
-                                position = projection.byte_position(
-                                    self.input,
-                                    start,
-                                    byte.min(end),
-                                    position,
-                                );
-                                (byte <= end).then(|| self.close_gaps(index, position))
-                            })
-                            .flatten()
+                        (byte <= end).then(|| self.close_gaps(index, position))
                     })
                     .flatten()
             })
@@ -1315,7 +1320,6 @@ fn remove_blanks(
 pub(crate) struct Bridge {
     pub(crate) start: usize,
     pub(crate) end: usize,
-    pub(crate) bytes: usize,
     pub(crate) characters: usize,
     pub(crate) prefix_column: usize,
     pub(crate) end_position: Option<(usize, usize)>,
