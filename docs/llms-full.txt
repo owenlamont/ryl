@@ -1109,6 +1109,13 @@ Helm and kubectl use, loads them as booleans, as the YAML 1.1 spec does. So
 `'y'` keeps its quotes, and `required: true` leaves a plain `y` alone as it
 does a plain `no`.
 
+### ytt directives
+
+ryl's `comments` rule skips ytt `#@` directives, including their inline spacing.
+yamllint reports missing comment spacing there. Inserting a space after `#` turns
+the directive into a plain comment, changing what ytt renders; see
+[ytt annotations](https://carvel.dev/ytt/docs/v0.52.x/yaml-primer/).
+
 ### Comments after a block scalar header
 
 ryl's `comments` rule checks a comment that follows a block scalar header (`|`, `>`
@@ -1883,6 +1890,9 @@ dash-on-own-line = false
 | `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
 | `sequence-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for sequences. See [Collection style](#collection-style). |
 | `mapping-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for mappings. See [Collection style](#collection-style). |
+
+Comment spacing targets leave ytt `#@` directives unchanged, including the gap
+between an inline directive and its YAML content.
 
 The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
 they set the defaults for the `line-length` and `indentation` rules (see
@@ -4502,6 +4512,9 @@ max-spaces-from-content = -1
 
 Spaces and tabs each count as one. Setting `max-spaces-from-content` reports
 deliberately column-aligned inline comments, and `--fix` collapses the alignment.
+
+The rule leaves ytt `#@` directives and their inline spacing unchanged on every
+line. Adding a space after `#` would turn an instruction into an ordinary comment.
 
 A comment after a block scalar header (`key: >- # note`) is checked like any other
 inline comment, where yamllint skips it; see

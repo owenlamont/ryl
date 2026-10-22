@@ -118,6 +118,9 @@ dash-on-own-line = false
 | `sequence-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for sequences. See [Collection style](#collection-style). |
 | `mapping-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for mappings. See [Collection style](#collection-style). |
 
+Comment spacing targets leave ytt `#@` directives unchanged, including the gap
+between an inline directive and its YAML content.
+
 The top-level `line-length` and `indent-width` keys are shared with `ryl check`, where
 they set the defaults for the `line-length` and `indentation` rules (see
 [Quick start](getting-started/quickstart.md#configure-for-your-project)). `ryl format`

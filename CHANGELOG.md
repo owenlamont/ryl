@@ -7,6 +7,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- Formatting and lint fixes preserve ytt `#@` directives and their inline spacing
+  instead of converting them into ordinary comments.
+  ([#780](https://github.com/owenlamont/ryl/issues/780))
 - Root strings resembling document markers and scalars containing a BOM keep their
   quotes in formatting and lint fixes; formatting rolls back rewrites that change
   document events.
