@@ -104,20 +104,38 @@ pub(crate) fn format(
     tracking: &mut PassTracking<'_>,
 ) -> Result<TextVersion<'static>, Fallback> {
     let Some(cfg) = passes.collection_style else {
-        let edited = tracking.edited.len();
-        return match with_quote_stage(source, passes, tracking, format_document) {
-            Err(Fallback::ScalarInteraction)
-                if passes.line_length.is_some() && passes.indentation.is_some() =>
-            {
-                tracking.edited.truncate(edited);
-                let mut unindented = passes.clone();
-                unindented.indentation = None;
-                format_document_staged(source, passes, tracking, Some(&unindented))
-            }
-            result => result,
-        };
+        return with_quote_stage(
+            source,
+            passes,
+            tracking,
+            |input, passes, tracking| plan_document(input, passes, tracking, None),
+        );
     };
     format_collections(source, passes, tracking, cfg)
+}
+
+/// Plans `input`; a folded tail that re-indentation would disturb folds before its document
+/// re-indents, as main's earlier passes did.
+fn plan_document(
+    input: &mut TextVersion<'_>,
+    passes: &Passes<'_>,
+    tracking: &mut PassTracking<'_>,
+    first: Option<&Passes<'_>>,
+) -> Result<TextVersion<'static>, Fallback> {
+    let edited = tracking.edited.len();
+    match format_document_staged(input, passes, tracking, first, None) {
+        Err(Fallback::ScalarInteraction)
+            if passes.line_length.is_some() && passes.indentation.is_some() =>
+        {
+            tracking.edited.truncate(edited);
+            let mut held = vec![None; input.analysis().parsed().document_starts.len()];
+            if let Some(last) = held.last_mut() {
+                *last = Some(indentation::Cause::Changed);
+            }
+            format_document_staged(input, passes, tracking, first, Some(held))
+        }
+        result => result,
+    }
 }
 
 /// `plan` over `input` with its quote edits applied first, when folding needs settled
@@ -199,9 +217,9 @@ fn format_collections(
                 {
                     let mut staged = passes.clone();
                     staged.comments_indentation = None;
-                    format_document_staged(input, passes, tracking, Some(&staged))
+                    plan_document(input, passes, tracking, Some(&staged))
                 } else {
-                    format_document(input, passes, tracking)
+                    plan_document(input, passes, tracking, None)
                 }
             },
         )?;
@@ -224,21 +242,15 @@ fn format_collections(
     result
 }
 
-fn format_document(
-    source: &mut TextVersion<'_>,
-    passes: &Passes<'_>,
-    tracking: &mut PassTracking<'_>,
-) -> Result<TextVersion<'static>, Fallback> {
-    format_document_staged(source, passes, tracking, None)
-}
-
 fn format_document_staged(
     source: &mut TextVersion<'_>,
     passes: &Passes<'_>,
     tracking: &mut PassTracking<'_>,
     first: Option<&Passes<'_>>,
+    held: Option<Vec<Option<indentation::Cause>>>,
 ) -> Result<TextVersion<'static>, Fallback> {
-    let mut frozen = None;
+    let staged = first.is_some() || held.is_some();
+    let mut frozen = held;
     let mut current = None;
     let mut base: Option<String> = None;
     let mut result = Err(Fallback::Refusal);
@@ -250,7 +262,7 @@ fn format_document_staged(
             passes
         };
         let step = format_document_refused(input, active, tracking, frozen.as_deref())?;
-        if step.settled && (epoch > 0 || first.is_none()) {
+        if step.settled && (epoch > 0 || !staged) {
             let output = step.output.expect("a settled layout has output");
             result = Ok(output);
             break;
@@ -258,6 +270,9 @@ fn format_document_staged(
         if let Some(output) = step.output {
             if step.settled {
                 base = Some(output.analysis().text().to_owned());
+            }
+            if epoch == 0 {
+                frozen = None;
             }
             current = Some(output);
         } else {
@@ -1846,20 +1861,12 @@ fn folded_tail_interacts(
             .take(2)
             .count()
             == 2
-        && input.headers().iter().any(|header| {
-            let line = header.span.start.line() - 1;
-            input
-                .line_content(header.line - 1)
-                .chars()
-                .nth(header.column - 1)
-                == Some('>')
-                && targets.deltas[layout.project_line(
-                    line,
-                    crate::rules::support::span_utils::marker_byte_offset(
-                        header.span.start,
-                    )
-                    .get(),
-                )] < 0
+        && input.headers().last().is_some_and(|header| {
+            let line = header.line - 1;
+            input.line_content(line).chars().nth(header.column - 1) == Some('>')
+                && targets.deltas
+                    [layout.project_line(line, input.byte_line_starts()[line])]
+                    < 0
         })
 }
 

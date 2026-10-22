@@ -1246,3 +1246,16 @@ fn consistency_restarts_after_a_staged_epoch_keep_every_document() {
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
+
+#[test]
+fn only_the_folded_tail_document_folds_before_reindenting() {
+    let (output, statistics) = format_with_statistics(
+        "café: >\n    alpha beta gamma\n      extra\n\n \n---\na:\n    body: >\n      alpha beta gamma delta\n\n ",
+        "line-length = 12\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(
+        output,
+        "café: >\n  alpha beta\n  gamma\n    extra\n\n\n---\na:\n  body: >\n    alpha\n    beta\n    gamma\n    delta\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
