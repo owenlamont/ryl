@@ -105,6 +105,10 @@ description: >-
   - Summarize notable changes in the PR description; the changelog is the release
     notes source.
 - Release-candidate gates, **after the version bump and before tagging**:
+  - Refresh the corpus pins first: run
+    `uv run --script scripts/formatter_corpus_check.py refresh`, triage each
+    `waiver may lapse` line it prints, and commit the bumped pins before any corpus
+    run.
   - Build the release candidate with `cargo build --release`.
   - If `git diff --quiet <previous tag> -- src crates` reports changes (a docs- or
     CI-only release skips this), run the full corpus gates once, comparing the previous
