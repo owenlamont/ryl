@@ -428,14 +428,18 @@ fn dirty_stacked_document() -> StackedDocument {
                 comment: true,
                 bom: true,
                 key: "k".to_string(),
+                block: None,
             },
             FollowOn {
                 explicit: true,
                 comment: false,
                 bom: false,
                 key: "m".to_string(),
+                block: None,
             },
         ],
         trailing_blank_lines: 2,
+        repeated: false,
+        tail_spaces: 0,
     }
 }

@@ -33,6 +33,8 @@ pub struct FollowOn {
     pub comment: bool,
     pub bom: bool,
     pub key: String,
+    /// A `|` or `>` value whose body starts with a tab, instead of `1`.
+    pub block: Option<char>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +45,10 @@ pub struct StackedDocument {
     pub end_marker: bool,
     pub follow_ons: Vec<FollowOn>,
     pub trailing_blank_lines: u8,
+    /// Repeat the document's entries as a second `---` document.
+    pub repeated: bool,
+    /// Spaces on a last line with no line break.
+    pub tail_spaces: u8,
 }
 
 fn line_terminator(newline: NewlineStyle) -> &'static str {
@@ -93,19 +99,11 @@ impl StackedDocument {
             buffer.push_str("---");
             buffer.push_str(terminator);
         }
-        for (entry, decoration) in self.document.entries.iter().zip(&self.decorations) {
-            for filler in &decoration.leading {
-                filler.render(&mut buffer);
-                buffer.push_str(terminator);
-            }
-            let text = single(vec![entry.clone()], None);
-            buffer.push_str(&text);
-            // Trailing spaces after a block or multi-line scalar's last line are scalar
-            // content, so only single-line entries get them.
-            if !text.contains(['\n', '\r']) {
-                buffer.push_str(&" ".repeat(usize::from(decoration.trailing_spaces)));
-            }
+        self.render_entries(&mut buffer, terminator, &single);
+        if self.repeated {
+            buffer.push_str("---");
             buffer.push_str(terminator);
+            self.render_entries(&mut buffer, terminator, &single);
         }
         if self.end_marker {
             buffer.push_str("...");
@@ -120,7 +118,32 @@ impl StackedDocument {
         if !self.document.has_final_newline {
             buffer.truncate(buffer.len() - terminator.len());
         }
+        if buffer.ends_with(terminator) {
+            buffer.push_str(&" ".repeat(usize::from(self.tail_spaces)));
+        }
         buffer
+    }
+
+    fn render_entries(
+        &self,
+        buffer: &mut String,
+        terminator: &str,
+        single: &dyn Fn(Vec<BlockEntry>, Option<(u32, u32)>) -> String,
+    ) {
+        for (entry, decoration) in self.document.entries.iter().zip(&self.decorations) {
+            for filler in &decoration.leading {
+                filler.render(buffer);
+                buffer.push_str(terminator);
+            }
+            let text = single(vec![entry.clone()], None);
+            buffer.push_str(&text);
+            // Trailing spaces after a block or multi-line scalar's last line are scalar
+            // content, so only single-line entries get them.
+            if !text.contains(['\n', '\r']) {
+                buffer.push_str(&" ".repeat(usize::from(decoration.trailing_spaces)));
+            }
+            buffer.push_str(terminator);
+        }
     }
 }
 
@@ -144,20 +167,35 @@ impl FollowOn {
             buffer.push_str(terminator);
         }
         buffer.push_str(&self.key);
-        buffer.push_str(": 1");
+        if let Some(style) = self.block {
+            buffer.push_str(": ");
+            buffer.push(style);
+            buffer.push_str(terminator);
+            buffer.push_str("  \t");
+            buffer.push_str(&self.key);
+            buffer.push_str(" alpha beta gamma delta");
+        } else {
+            buffer.push_str(": 1");
+        }
         buffer.push_str(terminator);
     }
 }
 
 fn arb_follow_on() -> impl Strategy<Value = FollowOn> {
-    (any::<bool>(), any::<bool>(), any::<bool>(), "[a-z]{1,3}").prop_map(
-        |(explicit, comment, bom, key)| FollowOn {
+    (
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+        "[a-z]{1,3}",
+        prop::option::of(prop::sample::select(vec!['|', '>'])),
+    )
+        .prop_map(|(explicit, comment, bom, key, block)| FollowOn {
             explicit,
             comment,
             bom,
             key,
-        },
-    )
+            block,
+        })
 }
 
 fn arb_filler() -> impl Strategy<Value = Filler> {
@@ -192,6 +230,8 @@ pub fn arb_stacked_document() -> impl Strategy<Value = StackedDocument> {
             any::<bool>(),
             prop::collection::vec(arb_follow_on(), 0..=2),
             0u8..=3,
+            any::<bool>(),
+            prop_oneof![3 => Just(0u8), 1 => 1u8..=3],
         )
             .prop_map(
                 |(
@@ -201,6 +241,8 @@ pub fn arb_stacked_document() -> impl Strategy<Value = StackedDocument> {
                     end_marker,
                     follow_ons,
                     trailing_blank_lines,
+                    repeated,
+                    tail_spaces,
                 )| {
                     StackedDocument {
                         document,
@@ -209,6 +251,8 @@ pub fn arb_stacked_document() -> impl Strategy<Value = StackedDocument> {
                         end_marker,
                         follow_ons,
                         trailing_blank_lines,
+                        repeated,
+                        tail_spaces,
                     }
                 },
             )

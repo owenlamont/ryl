@@ -129,9 +129,10 @@ fn plan_document(
         {
             tracking.edited.truncate(edited);
             let mut held = vec![None; input.analysis().parsed().document_starts.len()];
-            if let Some(last) = held.last_mut() {
-                *last = Some(indentation::Cause::Changed);
-            }
+            *held
+                .last_mut()
+                .expect("a folded tail belongs to a document") =
+                Some(indentation::Cause::Changed);
             format_document_staged(input, passes, tracking, first, Some(held))
         }
         result => result,
@@ -271,9 +272,7 @@ fn format_document_staged(
             if step.settled {
                 base = Some(output.analysis().text().to_owned());
             }
-            if epoch == 0 {
-                frozen = None;
-            }
+            frozen = frozen.filter(|_| epoch > 0);
             current = Some(output);
         } else {
             frozen = Some(step.frozen);
@@ -1759,6 +1758,7 @@ impl<'a> DocumentPlan<'a> {
                 end.ok_or(Fallback::ScalarInteraction).map(|end| {
                     let scalar = start..end;
                     if index == last
+                        && !source[..full.end].ends_with(['\n', '\r'])
                         && source[full.end..]
                             .split(['\r', '\n'])
                             .next()
