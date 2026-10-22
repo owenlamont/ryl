@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use ryl_yaml_parser::{Event, ScalarStyle};
 
 use crate::fix::{PassTracking, Passes};
+use crate::rules::support::collection_style;
 use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, hyphens, indentation, new_lines, quoted_strings,
@@ -23,7 +24,6 @@ pub(crate) mod stats;
 pub(crate) enum Fallback {
     Repair,
     Suppression,
-    Conversion,
     ScalarInteraction,
     Overlap,
     Refusal,
@@ -73,6 +73,34 @@ pub(crate) fn format(
     passes: &Passes<'_>,
     tracking: &mut PassTracking<'_>,
 ) -> Result<TextVersion<'static>, Fallback> {
+    if let Some(cfg) = passes.collection_style {
+        let mut prepared = collection_style::prepare(
+            source.analysis(),
+            cfg,
+            passes.indentation.as_ref(),
+        )?;
+        let input = prepared
+            .as_ref()
+            .map_or(source.analysis(), |(text, _)| text.analysis());
+        if let Some(quoted) = prepare_quotes(input, passes)? {
+            let mut rules = prepared.map_or_else(Vec::new, |(_, rules)| rules);
+            rules.push(quoted_strings::ID);
+            prepared = Some((quoted, rules));
+        }
+        if let Some((mut converted, rules)) = prepared {
+            let output = format_document(&mut converted, passes, tracking)?;
+            tracking.edited.extend(rules);
+            return Ok(output);
+        }
+    }
+    format_document(source, passes, tracking)
+}
+
+fn format_document(
+    source: &mut TextVersion<'_>,
+    passes: &Passes<'_>,
+    tracking: &mut PassTracking<'_>,
+) -> Result<TextVersion<'static>, Fallback> {
     let mut quotes = HashMap::new();
     let (prepared, kept) =
         DocumentPlan::new(source.analysis(), passes, &mut quotes, Sink::Emit)
@@ -95,6 +123,7 @@ pub(crate) fn format(
                     })
             })?;
     let Some((text, styles, rules)) = prepared else {
+        dry_collections(source.analysis(), passes)?;
         remember(tracking, source, passes.indentation, kept);
         source.release_tokens();
         source.mark_strict_valid();
@@ -106,20 +135,7 @@ pub(crate) fn format(
     let input = source.analysis();
     let mut output = TextVersion::new(text);
     stats::count(stats::Counter::Emit);
-    let expected = input.event_iter().map(|(event, span)| match event {
-        Event::Scalar(value, style, anchor, tag) => {
-            let at =
-                crate::rules::support::span_utils::marker_byte_offset(span.start).get();
-            let style = styles
-                .binary_search_by_key(&at, |(at, _)| *at)
-                .map_or(style, |index| styles[index].1);
-            Event::Scalar(value, style, anchor, tag)
-        }
-        Event::DocumentStart(explicit, version) => {
-            Event::DocumentStart(explicit || passes.document_start.is_some(), version)
-        }
-        other => other,
-    });
+    let expected = expected_events(input, &styles, passes.document_start.is_some());
     if !input
         .verify_format_events(output.analysis(), expected)
         .unwrap_or(false)
@@ -137,6 +153,7 @@ pub(crate) fn format(
         stats::count(stats::Counter::Rollback);
         return Err(Fallback::DryEdits);
     }
+    dry_collections(output.analysis(), passes)?;
     if let Some(cfg) = passes.indentation
         && cfg.requires_consistency()
         && !dry.layout.consistent(&cfg)
@@ -158,6 +175,70 @@ pub(crate) fn format(
         .apply(plan)
         .expect("layout plan belongs to the input epoch");
     Ok(std::mem::replace(source, TextVersion::new(String::new())).into_owned())
+}
+
+fn expected_events<'a>(
+    input: Analysis<'a>,
+    styles: &'a [(usize, ScalarStyle)],
+    document_start: bool,
+) -> impl Iterator<Item = Event<'a>> {
+    input.event_iter().map(move |(event, span)| match event {
+        Event::Scalar(value, style, anchor, tag) => {
+            let at =
+                crate::rules::support::span_utils::marker_byte_offset(span.start).get();
+            let style = styles
+                .binary_search_by_key(&at, |(at, _)| *at)
+                .map_or(style, |index| styles[index].1);
+            Event::Scalar(value, style, anchor, tag)
+        }
+        Event::DocumentStart(explicit, version) => {
+            Event::DocumentStart(explicit || document_start, version)
+        }
+        other => other,
+    })
+}
+
+fn prepare_quotes(
+    input: Analysis<'_>,
+    passes: &Passes<'_>,
+) -> Result<Option<TextVersion<'static>>, Fallback> {
+    if passes.line_length.is_none() {
+        return Ok(None);
+    }
+    let mut presentation = Presentation::quotes(input, passes, &mut HashMap::new())?;
+    presentation.settle()?;
+    if presentation.edits.is_empty() {
+        return Ok(None);
+    }
+    let mut text = String::with_capacity(input.text().len());
+    let mut position = 0;
+    for (from, to, replacement) in &presentation.edits {
+        text.push_str(&input.text()[position..from.get()]);
+        replacement.piece().append(&mut text);
+        position = to.get();
+    }
+    text.push_str(&input.text()[position..]);
+    let mut output = TextVersion::new(text);
+    let expected = expected_events(input, &presentation.styles, false);
+    if !input
+        .verify_format_events(output.analysis(), expected)
+        .unwrap_or(false)
+    {
+        stats::count(stats::Counter::Rollback);
+        return Err(Fallback::Verification);
+    }
+    output.mark_strict_valid();
+    Ok(Some(output))
+}
+
+fn dry_collections(input: Analysis<'_>, passes: &Passes<'_>) -> Result<(), Fallback> {
+    if passes.collection_style.is_some_and(|cfg| {
+        collection_style::dirty(input, cfg, passes.indentation.as_ref())
+    }) {
+        stats::count(stats::Counter::Rollback);
+        return Err(Fallback::DryEdits);
+    }
+    Ok(())
 }
 
 fn remember(
@@ -429,9 +510,6 @@ impl<'a> DocumentPlan<'a> {
         sink: Sink,
     ) -> Result<Self, Fallback> {
         stats::count(stats::Counter::Plan);
-        if passes.collection_style.is_some() {
-            return Err(Fallback::Conversion);
-        }
         if input.parsed().document_starts.is_empty() {
             return Err(Fallback::Refusal);
         }

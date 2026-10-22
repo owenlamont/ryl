@@ -161,26 +161,48 @@ fn standalone_dashes_separate_mapping_indentation_from_sequence_indentation() {
 }
 
 #[test]
-fn conversion_and_suppression_restart_the_ordered_driver() {
-    for (input, config, reason, expected) in [
-        (
-            "é: [ café,世 ]\n",
-            "[format]\nsequence-style = 'block'\n",
-            "Conversion",
-            "é:\n  - café\n  - 世\n",
-        ),
-        (
-            "# ryl disable rule:quoted-strings\né : 'café'\n",
-            "[format]\n",
-            "Suppression",
-            "# ryl disable rule:quoted-strings\né: 'café'\n",
-        ),
-    ] {
-        let (output, statistics) = format_with_statistics(input, config);
-        assert_eq!(output, expected);
-        assert_eq!(statistics["fallback"], reason, "{statistics}");
-        assert_eq!(format_with_statistics(&output, config).0, output);
-    }
+fn suppression_restarts_the_ordered_driver() {
+    let input = "# ryl disable rule:quoted-strings\né : 'café'\n";
+    let (output, statistics) = format_with_statistics(input, "[format]\n");
+    assert_eq!(output, "# ryl disable rule:quoted-strings\né: 'café'\n");
+    assert_eq!(statistics["fallback"], "Suppression", "{statistics}");
+}
+
+#[test]
+fn sequence_conversion_keeps_verification_and_a_dry_plan() {
+    let config = "[format]\nsequence-style = 'block'\n";
+    let (output, statistics) = format_with_statistics("é: [ café,世 ]\n", config);
+    assert_eq!(output, "é:\n  - café\n  - 世\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert!(statistics["verification_parses"].as_u64().unwrap() >= 1);
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn mapping_conversion_uses_layout_after_restyling() {
+    let config = "[format]\nmapping-style = 'block'\n";
+    let (output, statistics) = format_with_statistics("é: { café: '世' }\n", config);
+    assert_eq!(output, "é:\n  café: 世\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["streamed_dry_scans"], 1, "{statistics}");
+}
+
+#[test]
+fn block_sequence_conversion_to_flow_uses_layout() {
+    let config = "[format]\nsequence-style = 'flow'\n";
+    let (output, statistics) = format_with_statistics("é:\n  - café\n  - 世\n", config);
+    assert_eq!(output, "é: [café, 世]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn block_mapping_conversion_to_flow_uses_layout() {
+    let config = "[format]\nmapping-style = 'flow'\n";
+    let (output, statistics) = format_with_statistics("é:\n  café: 世\n", config);
+    assert_eq!(output, "é: {café: 世}\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
 }
 
 #[test]
@@ -778,4 +800,20 @@ fn assert_independent_recordings(preview: bool) {
             "{row}"
         );
     }
+}
+
+#[test]
+fn forced_collections_settle_multiline_quote_offsets_before_folding() {
+    let config = "line-length = 35\n[format]\nsequence-style = 'block'\nfold-long-lines = true\n";
+    let (output, statistics) = format_with_statistics(
+        "é: 'The allowed models may change over time\n  and depend on the user''s settings. Supported\n  values include café and many more options.'\nlist: [café,世]\n",
+        config,
+    );
+    assert_eq!(
+        output,
+        "é: The allowed models may change\n  over time and depend on the\n  user's settings. Supported values\n  include café and many more\n  options.\nlist:\n  - café\n  - 世\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["verification_parses"], 3, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
 }

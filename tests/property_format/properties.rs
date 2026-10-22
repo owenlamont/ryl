@@ -221,8 +221,20 @@ pub fn arb_document_with_properties() -> impl Strategy<Value = StackedDocument> 
     (
         arb_stacked_document(),
         prop::collection::vec(arb_property(), 1..=8),
+        0usize..=8,
     )
-        .prop_map(|(mut stacked, properties)| {
+        .prop_map(|(mut stacked, properties, siblings)| {
+            if let (Some(entry), Some(decoration)) = (
+                stacked.document.entries.first().cloned(),
+                stacked.decorations.first().cloned(),
+            ) {
+                for index in 0..siblings {
+                    let mut sibling = entry.clone();
+                    sibling.key = format!("collection_{index}");
+                    stacked.document.entries.push(sibling);
+                    stacked.decorations.push(decoration.clone());
+                }
+            }
             Decorator {
                 properties: &properties,
                 next: 0,
