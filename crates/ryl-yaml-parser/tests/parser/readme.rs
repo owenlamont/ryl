@@ -1,6 +1,8 @@
 use ryl_yaml_parser::{Parser, ScanError};
 
-const README: &str = include_str!("../../README.md");
+// Windows checkouts may convert the README to CRLF line endings.
+static README: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| include_str!("../../README.md").replace("\r\n", "\n"));
 
 fn minimal_example_section() -> &'static str {
     README
