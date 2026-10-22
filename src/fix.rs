@@ -1257,7 +1257,7 @@ pub(crate) fn rewrite<'a>(
         tracking.edited.push(indentation::ID);
         source = repaired;
     }
-    let mut current = source.into_owned();
+    let mut current = source;
     for _ in 0..FIX_PIPELINE_MAX_PASSES {
         tracking.unprobed = true;
         let (mut output, ambiguous) =
@@ -1308,7 +1308,7 @@ pub(crate) fn rewrite<'a>(
     {
         return TextVersion::new(input.to_string());
     }
-    current
+    current.into_owned()
 }
 
 pub(crate) fn ambiguous(input: Analysis<'_>) -> bool {
@@ -1317,7 +1317,7 @@ pub(crate) fn ambiguous(input: Analysis<'_>) -> bool {
 }
 
 fn fix_rule<C>(
-    content: &mut TextVersion<'static>,
+    content: &mut TextVersion<'_>,
     rule: &'static str,
     cfg: Option<&C>,
     passes: &Passes,

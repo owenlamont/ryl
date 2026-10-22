@@ -1224,3 +1224,11 @@ fn repair_reindents_alongside_inconsistent_mappings() {
     assert_eq!(output, "a:\n  b: 1\nc:\n  d: 2\ncafé: [x,\n       y]\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
+
+#[test]
+fn indicator_bodies_follow_their_collection_past_a_spaced_value() {
+    let (output, statistics) =
+        format_with_statistics("? café\n:  - x2: 1\n   - |1\n    x\n", "[format]\n");
+    assert_eq!(output, "? café\n: - x2: 1\n  - |1\n   x\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}

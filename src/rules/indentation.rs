@@ -727,7 +727,7 @@ impl<'a> Analyzer<'a> {
                     return Err(UnexpectedToken);
                 }
                 self.stack.push(Parent {
-                    shift: column - to_isize(token.column),
+                    shift: column - self.source_column(token),
                     ..Parent::new(kind, column)
                 });
             }
@@ -751,7 +751,7 @@ impl<'a> Analyzer<'a> {
                 if self.top().kind != ParentKind::BlockSequence {
                     self.stack.push(Parent {
                         implicit_block_seq: true,
-                        shift: column - to_isize(token.column),
+                        shift: column - self.source_column(token),
                         ..Parent::new(ParentKind::BlockSequence, column)
                     });
                 }
@@ -930,6 +930,19 @@ impl<'a> Analyzer<'a> {
         for line in token.line + 1..=last_line(token) {
             self.shifts[line] = Some(Shift::Carried(delta));
         }
+    }
+
+    /// `token`'s column in the source, before same-line edits project it.
+    fn source_column(&self, token: &Token) -> isize {
+        let start = self.text[..token.start]
+            .rfind(['\n', '\r'])
+            .map_or(0, |at| at + 1);
+        to_isize(
+            self.text[start..token.start]
+                .chars()
+                .filter(|&ch| ch != '\u{feff}')
+                .count(),
+        )
     }
 
     fn has_indentation_indicator(&self, token: &Token) -> bool {
