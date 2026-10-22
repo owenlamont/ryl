@@ -15,6 +15,18 @@ pub type ResolvedConfig = (PathBuf, Arc<YamlLintConfig>, bool);
 
 pub type LintFile = (PathBuf, PathBuf, Arc<YamlLintConfig>, SourceKind);
 
+#[must_use]
+pub fn small_file_batch(files: &[LintFile]) -> bool {
+    match files {
+        [] => true,
+        [file] => file
+            .0
+            .metadata()
+            .is_ok_and(|metadata| metadata.len() <= 65_536),
+        _ => false,
+    }
+}
+
 mod stderr;
 pub(crate) use stderr::write_file_stderr;
 

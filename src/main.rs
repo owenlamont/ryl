@@ -1880,17 +1880,18 @@ fn emit_notices(notices: &[String], no_warnings: bool) {
 type IndexedLintResults = Vec<(usize, Result<Vec<LintProblem>, String>)>;
 
 fn lint_files(files: &[LintFile]) -> IndexedLintResults {
-    let mut results: IndexedLintResults = files
-        .par_iter()
-        .enumerate()
-        .map(|(idx, (path, base_dir, cfg, kind))| {
-            let result = match kind {
-                SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
-                SourceKind::Yaml => lint_file(path, cfg, base_dir),
-            };
-            (idx, result)
-        })
-        .collect();
+    let compute = |(idx, (path, base_dir, cfg, kind)): (usize, &LintFile)| {
+        let result = match kind {
+            SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
+            SourceKind::Yaml => lint_file(path, cfg, base_dir),
+        };
+        (idx, result)
+    };
+    let mut results: IndexedLintResults = if ryl::cli_support::small_file_batch(files) {
+        files.iter().enumerate().map(compute).collect()
+    } else {
+        files.par_iter().enumerate().map(compute).collect()
+    };
     results.sort_by_key(|(idx, _)| *idx);
     results
 }
@@ -1899,39 +1900,48 @@ fn lint_files_cached(
     files: &[LintFile],
     settings: &cache::Settings,
 ) -> Result<IndexedLintResults, String> {
-    let mut results: Vec<_> = files
-        .par_iter()
-        .enumerate()
-        .map(|(idx, (path, base_dir, cfg, kind))| {
-            let entry = settings.entry(path, base_dir, cfg, *kind, "check")?;
-            if let Some(problems) =
-                entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
-            {
-                warn_cached_encoding_override();
-                return Ok((idx, Ok(problems), None));
-            }
-            let outcome = match entry.as_ref() {
-                Some((_, bytes)) => ryl::decoder::decode_bytes(bytes)
-                    .map_err(|err| format!("failed to read {}: {err}", path.display()))
-                    .map(|content| match kind {
-                        SourceKind::Markdown => {
-                            lint_markdown_str(&content, path, cfg, base_dir)
-                        }
-                        SourceKind::Yaml => {
-                            let problems = lint_str(&content, path, cfg, base_dir);
-                            with_indentation_repair_help(
-                                &content, problems, path, cfg, base_dir,
-                            )
-                        }
-                    }),
-                None => match kind {
-                    SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
-                    SourceKind::Yaml => lint_file(path, cfg, base_dir),
-                },
-            };
-            Ok((idx, outcome, entry.map(|(path, _)| path)))
-        })
-        .collect::<Result<_, String>>()?;
+    let compute = |(idx, (path, base_dir, cfg, kind)): (usize, &LintFile)| {
+        let entry = settings.entry(path, base_dir, cfg, *kind, "check")?;
+        if let Some(problems) =
+            entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
+        {
+            warn_cached_encoding_override();
+            return Ok((idx, Ok(problems), None));
+        }
+        let outcome = match entry.as_ref() {
+            Some((_, bytes)) => ryl::decoder::decode_bytes(bytes)
+                .map_err(|err| format!("failed to read {}: {err}", path.display()))
+                .map(|content| match kind {
+                    SourceKind::Markdown => {
+                        lint_markdown_str(&content, path, cfg, base_dir)
+                    }
+                    SourceKind::Yaml => {
+                        let problems = lint_str(&content, path, cfg, base_dir);
+                        with_indentation_repair_help(
+                            &content, problems, path, cfg, base_dir,
+                        )
+                    }
+                }),
+            None => match kind {
+                SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
+                SourceKind::Yaml => lint_file(path, cfg, base_dir),
+            },
+        };
+        Ok((idx, outcome, entry.map(|(path, _)| path)))
+    };
+    let mut results: Vec<_> = if ryl::cli_support::small_file_batch(files) {
+        files
+            .iter()
+            .enumerate()
+            .map(compute)
+            .collect::<Result<_, String>>()?
+    } else {
+        files
+            .par_iter()
+            .enumerate()
+            .map(compute)
+            .collect::<Result<_, String>>()?
+    };
     cache::store_lint_batch(results.iter().filter_map(|(_, outcome, entry)| {
         Some((entry.as_deref()?, outcome.as_ref().ok()?.as_slice()))
     }))?;

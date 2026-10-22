@@ -284,16 +284,28 @@ fn format_document_staged(
     result
 }
 
-fn format_document_refused(
-    source: &mut TextVersion<'_>,
+type Candidate = (
+    String,
+    Vec<(usize, ScalarStyle)>,
+    Vec<&'static str>,
+    Option<Box<Guard>>,
+);
+type Kept = (Vec<(usize, usize)>, Vec<indentation::Refusal>);
+
+/// The emitted candidate, or `None` for a clean plan, with the layout facts to remember.
+fn prepare_candidate(
+    input: Analysis<'_>,
     passes: &Passes<'_>,
     tracking: &mut PassTracking<'_>,
+    quotes: &mut HashMap<String, Option<bool>>,
     frozen: Option<&[Option<indentation::Cause>]>,
-) -> Result<FormatStep, Fallback> {
-    let mut quotes = HashMap::new();
-    let (prepared, kept) =
-        DocumentPlan::new(source.analysis(), passes, &mut quotes, Sink::Emit, frozen)
-            .and_then(|plan| {
+) -> Result<(Option<Candidate>, Kept), Fallback> {
+    if blank_stream(input.text(), passes, frozen) {
+        stats::count(stats::Counter::Plan);
+        let candidate = (String::new(), Vec::new(), vec![empty_lines::ID], None);
+        Ok((Some(candidate), (Vec::new(), Vec::new())))
+    } else {
+        DocumentPlan::new(input, passes, quotes, Sink::Emit, frozen).and_then(|plan| {
             probe(tracking, plan.input)?;
             tracking.cycles.extend_from_slice(&plan.cycles);
             let consistent = plan.dirty
@@ -314,7 +326,19 @@ fn format_document_refused(
                         .transpose()
                         .map(|prepared| (prepared, kept))
                 })
-        })?;
+        })
+    }
+}
+
+fn format_document_refused(
+    source: &mut TextVersion<'_>,
+    passes: &Passes<'_>,
+    tracking: &mut PassTracking<'_>,
+    frozen: Option<&[Option<indentation::Cause>]>,
+) -> Result<FormatStep, Fallback> {
+    let mut quotes = HashMap::new();
+    let (prepared, kept) =
+        prepare_candidate(source.analysis(), passes, tracking, &mut quotes, frozen)?;
     let Some((text, styles, rules, guard)) = prepared else {
         remember(tracking, source, passes.indentation, kept.0, kept.1);
         source.release_tokens();
@@ -388,6 +412,24 @@ fn format_document_refused(
             ))
         }
     })
+}
+
+/// Whether `text` is a stream of LF-only blank lines that the resolved passes empty, so its
+/// candidate needs no line records; verification and the dry plan still check it, and with
+/// no block scalar it cannot be ambiguous, so it skips the probe.
+fn blank_stream(
+    text: &str,
+    passes: &Passes<'_>,
+    frozen: Option<&[Option<indentation::Cause>]>,
+) -> bool {
+    text.starts_with('\n')
+        && frozen.is_none()
+        && passes.collection_style.is_none()
+        && passes.per_line.is_empty()
+        && passes
+            .empty_lines
+            .is_some_and(|cfg| cfg.max_start() == 0 && cfg.max_end() == 0)
+        && text.bytes().all(|byte| byte == b'\n')
 }
 
 /// The dry plan's verdict on a verified candidate.

@@ -779,6 +779,7 @@ proptest! {
     fn every_format_pass_keeps_the_guarantee(input in prop_oneof![
         3 => arb_document_with_properties().prop_map(|document| document.render()),
         1 => properties::arb_quoted_document(),
+        1 => prop_oneof![20 => 0usize..=512, 1 => 65_535usize..=65_537].prop_map(|lines| "\n".repeat(lines)),
     ]) {
         for pass in format_passes() {
             check_pass(pass, &input).map_err(TestCaseError::fail)?;

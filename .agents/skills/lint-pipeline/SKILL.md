@@ -123,7 +123,10 @@ yamllint); only rewrites require resolved aliases, through the in-place and per-
 Markdown paths.
 
 `fix::rewrite_files` and `fix::diff_files` read and rewrite files in parallel
-(`read_in_parallel`), then write serially in input order. Symlink skips, captured stderr
+(`read_in_parallel`), then write serially in input order. A sole pending input of at
+most 64 KiB runs on the calling thread (`cli_support::small_file_batch`, also used by
+the lint batches); larger inputs, batches and metadata failures stay parallel. Symlink
+skips, captured stderr
 (`cli_support::capture_file_stderr`) and skip notices enter one ordered `notices`
 buffer. `format` adds read and write errors to that buffer; `check --fix` leaves errors
 for the ordered lint report after the notice block. `diff_files` flushes notices before

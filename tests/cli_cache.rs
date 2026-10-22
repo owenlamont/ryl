@@ -714,3 +714,21 @@ fn format_cache_preserves_unrepresentable_filename_notice() {
     }
     assert!(entries(&dir.path().join(".ryl_cache")).is_empty());
 }
+
+#[test]
+fn parallel_cached_lint_propagates_cache_setup_error() {
+    let dir = tempdir().unwrap();
+    let first = dir.path().join("first.yaml");
+    let second = dir.path().join("second.yaml");
+    let cache = dir.path().join("cache-file");
+    fs::write(&first, "a: b\n").unwrap();
+    fs::write(&second, "c: d\n").unwrap();
+    fs::write(&cache, "not a directory").unwrap();
+    let (code, _, stderr) = run(ryl(dir.path())
+        .args(["check", "--enable", "ALL", "--cache-dir"])
+        .arg(&cache)
+        .arg(&first)
+        .arg(&second));
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains("cache"), "{stderr}");
+}
