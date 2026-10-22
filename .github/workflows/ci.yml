@@ -145,9 +145,14 @@ jobs:
           # Enforce zero missed lines and regions, reusing the single test run's data.
           # Kept as the final step so the coverage artifact is uploaded (and the
           # coverage-comment job can post it) before a coverage gap fails the job.
+          set -euo pipefail
           cargo llvm-cov report --workspace --summary-only \
+            --ignore-filename-regex 'crates/ryl-yaml-parser/' \
             --fail-uncovered-lines 0 \
             --fail-uncovered-regions 0
+          # ryl-yaml-parser is generic over Input, so no one instantiation reaches every region; gate it on union coverage.
+          cargo llvm-cov report --workspace --json --output-path coverage.json
+          uv run .agents/skills/coverage/coverage-missing.py --report-json coverage.json
 
   platform-tests:
     name: ${{ matrix.name }}

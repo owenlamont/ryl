@@ -56,6 +56,11 @@ def coalesce(lines: list[int]) -> str:
     return ",".join(str(a) if a == b else f"{a}-{b}" for a, b in ranges)
 
 
+# The parser is generic over `Input`, so CI gates it on regions covered by any instantiation;
+# every other file must cover each region within a single instantiation.
+UNION_GATED_PREFIX = "crates/ryl-yaml-parser/"
+
+
 def build_report(data: dict, root: Path) -> list[str]:
     """Build ``file:ranges`` lines for every file with an uncovered region.
 
@@ -63,6 +68,9 @@ def build_report(data: dict, root: Path) -> list[str]:
     is_gap_region]``; a line is uncovered when it carries a real (non-gap)
     region that executed zero times (``count == 0 and has_count and not
     is_gap_region``).
+
+    Outside the parser crate, a file whose summary still misses a region with every segment
+    executed is reported too: CI's strict gate scores each generic instantiation separately.
 
     Returns:
         One ``relative/path:ranges`` string per file with uncovered regions.
@@ -73,15 +81,16 @@ def build_report(data: dict, root: Path) -> list[str]:
         for file in entry.get("files", []):
             if file["summary"]["regions"]["percent"] >= 100:
                 continue
+            name = file["filename"].replace("\\", "/").removeprefix(normalized_root)
             uncovered = [
                 seg[0]
                 for seg in file["segments"]
                 if seg[2] == 0 and seg[3] and not seg[5]
             ]
-            if not uncovered:
-                continue
-            name = file["filename"].replace("\\", "/").removeprefix(normalized_root)
-            report.append(f"{name}:{coalesce(uncovered)}")
+            if uncovered:
+                report.append(f"{name}:{coalesce(uncovered)}")
+            elif not name.startswith(UNION_GATED_PREFIX):
+                report.append(f"{name}: a generic instantiation misses a region")
     return report
 
 
@@ -170,8 +179,8 @@ def main() -> None:
     if report:
         print("Uncovered regions (file:path line ranges):")
         print("\n".join(report))
-    else:
-        print("Coverage OK: no uncovered regions.")
+        sys.exit(1)
+    print("Coverage OK: no uncovered regions.")
 
 
 if __name__ == "__main__":
