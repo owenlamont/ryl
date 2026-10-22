@@ -13,7 +13,8 @@ use crate::rules::support::line_syntax::{
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
-use crate::rules::{braces, brackets, indentation};
+use crate::rules::{braces, brackets, comments_indentation, indentation};
+use crate::text_version::{Analysis, TextVersion};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
@@ -60,25 +61,44 @@ impl Finding {
     }
 }
 
-/// `buffer` with every convertible collection restyled, and the rules whose collections
-/// changed; `None` when nothing changes.
-#[must_use]
-pub fn restyle(
-    buffer: &str,
+pub(crate) fn prepare(
+    input: Analysis<'_>,
     cfg: Config,
     indent: Option<&indentation::Config>,
-    events: Option<crate::text_version::Analysis<'_>>,
-) -> Option<(String, Vec<&'static str>)> {
-    let (edits, findings) = plan(buffer, cfg, indent, events);
-    let restyled = apply_replacements(buffer, edits);
-    (restyled != buffer && same_data(buffer, &restyled)).then(|| {
-        let rules = findings
-            .into_iter()
-            .filter(|finding| finding.refused.is_none())
-            .map(|finding| finding.rule)
-            .collect();
-        (restyled, rules)
-    })
+    comments: Option<comments_indentation::Config>,
+) -> Result<
+    Option<(TextVersion<'static>, Vec<&'static str>)>,
+    crate::format::layout::Fallback,
+> {
+    let (mut edits, findings) = plan(input.text(), cfg, indent, Some(input));
+    if edits.is_empty() {
+        return Ok(None);
+    }
+    let mut rules: Vec<_> = findings
+        .into_iter()
+        .filter(|finding| finding.refused.is_none())
+        .map(|finding| finding.rule)
+        .collect();
+    if let Some(cfg) = comments
+        && input
+            .event_iter()
+            .any(|(event, _)| matches!(event, Event::Comment(..)))
+    {
+        let comments = comments_indentation::edits(input, cfg);
+        if !comments.is_empty() {
+            rules.push(comments_indentation::ID);
+            edits.extend(comments);
+        }
+    }
+    let mut output = TextVersion::new(apply_replacements(input.text(), edits));
+    if !input
+        .verify_collection_events(output.analysis())
+        .unwrap_or(false)
+    {
+        return Err(crate::format::layout::Fallback::Verification);
+    }
+    output.mark_strict_valid();
+    Ok(Some((output, rules)))
 }
 
 #[must_use]
@@ -100,6 +120,15 @@ fn plan(
 ) -> (Vec<Edit>, Vec<Finding>) {
     if cfg.sequences == CollectionStyleTarget::Preserve
         && cfg.mappings == CollectionStyleTarget::Preserve
+    {
+        return (Vec::new(), Vec::new());
+    }
+    if let Some(input) = events
+        && !input.event_iter().any(|(event, _)| match event {
+            Event::SequenceStart(style, ..) => changes_style(cfg.sequences, style),
+            Event::MappingStart(style, ..) => changes_style(cfg.mappings, style),
+            _ => false,
+        })
     {
         return (Vec::new(), Vec::new());
     }
@@ -159,6 +188,14 @@ fn plan(
     (edits, findings)
 }
 
+fn changes_style(target: CollectionStyleTarget, style: StructureStyle) -> bool {
+    matches!(
+        (target, style),
+        (CollectionStyleTarget::Block, StructureStyle::Flow)
+            | (CollectionStyleTarget::Flow, StructureStyle::Block)
+    )
+}
+
 fn skip_reindent_dependent(
     buffer: &str,
     edits: Vec<(Edit, usize)>,
@@ -166,7 +203,9 @@ fn skip_reindent_dependent(
     indent: Option<&indentation::Config>,
     require_consistent_indent: bool,
 ) -> Vec<Edit> {
-    let Some(indent) = indent.filter(|_| !edits.is_empty()) else {
+    let Some(indent) =
+        indent.filter(|_| edits.iter().any(|(_, finding)| !findings[*finding].to_flow))
+    else {
         return edits.into_iter().map(|(edit, _)| edit).collect();
     };
     let candidate = apply_replacements(
@@ -256,6 +295,7 @@ struct Node {
     line: usize,
     column: usize,
     parent: Option<usize>,
+    position: usize,
     children: Vec<usize>,
 }
 
@@ -310,6 +350,7 @@ fn tree_from_events<'a>(
         };
         let index = nodes.len();
         let parent = open.last().copied();
+        let position = parent.map_or(0, |parent| nodes[parent].children.len());
         if let Some(parent) = parent {
             nodes[parent].children.push(index);
         }
@@ -322,6 +363,7 @@ fn tree_from_events<'a>(
             line: span.start.line(),
             column: span.start.col(),
             parent,
+            position,
             children: Vec::new(),
         });
         if matches!(kind, Kind::Sequence | Kind::Mapping) {
@@ -373,20 +415,14 @@ impl Restyler<'_> {
     fn is_key(&self, index: usize) -> bool {
         self.nodes[index].parent.is_some_and(|parent| {
             self.nodes[parent].kind == Kind::Mapping
-                && self.nodes[parent]
-                    .children
-                    .iter()
-                    .position(|&child| child == index)
-                    .expect("a node is among its parent's children")
-                    % 2
-                    == 0
+                && self.nodes[index].position.is_multiple_of(2)
         })
     }
 
     fn has_comment(&self, from: usize, to: usize) -> bool {
         self.comments
-            .iter()
-            .any(|(start, _)| (from..to).contains(start))
+            .get(self.comments.partition_point(|(start, _)| *start < from))
+            .is_some_and(|(start, _)| *start < to)
     }
 
     /// The edit rewriting leaf block collection `index` in flow style, if it holds no
@@ -406,7 +442,10 @@ impl Restyler<'_> {
             .map_or(self.buffer.len(), |at| last + at);
         let start = self.buffer[..node.start].trim_end_matches(is_space).len();
         if self.has_comment(start, line_end)
-            || self.comments.iter().any(|(_, end)| *end == start)
+            || self
+                .comments
+                .get(self.comments.partition_point(|(_, end)| *end < start))
+                .is_some_and(|(_, end)| *end == start)
         {
             return None;
         }
@@ -486,9 +525,8 @@ impl Restyler<'_> {
         let comment = rest.starts_with('#').then_some(rest);
         let keyed = node.parent.is_some_and(|parent| {
             let siblings = &self.nodes[parent].children;
-            let at = siblings.iter().position(|&child| child == index);
             self.nodes[parent].kind == Kind::Mapping
-                && at.is_some_and(|at| self.nodes[siblings[at - 1]].line == node.line)
+                && self.nodes[siblings[node.position - 1]].line == node.line
         });
         let one_line = !self.buffer[node.start..node.end].contains(['\n', '\r']);
         if comment.is_some() && !(keyed && one_line) {
@@ -674,26 +712,4 @@ impl Restyler<'_> {
     fn break_to(&self, col: usize) -> String {
         format!("{}{}", self.newline, " ".repeat(col))
     }
-}
-
-/// Whether `after` holds the same data as `before`, comments and collection style aside.
-fn same_data(before: &str, after: &str) -> bool {
-    fn data(text: &str) -> Option<Vec<Event<'_>>> {
-        Parser::new_from_str(text)
-            .map(|item| {
-                item.map(|(event, _)| match event {
-                    Event::SequenceStart(_, anchor, tag) => {
-                        Event::SequenceStart(StructureStyle::Block, anchor, tag)
-                    }
-                    Event::MappingStart(_, anchor, tag) => {
-                        Event::MappingStart(StructureStyle::Block, anchor, tag)
-                    }
-                    event => event,
-                })
-            })
-            .filter(|item| !matches!(item, Ok(Event::Comment(..))))
-            .collect::<Result<_, _>>()
-            .ok()
-    }
-    data(before) == data(after)
 }

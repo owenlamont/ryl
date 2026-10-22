@@ -428,9 +428,9 @@ struct Parent {
     line_indent: isize,
     explicit_key: bool,
     implicit_block_seq: bool,
-    /// How far a block collection moves, which its block scalars' bodies with an
-    /// indentation indicator move with.
-    shift: isize,
+    /// Where a block collection starts in the source: its block scalars' bodies with an
+    /// indentation indicator move as far as it does.
+    start: usize,
 }
 
 impl Parent {
@@ -441,7 +441,7 @@ impl Parent {
             line_indent: indent,
             explicit_key: false,
             implicit_block_seq: false,
-            shift: 0,
+            start: 0,
         }
     }
 }
@@ -727,7 +727,7 @@ impl<'a> Analyzer<'a> {
                     return Err(UnexpectedToken);
                 }
                 self.stack.push(Parent {
-                    shift: column - to_isize(token.column),
+                    start: token.start,
                     ..Parent::new(kind, column)
                 });
             }
@@ -751,7 +751,7 @@ impl<'a> Analyzer<'a> {
                 if self.top().kind != ParentKind::BlockSequence {
                     self.stack.push(Parent {
                         implicit_block_seq: true,
-                        shift: column - to_isize(token.column),
+                        start: token.start,
                         ..Parent::new(ParentKind::BlockSequence, column)
                     });
                 }
@@ -925,11 +925,22 @@ impl<'a> Analyzer<'a> {
                         ParentKind::BlockMapping | ParentKind::BlockSequence
                     )
                 })
-                .map_or(0, |parent| parent.shift)
+                .map_or(0, |parent| parent.indent - self.source_column(parent.start))
         };
         for line in token.line + 1..=last_line(token) {
             self.shifts[line] = Some(Shift::Carried(delta));
         }
+    }
+
+    /// The source column of byte `at`, before same-line edits project it.
+    fn source_column(&self, at: usize) -> isize {
+        let start = self.text[..at].rfind(['\n', '\r']).map_or(0, |at| at + 1);
+        to_isize(
+            self.text[start..at]
+                .chars()
+                .filter(|&ch| ch != '\u{feff}')
+                .count(),
+        )
     }
 
     fn has_indentation_indicator(&self, token: &Token) -> bool {

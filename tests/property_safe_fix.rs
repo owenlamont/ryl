@@ -234,6 +234,7 @@ fn safe_fix_properties_hold_for_known_dirty_input() {
             value: Node::FlowSeq(
                 vec![plain("TRUE"), plain("false")],
                 FlowStyle {
+                    trailing_comma: false,
                     inner_padding: 1,
                     spaces_before_comma: 1,
                     spaces_after_comma: 2,

@@ -162,3 +162,28 @@ fn fix_leaves_double_curly_template_unchanged() {
         "value: {{ foo(1,2) }}\n"
     );
 }
+
+#[test]
+fn comma_spacing_contradicting_brackets_reports_the_cycle() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("cycle.yaml");
+    fs::write(&file, "café: [one,]\n").unwrap();
+
+    let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg("--fix")
+        .arg("-d")
+        .arg("rules:\n  commas: enable\n  brackets: enable\n")
+        .arg(&file));
+    assert_eq!(code, 1, "{stderr}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "café: [one,]\n");
+    for expected in [
+        "error: Failed to converge after 100 iterations.",
+        "the rule ids commas, brackets,",
+    ] {
+        assert!(
+            stderr.contains(expected),
+            "missing {expected:?} in {stderr}"
+        );
+    }
+}

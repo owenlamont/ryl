@@ -184,6 +184,23 @@ fn scalar_loader_matches_reference_block_values() {
     }
 }
 
+/// Whether `commas` reports the comma before a closing bracket, whose spacing the
+/// formatter takes from `brackets`/`braces` because no spacing satisfies both.
+pub fn closing_comma(
+    output: &str,
+    rule: Option<&str>,
+    line: usize,
+    column: usize,
+) -> bool {
+    rule == Some("commas")
+        && output.lines().nth(line - 1).is_some_and(|text| {
+            let rest: String = text.chars().skip(column.saturating_sub(2)).collect();
+            rest.trim_start_matches(',')
+                .trim_start_matches(' ')
+                .starts_with([']', '}'])
+        })
+}
+
 pub fn content_whitespace(
     output: &str,
     rule: Option<&str>,

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -24,7 +24,6 @@ use crate::rules::{
     document_start, empty_lines, hyphens, indentation, key_ordering, line_length,
     new_line_at_end_of_file, new_lines, quoted_strings, trailing_spaces, truthy,
 };
-use crate::text_version::edits::Batch;
 use crate::text_version::{Analysis, ParsedFacts, TextVersion};
 
 pub const RULE_FIX_MAX_ITERATIONS: usize = 8;
@@ -47,8 +46,8 @@ pub fn suppressed_rules() -> &'static [&'static str] {
     &SUPPRESSED
 }
 
-/// Every rule with a safe `--fix`, in application order; extend together with the `apply`
-/// sequence in `FixContext::pass` when adding a safe fixer. The LSP drives per-rule
+/// Every rule with a safe `--fix`, in application order; extend together with `Passes::lint`
+/// and the layout planner when adding a safe fixer. The LSP drives per-rule
 /// "Fix all `<rule>`" actions off this list.
 pub const SAFE_FIX_RULE_IDS: [&str; 16] = [
     new_lines::ID,
@@ -746,7 +745,7 @@ fn rewrite_parse_notice(
     })
 }
 
-fn repair_events_match(original: &str, repaired: &str) -> bool {
+pub(crate) fn repair_events_match(original: &str, repaired: &str) -> bool {
     let before = TextVersion::new(original);
     let after = TextVersion::new(repaired);
     representation_matches(before.analysis(), after.analysis())
@@ -1210,33 +1209,161 @@ pub fn apply_safe_fixes_filtered(
     base_dir: &Path,
     skip: &[&str],
 ) -> String {
-    apply_safe_fixes_capped(
+    let passes = Passes::lint(cfg, path, base_dir, skip);
+    let mut tracking = PassTracking {
+        edited: &mut Vec::new(),
+        reindented: None,
+        strict_input: None,
+        cycles: Vec::new(),
+        unprobed: false,
+    };
+    rewrite(
         input,
-        cfg,
+        TextVersion::new(input),
+        &passes,
         path,
-        base_dir,
-        skip,
-        FIX_PIPELINE_MAX_PASSES,
         &mut std::io::stderr(),
+        &mut tracking,
     )
+    .into_text()
 }
 
-/// [`apply_safe_fixes_filtered`] with the pass cap and error sink exposed.
-#[must_use]
-pub fn apply_safe_fixes_capped(
-    input: &str,
-    cfg: &YamlLintConfig,
+/// `input` (whose analysis is `source`) rewritten by `passes`, reporting a comma-spacing
+/// cycle between conflicting lint options to `err` as main's pass cap did.
+pub(crate) fn rewrite<'a>(
+    input: &'a str,
+    mut source: TextVersion<'a>,
+    passes: &Passes,
     path: &Path,
-    base_dir: &Path,
-    skip: &[&str],
-    max_passes: usize,
     err: &mut dyn Write,
-) -> String {
-    let passes = Passes::lint(cfg, path, base_dir, skip);
-    run_passes(input, &passes, path, max_passes, err, &mut Vec::new())
+    tracking: &mut PassTracking<'_>,
+) -> TextVersion<'static> {
+    use crate::format::layout::Fallback;
+    if crate::directives::disables_file(input) {
+        crate::format::layout::stats::count(
+            crate::format::layout::stats::Counter::Skip,
+        );
+        return TextVersion::new(input.to_string());
+    }
+    let strict = tracking
+        .strict_input
+        .unwrap_or_else(|| crate::lint::strict_parse_error(input).is_none());
+    if strict {
+        source.mark_strict_valid();
+    } else {
+        let Some(repaired) = repair(source.analysis(), passes) else {
+            return TextVersion::new(input.to_string());
+        };
+        tracking.edited.push(indentation::ID);
+        source = repaired;
+    }
+    let events = source.analysis().parsed().event_count();
+    let mut current = source;
+    for _ in 0..FIX_PIPELINE_MAX_PASSES {
+        tracking.unprobed = true;
+        let (mut output, ambiguous) =
+            match crate::format::layout::format(&mut current, passes, tracking) {
+                Ok(output) => (output, false),
+                Err(Fallback::Ambiguous) => (current, true),
+                Err(reason) => {
+                    crate::format::layout::stats::Recording::fallback(reason);
+                    return TextVersion::new(input.to_string());
+                }
+            };
+        let truthy = !ambiguous
+            && fix_rule(
+                &mut output,
+                truthy::ID,
+                passes.truthy.as_ref(),
+                passes,
+                tracking.edited,
+                truthy::fix,
+            );
+        let ordered = fix_rule(
+            &mut output,
+            key_ordering::ID,
+            passes.key_ordering.as_ref(),
+            passes,
+            tracking.edited,
+            |text, cfg| key_ordering::fix(text, cfg, &passes.per_line),
+        );
+        current = output;
+        if !truthy && !ordered {
+            break;
+        }
+    }
+    if !tracking.cycles.is_empty() {
+        let mut rules = std::mem::take(&mut tracking.cycles);
+        rules.push(commas::ID);
+        rules.sort_by_key(|rule| SAFE_FIX_RULE_IDS.iter().position(|id| id == rule));
+        rules.dedup();
+        convergence_warning(err, path, FIX_PIPELINE_MAX_PASSES, &rules);
+    }
+    let text = current.analysis().text();
+    let output = current.analysis();
+    if text != input
+        && (output.parsed().event_count() != events
+            || (!output.strict_valid()
+                && crate::lint::strict_parse_error(text).is_some())
+            || (!strict
+                && (!repair_events_match(input, text)
+                    || (passes.preserve_events && !format_events_match(input, text)))))
+    {
+        return TextVersion::new(input.to_string());
+    }
+    current.into_owned()
+}
+
+pub(crate) fn ambiguous(input: Analysis<'_>) -> bool {
+    crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(input)
+        .is_some()
+}
+
+fn fix_rule<C>(
+    content: &mut TextVersion<'_>,
+    rule: &'static str,
+    cfg: Option<&C>,
+    passes: &Passes,
+    edited: &mut Vec<&'static str>,
+    mut fix: impl FnMut(&str, &C) -> Option<String>,
+) -> bool {
+    let Some(cfg) = cfg else {
+        return false;
+    };
+    let guarded = passes
+        .per_line
+        .iter()
+        .any(|entry| entry.rules.is_none_or(|ids| ids.contains(&rule)))
+        || Directives::parse_per_line_with_analysis(
+            content.analysis(),
+            &passes.per_line,
+        )
+        .disables_any(rule);
+    let mut changed = false;
+    for _ in 0..RULE_FIX_MAX_ITERATIONS {
+        let text = content.analysis().text();
+        let Some(mut next) = fix(text, cfg) else {
+            break;
+        };
+        if guarded {
+            next = Directives::parse_per_line_with_analysis(
+                content.analysis(),
+                &passes.per_line,
+            )
+            .reconcile(rule, text, &next);
+        }
+        if next == text {
+            break;
+        }
+        *content = TextVersion::new(next);
+        edited.push(rule);
+        changed = true;
+    }
+    changed
 }
 
 /// The line ending the final-newline fix appends.
+#[derive(Clone)]
 pub(crate) enum NewlinePolicy {
     Configured(String),
     /// Reuse the first line's ending so a `\r`-delimited file's appended final newline
@@ -1245,7 +1372,7 @@ pub(crate) enum NewlinePolicy {
 }
 
 impl NewlinePolicy {
-    fn newline<'a>(&'a self, content: &'a str) -> &'a str {
+    pub(crate) fn newline<'a>(&'a self, content: &'a str) -> &'a str {
         match self {
             Self::Configured(newline) => newline,
             Self::FirstBreak => first_line_break(content).map_or("\n", |(_, nl)| nl),
@@ -1254,6 +1381,7 @@ impl NewlinePolicy {
 }
 
 /// Each fixer's resolved target, `None` (or `false`) where it does not run.
+#[derive(Clone)]
 pub(crate) struct Passes<'a> {
     pub(crate) preserve_events: bool,
     pub(crate) new_lines: Option<new_lines::Config>,
@@ -1346,33 +1474,6 @@ impl<'a> Passes<'a> {
     }
 }
 
-/// Run `passes` over `input` until a pass changes nothing, pushing onto `edited` each rule
-/// whose fix changed the text. Like ruff, if a pass after the last allowed one would still
-/// change the text, report it to `err` and return the text as of the cap.
-pub(crate) fn run_passes(
-    input: &str,
-    passes: &Passes,
-    path: &Path,
-    max_passes: usize,
-    err: &mut dyn Write,
-    edited: &mut Vec<&'static str>,
-) -> String {
-    run_passes_with_facts(
-        input,
-        passes,
-        path,
-        max_passes,
-        err,
-        &mut PassTracking {
-            edited,
-            reindented: None,
-            strict_input: None,
-        },
-        None,
-    )
-    .into_text()
-}
-
 pub(crate) type ReindentCache = Option<ReindentEvidence>;
 
 pub(crate) struct ReindentEvidence {
@@ -1410,600 +1511,49 @@ pub(crate) struct PassTracking<'a> {
     pub edited: &'a mut Vec<&'static str>,
     pub reindented: Option<&'a mut ReindentCache>,
     pub strict_input: Option<bool>,
+    pub cycles: Vec<&'static str>,
+    pub unprobed: bool,
 }
 
-fn reindent_for_pass(
+/// `input` re-indented to the repair target, where that alone makes it strictly valid
+/// without changing its representation.
+pub(crate) fn repair(
     input: Analysis<'_>,
-    cfg: &indentation::Config,
-    cache: Option<&mut ReindentCache>,
+    passes: &Passes,
 ) -> Option<TextVersion<'static>> {
-    let (result, output) = indentation::reindent_with_analysis(input, cfg);
-    if result.text != input.text() {
-        return Some(output);
-    }
-    if let Some(slot) = cache {
-        *slot = Some(ReindentEvidence::new(
-            input,
-            *cfg,
-            result.refused,
-            result.kept_dash_lines,
-        ));
-    }
-    None
+    let target = passes.repair_indentation?;
+    let repaired = Directives::parse_per_line_with_analysis(input, &passes.per_line)
+        .reconcile(
+            indentation::ID,
+            input.text(),
+            &indentation::reindent_with_analysis(input, &target).0.text,
+        );
+    (repaired != input.text()
+        && crate::lint::strict_parse_error(&repaired).is_none()
+        && repair_events_match(input.text(), &repaired))
+    .then(|| {
+        let mut version = TextVersion::new(repaired);
+        version.mark_strict_valid();
+        version
+    })
 }
 
-pub(crate) fn run_passes_with_facts(
-    input: &str,
-    passes: &Passes,
+fn convergence_warning(
+    err: &mut dyn Write,
     path: &Path,
     max_passes: usize,
-    err: &mut dyn Write,
-    tracking: &mut PassTracking<'_>,
-    initial_facts: Option<ParsedFacts>,
-) -> TextVersion<'static> {
-    if crate::directives::disables_file(input) {
-        return TextVersion::new(input.to_string());
-    }
-    let repaired;
-    let original = input;
-    let mut facts = initial_facts;
-    let input = if tracking
-        .strict_input
-        .unwrap_or_else(|| crate::lint::strict_parse_error(input).is_none())
-    {
-        input
-    } else {
-        let Some(target) = passes.repair_indentation else {
-            return TextVersion::new(input.to_string());
-        };
-        let snapshot = TextVersion::new(input);
-        if let Some(facts) = facts.take() {
-            snapshot.analysis().seed_facts(facts);
-        }
-        repaired = strict_output(
-            input,
-            TextVersion::new(
-                Directives::parse_per_line_with_analysis(
-                    snapshot.analysis(),
-                    &passes.per_line,
-                )
-                .reconcile(
-                    indentation::ID,
-                    input,
-                    &indentation::reindent_with_analysis(snapshot.analysis(), &target)
-                        .0
-                        .text,
-                ),
-            ),
-        )
-        .into_text();
-        if repaired == input || !repair_events_match(input, &repaired) {
-            return TextVersion::new(input.to_string());
-        }
-        tracking.edited.push(indentation::ID);
-        &repaired
-    };
-    let formatted = strict_output(
-        original,
-        run_valid_passes(input, passes, path, max_passes, err, tracking, facts),
-    );
-    if original != &*formatted
-        && ((passes.preserve_events && !format_events_match(original, &formatted))
-            || (original != input && !repair_events_match(original, &formatted)))
-    {
-        return TextVersion::new(original.to_string());
-    }
-    formatted
-}
-
-fn strict_output(
-    original: &str,
-    formatted: TextVersion<'static>,
-) -> TextVersion<'static> {
-    if formatted.analysis().text() != original
-        && !formatted.analysis().strict_valid()
-        && crate::lint::strict_parse_error(&formatted).is_some()
-    {
-        TextVersion::new(original.to_string())
-    } else {
-        formatted
-    }
-}
-
-fn run_valid_passes(
-    input: &str,
-    passes: &Passes,
-    path: &Path,
-    max_passes: usize,
-    err: &mut dyn Write,
-    tracking: &mut PassTracking<'_>,
-    initial_facts: Option<ParsedFacts>,
-) -> TextVersion<'static> {
-    let mut content = TextVersion::new(input);
-    if let Some(facts) = initial_facts {
-        content.analysis().seed_facts(facts);
-    }
-    let mut ctx = FixContext {
-        passes,
-        directives: Directives::parse_per_line_with_analysis(
-            content.analysis(),
-            &passes.per_line,
-        ),
-        edit_epoch: 0,
-        clean_rules: HashMap::new(),
-        clean_syntax_epoch: None,
-        quote_cache: HashMap::new(),
-    };
-    if crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
-        content.analysis(),
-    )
-    .is_some()
-    {
-        // Key ordering verifies its output before applying it.
-        ctx.apply(
-            &mut content,
-            tracking.edited,
-            key_ordering::ID,
-            passes.key_ordering.as_ref(),
-            |view, cfg| key_ordering::fix(view.text(), cfg, &passes.per_line),
-        );
-        if content.analysis().text() != input && max_passes > 1 {
-            return run_passes(
-                &content,
-                passes,
-                path,
-                max_passes - 1,
-                err,
-                tracking.edited,
-            )
-            .into();
-        }
-        return content.into_owned();
-    }
-    for _ in 0..max_passes {
-        let changed = ctx.pass(
-            &mut content,
-            tracking.edited,
-            tracking.reindented.as_deref_mut(),
-        );
-        if !changed {
-            return content.into_owned();
-        }
-    }
-    let mut changed_rules = Vec::new();
-    let mut probe = TextVersion::new(content.analysis().text());
-    if ctx.pass(&mut probe, &mut changed_rules, None) {
-        changed_rules.dedup();
-        let warning = format!(
-            "\nerror: Failed to converge after {max_passes} iterations.\n\n\
+    rules: &[&'static str],
+) {
+    let warning = format!(
+        "\nerror: Failed to converge after {max_passes} iterations.\n\n\
              This indicates a bug in ryl. If you could open an issue at:\n\n    \
              https://github.com/owenlamont/ryl/issues/new?title=%5BInfinite%20loop%5D\n\n\
              ...quoting the contents of `{}`, the rule ids {}, along with the ryl config \
              and executed command, we'd be very appreciative!\n\n",
-            cwd_relative_label(path),
-            changed_rules.join(", "),
-        );
-        crate::cli_support::write_file_stderr(err, warning.as_bytes());
-    }
-    content.into_owned()
-}
-
-/// Shared arguments for a sequence of rule fixes. `apply` is a method so it can be generic
-/// over the fix closure (a capturing closure cannot), avoiding dynamic dispatch.
-struct FixContext<'a> {
-    passes: &'a Passes<'a>,
-    /// Parsed once from the original input. `disables_any` is stable across fixes (no fixer
-    /// adds or removes a directive comment), so the per-rule guard reads it without re-parsing.
-    directives: Directives,
-    edit_epoch: usize,
-    clean_rules: HashMap<&'static str, usize>,
-    clean_syntax_epoch: Option<usize>,
-    quote_cache: HashMap<String, Option<bool>>,
-}
-
-#[derive(Clone, Copy)]
-enum EditGroup {
-    Comments,
-    Punctuation,
-    Finishing,
-}
-
-impl EditGroup {
-    fn rules(self) -> &'static [&'static str] {
-        match self {
-            Self::Comments => &[comments::ID, comments_indentation::ID, commas::ID],
-            Self::Punctuation => &[braces::ID, brackets::ID, colons::ID, hyphens::ID],
-            Self::Finishing => &[
-                trailing_spaces::ID,
-                document_start::ID,
-                document_end::ID,
-                empty_lines::ID,
-            ],
-        }
-    }
-}
-
-impl FixContext<'_> {
-    fn quotes(
-        &mut self,
-        content: &mut TextVersion<'_>,
-        changed_rules: &mut Vec<&'static str>,
-    ) {
-        let settle = self.passes.indentation.is_some()
-            && self.passes.per_line.is_empty()
-            && !self.directives.disables_any(quoted_strings::ID);
-        let mut cache = std::mem::take(&mut self.quote_cache);
-        let mut settled = false;
-        self.apply(
-            content,
-            changed_rules,
-            quoted_strings::ID,
-            self.passes.quoted_strings.as_ref(),
-            |view, cfg| {
-                if settled {
-                    return None;
-                }
-                let (output, final_scalars) = quoted_strings::fix_format_with_cache(
-                    view, cfg, &mut cache, settle,
-                );
-                settled = final_scalars;
-                output
-            },
-        );
-        self.quote_cache = cache;
-    }
-
-    fn batch(
-        &mut self,
-        content: &mut TextVersion<'_>,
-        changed_rules: &mut Vec<&'static str>,
-        group: EditGroup,
-    ) -> bool {
-        if self.passes.indentation.is_none()
-            || !self.passes.per_line.is_empty()
-            || group
-                .rules()
-                .iter()
-                .any(|rule| self.directives.disables_any(rule))
-        {
-            return false;
-        }
-        if group
-            .rules()
-            .iter()
-            .all(|rule| self.clean_rules.get(rule) == Some(&self.edit_epoch))
-        {
-            return true;
-        }
-        let input = content.analysis();
-        let passes = self.passes;
-        let mut batch = Batch::default();
-        macro_rules! plan {
-            ($rule:ident) => {
-                if let Some(cfg) = passes.$rule.as_ref() {
-                    batch.push($rule::ID, $rule::edits(input, cfg));
-                }
-            };
-        }
-        match group {
-            EditGroup::Comments => {
-                plan!(comments);
-                if let Some(cfg) = passes.comments_indentation {
-                    batch.push(
-                        comments_indentation::ID,
-                        comments_indentation::edits(input, cfg),
-                    );
-                }
-                plan!(commas);
-            }
-            EditGroup::Punctuation => {
-                plan!(braces);
-                plan!(brackets);
-                plan!(colons);
-                plan!(hyphens);
-            }
-            EditGroup::Finishing => {
-                if passes.trailing_spaces {
-                    let edits = trailing_spaces::edits(input);
-                    // A newly blank line or scalar EOF newline needs fresh ownership facts.
-                    if edits.iter().any(|(start, _, text)| {
-                        !text.is_empty()
-                            || start.get() == 0
-                            || input.text()[..start.get()].ends_with(['\n', '\r'])
-                    }) {
-                        return false;
-                    }
-                    batch.push(trailing_spaces::ID, edits);
-                }
-                if let Some(cfg) = passes.document_start {
-                    batch.push(document_start::ID, document_start::edits(input, cfg));
-                }
-                if let Some(cfg) = passes.document_end {
-                    batch.push(document_end::ID, document_end::edits(input, cfg));
-                }
-                plan!(empty_lines);
-                // Markers change the blank runs and document boundaries seen by later rules.
-                if batch
-                    .changed_rules()
-                    .iter()
-                    .any(|rule| matches!(*rule, document_start::ID | document_end::ID))
-                {
-                    return false;
-                }
-            }
-        }
-        if batch.changed_rules().is_empty() {
-            for rule in group.rules() {
-                self.clean_rules.insert(rule, self.edit_epoch);
-            }
-            return true;
-        }
-        let rules = batch.changed_rules().to_vec();
-        batch.finish(input).is_some_and(|plan| {
-            let changed = content
-                .apply(plan)
-                .expect("batch plan belongs to the current epoch");
-            changed_rules.extend(rules.into_iter().filter(|_| changed));
-            self.edit_epoch += usize::from(changed);
-            true
-        })
-    }
-
-    /// One pass of every enabled fixer, pushing onto `changed_rules` each rule whose fix
-    /// changed the text.
-    fn pass(
-        &mut self,
-        content: &mut TextVersion<'_>,
-        changed_rules: &mut Vec<&'static str>,
-        reindented: Option<&mut ReindentCache>,
-    ) -> bool {
-        let passes = self.passes;
-        let initial_epoch = self.edit_epoch;
-        macro_rules! fix {
-            ($rule:ident) => {
-                fix!($rule, passes.$rule.as_ref(), |view, cfg| $rule::fix(
-                    view.text(),
-                    cfg
-                ))
-            };
-            ($rule:ident, $cfg:expr, $fix:expr $(,)?) => {
-                self.apply(content, changed_rules, $rule::ID, $cfg, $fix)
-            };
-        }
-        fix!(new_lines, passes.new_lines.as_ref(), |view, cfg| {
-            new_lines::fix(view.text(), *cfg, new_lines::platform_newline())
-        });
-        if !self.batch(content, changed_rules, EditGroup::Comments) {
-            fix!(
-                comments,
-                passes.comments.as_ref(),
-                comments::fix_with_analysis
-            );
-            fix!(
-                comments_indentation,
-                passes.comments_indentation.as_ref(),
-                |view, cfg| comments_indentation::fix_with_analysis(view, *cfg)
-            );
-            fix!(commas, passes.commas.as_ref(), commas::fix_with_analysis);
-        }
-        let syntax_epoch = self.edit_epoch;
-        if self.clean_syntax_epoch != Some(syntax_epoch) {
-            if passes.collection_style.is_some() || passes.indentation.is_some() {
-                self.syntax_pass(content, changed_rules, reindented);
-            } else {
-                self.lint_syntax_pass(content, changed_rules);
-            }
-        }
-        if self.edit_epoch == syntax_epoch {
-            self.clean_syntax_epoch = Some(syntax_epoch);
-        }
-        if !self.batch(content, changed_rules, EditGroup::Finishing) {
-            fix!(
-                trailing_spaces,
-                passes.trailing_spaces.then_some(&()),
-                |view, ()| trailing_spaces::fix_with_analysis(view)
-            );
-            fix!(
-                document_start,
-                passes.document_start.as_ref(),
-                |view, cfg| document_start::fix_with_analysis(view, *cfg)
-            );
-            fix!(document_end, passes.document_end.as_ref(), |view, cfg| {
-                document_end::fix_with_analysis(view, *cfg)
-            });
-            fix!(
-                empty_lines,
-                passes.empty_lines.as_ref(),
-                empty_lines::fix_with_analysis
-            );
-        }
-        fix!(truthy);
-        fix!(key_ordering, passes.key_ordering.as_ref(), |view, cfg| {
-            key_ordering::fix(view.text(), cfg, &passes.per_line)
-        });
-        // `fold` skips disabled lines itself: `Directives::reconcile` duplicates a split line.
-        if let Some(cfg) = passes.line_length
-            && let Some(folded) = line_length::fold(content, cfg)
-        {
-            changed_rules.push(line_length::ID);
-            let plan = content.analysis().plan(folded);
-            content
-                .apply(plan)
-                .expect("fold plan belongs to the current epoch");
-            self.edit_epoch += 1;
-        }
-        self.edit_epoch != initial_epoch
-    }
-
-    fn lint_syntax_pass(
-        &mut self,
-        content: &mut TextVersion<'_>,
-        changed_rules: &mut Vec<&'static str>,
-    ) {
-        let passes = self.passes;
-        macro_rules! fix {
-            ($rule:ident) => {
-                fix!($rule, |view, cfg| $rule::fix(view.text(), cfg))
-            };
-            ($rule:ident, $fix:expr) => {
-                self.apply(
-                    content,
-                    changed_rules,
-                    $rule::ID,
-                    passes.$rule.as_ref(),
-                    $fix,
-                )
-            };
-        }
-        fix!(braces, braces::fix_with_analysis);
-        fix!(brackets, brackets::fix_with_analysis);
-        fix!(colons, colons::fix_with_analysis);
-        fix!(hyphens, hyphens::fix_with_analysis);
-        self.apply(
-            content,
-            changed_rules,
-            new_line_at_end_of_file::ID,
-            passes.final_newline.as_ref(),
-            |view, policy| {
-                new_line_at_end_of_file::fix(view.text(), policy.newline(view.text()))
-            },
-        );
-        fix!(quoted_strings, |view, cfg| quoted_strings::fix_with_events(
-            view.text(),
-            cfg,
-            Some(view)
-        ));
-    }
-
-    fn syntax_pass(
-        &mut self,
-        content: &mut TextVersion<'_>,
-        changed_rules: &mut Vec<&'static str>,
-        mut reindented: Option<&mut ReindentCache>,
-    ) {
-        let passes = self.passes;
-        macro_rules! fix {
-            ($rule:ident) => {
-                fix!($rule, |view, cfg| $rule::fix(view.text(), cfg))
-            };
-            ($rule:ident, $fix:expr) => {
-                self.apply(
-                    content,
-                    changed_rules,
-                    $rule::ID,
-                    passes.$rule.as_ref(),
-                    $fix,
-                )
-            };
-            ($rule:ident, $cfg:expr, $fix:expr $(,)?) => {
-                self.apply(content, changed_rules, $rule::ID, $cfg, $fix)
-            };
-        }
-        if let Some(cfg) = passes.collection_style
-            && let Some((restyled, rules)) = collection_style::restyle(
-                content,
-                cfg,
-                passes.indentation.as_ref(),
-                content
-                    .analysis()
-                    .parsed()
-                    .valid
-                    .then(|| content.analysis()),
-            )
-        {
-            changed_rules.extend(rules);
-            let plan = content.analysis().plan(restyled);
-            content
-                .apply(plan)
-                .expect("collection plan belongs to the current epoch");
-            self.edit_epoch += 1;
-        }
-        if !self.batch(content, changed_rules, EditGroup::Punctuation) {
-            fix!(braces, braces::fix_with_analysis);
-            fix!(brackets, brackets::fix_with_analysis);
-            fix!(colons, colons::fix_with_analysis);
-            fix!(hyphens, hyphens::fix_with_analysis);
-        }
-        self.quotes(content, changed_rules);
-        fix!(indentation, passes.indentation.as_ref(), |view, cfg| {
-            reindent_for_pass(view, cfg, reindented.as_deref_mut())
-        },);
-        fix!(
-            new_line_at_end_of_file,
-            passes.final_newline.as_ref(),
-            |view, policy| new_line_at_end_of_file::fix(
-                view.text(),
-                policy.newline(view.text())
-            )
-        );
-    }
-
-    fn apply<C, R: Into<TextVersion<'static>>>(
-        &mut self,
-        content: &mut TextVersion<'_>,
-        changed_rules: &mut Vec<&'static str>,
-        rule: &'static str,
-        cfg: Option<&C>,
-        mut fix: impl FnMut(Analysis<'_>, &C) -> Option<R>,
-    ) {
-        let Some(cfg) = cfg else {
-            return;
-        };
-        if self.clean_rules.get(rule) == Some(&self.edit_epoch) {
-            return;
-        }
-
-        // Run the fix to a fixed point: one pass is not enough where a fix exposes a follow-up
-        // diagnostic (e.g. quoted-strings double-to-single leaves a now-redundant pair to
-        // remove), which would leave the single `--fix` non-idempotent. A well-behaved fixer
-        // returns None at completion, so the loop exits after at most one extra no-op call.
-        //
-        // A guarded rule reconciles each pass so the fixer's edits to disabled lines are
-        // reverted, re-parsing after a change since structural fixers shift line numbers.
-        // Guard on an inline directive disabling this rule OR any per-line entry targeting it:
-        // a content regex can newly match a line a fixer *produces*, so re-parse even if no
-        // original line matched.
-        let per_line = &self.passes.per_line;
-        let guarded = self.directives.disables_any(rule)
-            || per_line
-                .iter()
-                .any(|entry| entry.rules.is_none_or(|ids| ids.contains(&rule)));
-        let current = content;
-        let mut directives = Directives::default();
-        if guarded {
-            directives =
-                Directives::parse_per_line_with_analysis(current.analysis(), per_line);
-        }
-        for _ in 0..RULE_FIX_MAX_ITERATIONS {
-            let Some(next) = fix(current.analysis(), cfg) else {
-                self.clean_rules.insert(rule, self.edit_epoch);
-                break;
-            };
-            let mut next = next.into();
-            if guarded {
-                let reconciled = directives.reconcile(rule, current, &next);
-                let plan = next.analysis().plan(reconciled);
-                next.apply(plan)
-                    .expect("reconciliation plan belongs to the candidate epoch");
-            }
-            let plan = current.analysis().plan_version(next);
-            if !current
-                .apply(plan)
-                .expect("rule plan belongs to the current epoch")
-            {
-                self.clean_rules.insert(rule, self.edit_epoch);
-                break;
-            }
-            changed_rules.push(rule);
-            self.edit_epoch += 1;
-            if guarded {
-                directives = Directives::parse_per_line_with_analysis(
-                    current.analysis(),
-                    per_line,
-                );
-            }
-        }
-    }
+        cwd_relative_label(path),
+        rules.join(", "),
+    );
+    crate::cli_support::write_file_stderr(err, warning.as_bytes());
 }
 
 fn rule_enabled(

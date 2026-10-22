@@ -419,3 +419,26 @@ fn per_line_ignores_is_rejected_in_yaml_config() {
         "{out}"
     );
 }
+
+#[test]
+fn fix_guards_truthy_on_suppressed_lines() {
+    let dir = tempdir().unwrap();
+    let config = dir.path().join(".ryl.toml");
+    fs::write(
+        &config,
+        "[lint.rules]\ntruthy = 'enable'\n\n[[lint.per-line-ignores]]\nregex = 'keep'\n\
+         rules = [\"truthy\"]\n",
+    )
+    .unwrap();
+    let file = dir.path().join("doc.yaml");
+    fs::write(&file, "a: True\ncafé: True  # keep\n").unwrap();
+
+    let (_code, _stdout, _stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "--fix", "-c"])
+        .arg(&config)
+        .arg(&file));
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "a: true\ncafé: True  # keep\n"
+    );
+}

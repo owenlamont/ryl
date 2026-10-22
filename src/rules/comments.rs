@@ -54,7 +54,7 @@ impl Config {
         self.require_starting_space
     }
 
-    const fn ignore_shebangs(&self) -> bool {
+    pub(crate) const fn ignore_shebangs(&self) -> bool {
         self.ignore_shebangs
     }
 }

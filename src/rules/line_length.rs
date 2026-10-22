@@ -6,7 +6,7 @@
 
 pub(crate) mod fold;
 
-pub use fold::{Fold, fold};
+pub use fold::Fold;
 
 use std::convert::TryFrom;
 

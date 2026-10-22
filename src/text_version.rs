@@ -130,10 +130,6 @@ impl<'text> TextVersion<'text> {
         self.strict_valid = true;
     }
 
-    pub(crate) fn into_facts(self) -> Option<ParsedFacts> {
-        self.parsed.into_inner()
-    }
-
     pub(crate) fn take_facts(&mut self) -> Option<ParsedFacts> {
         self.parsed.take()
     }
@@ -274,7 +270,7 @@ impl<'text> Analysis<'text> {
         output: Analysis<'_>,
         expected: impl Iterator<Item = Event<'text>>,
     ) -> Result<bool, ScanError> {
-        self.verify_events(output, expected, false)
+        self.verify_events::<false>(output, expected, false)
     }
 
     pub(crate) fn verify_format_events(
@@ -282,10 +278,17 @@ impl<'text> Analysis<'text> {
         output: Analysis<'_>,
         expected: impl Iterator<Item = Event<'text>>,
     ) -> Result<bool, ScanError> {
-        self.verify_events(output, expected, true)
+        self.verify_events::<false>(output, expected, true)
     }
 
-    fn verify_events(
+    pub(crate) fn verify_collection_events(
+        self,
+        output: Analysis<'_>,
+    ) -> Result<bool, ScanError> {
+        self.verify_events::<true>(output, self.event_values(), true)
+    }
+
+    fn verify_events<const COLLECTIONS: bool>(
         self,
         output: Analysis<'_>,
         expected: impl Iterator<Item = Event<'text>>,
@@ -296,7 +299,9 @@ impl<'text> Analysis<'text> {
             let mut tokens = None;
             let result = rayon::in_place_scope(|scope| {
                 scope.spawn(|_| tokens = Some(lexical::scan(text)));
-                self.verify_events_serial(output, expected, semantic, false)
+                self.verify_events_serial::<COLLECTIONS>(
+                    output, expected, semantic, false,
+                )
             });
             crate::format::layout::stats::prefetched();
             if result.as_ref().is_ok_and(|matches| *matches) {
@@ -305,10 +310,10 @@ impl<'text> Analysis<'text> {
             }
             return result;
         }
-        self.verify_events_serial(output, expected, semantic, semantic)
+        self.verify_events_serial::<COLLECTIONS>(output, expected, semantic, semantic)
     }
 
-    fn verify_events_serial(
+    fn verify_events_serial<const COLLECTIONS: bool>(
         self,
         output: Analysis<'_>,
         expected: impl Iterator<Item = Event<'text>>,
@@ -353,7 +358,7 @@ impl<'text> Analysis<'text> {
             facts.push(output.text(), event, &span, &mut depth);
         };
         let matches = if capture {
-            events::verify_strict(
+            events::verify_strict::<COLLECTIONS>(
                 expected,
                 output.text(),
                 |span: &Span, kind: ryl_yaml_parser::TokenKind<'_>| {
@@ -362,7 +367,7 @@ impl<'text> Analysis<'text> {
                 observe,
             )?
         } else {
-            events::verify_strict(expected, output.text(), (), observe)?
+            events::verify_strict::<COLLECTIONS>(expected, output.text(), (), observe)?
         };
 
         facts.valid = true;
@@ -683,12 +688,6 @@ impl ParsedFacts {
         facts.valid = facts.error.is_none();
         facts.compact();
         facts
-    }
-}
-
-impl From<String> for TextVersion<'static> {
-    fn from(text: String) -> Self {
-        Self::new(text)
     }
 }
 

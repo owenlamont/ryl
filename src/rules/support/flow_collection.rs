@@ -443,10 +443,6 @@ pub(crate) fn edits(
     desc: &FlowCollectionDescriptor,
 ) -> Vec<crate::text_version::edits::Edit> {
     let buffer = input.text();
-    if buffer.is_empty() {
-        return Vec::new();
-    }
-
     let Some(mut edits) = Edits::new(buffer.as_bytes(), cfg, desc) else {
         return Vec::new();
     };

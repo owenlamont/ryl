@@ -7,6 +7,7 @@ use std::time::Instant;
 struct Counts {
     path: String,
     bytes: usize,
+    seeded: bool,
     analyses: usize,
     lexical_scans: usize,
     streamed_dry_scans: usize,
@@ -15,6 +16,7 @@ struct Counts {
     strict_parses: usize,
     verification_parses: usize,
     rollback: usize,
+    skips: usize,
     cached_lexical_tapes: usize,
     line_table_builds: usize,
     token_normalizations: usize,
@@ -38,6 +40,7 @@ pub(crate) enum Counter {
     Strict,
     Verify,
     Rollback,
+    Skip,
     Tape,
     Lines,
     Normalize,
@@ -84,6 +87,7 @@ pub(crate) fn add(counter: Counter, amount: usize) {
                 Counter::Strict => &mut counts.strict_parses,
                 Counter::Verify => &mut counts.verification_parses,
                 Counter::Rollback => &mut counts.rollback,
+                Counter::Skip => &mut counts.skips,
                 Counter::Tape => &mut counts.cached_lexical_tapes,
                 Counter::Lines => &mut counts.line_table_builds,
                 Counter::Normalize => &mut counts.token_normalizations,
@@ -112,6 +116,7 @@ impl Recording {
         let counts = Counts {
             path: path.to_string_lossy().into_owned(),
             bytes,
+            seeded: initial,
             analyses: usize::from(initial) * (1 + usize::from(strict == Some(false))),
             strict_parses: usize::from(initial),
             ..Counts::default()
@@ -123,15 +128,10 @@ impl Recording {
         })
     }
 
-    pub(crate) fn fallback(reason: &super::Fallback) {
+    pub(crate) fn fallback(reason: super::Fallback) {
         COUNTS.with_borrow_mut(|counts| {
             if let Some(counts) = counts {
-                counts.fallback = Some(match reason {
-                    super::Fallback::UnsettledQuote(byte) => {
-                        format!("unsettled-quote:{byte}")
-                    }
-                    other => format!("{other:?}"),
-                });
+                counts.fallback = Some(format!("{reason:?}"));
             }
         });
     }

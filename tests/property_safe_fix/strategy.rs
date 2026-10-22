@@ -108,8 +108,9 @@ fn arb_scalar() -> impl Strategy<Value = Scalar> {
 }
 
 fn arb_flow_style() -> impl Strategy<Value = FlowStyle> {
-    (0u8..=2, 0u8..=2, 0u8..=2, 0u8..=2, 0u8..=2).prop_map(
+    (any::<bool>(), 0u8..=2, 0u8..=2, 0u8..=2, 0u8..=2, 0u8..=2).prop_map(
         |(
+            trailing_comma,
             inner_padding,
             spaces_before_comma,
             spaces_after_comma,
@@ -117,6 +118,7 @@ fn arb_flow_style() -> impl Strategy<Value = FlowStyle> {
             spaces_after_colon,
         )| {
             FlowStyle {
+                trailing_comma,
                 inner_padding,
                 spaces_before_comma,
                 spaces_after_comma,

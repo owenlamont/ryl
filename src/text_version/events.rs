@@ -5,7 +5,7 @@ use ryl_yaml_parser::{
     YamlVersion,
 };
 
-pub(super) fn verify_strict<'a, 'b>(
+pub(super) fn verify_strict<'a, 'b, const COLLECTIONS: bool>(
     expected: impl Iterator<Item = Event<'a>>,
     output: &'b str,
     lexical: impl ryl_yaml_parser::TokenObserver,
@@ -27,7 +27,17 @@ pub(super) fn verify_strict<'a, 'b>(
     for item in parser {
         let (event, span) = item?;
         if significant(&event) {
-            matches &= expected.next().as_ref() == Some(&event);
+            matches &= expected
+                .next()
+                .is_some_and(|before| match (&before, &event) {
+                    (Event::SequenceStart(_, a, t), Event::SequenceStart(_, b, u))
+                    | (Event::MappingStart(_, a, t), Event::MappingStart(_, b, u))
+                        if COLLECTIONS =>
+                    {
+                        a == b && t == u
+                    }
+                    _ => before == event,
+                });
         }
         observe(event, span);
     }

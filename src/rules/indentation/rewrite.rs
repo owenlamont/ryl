@@ -69,9 +69,9 @@ pub(crate) struct Layout<'a> {
 }
 
 impl<'a> Layout<'a> {
-    pub(crate) fn collapse_scalars(
+    pub(crate) fn collapse_scalars<'b>(
         &mut self,
-        edits: &[crate::format::layout::PlanEdit],
+        edits: impl IntoIterator<Item = &'b crate::format::layout::PlanEdit>,
     ) -> bool {
         let source = self.input.text();
         let starts = self.input.byte_line_starts();
@@ -102,7 +102,6 @@ impl<'a> Layout<'a> {
                 Box::new(crate::format::layout::Bridge {
                     start: start.get(),
                     end: end.get(),
-                    bytes: text.len(),
                     characters: text.char_count(),
                     prefix_column: source[prefix..start.get()].chars().count(),
                     // BOM-normalized columns retain the byte-derived tail width.
@@ -173,6 +172,84 @@ impl<'a> Layout<'a> {
     }
     pub(crate) fn new(input: Analysis<'a>, cfg: &Config) -> Self {
         Self::with_shapes(input, cfg, false)
+    }
+
+    pub(crate) fn keep_refused(
+        &mut self,
+        refused: &[Option<Cause>],
+        edits: &[crate::format::layout::PlanEdit],
+    ) -> bool {
+        let starts = self.starts.clone();
+        let frozen =
+            |line| refused[starts.partition_point(|&at| at <= line) - 1].is_some();
+        let mut previous = std::mem::take(&mut self.lines).into_iter().peekable();
+        for (origin, content, ending) in self.input.lines() {
+            if frozen(origin) {
+                while previous.peek().is_some_and(|line| line.origin <= origin) {
+                    previous.next();
+                }
+                self.lines.push(VirtualLine::new(
+                    origin,
+                    content,
+                    ending,
+                    self.source_starts[origin] > self.input.byte_line_starts()[origin],
+                ));
+            } else {
+                while previous.peek().is_some_and(|line| line.origin == origin) {
+                    self.lines
+                        .push(previous.next().expect("the line was inspected"));
+                }
+            }
+        }
+        self.shaped = self.lines.len() != self.input.line_count()
+            || self.lines.iter().any(|line| !line.tail.is_empty());
+        self.reindex();
+        let input = self.input;
+        self.collapse_scalars(edits.iter().filter(|(start, _, _)| {
+            frozen(
+                input
+                    .byte_line_starts()
+                    .partition_point(|&at| at <= start.get())
+                    - 1,
+            )
+        }))
+    }
+
+    pub(crate) fn frozen(&self, refused: &[Option<Cause>], line: usize) -> bool {
+        refused[self.starts.partition_point(|&at| at <= line) - 1].is_some()
+    }
+
+    pub(crate) fn freeze_targets(&self, targets: &mut Targets) -> Vec<Refusal> {
+        for (index, line) in self.lines.iter().enumerate() {
+            if self.frozen(&targets.refused, line.origin) {
+                targets.deltas[index] = 0;
+            }
+        }
+        let refused = &targets.refused;
+        targets
+            .gaps
+            .retain(|gap| !self.frozen(refused, self.lines[gap.line].origin));
+        self.result(String::new(), &targets.refused, self.input.line_count())
+            .refused
+    }
+
+    pub(crate) fn inconsistent_documents(&self, cfg: &Config) -> Vec<Option<Cause>> {
+        let mut refused = vec![None; self.starts.len()];
+        refuse_inconsistent(self.input, cfg, &mut refused);
+        refused
+    }
+
+    pub(crate) fn consistent_except(&self, cfg: &Config, refused: &[Refusal]) -> bool {
+        if refused.is_empty() {
+            return self.consistent(cfg);
+        }
+        super::check_with_analysis(self.input, &cfg.with_consistent_spaces())
+            .iter()
+            .all(|problem| {
+                refused
+                    .iter()
+                    .any(|item| item.lines.contains(&problem.line))
+            })
     }
 
     pub(crate) fn format(input: Analysis<'a>, cfg: &Config) -> Self {
@@ -300,12 +377,11 @@ impl<'a> Layout<'a> {
             } else {
                 output.analysis()
             };
-            if refuse_inconsistent(verified, cfg, &mut refused) {
-                let plan = output.analysis().plan(render(&refused));
-                output
-                    .apply(plan)
-                    .expect("consistency plan belongs to the current epoch");
-            }
+            refuse_inconsistent(verified, cfg, &mut refused);
+            let plan = output.analysis().plan(render(&refused));
+            output
+                .apply(plan)
+                .expect("consistency plan belongs to the current epoch");
         }
         (
             self.result(output.to_string(), &refused, original_line_count),
@@ -486,8 +562,8 @@ impl<'a> Layout<'a> {
                 }
                 let next = facts.borrow_mut().sites.edits_through(
                     original + 1,
-                    passes.colons.is_some(),
-                    passes.hyphens.is_some(),
+                    passes.colons == Some(crate::rules::colons::Config::format()),
+                    passes.hyphens == Some(crate::rules::hyphens::Config::format()),
                 );
                 gaps.append(input, &next);
                 spacing.extend(next);
@@ -716,6 +792,9 @@ impl<'a> Layout<'a> {
         gaps: &[Gap],
         diagnostics: &[super::Violation],
     ) -> Vec<Option<Cause>> {
+        if self.starts.is_empty() {
+            return Vec::new();
+        }
         let directives = &self.directives;
         let mut refused: Vec<Option<Cause>> = vec![None; self.starts.len()];
         let mut refuse = |line: usize, cause: Cause| {
@@ -799,16 +878,13 @@ fn refuse_inconsistent(
     input: Analysis<'_>,
     cfg: &Config,
     refused: &mut [Option<Cause>],
-) -> bool {
+) {
     let mut starts = input.parsed().document_starts.clone();
     starts[0] = 0;
-    let mut rollback = false;
     for violation in super::check_with_analysis(input, &cfg.with_consistent_spaces()) {
         let document = starts.partition_point(|&start| start < violation.line) - 1;
-        rollback |= refused[document].is_none();
         refused[document].get_or_insert(Cause::Inconsistent);
     }
-    rollback
 }
 
 /// `buffer` with each block mapping in a block sequence joined onto its `-` line, or

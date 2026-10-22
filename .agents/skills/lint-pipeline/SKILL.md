@@ -155,10 +155,15 @@ skipped (`fix::ends_in_bare_cr` — `similar` can't render it; use `--fix`).
 
 ## `ryl format`
 
-`ryl format` plans supported strict-valid inputs in `format::layout`, using one
-candidate emission, strict event verification, the whole-format semantic guard and
-a mandatory dry plan. Unsupported interactions restart the bounded `--fix` engine
-from the original bytes. Both paths consume a resolved `fix::Passes` value.
+`ryl format` and `ryl check --fix` both run `fix::rewrite` over a resolved
+`fix::Passes` value. A file-wide disable skips the input. A strict-invalid input is
+first re-indented (`fix::repair`) when that alone makes it strictly valid with the same
+representation. `format::layout` then plans every rule in one candidate emission with
+strict event verification, the whole-format semantic guard and a mandatory dry plan.
+`truthy` and `key-ordering` run after each settled layout as guarded text fixes; a
+change restarts the layout, bounded by `FIX_PIPELINE_MAX_PASSES`. An input with an
+ambiguous blank block-scalar body line gets key ordering only. A layout decline rolls
+back to the original bytes.
 `ryl check --fix`
 builds its `Passes` from the lint config (rule selection, per-rule `ignore`,
 per-file-ignores, `fixable`/`unfixable`, per-line-ignores); `ryl format` builds its own
@@ -169,11 +174,14 @@ zero-config run formats. Inline directives are honoured by both. A YAML config g
 Every changed formatter result must parse strictly and preserve the original significant
 events; a failed comparison rolls the rewrite back to the original input.
 
-The fallback formatter batches comment/comma, punctuation, and compatible finishing
-edits against one analysis per group. Quotes, indentation and newline conversion
-retain their separate epochs. Conflicting byte ranges, suppression directives,
-marker changes and newly blank
-lines retain the sequential fixed-point path; `check --fix` always uses that path.
+Layout handles suppression and indentation refusals while retaining source bytes for
+refused documents; a candidate whose re-indentation changes a document's events
+freezes that document and replans. Collapses that cannot share a virtual line retry
+after a separately verified quote epoch, and a folded-tail interaction retries with an
+unindented first epoch. A comma before a closing bracket takes the bracket rule's
+spacing; where the two lint options contradict, `check --fix` reports the
+non-convergence error instead of looping. Lint colon and hyphen options plan from
+their own configs; the cached spacing sites serve only the formatter targets.
 Flow spacing shares cached punctuation sites; brackets retain their existing traversal
 when template text occurs, because braces and commas skip template spans.
 
@@ -182,14 +190,26 @@ Column-zero document-marker checks run before the value-only cache lookup.
 Unguarded ladder replacements settle locally before indentation measures
 the resulting scalar lengths; a no-edit certificate avoids a whole-document quote
 probe. Multiline collapses change virtual lines; multiline style changes compose
-line-local edits. Unsettled, line-leading or suppressed quote interactions retain
-the bounded fixed-point path. Every quote replacement retains
+line-local edits. Quote and dirty dry-plan interactions settle through bounded,
+verified layout epochs; partially suppressed multiline quotes preserve rollback.
+Every quote replacement retains
 the existing schema and snippet checks;
 unchanged plain and block scalars need no quote decision.
 
+Forced collection targets plan conversion before layout, retaining the existing
+comment, key, width and reindent refusals. A strict parse compares significant
+events with only collection style relaxed, alongside the semantic comparison.
+All folding profiles settle quote edits in a separately verified epoch before
+measuring fold endpoints. Conversions with comments align comments before
+conversion, defer further comment alignment until after reindentation, then run
+the full layout and dry plan. A dry collection plan must also have no remaining
+edits. A remaining conversion plan becomes the next verified stage. Rejected
+conversions can retry after a changed layout stage, retaining the existing
+fixed-point bound. Dirty dry plans continue from the verified candidate;
+consistency refusals replan from original bytes with the refused documents frozen.
+
 The layout planner retains source provenance through dash joins, scalar collapses,
-comment shifts, folding and boundary finishing. Refusal-sensitive combinations use
-the existing driver; `check --fix` keeps its ordered rule pipeline. Set
+comment shifts, folding and boundary finishing. Set
 `RYL_LAYOUT_STATS` to a JSONL destination to record per-input fallback reasons,
 traversal/emission counts and elapsed time during development.
 
@@ -197,7 +217,8 @@ Both plans collect shared header, comment, sparse spacing and folding facts duri
 lexical scanning. The input buffers the unresolved line, projects tokens against
 settled local gaps and quotes, and feeds the indentation analyzer directly.
 The dry pass invokes the same producers and layout planner on fresh candidate facts;
-any remaining edit or refusal restarts the bounded driver from the original bytes.
+remaining edits start another verified layout epoch, and consistency refusals
+freeze the affected documents before replanning from original bytes.
 Strict candidate verification compares expected events and semantic events in
 the same parse. Refusal reporting stores epoch-bound evidence without text copies.
 BOM dry inputs retain the

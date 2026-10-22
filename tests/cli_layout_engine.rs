@@ -8,6 +8,56 @@ fn format_with_statistics(input: &str, config: &str) -> (String, Value) {
     format_with_workers(input, config, 2)
 }
 
+#[test]
+fn comment_only_documents_use_layout_without_document_nodes() {
+    let (output, statistics) =
+        format_with_statistics("#note  \r\n\r\n\r\n", "[format]\n");
+    assert_eq!(output, "# note\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn tabbed_comment_prefixes_are_removed_without_indentation_refusals() {
+    let (output, statistics) = format_with_statistics("\t#note \n", "[format]\n");
+    assert_eq!(output, "# note\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn empty_documents_complete_a_clean_layout_plan() {
+    let (output, statistics) = format_with_statistics("", "[format]\n");
+    assert_eq!(output, "");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["planning_invocations"], 1, "{statistics}");
+}
+
+#[test]
+fn tabbed_scalar_documents_keep_their_original_indentation() {
+    let (output, statistics) = format_with_statistics(
+        "first :\n    body: |\n      \tinside\n    list: [ a,b ] #note\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "first:\n    body: |\n      \tinside\n    list: [a, b]  # note\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn inconsistent_sibling_documents_replan_from_original_bytes() {
+    let (output, statistics) = format_with_statistics(
+        "first :\n    body: |\n      \tinside\n    list: [ a,b ] #note\n---\nsecond :\n    mapping:\n        key: 'café'\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "first:\n    body: |\n      \tinside\n    list: [a, b]  # note\n---\nsecond:\n    mapping:\n        key: café\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["rollback"], 1, "{statistics}");
+}
+
 fn format_with_workers(input: &str, config: &str, workers: usize) -> (String, Value) {
     let directory = tempfile::tempdir().unwrap();
     let file = directory.path().join("layout.yaml");
@@ -161,26 +211,117 @@ fn standalone_dashes_separate_mapping_indentation_from_sequence_indentation() {
 }
 
 #[test]
-fn conversion_and_suppression_restart_the_ordered_driver() {
-    for (input, config, reason, expected) in [
-        (
-            "é: [ café,世 ]\n",
-            "[format]\nsequence-style = 'block'\n",
-            "Conversion",
-            "é:\n  - café\n  - 世\n",
-        ),
-        (
-            "# ryl disable rule:quoted-strings\né : 'café'\n",
-            "[format]\n",
-            "Suppression",
-            "# ryl disable rule:quoted-strings\né: 'café'\n",
-        ),
-    ] {
-        let (output, statistics) = format_with_statistics(input, config);
-        assert_eq!(output, expected);
-        assert_eq!(statistics["fallback"], reason, "{statistics}");
-        assert_eq!(format_with_statistics(&output, config).0, output);
-    }
+fn suppression_filters_only_the_disabled_rules_edits() {
+    let input = "# ryl disable rule:quoted-strings\né : 'café'\n";
+    let (output, statistics) = format_with_statistics(input, "[format]\n");
+    assert_eq!(output, "# ryl disable rule:quoted-strings\né: 'café'\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn suppressed_endings_and_blank_runs_keep_their_bytes() {
+    let (output, stats) = format_with_statistics(
+        "# ryl disable rule:new-lines rule:empty-lines\né : value \n\n\n",
+        "[format]\nline-ending='cr-lf'\n",
+    );
+    assert_eq!(
+        output,
+        "# ryl disable rule:new-lines rule:empty-lines\né: value\n\n\n"
+    );
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
+}
+
+#[test]
+fn end_marker_insertion_obeys_the_last_lines_directive() {
+    let (output, stats) = format_with_statistics(
+        "é : value # ryl disable-line rule:document-end\n",
+        "[format]\ndocument-start='add'\ndocument-end='add'\n",
+    );
+    assert_eq!(
+        output,
+        "---\né: value  # ryl disable-line rule:document-end\n"
+    );
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
+}
+
+#[test]
+fn partially_suppressed_multiline_quotes_preserve_rollback() {
+    let input =
+        "other : x\né: 'first\n  last' # ryl disable-line rule:quoted-strings\n";
+    let (output, stats) = format_with_statistics(input, "[format]\n");
+    assert_eq!(output, input);
+    assert_eq!(stats["fallback"], "Verification", "{stats}");
+    assert_eq!(stats["rollback"], 1, "{stats}");
+}
+
+#[test]
+fn suppressed_document_starts_still_allow_spacing_changes() {
+    let (output, stats) = format_with_statistics(
+        "é : value # ryl disable-line rule:document-start\n",
+        "[format]\ndocument-start='add'\n",
+    );
+    assert_eq!(output, "é: value  # ryl disable-line rule:document-start\n");
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
+}
+
+#[test]
+fn inserted_markers_keep_suppressed_line_endings() {
+    let (output, stats) = format_with_statistics(
+        "# ryl disable rule:new-lines\né : value\r\n",
+        "[format]\ndocument-end='add'\n",
+    );
+    assert_eq!(output, "# ryl disable rule:new-lines\né: value\r\n...\r\n");
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
+}
+
+#[test]
+fn folding_keeps_other_rules_inline_directives_attached() {
+    let (output, stats) = format_with_statistics(
+        "other : x\né: alpha beta gamma delta # ryl disable-line rule:comments\n",
+        "line-length=12\n[format]\nfold-long-lines=true\n",
+    );
+    assert_eq!(
+        output,
+        "other: x\né: alpha beta gamma delta # ryl disable-line rule:comments\n"
+    );
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
+}
+
+#[test]
+fn sequence_conversion_keeps_verification_and_a_dry_plan() {
+    let config = "[format]\nsequence-style = 'block'\n";
+    let (output, statistics) = format_with_statistics("é: [ café,世 ]\n", config);
+    assert_eq!(output, "é:\n  - café\n  - 世\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert!(statistics["verification_parses"].as_u64().unwrap() >= 1);
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn mapping_conversion_uses_layout_after_restyling() {
+    let config = "[format]\nmapping-style = 'block'\n";
+    let (output, statistics) = format_with_statistics("é: { café: '世' }\n", config);
+    assert_eq!(output, "é:\n  café: 世\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["streamed_dry_scans"], 1, "{statistics}");
+}
+
+#[test]
+fn block_sequence_conversion_to_flow_uses_layout() {
+    let config = "[format]\nsequence-style = 'flow'\n";
+    let (output, statistics) = format_with_statistics("é:\n  - café\n  - 世\n", config);
+    assert_eq!(output, "é: [café, 世]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn block_mapping_conversion_to_flow_uses_layout() {
+    let config = "[format]\nmapping-style = 'flow'\n";
+    let (output, statistics) = format_with_statistics("é:\n  café: 世\n", config);
+    assert_eq!(output, "é: {café: 世}\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
 }
 
 #[test]
@@ -251,13 +392,13 @@ fn markers_do_not_terminate_a_blank_line_erased_by_indentation() {
 }
 
 #[test]
-fn folded_unterminated_blank_tail_retains_ordered_refusal_history() {
+fn folded_unterminated_blank_tail_folds_before_reindenting() {
     let (output, statistics) = format_with_statistics(
         "  >\n  abc def ghi jkl\n    more\n\n\n  ",
         "line-length = 12\nindent-width = 1\n[format]\nfold-long-lines = true\n",
     );
     assert_eq!(output, ">\n abc def\n ghi jkl\n   more\n");
-    assert_eq!(statistics["fallback"], "ScalarInteraction", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
@@ -272,48 +413,48 @@ fn an_erased_unterminated_line_is_not_an_empty_line_edit() {
 }
 
 #[test]
-fn quoted_flow_key_gap_conflicts_restart_the_ordered_driver() {
+fn quoted_flow_key_gaps_compose_with_boundary_insertions() {
     let (output, statistics) = format_with_statistics(
         "{\"foo\"\n: bar}\n",
         "[format]\nbrace-spacing = true\n",
     );
     assert_eq!(output, "{ foo\n  : bar }\n");
-    assert_eq!(statistics["fallback"], "Overlap", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
-fn a_dirty_dry_plan_rolls_back_before_the_ordered_driver() {
+fn a_dirty_dry_plan_requires_another_verified_epoch() {
     let (output, statistics) =
         format_with_statistics("---\n{ \"foo\"\n  :bar }\n", "[format]\n");
     assert_eq!(output, "---\n{foo\n : bar}\n");
-    assert_eq!(statistics["fallback"], "DryEdits", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(statistics["rollback"], 1, "{statistics}");
 }
 
 #[test]
-fn an_unsettled_root_quote_restarts_the_ordered_driver() {
+fn root_quotes_complete_a_verified_layout_plan() {
     let (output, statistics) = format_with_statistics("---\n\"foo\"\n", "[format]\n");
     assert_eq!(output, "---\nfoo\n");
-    assert_eq!(statistics["fallback"], "unsettled-quote:4", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
-fn empty_flow_scalar_verification_rolls_back_before_the_ordered_driver() {
+fn empty_dash_reindentation_freezes_its_changed_document() {
     let (output, statistics) =
         format_with_statistics("empty:\n-\n- null\nmap: {a:,b: null}\n", "[format]\n");
     assert_eq!(output, "empty:\n-\n- null\nmap: {a:, b: null}\n");
-    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(statistics["rollback"], 1, "{statistics}");
 }
 
 #[test]
-fn a_collapsed_root_scalar_folds_through_the_ordered_driver() {
+fn a_collapsed_root_scalar_folds_after_quote_settling() {
     let (output, statistics) = format_with_statistics(
         "--- \"a\n...x\nb\"\n",
         "[format]\nfold-long-lines = true\n",
     );
     assert_eq!(output, "--- a ...x b\n");
-    assert_eq!(statistics["fallback"], "ScalarInteraction", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
@@ -341,7 +482,7 @@ fn format_with_skipped_rules(input: &str, config: &str, skip: &[&str]) -> String
 }
 
 #[test]
-fn skip_finishing_matches_ordered_formatter() {
+fn skip_finishing_formats_in_layout() {
     let output = format_with_skipped_rules(
         "a : b  \n\n\n",
         "[format]\n",
@@ -422,7 +563,7 @@ fn bom_root_scalar_fold_restarts_the_ordered_driver() {
 }
 
 #[test]
-fn skip_final_newline_matches_ordered_formatter() {
+fn skip_final_newline_formats_in_layout() {
     let output = format_with_skipped_rules(
         "a: |+\n  a\n  ",
         "[format]\n",
@@ -432,7 +573,7 @@ fn skip_final_newline_matches_ordered_formatter() {
 }
 
 #[test]
-fn skip_ending_markers_matches_ordered_formatter() {
+fn skip_ending_markers_formats_in_layout() {
     let output = format_with_skipped_rules(
         "a : b\r\n",
         "[format]\ndocument-start='add'\ndocument-end='add'\n",
@@ -442,7 +583,7 @@ fn skip_ending_markers_matches_ordered_formatter() {
 }
 
 #[test]
-fn overlapping_collapses_matches_ordered_formatter() {
+fn overlapping_collapses_formats_in_layout() {
     let output = format_with_skipped_rules(
         "a: ['first\n  second', 'third\n  fourth']\n",
         "[format]\n",
@@ -452,20 +593,20 @@ fn overlapping_collapses_matches_ordered_formatter() {
 }
 
 #[test]
-fn joined_quote_matches_ordered_formatter() {
+fn joined_quote_formats_in_layout() {
     let output =
         format_with_skipped_rules("-\n  a: 'first\n    second'\n", "[format]\n", &[]);
     assert_eq!(output, "- a: first second\n");
 }
 
 #[test]
-fn collapsed_trailing_matches_ordered_formatter() {
+fn collapsed_trailing_formats_in_layout() {
     let output = format_with_skipped_rules("a: 'one  \n  two'\n", "[format]\n", &[]);
     assert_eq!(output, "a: one two\n");
 }
 
 #[test]
-fn underindented_quoted_matches_ordered_formatter() {
+fn underindented_quoted_formats_in_layout() {
     let output = format_with_skipped_rules(
         "a: 'alpha beta\n gamma delta epsilon'\n",
         "indent-width=1\nline-length=12\n[format]\nquote-style='preserve'\nfold-long-lines=true\n",
@@ -475,7 +616,7 @@ fn underindented_quoted_matches_ordered_formatter() {
 }
 
 #[test]
-fn folded_blank_matches_ordered_formatter() {
+fn folded_blank_formats_in_layout() {
     let output = format_with_skipped_rules(
         "é: >+\n  alpha beta gamma\n  \n  delta epsilon zeta\n",
         "line-length=12\n[format]\nfold-long-lines=true\n",
@@ -488,7 +629,7 @@ fn folded_blank_matches_ordered_formatter() {
 }
 
 #[test]
-fn directive_fold_matches_ordered_formatter() {
+fn directive_fold_formats_in_layout() {
     let output = format_with_skipped_rules(
         "é: alpha beta gamma delta # ryl disable-line rule:truthy\n",
         "line-length=12\n[format]\nfold-long-lines=true\n",
@@ -501,7 +642,7 @@ fn directive_fold_matches_ordered_formatter() {
 }
 
 #[test]
-fn bom_fold_matches_ordered_formatter() {
+fn bom_fold_formats_in_layout() {
     let output = format_with_skipped_rules(
         "﻿é: alpha beta gamma delta\n",
         "line-length=12\n[format]\nfold-long-lines=true\n",
@@ -511,7 +652,7 @@ fn bom_fold_matches_ordered_formatter() {
 }
 
 #[test]
-fn gap_fold_matches_ordered_formatter() {
+fn gap_fold_formats_in_layout() {
     let output = format_with_skipped_rules(
         "-   alpha beta gamma delta\n",
         "line-length=12\n[format]\nfold-long-lines=true\n",
@@ -521,20 +662,20 @@ fn gap_fold_matches_ordered_formatter() {
 }
 
 #[test]
-fn erased_dash_tail_matches_ordered_formatter() {
+fn erased_dash_tail_formats_in_layout() {
     let output = format_with_skipped_rules("-   \n  a: 1\n", "[format]\n", &[]);
     assert_eq!(output, "- a: 1\n");
 }
 
 #[test]
-fn unicode_flow_gap_matches_ordered_formatter() {
+fn unicode_flow_gap_formats_in_layout() {
     let output =
         format_with_skipped_rules("[😀😀, ?   key: value]\n", "[format]\n", &[]);
     assert_eq!(output, "[😀😀, ? key: value]\n");
 }
 
 #[test]
-fn unicode_flow_gap_space_matches_ordered_formatter() {
+fn unicode_flow_gap_space_formats_in_layout() {
     let output = format_with_skipped_rules(
         "[😀😀, ?   key: value]\n",
         "[format]\nbrace-spacing=true\n",
@@ -613,7 +754,7 @@ fn a_blank_folded_scalar_does_not_fold_the_next_root_node() {
 fn an_empty_flow_string_rolls_back_inconsistent_dry_indentation() {
     let (output, statistics) = format_with_statistics("[\n  \"\",\n]\n", "[format]\n");
     assert_eq!(output, "[\n  '',\n]\n");
-    assert_eq!(statistics["fallback"], "Refusal", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(statistics["rollback"], 1, "{statistics}");
     assert_eq!(format_with_statistics(&output, "[format]\n").0, output);
 }
@@ -702,20 +843,20 @@ fn late_parse_error_keeps_original_bytes_and_error() {
 }
 
 #[test]
-fn candidate_verification_failure_preserves_rollback() {
+fn large_candidate_verification_failure_freezes_its_document() {
     let input = threshold_input(1_048_620, "empty:\n-\n- null\nmap: {a:,b: null}\n");
     let (output, stats) = format_with_statistics(&input, "[format]\n");
     assert!(output == input.replace("{a:,b:", "{a:, b:"));
-    assert_eq!(stats["fallback"], "Verification", "{stats}");
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
     assert_eq!(stats["rollback"], 1);
 }
 
 #[test]
-fn dirty_dry_plan_restarts_from_original_bytes() {
+fn dirty_dry_plans_settle_without_restarting_the_driver() {
     let input = threshold_input(1_048_620, "---\n{ \"foo\"\n  :bar }\n");
     let (output, stats) = format_with_statistics(&input, "[format]\n");
     assert!(output == input.replace("{ \"foo\"\n  :bar }", "{foo\n : bar}"));
-    assert_eq!(stats["fallback"], "DryEdits", "{stats}");
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
     assert_eq!(stats["rollback"], 1);
 }
 
@@ -765,7 +906,15 @@ fn assert_independent_recordings(preview: bool) {
         .unwrap()
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
-        .filter(|row: &Value| row["planning_invocations"] == 2)
+        .collect();
+    if preview {
+        assert!(rows.iter().any(|row| {
+            row["seeded"] == false && row["planning_invocations"].as_u64().unwrap() > 0
+        }));
+    }
+    let rows: Vec<_> = rows
+        .into_iter()
+        .filter(|row: &Value| row["seeded"] == true && row["planning_invocations"] == 2)
         .collect();
     assert_eq!(rows.len(), 3);
     for row in rows {
@@ -778,4 +927,348 @@ fn assert_independent_recordings(preview: bool) {
             "{row}"
         );
     }
+}
+
+#[test]
+fn forced_collections_settle_multiline_quote_offsets_before_folding() {
+    let config = "line-length = 35\n[format]\nsequence-style = 'block'\nfold-long-lines = true\n";
+    let (output, statistics) = format_with_statistics(
+        "é: 'The allowed models may change over time\n  and depend on the user''s settings. Supported\n  values include café and many more options.'\nlist: [café,世]\n",
+        config,
+    );
+    assert_eq!(
+        output,
+        "é: The allowed models may change\n  over time and depend on the\n  user's settings. Supported values\n  include café and many more\n  options.\nlist:\n  - café\n  - 世\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["verification_parses"], 3, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn non_ascii_marker_rolls_back_the_collection_stage() {
+    let input = "---\u{a0}x\n---\nitems: [a,b]\n";
+    let (output, statistics) =
+        format_with_statistics(input, "[format]\nsequence-style = 'block'\n");
+    assert_eq!(output, input);
+    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+}
+
+#[test]
+fn non_ascii_marker_rolls_back_the_quote_stage() {
+    let input = "---\u{a0}x\n---\nkey: 'value'\n";
+    let (output, statistics) = format_with_statistics(
+        input,
+        "[format]\nsequence-style = 'block'\nfold-long-lines = true\n",
+    );
+    assert_eq!(output, input);
+    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+}
+
+#[test]
+fn quote_shortening_reuses_a_dirty_collection_dry_plan() {
+    let (output, statistics) = format_with_statistics(
+        "key:\n  - 'a'\n  - 'b'\n",
+        "line-length = 11\n[format]\nsequence-style = 'flow'\n",
+    );
+    assert_eq!(output, "key: [a, b]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn forced_style_settles_root_quotes_in_layout() {
+    let (output, statistics) = format_with_statistics(
+        "---\n\"foo\"\n",
+        "[format]\nsequence-style = 'block'\nfold-long-lines = true\n",
+    );
+    assert_eq!(output, "---\nfoo\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn indentless_sequences_retry_conversion_after_verified_layout() {
+    let input = "café:\n- é\n- 世\n";
+    let config = "[format]\nsequence-style = 'flow'\n";
+    let (output, statistics) = format_with_statistics(input, config);
+    assert_eq!(output, "café: [é, 世]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn folding_settles_multiline_quote_offsets_without_collection_targets() {
+    let config = "line-length = 16\n[format]\nfold-long-lines = true\n";
+    let (output, statistics) =
+        format_with_statistics("é: 'one two three\n  user''s four five six'\n", config);
+    assert_eq!(output, "é: one two three\n  user's four\n  five six\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["verification_parses"], 2, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn rejected_collection_without_layout_progress_keeps_the_settled_layout() {
+    let input = "---\u{a0}x\n---\nitems: [a, b]\n";
+    let (output, statistics) =
+        format_with_statistics(input, "[format]\nsequence-style = 'block'\n");
+    assert_eq!(output, input);
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn block_conversion_keeps_trailing_comments_in_the_ordered_phase() {
+    let config = "[format]\nsequence-style = 'block'\n";
+    let (output, statistics) =
+        format_with_statistics("café:\n  seq: [a, b]\n  # note\nnext: value\n", config);
+    assert_eq!(
+        output,
+        "café:\n  seq:\n    - a\n    - b\n# note\nnext: value\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn flow_conversion_settles_misaligned_comments_before_reindentation() {
+    let config = "[format]\nmapping-style = 'flow'\n";
+    let (output, statistics) =
+        format_with_statistics("café:\n  key: value\n   # note\nnext: value\n", config);
+    assert_eq!(output, "café: {key: value}\n# note\nnext: value\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn converted_trailing_comments_align_before_document_end_insertion() {
+    let (output, statistics) = format_with_statistics(
+        "- name: café\n  tags: [a, b]\n  tasks:\n  - name: value\n# tail\n",
+        "[format]\nsequence-style = 'block'\ndocument-end = 'add'\n",
+    );
+    assert_eq!(
+        output,
+        "- name: café\n  tags:\n    - a\n    - b\n  tasks:\n    - name: value\n    # tail\n...\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn trailing_commas_use_the_closing_collections_spacing_target() {
+    let (output, statistics) =
+        format_with_statistics("café: [ one, two, ]\nmap: { a : b , }\n", "[format]\n");
+    assert_eq!(output, "café: [one, two,]\nmap: {a: b,}\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["emissions"], 1, "{statistics}");
+}
+
+#[test]
+fn joining_a_mapping_discards_the_dashes_trailing_whitespace() {
+    let (output, statistics) = format_with_statistics("- \n  café:", "[format]\n");
+    assert_eq!(output, "- café:\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["emissions"], 1, "{statistics}");
+}
+
+#[test]
+fn splitting_a_mapping_discards_the_old_dash_spacing() {
+    let (output, statistics) = format_with_statistics(
+        "-  café: ''",
+        "indent-width = 4\n[format]\nindent-sequences = false\ndash-on-own-line = true\n",
+    );
+    assert_eq!(output, "-\n    café: ''\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn strict_invalid_indentation_is_repaired_before_layout() {
+    let (output, statistics) =
+        format_with_statistics("---\ncafé: [a,\nb,\nc]\n", "[format]\n");
+    assert_eq!(output, "---\ncafé: [a,\n       b,\n       c]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn explicit_indicator_folds_keep_more_indented_lines() {
+    let (output, statistics) = format_with_statistics(
+        "a: >1\n  café words here and more words here\n regular words here and more words\n",
+        "line-length = 20\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(
+        output,
+        "a: >1\n  café words here and more words here\n regular words here\n and more words\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn frozen_documents_fold_from_their_original_indentation() {
+    let (output, statistics) = format_with_statistics(
+        "file:\n  path: \"/tmp/{{ item }}\"\nloop:\n-\n- café\n",
+        "line-length = 12\nindent-width = 4\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(
+        output,
+        "file:\n  path: /tmp/{{\n      item\n      }}\nloop:\n-\n- café\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn tabbed_blank_lines_are_erased() {
+    let (output, statistics) = format_with_statistics(" \t\ncafé: 1\n", "[format]\n");
+    assert_eq!(output, "café: 1\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn folded_partially_suppressed_quotes_roll_back() {
+    let input =
+        "a: 'one\n  two'  # ryl disable-line rule:quoted-strings\ncafé: \"x\"\n";
+    let (output, statistics) = format_with_statistics(
+        input,
+        "line-length = 20\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(output, input);
+    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+}
+
+#[test]
+fn bom_partially_suppressed_quotes_roll_back() {
+    let input = "\u{feff}a: 'one\n  two'  # ryl disable-line rule:quoted-strings\ncafé: \"x\"\n";
+    let (output, statistics) = format_with_statistics(input, "[format]\n");
+    assert_eq!(output, input);
+    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+}
+
+#[test]
+fn closing_commas_compose_with_bracket_and_tab_spacing() {
+    let (output, statistics) =
+        format_with_statistics("café: [ x,\ty, z,  ]\n", "[format]\n");
+    assert_eq!(output, "café: [x,\ty, z,]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn suppressed_closing_commas_keep_their_spacing() {
+    let (output, statistics) = format_with_statistics(
+        "a: [x,]  # ryl disable-line rule:commas\ncafé: [y,  ]\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "a: [x,]  # ryl disable-line rule:commas\ncafé: [y,]\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn padded_braces_accept_the_trailing_comma_spacing() {
+    let (output, statistics) =
+        format_with_statistics("café: {b: 1,  }\n", "[format]\nbrace-spacing = true\n");
+    assert_eq!(output, "café: { b: 1, }\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn suppression_guards_comment_alignment() {
+    let (output, statistics) = format_with_statistics(
+        "a:\n  b: 1\n      # note\n  café: 2  # ryl disable-line rule:colons\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "a:\n  b: 1\n  # note\n  café: 2  # ryl disable-line rule:colons\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn refused_documents_collapse_quotes_in_a_separate_stage() {
+    let (output, statistics) = format_with_statistics(
+        "# ryl disable rule:indentation\ncafé: ['first\n  second', 'third\n  fourth']\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "# ryl disable rule:indentation\ncafé: [first second, third fourth]\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn suppressed_blank_runs_merge_removed_lines() {
+    let (output, statistics) = format_with_statistics(
+        "a: 1\n\n\n\n\n\ncafé: 2  # ryl disable-line rule:colons\n",
+        "[format]\n",
+    );
+    assert_eq!(
+        output,
+        "a: 1\n\n\ncafé: 2  # ryl disable-line rule:colons\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn disabled_files_count_a_skip() {
+    let input = "# ryl disable-file\ncafé:   1\n";
+    let (output, statistics) = format_with_statistics(input, "[format]\n");
+    assert_eq!(output, input);
+    assert_eq!(statistics["skips"], 1, "{statistics}");
+}
+
+#[test]
+fn repair_reindents_alongside_inconsistent_mappings() {
+    let (output, statistics) = format_with_statistics(
+        "a:\n  b: 1\nc:\n    d: 2\ncafé: [x,\ny]\n",
+        "[format]\n",
+    );
+    assert_eq!(output, "a:\n  b: 1\nc:\n  d: 2\ncafé: [x,\n       y]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn indicator_bodies_follow_their_collection_past_a_spaced_value() {
+    let (output, statistics) =
+        format_with_statistics("? café\n:  - x2: 1\n   - |1\n    x\n", "[format]\n");
+    assert_eq!(output, "? café\n: - x2: 1\n  - |1\n   x\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn consistency_restarts_after_a_staged_epoch_keep_every_document() {
+    let input = "a:\n    body: |\n      \tinside\n    list: [ a,b ] #note\n\n---\ncafé:\n    body: >\n      alpha beta gamma delta\n\n ";
+    let (output, statistics) = format_with_statistics(
+        input,
+        "line-length = 12\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(
+        output,
+        "a:\n    body: |\n      \tinside\n    list: [a, b]  # note\n\n---\ncafé:\n    body: >\n      alpha\n      beta\n      gamma\n      delta\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn only_the_folded_tail_document_folds_before_reindenting() {
+    let (output, statistics) = format_with_statistics(
+        "café: >\n    alpha beta gamma\n      extra\n\n \n---\na:\n    body: >\n      alpha beta gamma delta\n\n ",
+        "line-length = 12\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(
+        output,
+        "café: >\n  alpha beta\n  gamma\n    extra\n\n\n---\na:\n  body: >\n    alpha\n    beta\n    gamma\n    delta\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn a_directive_on_the_next_line_does_not_stop_a_block_fold() {
+    let (output, statistics) = format_with_statistics(
+        "a: >-\n  more text here\ncafé : 1 # ryl disable-line\n",
+        "line-length = 12\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(
+        output,
+        "a: >-\n  more text\n  here\ncafé : 1 # ryl disable-line\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }

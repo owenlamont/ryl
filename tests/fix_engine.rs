@@ -3,9 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use ryl::config::{Overrides, SourceKind, YamlLintConfig, discover_config};
-use ryl::fix::{
-    FixStats, Rewrite, apply_safe_fixes, apply_safe_fixes_capped, rewrite_files,
-};
+use ryl::fix::{FixStats, Rewrite, apply_safe_fixes, rewrite_files};
 use tempfile::tempdir;
 
 fn config(yaml: &str) -> YamlLintConfig {
@@ -371,44 +369,17 @@ fn fix_config_disallows_quoted_strings_when_not_listed() {
     assert!(!ctx.config.fix().allows_rule("quoted-strings"));
 }
 
-fn fix_capped_repro(max_passes: usize) -> (String, String) {
+#[test]
+fn document_end_and_trailing_spaces_settle_together() {
     let cfg =
         config("rules:\n  document-end: {present: true}\n  trailing-spaces: enable\n");
-    let mut err = Vec::new();
-    let fixed = apply_safe_fixes_capped(
+    let fixed = apply_safe_fixes(
         "a: |-\n  x\n  ",
         &cfg,
         std::path::Path::new("input.yaml"),
         std::path::Path::new("."),
-        &[],
-        max_passes,
-        &mut err,
     );
-    (fixed, String::from_utf8(err).unwrap())
-}
-
-#[test]
-fn fix_pipeline_reports_failure_when_no_pass_is_allowed() {
-    let (fixed, err) = fix_capped_repro(0);
-
-    assert_eq!(fixed, "a: |-\n  x\n  ");
-    for expected in [
-        "error: Failed to converge after 0 iterations.",
-        "This indicates a bug in ryl.",
-        "https://github.com/owenlamont/ryl/issues/new?title=%5BInfinite%20loop%5D",
-        "`input.yaml`",
-        "the rule ids trailing-spaces,",
-    ] {
-        assert!(err.contains(expected), "missing {expected:?} in {err:?}");
-    }
-}
-
-#[test]
-fn fix_pipeline_converging_exactly_at_the_cap_reports_nothing() {
-    let (fixed, err) = fix_capped_repro(1);
-
     assert_eq!(fixed, "a: |-\n  x\n...\n");
-    assert_eq!(err, "");
 }
 
 #[test]
@@ -426,4 +397,75 @@ fn an_unfixable_new_lines_still_sets_the_appended_final_newline() {
     let fixed = apply_safe_fixes("a: 1\nb: 2", &ctx.config, &file, &ctx.base_dir);
 
     assert_eq!(fixed, "a: 1\nb: 2\r\n");
+}
+
+fn fix_toml(toml: &str, input: &str) -> String {
+    let cfg = YamlLintConfig::from_toml_str(toml).expect("test config parses");
+    apply_safe_fixes(input, &cfg, Path::new("input.yaml"), Path::new("."))
+}
+
+#[test]
+fn ambiguous_block_scalars_still_get_verified_key_ordering() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules]\nkey-ordering = \"enable\"\n",
+            "b: 1\naé: 1\nz: |1\n \n\n...\n"
+        ),
+        "aé: 1\nb: 1\nz: |1\n \n\n...\n"
+    );
+}
+
+#[test]
+fn forbidden_flow_mappings_keep_the_comma_spacing_fix() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules]\ncommas = \"enable\"\n[lint.rules.braces]\nforbid = \"non-empty\"\n",
+            "café: {b: 1,}\n"
+        ),
+        "café: {b: 1, }\n"
+    );
+}
+
+#[test]
+fn markers_bracket_an_unterminated_document() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules]\ndocument-start = \"enable\"\n[lint.rules.document-end]\npresent = true\n",
+            "café: 1"
+        ),
+        "---\ncafé: 1\n...\n"
+    );
+}
+
+#[test]
+fn guarded_magic_lines_move_below_the_marker_once_spaced() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules]\ndocument-start = \"enable\"\n[lint.rules.comments]\nignore-shebangs = false\n",
+            "#cloud-config\ncafé: 1  # ryl disable-line rule:colons\n"
+        ),
+        "---\n# cloud-config\ncafé: 1  # ryl disable-line rule:colons\n"
+    );
+}
+
+#[test]
+fn closing_brackets_keep_a_comma_spacing_they_allow() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules.commas]\nmin-spaces-after = 2\nmax-spaces-after = 2\n[lint.rules.brackets]\nmax-spaces-inside = 1\n",
+            "café: [b, ]\n"
+        ),
+        "café: [b, ]\n"
+    );
+}
+
+#[test]
+fn keep_scalar_newlines_precede_the_document_end() {
+    assert_eq!(
+        fix_toml(
+            "[lint.rules]\ntrailing-spaces = \"enable\"\n[lint.rules.document-end]\npresent = true\n",
+            "café: |+\n  x\n  "
+        ),
+        "café: |+\n  x\n\n...\n"
+    );
 }

@@ -112,7 +112,7 @@ comments, whitespace-only blanks, trailing spaces and `---`/`...` markers so fix
 act on the same lines.
 
 When you add a new `FixSafety::Safe` rule, add it to `pipeline_rules` at its position
-in `FixContext::pass`; `probe_covers_every_safe_fix_rule` fails until you do,
+in `fix::SAFE_FIX_RULE_IDS`; `probe_covers_every_safe_fix_rule` fails until you do,
 and the byte-for-byte assertion fails on a misordering that changes the output.
 Failing inputs persist to the committed
 `tests/proptest-regressions/property_fix_convergence.txt`; run with

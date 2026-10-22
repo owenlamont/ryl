@@ -119,6 +119,7 @@ fn resolve_rule(token: &str) -> Option<&'static str> {
 /// `rules` on every line whose content matches `regex` (all lines if `regex` is `None`).
 /// `rules` follows [`insert_rules`]' convention (`None` means every rule). The regex
 /// matches line content excluding its break, so the user's `$` anchors to the line.
+#[derive(Clone, Copy)]
 pub struct PerLineRuleApply<'a> {
     pub regex: Option<&'a Regex>,
     pub rules: Option<&'a [&'static str]>,
