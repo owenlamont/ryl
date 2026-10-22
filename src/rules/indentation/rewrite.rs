@@ -715,6 +715,9 @@ impl<'a> Layout<'a> {
         gaps: &[Gap],
         diagnostics: &[super::Violation],
     ) -> Vec<Option<Cause>> {
+        if self.starts.is_empty() {
+            return Vec::new();
+        }
         let directives = &self.directives;
         let mut refused: Vec<Option<Cause>> = vec![None; self.starts.len()];
         let mut refuse = |line: usize, cause: Cause| {

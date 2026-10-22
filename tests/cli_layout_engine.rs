@@ -8,6 +8,29 @@ fn format_with_statistics(input: &str, config: &str) -> (String, Value) {
     format_with_workers(input, config, 2)
 }
 
+#[test]
+fn comment_only_documents_use_layout_without_document_nodes() {
+    let (output, statistics) =
+        format_with_statistics("#note  \r\n\r\n\r\n", "[format]\n");
+    assert_eq!(output, "# note\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn tabbed_comment_prefixes_are_removed_without_indentation_refusals() {
+    let (output, statistics) = format_with_statistics("\t#note \n", "[format]\n");
+    assert_eq!(output, "# note\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn empty_documents_complete_a_clean_layout_plan() {
+    let (output, statistics) = format_with_statistics("", "[format]\n");
+    assert_eq!(output, "");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["planning_invocations"], 1, "{statistics}");
+}
+
 fn format_with_workers(input: &str, config: &str, workers: usize) -> (String, Value) {
     let directory = tempfile::tempdir().unwrap();
     let file = directory.path().join("layout.yaml");
@@ -787,7 +810,15 @@ fn assert_independent_recordings(preview: bool) {
         .unwrap()
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
-        .filter(|row: &Value| row["planning_invocations"] == 2)
+        .collect();
+    if preview {
+        assert!(rows.iter().any(|row| {
+            row["seeded"] == false && row["planning_invocations"].as_u64().unwrap() > 0
+        }));
+    }
+    let rows: Vec<_> = rows
+        .into_iter()
+        .filter(|row: &Value| row["seeded"] == true && row["planning_invocations"] == 2)
         .collect();
     assert_eq!(rows.len(), 3);
     for row in rows {

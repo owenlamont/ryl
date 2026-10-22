@@ -7,6 +7,7 @@ use std::time::Instant;
 struct Counts {
     path: String,
     bytes: usize,
+    seeded: bool,
     analyses: usize,
     lexical_scans: usize,
     streamed_dry_scans: usize,
@@ -112,6 +113,7 @@ impl Recording {
         let counts = Counts {
             path: path.to_string_lossy().into_owned(),
             bytes,
+            seeded: initial,
             analyses: usize::from(initial) * (1 + usize::from(strict == Some(false))),
             strict_parses: usize::from(initial),
             ..Counts::default()

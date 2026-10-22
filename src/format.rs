@@ -328,7 +328,10 @@ fn format_tracked(
             source.analysis().seed_tokens(tokens);
         }
     }
-    if tracking.strict_input == Some(true) {
+    if tracking
+        .strict_input
+        .unwrap_or_else(|| crate::lint::strict_parse_error(input).is_none())
+    {
         source.mark_strict_valid();
         match layout::format(&mut source, &passes, tracking) {
             Ok(output) => return output,

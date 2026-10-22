@@ -424,13 +424,17 @@ impl Presentation {
             if !prefixes.is_empty() {
                 self.rules.push(comments_indentation::ID);
             }
-            for (start, _, text) in prefixes {
+            for (start, end, text) in prefixes {
                 let original = input
                     .byte_line_starts()
                     .partition_point(|&at| at <= start.get())
                     - 1;
                 let index = layout.project_line(original, start.get());
                 let line = &mut layout.lines[index];
+                let body = line.body.as_ptr() as usize - input.text().as_ptr() as usize;
+                if end.get() > body {
+                    line.body = &line.body[end.get() - body..];
+                }
                 line.prefix = text.len();
             }
         }
@@ -550,9 +554,6 @@ impl<'a> DocumentPlan<'a> {
         sink: Sink,
     ) -> Result<Self, Fallback> {
         stats::count(stats::Counter::Plan);
-        if input.parsed().document_starts.is_empty() {
-            return Err(Fallback::Refusal);
-        }
         if crate::directives::disables_file(input.text())
             || !passes.per_line.is_empty()
             || super::FORMAT_RULE_IDS
@@ -561,10 +562,14 @@ impl<'a> DocumentPlan<'a> {
         {
             return Err(Fallback::Suppression);
         }
-        let Some(cfg) = passes.indentation else {
-            return Err(Fallback::Refusal);
-        };
-        let (layout, targets, presentation) = if input.text().contains('\u{feff}') {
+        let cfg = passes.indentation.unwrap_or_else(|| {
+            indentation::Config::new(
+                indentation::SpacesSetting::Consistent,
+                indentation::IndentSequencesSetting::Whatever,
+                false,
+            )
+        });
+        let (layout, mut targets, presentation) = if input.text().contains('\u{feff}') {
             facts::prepare_input(input, passes.line_length.is_some()).and_then(|()| {
                 let mut layout = indentation::Layout::new(input, &cfg);
                 let presentation =
@@ -585,6 +590,11 @@ impl<'a> DocumentPlan<'a> {
             }
             Presentation::stream(input, passes, quotes, &cfg)
         }?;
+        if passes.indentation.is_none() {
+            targets.deltas.fill(0);
+            targets.gaps.clear();
+            targets.refused.clear();
+        }
         if crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
             input,
         )
