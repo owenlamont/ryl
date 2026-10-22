@@ -36,6 +36,9 @@ max-spaces-from-content = -1
 Spaces and tabs each count as one. Setting `max-spaces-from-content` reports
 deliberately column-aligned inline comments, and `--fix` collapses the alignment.
 
+The rule leaves ytt `#@` directives and their inline spacing unchanged on every
+line. Adding a space after `#` would turn an instruction into an ordinary comment.
+
 A comment after a block scalar header (`key: >- # note`) is checked like any other
 inline comment, where yamllint skips it; see
 [How ryl differs from yamllint](../getting-started/migrating-from-yamllint.md#comments-after-a-block-scalar-header).

@@ -327,13 +327,16 @@ fn arb_seq_item() -> impl Strategy<Value = Line> {
 }
 
 fn arb_comment() -> impl Strategy<Value = Line> {
-    (0u8..=4, 0u8..=2, arb_text()).prop_map(|(indent, spaces_after_hash, text)| {
-        Line::Comment {
+    (
+        0u8..=4,
+        0u8..=2,
+        prop_oneof![8 => arb_text(), 1 => Just("@ name".to_owned())],
+    )
+        .prop_map(|(indent, spaces_after_hash, text)| Line::Comment {
             indent,
             spaces_after_hash,
             text,
-        }
-    })
+        })
 }
 
 fn arb_line() -> impl Strategy<Value = Line> {
