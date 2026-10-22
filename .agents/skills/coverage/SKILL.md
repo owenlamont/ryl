@@ -9,8 +9,12 @@ description: >-
 
 # Coverage Workflow
 
-The CI enforces zero missed lines and zero missed regions. Use this workflow instead of
-hunting through scattered tips:
+The CI enforces zero missed lines and zero missed regions. ryl's own code must cover each
+region within a single generic instantiation. `crates/ryl-yaml-parser` is generic over its
+`Input`, so no one instantiation can reach every region; CI gates it on union coverage
+instead (a region counts once any instantiation runs it). `coverage-missing.py` applies
+both rules and exits 1 on a gap. Use this workflow instead of hunting through scattered
+tips:
 
 Deterministic tests own coverage. The helper disables random property cases and saved-seed
 replay; add named example tests for uncovered regions instead of relying on property cases.

@@ -3,7 +3,7 @@ use crate::{
     error::ErrorKind,
     input::{BorrowedInput, Input, SkipTabs, WhitespaceResult},
 };
-use alloc::string::String;
+use std::string::String;
 
 /// A parser input backed by a `&str`.
 #[allow(clippy::module_name_repetitions)]
@@ -64,15 +64,15 @@ impl<'a> StrInput<'a> {
                 {
                     break;
                 }
-                if character == ':' {
-                    let next_byte = bytes.get(byte_pos + 1).copied().unwrap_or(0);
-                    // A non-ASCII character cannot be blank, breakz, or a flow indicator.
-                    let stops_scalar = next_byte < 0x80
-                        && (crate::char_traits::is_blank_or_breakz(next_byte as char)
-                            || flow_level_gt_0 && crate::char_traits::is_flow(next_byte as char));
-                    if stops_scalar {
-                        break;
-                    }
+                let next_byte = bytes.get(byte_pos + 1).copied().unwrap_or(0);
+                // A non-ASCII character cannot be blank, breakz, or a flow indicator.
+                if character == ':'
+                    && next_byte < 0x80
+                    && (crate::char_traits::is_blank_or_breakz(next_byte as char)
+                        || flow_level_gt_0
+                            && crate::char_traits::is_flow(next_byte as char))
+                {
+                    break;
                 }
                 byte_pos += 1;
             } else {
@@ -198,7 +198,6 @@ impl Input for StrInput<'_> {
         self.original.get(start..end)
     }
 
-    #[cfg(feature = "comments")]
     #[inline]
     fn may_contain_comments(&self) -> bool {
         self.original.as_bytes().contains(&b'#')
@@ -313,7 +312,10 @@ impl Input for StrInput<'_> {
         )
     }
 
-    fn skip_ws_to_eol_blanks(&mut self, skip_tabs: SkipTabs) -> (usize, WhitespaceResult) {
+    fn skip_ws_to_eol_blanks(
+        &mut self,
+        skip_tabs: SkipTabs,
+    ) -> (usize, WhitespaceResult) {
         let bytes = self.buffer.as_bytes();
         let mut i = 0;
         let mut encountered_tab = false;
@@ -347,7 +349,8 @@ impl Input for StrInput<'_> {
 
     #[inline]
     fn next_is_blank_or_break(&self) -> bool {
-        !self.buffer.is_empty() && matches!(self.buffer.as_bytes()[0], b' ' | b'\t' | b'\n' | b'\r')
+        !self.buffer.is_empty()
+            && matches!(self.buffer.as_bytes()[0], b' ' | b'\t' | b'\n' | b'\r')
     }
 
     #[inline]
@@ -380,11 +383,6 @@ impl Input for StrInput<'_> {
     fn next_is_flow(&self) -> bool {
         !self.buffer.is_empty()
             && matches!(self.buffer.as_bytes()[0], b',' | b'[' | b']' | b'{' | b'}')
-    }
-
-    #[inline]
-    fn next_is_digit(&self) -> bool {
-        !self.buffer.is_empty() && self.buffer.as_bytes()[0].is_ascii_digit()
     }
 
     /// Check if the next character is an ASCII alphanumeric, `_`, or `-`.
@@ -465,25 +463,6 @@ impl Input for StrInput<'_> {
         i
     }
 
-    fn fetch_while_is_yaml_non_space(&mut self, out: &mut String) -> usize {
-        let mut byte_pos = 0;
-        let mut chars_consumed = 0;
-
-        for (i, c) in self.buffer.char_indices() {
-            if !crate::char_traits::is_yaml_non_space(c) || crate::char_traits::is_z(c) {
-                break;
-            }
-
-            byte_pos = i + c.len_utf8();
-            chars_consumed += 1;
-        }
-
-        out.push_str(&self.buffer[..byte_pos]);
-        self.buffer = &self.buffer[byte_pos..];
-
-        chars_consumed
-    }
-
     #[inline]
     fn fetch_block_scalar_line(&mut self, out: &mut String) -> usize {
         let end = self
@@ -508,7 +487,9 @@ impl Input for StrInput<'_> {
             .as_bytes()
             .iter()
             .position(|&byte| {
-                !(b'!'..=b'~').contains(&byte) || byte == quote || (!single && byte == b'\\')
+                !(b'!'..=b'~').contains(&byte)
+                    || byte == quote
+                    || (!single && byte == b'\\')
             })
             .unwrap_or(self.buffer.len());
 
@@ -530,7 +511,11 @@ impl Input for StrInput<'_> {
         (true, chars_consumed)
     }
 
-    fn skip_plain_scalar_chunk(&mut self, _count: usize, flow_level_gt_0: bool) -> (bool, usize) {
+    fn skip_plain_scalar_chunk(
+        &mut self,
+        _count: usize,
+        flow_level_gt_0: bool,
+    ) -> (bool, usize) {
         let (byte_pos, chars_consumed) = self.plain_scalar_chunk_len(flow_level_gt_0);
         self.buffer = &self.buffer[byte_pos..];
         (true, chars_consumed)
@@ -577,220 +562,4 @@ fn split_first_char(s: &str) -> Option<(char, &str)> {
     let mut chars = s.chars();
     let c = chars.next()?;
     Some((c, chars.as_str()))
-}
-
-#[cfg(test)]
-mod test {
-    use alloc::string::String;
-
-    use crate::{
-        error::ErrorKind,
-        input::{BorrowedInput, Input, SkipTabs, WhitespaceResult},
-    };
-
-    use super::StrInput;
-
-    #[test]
-    pub fn is_document_start() {
-        let input = StrInput::new("---\n");
-        assert!(input.next_is_document_start());
-        assert!(input.next_is_document_indicator());
-        let input = StrInput::new("---");
-        assert!(input.next_is_document_start());
-        assert!(input.next_is_document_indicator());
-        let input = StrInput::new("...\n");
-        assert!(!input.next_is_document_start());
-        assert!(input.next_is_document_indicator());
-        let input = StrInput::new("--- ");
-        assert!(input.next_is_document_start());
-        assert!(input.next_is_document_indicator());
-    }
-
-    #[test]
-    pub fn is_document_end() {
-        let input = StrInput::new("...\n");
-        assert!(input.next_is_document_end());
-        assert!(input.next_is_document_indicator());
-        let input = StrInput::new("...");
-        assert!(input.next_is_document_end());
-        assert!(input.next_is_document_indicator());
-        let input = StrInput::new("---\n");
-        assert!(!input.next_is_document_end());
-        assert!(input.next_is_document_indicator());
-        let input = StrInput::new("... ");
-        assert!(input.next_is_document_end());
-        assert!(input.next_is_document_indicator());
-    }
-
-    #[test]
-    fn raw_reads_track_byte_offsets_and_eof() {
-        let mut input = StrInput::new("aé");
-
-        assert_eq!(input.raw_read_ch(), 'a');
-        assert_eq!(input.byte_offset(), Some(1));
-        assert_eq!(input.raw_read_ch(), 'é');
-        assert_eq!(input.byte_offset(), Some(3));
-        assert_eq!(input.raw_read_ch(), '\0');
-        assert_eq!(input.byte_offset(), Some(3));
-    }
-
-    #[test]
-    fn raw_read_non_breakz_stops_before_breakz() {
-        let mut input = StrInput::new("a\n");
-
-        assert_eq!(input.raw_read_non_breakz_ch(), Some('a'));
-        assert_eq!(input.raw_read_non_breakz_ch(), None);
-        assert_eq!(input.peek(), '\n');
-
-        let mut empty = StrInput::new("");
-        assert_eq!(empty.raw_read_non_breakz_ch(), None);
-    }
-
-    #[test]
-    fn skip_handles_ascii_unicode_and_eof() {
-        let mut input = StrInput::new("éab");
-
-        input.skip();
-        assert_eq!(input.peek(), 'a');
-
-        input.skip_n(8);
-        assert_eq!(input.peek(), '\0');
-
-        input.skip();
-        assert_eq!(input.peek(), '\0');
-    }
-
-    #[test]
-    fn peeking_past_end_returns_nul() {
-        let ascii = StrInput::new("ab");
-        assert_eq!(ascii.peek_nth(1), 'b');
-        assert_eq!(ascii.peek_nth(3), '\0');
-
-        let unicode = StrInput::new("éab");
-        assert!(unicode.next_3_are('é', 'a', 'b'));
-        assert!(!unicode.next_3_are('é', 'a', 'c'));
-    }
-
-    #[test]
-    fn skip_ws_to_eol_without_tabs_stops_before_tab() {
-        let mut input = StrInput::new("  \t# comment\n");
-
-        let (consumed, result) = input.skip_ws_to_eol(SkipTabs::No);
-
-        assert_eq!(consumed, 2);
-        let result = result.unwrap();
-        assert!(!result.found_tabs());
-        assert!(result.has_valid_yaml_ws());
-        assert_eq!(input.peek(), '\t');
-    }
-
-    #[test]
-    fn skip_ws_to_eol_skips_comments_after_whitespace() {
-        let mut input = StrInput::new("  # comment\nnext");
-
-        let (consumed, result) = input.skip_ws_to_eol(SkipTabs::Yes);
-
-        assert_eq!(consumed, 11);
-        let result = result.unwrap();
-        assert!(!result.found_tabs());
-        assert!(result.has_valid_yaml_ws());
-        assert_eq!(input.peek(), '\n');
-    }
-
-    #[test]
-    fn skip_ws_to_eol_rejects_unseparated_comment() {
-        for policy in [SkipTabs::Yes, SkipTabs::No] {
-            let mut input = StrInput::new("#é中\n");
-
-            let (consumed, result) = input.skip_ws_to_eol(policy);
-
-            assert_eq!(consumed, 0);
-            assert_eq!(result, Err(ErrorKind::CommentNotSeparated));
-            assert_eq!(input.byte_offset(), Some(0));
-            assert_eq!(input.peek(), '#');
-        }
-    }
-
-    #[test]
-    fn skip_ws_to_eol_counts_unicode_comments_and_tracks_whitespace_outside_them() {
-        for (source, consumed, expected, byte_offset, next) in [
-            ("", 0, WhitespaceResult::new(false, false), 0, '\0'),
-            (" \t#é中\r\n", 5, WhitespaceResult::new(true, true), 8, '\r'),
-            ("\t# é 中\n", 6, WhitespaceResult::new(true, false), 9, '\n'),
-            (" #é中", 4, WhitespaceResult::new(false, true), 7, '\0'),
-        ] {
-            let mut input = StrInput::new(source);
-            assert_eq!(
-                input.skip_ws_to_eol(SkipTabs::Yes),
-                (consumed, Ok(expected))
-            );
-            assert_eq!(input.byte_offset(), Some(byte_offset));
-            assert_eq!(input.peek(), next);
-        }
-    }
-
-    #[test]
-    fn skip_ws_to_eol_blanks_preserves_comments_and_unskipped_tabs() {
-        for (source, policy, consumed, found_tabs, found_spaces, next) in [
-            ("", SkipTabs::Yes, 0, false, false, '\0'),
-            ("  #é中\n", SkipTabs::Yes, 2, false, true, '#'),
-            ("\t#é中\n", SkipTabs::Yes, 1, true, false, '#'),
-            (" \t#é中\n", SkipTabs::Yes, 2, true, true, '#'),
-            (" \t#é中\n", SkipTabs::No, 1, false, true, '\t'),
-            ("\t#é中\n", SkipTabs::No, 0, false, false, '\t'),
-        ] {
-            let mut input = StrInput::new(source);
-            assert_eq!(
-                input.skip_ws_to_eol_blanks(policy),
-                (consumed, WhitespaceResult::new(found_tabs, found_spaces)),
-                "source: {source:?}",
-            );
-            assert_eq!(input.byte_offset(), Some(consumed));
-            assert_eq!(input.peek(), next, "source: {source:?}");
-        }
-    }
-
-    #[test]
-    fn fetch_while_is_alpha_is_ascii_only() {
-        let mut input = StrInput::new("abc_123-é");
-        let mut out = String::new();
-
-        assert_eq!(input.fetch_while_is_alpha(&mut out), 8);
-        assert_eq!(out, "abc_123-");
-        assert_eq!(input.peek(), 'é');
-    }
-
-    #[test]
-    fn fetch_plain_scalar_chunk_handles_non_ascii_after_colon() {
-        let mut input = StrInput::new("a:é ");
-        let mut out = String::new();
-
-        assert_eq!(
-            input.fetch_plain_scalar_chunk(&mut out, 16, false),
-            (true, 3)
-        );
-        assert_eq!(out, "a:é");
-        assert_eq!(input.peek(), ' ');
-    }
-
-    #[test]
-    fn fetch_plain_scalar_chunk_stops_at_flow_indicator() {
-        let mut input = StrInput::new("abc,def");
-        let mut out = String::new();
-
-        assert_eq!(
-            input.fetch_plain_scalar_chunk(&mut out, 16, true),
-            (true, 3)
-        );
-        assert_eq!(out, "abc");
-        assert_eq!(input.peek(), ',');
-    }
-
-    #[test]
-    fn borrowed_slices_use_original_input_lifetime() {
-        let input = StrInput::new("aéz");
-
-        assert_eq!(BorrowedInput::slice_borrowed(&input, 1, 3), Some("é"));
-        assert_eq!(input.slice_bytes(3, 4), Some("z"));
-    }
 }

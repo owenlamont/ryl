@@ -6,7 +6,7 @@ use std::{
     process::ExitCode,
 };
 
-use libtest_mimic::{run, Arguments, Failed, Trial};
+use libtest_mimic::{Arguments, Failed, Trial, run};
 
 use ryl_yaml_parser::{
     Event, Marker, Options, Parser, ScalarStyle, ScanError, Span, SpannedEventReceiver,
@@ -78,7 +78,8 @@ fn run_yaml_test(data: YamlTest) -> Result<(), Failed> {
         },
     );
     let actual_events = reporter.as_ref().map(|reporter| &reporter.events);
-    let events_diff = actual_events.map(|events| events_differ(events, &data.expected_events));
+    let events_diff =
+        actual_events.map(|events| events_differ(events, &data.expected_events));
     let error_text = match (&events_diff, data.expected_error) {
         (Ok(x), true) => Some(format!("no error when expected: {x:#?}")),
         (Err(_), true) | (Ok(None), false) => None,
@@ -234,9 +235,9 @@ fn parse_yaml_suite_file(source: &str) -> Result<Vec<RawYamlTest>> {
             let test = current.as_mut().unwrap();
             idx = parse_suite_field(field, &lines, idx + 1, test)?;
         } else if let Some(field) = line.strip_prefix("  ") {
-            let test = current
-                .as_mut()
-                .ok_or_else(|| format!("field before first test at line {}", idx + 1))?;
+            let test = current.as_mut().ok_or_else(|| {
+                format!("field before first test at line {}", idx + 1)
+            })?;
             if field.starts_with(' ') {
                 idx += 1;
                 continue;
@@ -326,9 +327,10 @@ fn parse_literal_block(
             block.push_str(content);
             block.push('\n');
         } else {
-            return Err(
-                format!("literal block line is indented less than {indent}: {line:?}").into(),
-            );
+            return Err(format!(
+                "literal block line is indented less than {indent}: {line:?}"
+            )
+            .into());
         }
     }
 
@@ -342,7 +344,10 @@ fn parse_literal_block(
     Ok((block, idx))
 }
 
-fn parse_to_events(source: &str, options: Options) -> Result<EventReporter<'_>, ScanError> {
+fn parse_to_events(
+    source: &str,
+    options: Options,
+) -> Result<EventReporter<'_>, ScanError> {
     let mut str_events = vec![];
     let mut str_error = None;
     let mut iter_events = vec![];
@@ -429,15 +434,16 @@ impl<'input> SpannedEventReceiver<'input> for EventReporter<'input> {
             return;
         }
 
-        if let Some((last_ev, last_span)) = self.last_span.take() {
-            if span.start.index() < last_span.start.index()
-                || span.end.index() < last_span.end.index()
-            {
-                self.span_failures.push((
-                    format!("event {ev:?}@{span:?} came before event {last_ev:?}@{last_span:?}"),
-                    span,
-                ));
-            }
+        if let Some((last_ev, last_span)) = self.last_span.take()
+            && (span.start.index() < last_span.start.index()
+                || span.end.index() < last_span.end.index())
+        {
+            self.span_failures.push((
+                format!(
+                    "event {ev:?}@{span:?} came before event {last_ev:?}@{last_span:?}"
+                ),
+                span,
+            ));
         }
         self.last_span = Some((ev.clone(), span));
 
@@ -445,7 +451,9 @@ impl<'input> SpannedEventReceiver<'input> for EventReporter<'input> {
             Event::StreamStart => "+STR".into(),
             Event::StreamEnd => "-STR".into(),
 
-            Event::DocumentStart(explicit, _) => if explicit { "+DOC ---" } else { "+DOC" }.into(),
+            Event::DocumentStart(explicit, _) => {
+                if explicit { "+DOC ---" } else { "+DOC" }.into()
+            }
             Event::DocumentEnd => "-DOC".into(),
 
             Event::SequenceStart(style, idx, tag) => {
@@ -490,7 +498,6 @@ impl<'input> SpannedEventReceiver<'input> for EventReporter<'input> {
                 )
             }
             Event::Alias(idx) => format!("=ALI *{idx}"),
-            #[cfg(feature = "comments")]
             Event::Comment(..) => unreachable!("comments are ignored above"),
             _ => return,
         };
@@ -579,12 +586,12 @@ fn expected_events(expected_tree: &str) -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(|mut s| {
             // Anchor name-to-number conversion
-            if let Some(start) = s.find('&') {
-                if s[..start].find(':').is_none() {
-                    let len = s[start..].find(' ').unwrap_or(s[start..].len());
-                    anchors.push(s[start + 1..start + len].to_owned());
-                    s = s.replace(&s[start..start + len], &format!("&{}", anchors.len()));
-                }
+            if let Some(start) = s.find('&')
+                && s[..start].find(':').is_none()
+            {
+                let len = s[start..].find(' ').unwrap_or(s[start..].len());
+                anchors.push(s[start + 1..start + len].to_owned());
+                s = s.replace(&s[start..start + len], &format!("&{}", anchors.len()));
             }
             // Alias nodes name-to-number
             if s.starts_with("=ALI") {
@@ -605,7 +612,10 @@ fn expected_events(expected_tree: &str) -> Vec<String> {
                 // Normalize the YAML test-suite's canonical empty-content form to that local
                 // convention, including anchored nodes.
                 "=VAL :" => "=VAL :~".into(),
-                s if s.starts_with("=VAL &") && !s.contains('<') && s.ends_with(" :") => {
+                s if s.starts_with("=VAL &")
+                    && !s.contains('<')
+                    && s.ends_with(" :") =>
+                {
                     format!("{s}~")
                 }
                 s => s.into(),

@@ -29,22 +29,15 @@ pub struct Options {
     pub strict_indentation: bool,
     /// Whether scanners emit comment tokens and parsers emit comment events.
     ///
-    /// The default is `true` with the `comments` Cargo feature and `false` without it.
-    /// When this is `false`, comments are still recognized and validated as YAML syntax, but their
+    /// The default is `true`. When this is `false`, comments are still recognized and validated as YAML syntax, but their
     /// text is not captured and no comment tokens or events are emitted.
     /// Comment bytes are still consumed, so this is not an input-size or processing-time limit.
-    /// This option is always available, but has no effect without the `comments` Cargo feature.
-    #[cfg_attr(
-        feature = "comments",
-        doc = "[`Self::max_buffered_comment_events`] has no effect while comment emission is disabled."
-    )]
+    /// [`Self::max_buffered_comment_events`] has no effect while comment emission is disabled.
     pub emit_comments: bool,
     /// Maximum number of consecutive comment events buffered while resolving an ambiguous
     /// collection entry.
     ///
     /// The default is 96. A value of zero rejects the first comment that would need buffering.
-    /// This option is available only with the `comments` Cargo feature.
-    #[cfg(feature = "comments")]
     pub max_buffered_comment_events: usize,
     /// Maximum number of characters inspected while resolving a simple key.
     ///
@@ -81,11 +74,7 @@ impl Options {
     /// Controls whether scanners emit comment tokens and parsers emit comment events.
     ///
     /// When emission is disabled, comments are still recognized and validated, but their text
-    /// is not captured. This sets [`Self::emit_comments`] in every build, but has no effect on
-    /// parsing or scanning without the `comments` Cargo feature.
-    ///
-    /// This method is always available so downstream crates can disable comment emission
-    /// even when another dependency enables the `comments` feature through feature unification.
+    /// is not captured. This sets [`Self::emit_comments`].
     pub fn set_emit_comments(&mut self, emit_comments: bool) {
         self.emit_comments = emit_comments;
     }
@@ -95,8 +84,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             strict_indentation: false,
-            emit_comments: cfg!(feature = "comments"),
-            #[cfg(feature = "comments")]
+            emit_comments: true,
             max_buffered_comment_events: 96,
             simple_key_max_lookahead: 1024,
             flow_nesting_limit: 255,

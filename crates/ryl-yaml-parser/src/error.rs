@@ -1,12 +1,11 @@
 //! Parser and scanner error types.
 
-#[cfg(feature = "std")]
-use alloc::sync::Arc;
-use alloc::{
+use core::fmt;
+use std::sync::Arc;
+use std::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::fmt;
 
 use crate::scanner::Marker;
 
@@ -18,34 +17,27 @@ use crate::scanner::Marker;
 /// failure, the parser reports it at its current marker; consequently, a few successfully read
 /// characters that were already buffered ahead of that marker may not be scanned or emitted.
 ///
-/// The human-readable message is available in every build. With the `std` feature enabled, an
-/// instance constructed from `std::io::Error` also retains that original error and exposes it
+/// An instance constructed from `std::io::Error` retains that original error and exposes it
 /// through `InputIoError::io_error` and the standard error source chain.
 ///
-/// Equality and hashing use the portable message. The optional retained `std` error does not
-/// participate, so these operations have the same behavior with and without the `std` feature.
+/// Equality and hashing use the message only; the retained error does not participate.
 #[derive(Clone, Debug)]
 pub struct InputIoError {
     message: String,
-    #[cfg(feature = "std")]
     source: Option<Arc<std::io::Error>>,
 }
 
 impl InputIoError {
-    /// Create I/O error details from a portable message.
-    ///
-    /// This constructor is available in `no_std` builds. It does not retain a typed source error.
+    /// Create I/O error details from a message, without a typed source error.
     #[must_use]
     pub fn from_message(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            #[cfg(feature = "std")]
             source: None,
         }
     }
 
     /// Create I/O error details while retaining the original [`std::io::Error`].
-    #[cfg(feature = "std")]
     #[must_use]
     pub fn from_io(error: std::io::Error) -> Self {
         Self {
@@ -61,7 +53,6 @@ impl InputIoError {
     }
 
     /// Return the retained [`std::io::Error`], when one is available.
-    #[cfg(feature = "std")]
     #[must_use]
     pub fn io_error(&self) -> Option<&std::io::Error> {
         self.source.as_deref()
@@ -72,7 +63,6 @@ impl InputIoError {
     /// # Errors
     /// Returns the original `InputIoError` when it was created from a portable message or when
     /// another clone still shares the retained error.
-    #[cfg(feature = "std")]
     pub fn try_into_io_error(self) -> Result<std::io::Error, Self> {
         let Self { message, source } = self;
         let Some(source) = source else {
@@ -92,7 +82,6 @@ impl InputIoError {
     }
 }
 
-#[cfg(feature = "std")]
 impl From<std::io::Error> for InputIoError {
     fn from(error: std::io::Error) -> Self {
         Self::from_io(error)
@@ -121,17 +110,9 @@ impl fmt::Display for InputIoError {
 
 impl core::error::Error for InputIoError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        #[cfg(feature = "std")]
-        {
-            self.source
-                .as_deref()
-                .map(|error| error as &(dyn core::error::Error + 'static))
-        }
-
-        #[cfg(not(feature = "std"))]
-        {
-            None
-        }
+        self.source
+            .as_deref()
+            .map(|error| error as &(dyn core::error::Error + 'static))
     }
 }
 
@@ -140,11 +121,10 @@ impl core::error::Error for InputIoError {
 #[non_exhaustive]
 pub enum ErrorKind {
     /// Too many consecutive comments were buffered before a collection entry.
-    #[cfg(feature = "comments")]
     TooManyComments,
     /// Reading from the input source failed.
     InputIo {
-        /// Portable details and, with the `std` feature, an optional retained I/O error.
+        /// The message and, when constructed from one, the retained I/O error.
         error: InputIoError,
     },
     /// The input source was not valid text in the adapter's expected encoding.
@@ -157,20 +137,12 @@ pub enum ErrorKind {
         /// Maximum number of raw input bytes accepted by the adapter.
         limit: usize,
     },
-    /// Input ended while parsing a flow sequence.
-    UnexpectedEofFlowSequence,
-    /// Input ended while parsing a flow mapping.
-    UnexpectedEofFlowMapping,
     /// Input ended while parsing an implicit flow mapping.
     UnexpectedEofImplicitFlowMapping,
     /// Input ended while parsing a block sequence.
     UnexpectedEofBlockSequence,
     /// Input ended while parsing a block mapping.
     UnexpectedEofBlockMapping,
-    /// Input ended unexpectedly in another parser state.
-    UnexpectedEof,
-    /// A stream-start token was expected.
-    ExpectedStreamStart,
     /// More than one YAML version directive was found for a document.
     DuplicateVersionDirective,
     /// The YAML major version is unsupported.
@@ -185,8 +157,6 @@ pub enum ErrorKind {
     AnchorCountOverflow,
     /// An alias referred to an unknown anchor.
     UnknownAnchor,
-    /// The parser did not find expected node content.
-    ExpectedNodeContent,
     /// A block mapping key was expected.
     ExpectedBlockMappingKey,
     /// A flow mapping separator or closing brace was expected.
@@ -215,8 +185,6 @@ pub enum ErrorKind {
     InvalidGlobalTagCharacter,
     /// A required simple key was not followed by a value indicator.
     SimpleKeyExpected,
-    /// A previously saved simple key was no longer valid.
-    InvalidSimpleKey,
     /// Invalid content followed a document-end marker.
     InvalidDocumentEnd,
     /// Indentation was invalid for the current parser context.
@@ -334,8 +302,6 @@ pub enum ErrorKind {
     UnpairedLowSurrogate,
     /// A quoted scalar escape did not represent a valid Unicode scalar value.
     InvalidUnicodeEscape,
-    /// A flow scalar started at invalid indentation.
-    InvalidFlowScalarIndent,
     /// A plain scalar began with a dash followed by a flow indicator.
     PlainScalarStartsWithDashFlowIndicator,
     /// A tab appeared where a plain scalar could not accept it.
@@ -346,22 +312,21 @@ pub enum ErrorKind {
     MappingKeyNotAllowed,
     /// A flow mapping value indicator was adjacent to a collection start.
     FlowMappingValueAdjacentCollection,
-    /// A mapping value indicator was followed by invalid whitespace.
-    InvalidMappingValueWhitespace,
     /// A value indicator was placed illegally in an implicit flow mapping.
     InvalidColonPlacement,
     /// A mapping value appeared in a context that does not allow one.
     MappingValueNotAllowed,
 }
 
-#[cfg(feature = "error_messages")]
 impl fmt::Display for ErrorKind {
     #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            #[cfg(feature = "comments")]
             Self::TooManyComments => {
                 f.write_str("too many consecutive comments before resolving collection entry")
+            }
+            Self::AnchorCountOverflow => {
+                f.write_str("while parsing anchor, anchor count exceeded supported limit")
             }
             Self::InputIo { error } => write!(f, "input I/O error: {error}"),
             Self::InputDecoding { message } => {
@@ -369,12 +334,6 @@ impl fmt::Display for ErrorKind {
             }
             Self::InputByteLimitExceeded { limit } => {
                 write!(f, "input exceeds the configured limit of {limit} bytes")
-            }
-            Self::UnexpectedEofFlowSequence => {
-                f.write_str("unexpected EOF while parsing a flow sequence")
-            }
-            Self::UnexpectedEofFlowMapping => {
-                f.write_str("unexpected EOF while parsing a flow mapping")
             }
             Self::UnexpectedEofImplicitFlowMapping => {
                 f.write_str("unexpected EOF while parsing an implicit flow mapping")
@@ -385,8 +344,6 @@ impl fmt::Display for ErrorKind {
             Self::UnexpectedEofBlockMapping => {
                 f.write_str("unexpected EOF while parsing a block mapping")
             }
-            Self::UnexpectedEof => f.write_str("unexpected eof"),
-            Self::ExpectedStreamStart => f.write_str("did not find expected <stream-start>"),
             Self::DuplicateVersionDirective => f.write_str("duplicate version directive"),
             Self::UnsupportedYamlMajorVersion => {
                 f.write_str("unsupported YAML major version")
@@ -400,13 +357,7 @@ impl fmt::Display for ErrorKind {
             Self::MissingDocumentEndBeforeDirective => {
                 f.write_str("missing explicit document end marker before directive")
             }
-            Self::AnchorCountOverflow => {
-                f.write_str("while parsing anchor, anchor count exceeded supported limit")
-            }
             Self::UnknownAnchor => f.write_str("while parsing node, found unknown anchor"),
-            Self::ExpectedNodeContent => {
-                f.write_str("while parsing a node, did not find expected node content")
-            }
             Self::ExpectedBlockMappingKey => {
                 f.write_str("while parsing a block mapping, did not find expected key")
             }
@@ -441,7 +392,6 @@ impl fmt::Display for ErrorKind {
             }
             Self::InvalidGlobalTagCharacter => f.write_str("invalid global tag character"),
             Self::SimpleKeyExpected => f.write_str("simple key expected ':'"),
-            Self::InvalidSimpleKey => f.write_str("simple key is no longer valid"),
             Self::InvalidDocumentEnd => {
                 f.write_str("invalid content after document end marker")
             }
@@ -580,9 +530,6 @@ impl fmt::Display for ErrorKind {
             Self::InvalidUnicodeEscape => f.write_str(
                 "while parsing a quoted scalar, found invalid Unicode character escape code",
             ),
-            Self::InvalidFlowScalarIndent => {
-                f.write_str("invalid indentation in flow construct")
-            }
             Self::PlainScalarStartsWithDashFlowIndicator => {
                 f.write_str("plain scalar cannot start with '-' followed by ,[]{}")
             }
@@ -596,21 +543,11 @@ impl fmt::Display for ErrorKind {
             Self::FlowMappingValueAdjacentCollection => {
                 f.write_str("':' may not precede any of `[{` in flow mapping")
             }
-            Self::InvalidMappingValueWhitespace => {
-                f.write_str("':' must be followed by a valid YAML whitespace")
-            }
             Self::InvalidColonPlacement => f.write_str("illegal placement of ':' indicator"),
             Self::MappingValueNotAllowed => {
                 f.write_str("mapping values are not allowed in this context")
             }
         }
-    }
-}
-
-#[cfg(not(feature = "error_messages"))]
-impl fmt::Display for ErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("")
     }
 }
 
@@ -699,12 +636,11 @@ impl ScanError {
 
     /// Render the error as a human-readable description.
     ///
-    /// Parser-stack errors include their nested source names. The result remains
-    /// empty when the `error_messages` feature is disabled.
+    /// Parser-stack errors include their nested source names.
     #[must_use]
     pub fn info(&self) -> String {
         let mut info = self.kind.to_string();
-        if !info.is_empty() && self.source_stack().len() > 1 {
+        if self.source_stack().len() > 1 {
             info.push_str("\nwhile parsing ");
             info.push_str(&self.source_stack().join(" -> "));
         }
@@ -731,210 +667,5 @@ impl core::error::Error for ScanError {
             ErrorKind::InputIo { error } => Some(error),
             _ => None,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[cfg(feature = "error_messages")]
-    use alloc::format;
-    #[cfg(feature = "error_messages")]
-    use alloc::string::String;
-    use alloc::string::ToString;
-
-    use super::{ErrorKind, InputIoError, ScanError};
-    use crate::scanner::Marker;
-
-    #[cfg(feature = "error_messages")]
-    #[test]
-    fn constructor_retains_kind_and_derives_info() {
-        let marker = Marker::new(3, 2, 1);
-        let error = ScanError::from_kind(marker, ErrorKind::ExpectedWhitespace);
-
-        assert_eq!(error.kind(), &ErrorKind::ExpectedWhitespace);
-        assert_eq!(error.kind().to_string(), "expected whitespace");
-        assert_eq!(error.info(), "expected whitespace");
-    }
-
-    #[cfg(feature = "error_messages")]
-    #[test]
-    fn parameterized_kind_constructs_info() {
-        let marker = Marker::new(3, 2, 1);
-        let error = ScanError::from_kind(
-            marker,
-            ErrorKind::MismatchedFlowCollectionEnd {
-                open: '[',
-                close: '}',
-            },
-        );
-
-        assert_eq!(error.info(), "mismatched bracket '[' closed by '}'");
-        assert_eq!(
-            format!("{error}"),
-            "mismatched bracket '[' closed by '}' at char 3 line 2 column 2"
-        );
-    }
-
-    #[cfg(feature = "error_messages")]
-    #[test]
-    fn input_error_kinds_construct_info() {
-        assert_eq!(
-            ErrorKind::InputIo {
-                error: InputIoError::from_message("connection reset")
-            }
-            .to_string(),
-            "input I/O error: connection reset"
-        );
-        assert_eq!(
-            ErrorKind::InputDecoding {
-                message: String::from("invalid utf-8")
-            }
-            .to_string(),
-            "input decoding error: invalid utf-8"
-        );
-        assert_eq!(
-            ErrorKind::InputByteLimitExceeded { limit: 4096 }.to_string(),
-            "input exceeds the configured limit of 4096 bytes"
-        );
-    }
-
-    #[test]
-    fn message_only_input_io_error_has_no_source() {
-        use core::error::Error as _;
-
-        let error = InputIoError::from_message("portable failure");
-
-        assert_eq!(error.message(), "portable failure");
-        assert!(error.source().is_none());
-    }
-
-    #[cfg(feature = "std")]
-    #[test]
-    fn std_input_io_error_is_retained_in_scan_error_source_chain() {
-        use core::error::Error as _;
-        use std::io;
-
-        let details = InputIoError::from(io::Error::new(io::ErrorKind::BrokenPipe, "pipe closed"));
-        assert_eq!(details.message(), "pipe closed");
-        assert_eq!(
-            details
-                .io_error()
-                .expect("std construction should retain io::Error")
-                .kind(),
-            io::ErrorKind::BrokenPipe
-        );
-
-        let error = ScanError::from_kind(
-            Marker::new(3, 2, 1),
-            ErrorKind::InputIo {
-                error: details.clone(),
-            },
-        );
-        let input_error = error
-            .source()
-            .and_then(|source| source.downcast_ref::<InputIoError>())
-            .expect("ScanError should expose InputIoError as its source");
-        let io_error = input_error
-            .source()
-            .and_then(|source| source.downcast_ref::<io::Error>())
-            .expect("InputIoError should expose the retained io::Error");
-
-        assert_eq!(io_error.kind(), io::ErrorKind::BrokenPipe);
-        assert_eq!(details, *input_error);
-    }
-
-    #[cfg(feature = "std")]
-    #[test]
-    fn unique_std_input_io_error_can_be_recovered() {
-        use std::io;
-
-        let details = InputIoError::from(io::Error::from_raw_os_error(12_345));
-        let error = details
-            .try_into_io_error()
-            .expect("a uniquely owned io::Error should be recoverable");
-
-        assert_eq!(error.raw_os_error(), Some(12_345));
-    }
-
-    #[cfg(feature = "std")]
-    #[test]
-    fn shared_std_input_io_error_can_be_recovered_after_other_clone_is_dropped() {
-        use std::io;
-
-        let details = InputIoError::from(io::Error::from_raw_os_error(12_345));
-        let other = details.clone();
-        let details = details
-            .try_into_io_error()
-            .expect_err("a shared io::Error cannot be moved out");
-
-        drop(other);
-
-        let error = details
-            .try_into_io_error()
-            .expect("the last owner should recover the io::Error");
-        assert_eq!(error.raw_os_error(), Some(12_345));
-    }
-
-    #[cfg(feature = "std")]
-    #[test]
-    fn scan_error_moves_input_io_error_out_without_cloning() {
-        use std::io;
-
-        let error = ScanError::from_kind(
-            Marker::new(3, 2, 1),
-            ErrorKind::InputIo {
-                error: InputIoError::from(io::Error::from_raw_os_error(12_345)),
-            },
-        );
-        let details = error
-            .try_into_input_io_error()
-            .expect("input I/O details should be extractable");
-        let error = details
-            .try_into_io_error()
-            .expect("extracting the scan error should retain unique ownership");
-
-        assert_eq!(error.raw_os_error(), Some(12_345));
-    }
-
-    #[test]
-    fn extracting_input_io_error_preserves_other_scan_errors() {
-        let error = ScanError::from_kind(Marker::new(3, 2, 1), ErrorKind::ExpectedWhitespace);
-        let error = error
-            .try_into_input_io_error()
-            .expect_err("a non-I/O scan error should be returned unchanged");
-
-        assert_eq!(error.marker(), &Marker::new(3, 2, 1));
-        assert_eq!(error.kind(), &ErrorKind::ExpectedWhitespace);
-    }
-
-    #[cfg(feature = "error_messages")]
-    #[test]
-    fn public_constructor_copies_custom_message() {
-        let marker = Marker::new(3, 2, 1);
-        let mut message = String::from("adapter failed");
-        let error = ScanError::new(marker, &message);
-        message.clear();
-
-        assert_eq!(
-            error.kind(),
-            &ErrorKind::Custom(String::from("adapter failed"))
-        );
-        assert_eq!(error.info(), "adapter failed");
-    }
-
-    #[cfg(not(feature = "error_messages"))]
-    #[test]
-    fn disabled_error_messages_are_empty() {
-        let marker = Marker::new(3, 2, 1);
-        let error = ScanError::from_kind(
-            marker,
-            ErrorKind::MismatchedFlowCollectionEnd {
-                open: '[',
-                close: '}',
-            },
-        );
-
-        assert_eq!(error.kind().to_string(), "");
-        assert_eq!(error.info(), "");
     }
 }

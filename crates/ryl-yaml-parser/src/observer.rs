@@ -53,7 +53,6 @@ pub enum TokenKind<'token> {
         /// Decoded scalar value.
         value: &'token str,
     },
-    #[cfg(feature = "comments")]
     /// Raw comment payload, excluding the hash and line ending.
     Comment {
         /// Source text immediately after the hash.

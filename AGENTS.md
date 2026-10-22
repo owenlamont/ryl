@@ -8,7 +8,9 @@ ryl lints and formats YAML files
 
 - **/src/** – All application code lives here.
 - **/crates/ryl-yaml-parser/** – ryl's YAML parser, a fork of granit-parser 2.0.0; it
-  must never depend on ryl.
+  must never depend on ryl. It follows these same standards and is held to 100% coverage
+  across its generic instantiations; `tests/property_parser.rs` replaces fuzzing with stable
+  proptest suites.
 - **/src/lsp/** – the `ryl server` language server, behind the default-on `lsp` cargo
   feature; a thin protocol adapter over the engine.
 - **/tests/** – Unit and integration tests.

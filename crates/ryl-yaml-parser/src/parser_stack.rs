@@ -1,15 +1,15 @@
 use crate::{
+    Options,
     error::{ErrorKind, ScanError},
-    input::{str::StrInput, BorrowedInput, BufferedInput},
+    input::{BorrowedInput, BufferedInput, str::StrInput},
     parser::{Event, ParseResult, Parser, ParserTrait, SpannedEventReceiver},
     scanner::Span,
-    Options,
 };
-use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
+use std::{borrow::Cow, boxed::Box, string::String, vec::Vec};
 
 /// A lightweight parser that replays a pre-collected event stream.
 pub struct ReplayParser<'input> {
-    events: alloc::vec::IntoIter<(Event<'input>, Span)>,
+    events: std::vec::IntoIter<(Event<'input>, Span)>,
     anchor_offset: usize,
 }
 
@@ -64,8 +64,8 @@ impl<'input> ParserTrait<'input> for ReplayParser<'input> {
         recv: &mut R,
         multi: bool,
     ) -> Result<(), ScanError> {
-        while let Some(res) = self.next_event() {
-            let (ev, span) = res?;
+        // Replayed events never fail.
+        while let Some(Ok((ev, span))) = self.next_event() {
             let is_doc_end = matches!(ev, Event::DocumentEnd);
             let is_stream_end = matches!(ev, Event::StreamEnd);
             recv.on_event(ev, span);
@@ -159,10 +159,8 @@ where
 ///
 /// That is exactly what we want for `!include`-style subtree injection.
 ///
-/// Included parser events are replayed through the same event stream as parent events. With the
-/// `comments` Cargo feature, this includes comment events unless emission is disabled through
-/// [`ParserStack::with_options`]. Without the feature, comment events and their continuation state
-/// are absent.
+/// Included parser events are replayed through the same event stream as parent events, including
+/// comment events unless emission is disabled through [`ParserStack::with_options`].
 /// Included [`Span`] values remain local to the included source, just like every other event span
 /// from an included parser. `ParserStack` does not attach file names, source IDs, or other include
 /// provenance to events or spans. Errors do retain the nested source names through
@@ -175,13 +173,13 @@ where
     options: Options,
     parsers: Vec<AnyParser<'input, I, T>>,
     /// Stack depths and end spans of nested documents whose trailing comments are being read.
-    #[cfg(feature = "comments")]
     pending_document_ends: Vec<(usize, Span)>,
     current: Option<(Event<'input>, Span)>,
     current_error: Option<ScanError>,
     stream_end_emitted: bool,
     #[allow(clippy::type_complexity)]
-    include_resolver: Option<Box<dyn FnMut(&str) -> Result<Cow<'input, str>, ScanError> + 'input>>,
+    include_resolver:
+        Option<Box<dyn FnMut(&str) -> Result<Cow<'input, str>, ScanError> + 'input>>,
 }
 
 impl<'input, I, T> ParserStack<'input, I, T>
@@ -199,16 +197,14 @@ where
     ///
     /// Options are applied to sources parsed internally by [`Self::push_include`]. Caller-supplied
     /// parsers retain their own scanning options.
-    /// With the `comments` Cargo feature, disabling comment emission also suppresses comment
-    /// events from parsers and replay streams supplied by the caller. Construct caller-supplied
-    /// parsers with emission disabled as well to avoid capturing comments before filtering them.
-    /// Without the feature, comment events are absent and [`Options::emit_comments`] has no effect.
+    /// Disabling comment emission also suppresses comment events from parsers and replay streams
+    /// supplied by the caller. Construct caller-supplied parsers with emission disabled as well to
+    /// avoid capturing comments before filtering them.
     #[must_use]
     pub fn with_options(options: Options) -> Self {
         Self {
             options,
             parsers: Vec::new(),
-            #[cfg(feature = "comments")]
             pending_document_ends: Vec::new(),
             current: None,
             current_error: None,
@@ -224,26 +220,27 @@ where
         &mut self,
         mut resolver: impl FnMut(&str) -> Result<String, ScanError> + 'input,
     ) {
-        self.include_resolver = Some(Box::new(move |name| resolver(name).map(Cow::Owned)));
+        self.include_resolver =
+            Some(Box::new(move |name| resolver(name).map(Cow::Owned)));
     }
 
     /// Set an include resolver whose source text can be borrowed for the stack's input lifetime.
     ///
     /// Unlike [`Self::set_resolver`], this path lets scalar, anchor, and tag token text in included
-    /// documents borrow directly from the returned source, as well as comment text when the
-    /// `comments` Cargo feature is enabled. The included document is still validated eagerly so
+    /// documents borrow directly from the returned source, as well as comment text. The included document is still validated eagerly so
     /// resolution errors retain the same timing and source-stack context.
     pub fn set_borrowed_resolver(
         &mut self,
         mut resolver: impl FnMut(&str) -> Result<&'input str, ScanError> + 'input,
     ) {
-        self.include_resolver = Some(Box::new(move |name| resolver(name).map(Cow::Borrowed)));
+        self.include_resolver =
+            Some(Box::new(move |name| resolver(name).map(Cow::Borrowed)));
     }
 
     /// Resolve an include by name and push the resulting parser onto the stack.
     ///
-    /// With the `comments` Cargo feature, comment events from the included content follow the
-    /// setting passed to [`Self::with_options`]. All event spans are local to the included content
+    /// Comment events from the included content follow the setting passed to
+    /// [`Self::with_options`]. All event spans are local to the included content
     /// returned by the resolver.
     ///
     /// # Errors
@@ -264,13 +261,16 @@ where
         };
         let content = match resolved {
             Ok(content) => content,
-            Err(error) => return Err(self.contextualize_include_error(error, include_str)),
+            Err(error) => {
+                return Err(self.contextualize_include_error(error, include_str));
+            }
         };
         let inherited_anchor_offset = self.parsers.last().map(AnyParser::anchor_offset);
 
         let (events, next_anchor_offset) = match content {
             Cow::Borrowed(content) => {
-                let mut parser = Parser::new_from_str_with_options(content, self.options.clone());
+                let mut parser =
+                    Parser::new_from_str_with_options(content, self.options.clone());
                 if let Some(anchor_offset) = inherited_anchor_offset {
                     parser.set_anchor_offset(anchor_offset);
                 }
@@ -279,15 +279,19 @@ where
                     match event {
                         Ok(event) => events.push(event),
                         Err(error) => {
-                            return Err(self.contextualize_include_error(error, include_str));
+                            return Err(
+                                self.contextualize_include_error(error, include_str)
+                            );
                         }
                     }
                 }
                 (events, parser.anchor_offset())
             }
             Cow::Owned(content) => {
-                let mut parser =
-                    Parser::new_from_iter_with_options(content.chars(), self.options.clone());
+                let mut parser = Parser::new_from_iter_with_options(
+                    content.chars(),
+                    self.options.clone(),
+                );
                 if let Some(anchor_offset) = inherited_anchor_offset {
                     parser.set_anchor_offset(anchor_offset);
                 }
@@ -296,7 +300,9 @@ where
                     match event {
                         Ok(event) => events.push(event),
                         Err(error) => {
-                            return Err(self.contextualize_include_error(error, include_str));
+                            return Err(
+                                self.contextualize_include_error(error, include_str)
+                            );
                         }
                     }
                 }
@@ -311,7 +317,11 @@ where
         Ok(())
     }
 
-    fn contextualize_include_error(&self, error: ScanError, include_str: &str) -> ScanError {
+    fn contextualize_include_error(
+        &self,
+        error: ScanError,
+        include_str: &str,
+    ) -> ScanError {
         let mut source_stack = self.stack();
         source_stack.push(include_str.into());
         error.with_source_stack(source_stack)
@@ -327,7 +337,11 @@ where
     ///
     /// The pushed parser inherits the current anchor offset so anchors remain unique across stacked
     /// sources. `name` is returned by [`Self::stack`] for diagnostics.
-    pub fn push_str_parser(&mut self, mut parser: Parser<'input, StrInput<'input>>, name: String) {
+    pub fn push_str_parser(
+        &mut self,
+        mut parser: Parser<'input, StrInput<'input>>,
+        name: String,
+    ) {
         self.prepare_for_push();
         if let Some(parent) = self.parsers.last() {
             parser.set_anchor_offset(parent.anchor_offset());
@@ -367,7 +381,11 @@ where
     ///
     /// Replay parsers are used for included content that has already been parsed into events.
     /// `name` is returned by [`Self::stack`] for diagnostics.
-    pub fn push_replay_parser(&mut self, mut parser: ReplayParser<'input>, name: String) {
+    pub fn push_replay_parser(
+        &mut self,
+        mut parser: ReplayParser<'input>,
+        name: String,
+    ) {
         self.prepare_for_push();
         if let Some(parent) = self.parsers.last() {
             let inherited = parent.anchor_offset();
@@ -392,19 +410,12 @@ where
             parser.set_anchor_offset(parent.anchor_offset());
         }
         self.parsers.push(AnyParser::Custom { parser, name });
-        #[cfg(feature = "comments")]
-        {
-            self.current = if self.options.emit_comments || !matches!(current.0, Event::Comment(..))
-            {
+        self.current =
+            if self.options.emit_comments || !matches!(current.0, Event::Comment(..)) {
                 Some(current)
             } else {
                 None
             };
-        }
-        #[cfg(not(feature = "comments"))]
-        {
-            self.current = Some(current);
-        }
     }
 
     /// Return the anchor offset that a newly pushed parser should inherit.
@@ -435,7 +446,10 @@ where
         }
     }
 
-    fn propagate_anchor_offset_from_popped(&mut self, popped: &AnyParser<'input, I, T>) {
+    fn propagate_anchor_offset_from_popped(
+        &mut self,
+        popped: &AnyParser<'input, I, T>,
+    ) {
         if let Some(parent) = self.parsers.last_mut() {
             let next_offset = parent.anchor_offset().max(popped.anchor_offset());
             parent.set_anchor_offset(next_offset);
@@ -448,7 +462,6 @@ where
     /// Panics if the parser stack is empty.
     #[track_caller]
     fn pop_parser_and_propagate_anchor_offset(&mut self) {
-        #[cfg(feature = "comments")]
         if self
             .pending_document_ends
             .last()
@@ -476,19 +489,17 @@ where
                 AnyParser::Replay { parser, .. } => parser.next_event(),
             };
 
-            #[cfg(feature = "comments")]
-            if let Some(&(depth, span)) = self.pending_document_ends.last() {
-                if depth == self.parsers.len()
-                    && matches!(&res, Some(Ok((event, _)))
+            if let Some(&(depth, span)) = self.pending_document_ends.last()
+                && depth == self.parsers.len()
+                && matches!(&res, Some(Ok((event, _)))
                         if !matches!(event, Event::Comment(..) | Event::StreamEnd))
-                {
-                    let error = self.contextualize_error(ScanError::from_kind(
-                        span.start,
-                        ErrorKind::MultipleDocumentsUnsupported,
-                    ));
-                    self.pop_parser_and_propagate_anchor_offset();
-                    return Err(error);
-                }
+            {
+                let error = self.contextualize_error(ScanError::from_kind(
+                    span.start,
+                    ErrorKind::MultipleDocumentsUnsupported,
+                ));
+                self.pop_parser_and_propagate_anchor_offset();
+                return Err(error);
             }
 
             match res {
@@ -519,49 +530,21 @@ where
                         return Ok((Event::DocumentEnd, span));
                     }
 
-                    #[cfg(feature = "comments")]
-                    {
-                        // Retain the end span while emitting trailing comments across calls and
-                        // pushes of other parsers.
-                        self.pending_document_ends.push((self.parsers.len(), span));
-                    }
-                    #[cfg(not(feature = "comments"))]
-                    {
-                        // Without comment events, completion can be checked immediately without
-                        // retaining a pending end span or allocating continuation state.
-                        let next = match self.parsers.last_mut().unwrap() {
-                            AnyParser::String { parser, .. } => parser.next_event(),
-                            AnyParser::Iter { parser, .. } => parser.next_event(),
-                            AnyParser::Custom { parser, .. } => parser.next_event(),
-                            AnyParser::Replay { parser, .. } => parser.next_event(),
-                        };
-                        match next {
-                            Some(Ok((Event::StreamEnd, _))) | None => {
-                                self.pop_parser_and_propagate_anchor_offset();
-                            }
-                            Some(Err(error)) => {
-                                let error = self.contextualize_error(error);
-                                self.pop_parser_and_propagate_anchor_offset();
-                                return Err(error);
-                            }
-                            Some(Ok(_)) => {
-                                let error = self.contextualize_error(ScanError::from_kind(
-                                    span.start,
-                                    ErrorKind::MultipleDocumentsUnsupported,
-                                ));
-                                self.pop_parser_and_propagate_anchor_offset();
-                                return Err(error);
-                            }
-                        }
-                    }
+                    // Retain the end span while emitting trailing comments across calls and
+                    // pushes of other parsers.
+                    self.pending_document_ends.push((self.parsers.len(), span));
                 }
                 Some(Ok(event)) => {
-                    #[cfg(feature = "comments")]
-                    if !self.options.emit_comments && matches!(event.0, Event::Comment(..)) {
+                    if !self.options.emit_comments
+                        && matches!(event.0, Event::Comment(..))
+                    {
                         continue;
                     }
                     if self.parsers.len() > 1
-                        && matches!(event.0, Event::StreamStart | Event::DocumentStart(..))
+                        && matches!(
+                            event.0,
+                            Event::StreamStart | Event::DocumentStart(..)
+                        )
                     {
                         continue;
                     }

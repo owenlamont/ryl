@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -56,6 +57,38 @@ def coalesce(lines: list[int]) -> str:
     return ",".join(str(a) if a == b else f"{a}-{b}" for a, b in ranges)
 
 
+# The parser is generic over `Input`, so CI gates it on regions covered by any instantiation;
+# every other file must cover each region within a single instantiation.
+UNION_GATED_PREFIX = "crates/ryl-yaml-parser/"
+
+
+FUNCTION_DEFINITION = re.compile(
+    r"^\s*(pub(\([a-z]+\))?\s+)?(const\s+)?fn ", re.MULTILINE
+)
+
+
+def missing_parser_files(data: dict, root: Path) -> list[str]:
+    """List parser sources defining functions that the report does not cover at all.
+
+    The strict gate in CI ignores the parser, so a report that omits it must not pass.
+
+    Returns:
+        The repo-relative paths absent from the report.
+    """
+    normalized_root = root.as_posix().rstrip("/") + "/"
+    reported = {
+        file["filename"].replace("\\", "/").removeprefix(normalized_root)
+        for entry in data.get("data", [])
+        for file in entry.get("files", [])
+    }
+    expected = (
+        path.relative_to(root).as_posix()
+        for path in sorted((root / UNION_GATED_PREFIX / "src").rglob("*.rs"))
+        if FUNCTION_DEFINITION.search(path.read_text(encoding="utf-8"))
+    )
+    return [path for path in expected if path not in reported]
+
+
 def build_report(data: dict, root: Path) -> list[str]:
     """Build ``file:ranges`` lines for every file with an uncovered region.
 
@@ -63,6 +96,9 @@ def build_report(data: dict, root: Path) -> list[str]:
     is_gap_region]``; a line is uncovered when it carries a real (non-gap)
     region that executed zero times (``count == 0 and has_count and not
     is_gap_region``).
+
+    Outside the parser crate, a file whose summary still misses a region with every segment
+    executed is reported too: CI's strict gate scores each generic instantiation separately.
 
     Returns:
         One ``relative/path:ranges`` string per file with uncovered regions.
@@ -73,15 +109,16 @@ def build_report(data: dict, root: Path) -> list[str]:
         for file in entry.get("files", []):
             if file["summary"]["regions"]["percent"] >= 100:
                 continue
+            name = file["filename"].replace("\\", "/").removeprefix(normalized_root)
             uncovered = [
                 seg[0]
                 for seg in file["segments"]
                 if seg[2] == 0 and seg[3] and not seg[5]
             ]
-            if not uncovered:
-                continue
-            name = file["filename"].replace("\\", "/").removeprefix(normalized_root)
-            report.append(f"{name}:{coalesce(uncovered)}")
+            if uncovered:
+                report.append(f"{name}:{coalesce(uncovered)}")
+            elif not name.startswith(UNION_GATED_PREFIX):
+                report.append(f"{name}: a generic instantiation misses a region")
     return report
 
 
@@ -94,7 +131,7 @@ def generate_report_json(root: Path) -> dict:
     if shutil.which("cargo") is None:
         sys.exit("cargo is required to run this script")
     summary = subprocess.run(
-        ["cargo", "llvm-cov", "nextest", "--summary-only"],
+        ["cargo", "llvm-cov", "nextest", "--workspace", "--summary-only"],
         cwd=root,
         env=os.environ
         | {"PROPTEST_CASES": "0", "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1"},
@@ -127,7 +164,15 @@ def generate_report_json(root: Path) -> dict:
         tmp_path = Path(handle.name)
     try:
         report = subprocess.run(
-            ["cargo", "llvm-cov", "report", "--json", "--output-path", str(tmp_path)],
+            [
+                "cargo",
+                "llvm-cov",
+                "report",
+                "--workspace",
+                "--json",
+                "--output-path",
+                str(tmp_path),
+            ],
             cwd=root,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -158,12 +203,14 @@ def main() -> None:
         else generate_report_json(root)
     )
 
+    if missing := missing_parser_files(data, root):
+        sys.exit("coverage report lacks parser sources: " + ", ".join(missing))
     report = build_report(data, root)
     if report:
         print("Uncovered regions (file:path line ranges):")
         print("\n".join(report))
-    else:
-        print("Coverage OK: no uncovered regions.")
+        sys.exit(1)
+    print("Coverage OK: no uncovered regions.")
 
 
 if __name__ == "__main__":

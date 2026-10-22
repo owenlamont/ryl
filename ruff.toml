@@ -64,6 +64,7 @@ preview = true
 # Self-contained CLI tooling that shells out to cargo/gh: relax the subprocess-security
 # rules and library-style docstring conventions that do not suit scripts.
 ".agents/skills/**/*.py" = ["D103", "D205", "DOC201", "DOC501", "E501", "S404", "S603", "S607"]
+".agents/skills/**/test_*.py" = ["D103", "S101"]
 "scripts/benchmark_yaml_tools.py" = [
     "B008",
     "B904",

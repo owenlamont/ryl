@@ -1,0 +1,617 @@
+//! Coverage tests for block scalars, quoted scalars, plain scalars and error paths in
+//! `src/scanner.rs`.
+//!
+//! Some tests use custom [`Input`] implementations (a legitimate use of the public `Input` /
+//! `BorrowedInput` traits) to exercise code paths that `StrInput` and `BufferedInput` cannot
+//! reach:
+//!
+//! - [`WindowedInput`] models a streaming input whose lookahead window drains as characters are
+//!   consumed, exercising the default block-scalar line reader with a shrinking window.
+//! - [`SliceableStreamInput`] models an input with stable byte offsets (`byte_offset` /
+//!   `slice_bytes`) but without zero-copy borrowing (`slice_borrowed` returns `None`), which
+//!   forces the owned-copy fallbacks when finalizing quoted scalars.
+
+use ryl_yaml_parser::{
+    ErrorKind, Event, Parser, ScalarStyle, ScanError, StructureStyle,
+    input::{BorrowedInput, Input, is_blank_or_breakz, is_breakz, is_flow},
+};
+
+fn parse_events(input: &str) -> Result<Vec<Event<'_>>, ScanError> {
+    Parser::new_from_str(input)
+        .map(|event| event.map(|(event, _)| event))
+        .collect()
+}
+
+fn first_error_info(input: &str) -> String {
+    for event in Parser::new_from_str(input) {
+        if let Err(error) = event {
+            return error.info();
+        }
+    }
+    panic!("expected parser error");
+}
+
+fn scalars_of(events: &[Event<'_>]) -> Vec<(String, ScalarStyle)> {
+    events
+        .iter()
+        .filter_map(|event| {
+            if let Event::Scalar(value, style, ..) = event {
+                Some((value.to_string(), *style))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+// -------------------------------------------------------------------------------------------
+// Custom inputs
+// -------------------------------------------------------------------------------------------
+
+/// Maximum lookahead window of [`WindowedInput`].
+const WINDOW: usize = 8;
+
+/// A streaming input whose lookahead window shrinks as characters are consumed.
+///
+/// Unlike `BufferedInput` (which keeps its buffer topped up after every consumption), this input
+/// only promises the characters requested by the latest `lookahead` call. Consuming characters
+/// drains the window, so `buf_is_empty` eventually becomes `true` mid-line.
+struct WindowedInput {
+    chars: Vec<char>,
+    pos: usize,
+    window: usize,
+}
+
+impl WindowedInput {
+    fn new(source: &str) -> Self {
+        Self {
+            chars: source.chars().collect(),
+            pos: 0,
+            window: 0,
+        }
+    }
+
+    fn consume_one(&mut self) {
+        if self.pos < self.chars.len() {
+            self.pos += 1;
+        }
+        self.window = self.window.saturating_sub(1);
+    }
+}
+
+impl Input for WindowedInput {
+    fn lookahead(&mut self, count: usize) {
+        self.window = self.window.max(count.min(WINDOW));
+    }
+
+    fn buflen(&self) -> usize {
+        self.window
+    }
+
+    fn bufmaxlen(&self) -> usize {
+        WINDOW
+    }
+
+    fn raw_read_ch(&mut self) -> char {
+        let c = self.chars.get(self.pos).copied().unwrap_or('\0');
+        self.consume_one();
+        c
+    }
+
+    fn raw_read_non_breakz_ch(&mut self) -> Option<char> {
+        let c = self.chars.get(self.pos).copied()?;
+        if is_breakz(c) {
+            None
+        } else {
+            self.consume_one();
+            Some(c)
+        }
+    }
+
+    fn skip(&mut self) {
+        self.consume_one();
+    }
+
+    fn skip_n(&mut self, count: usize) {
+        for _ in 0..count {
+            self.consume_one();
+        }
+    }
+
+    fn peek(&self) -> char {
+        self.chars.get(self.pos).copied().unwrap_or('\0')
+    }
+
+    fn peek_nth(&self, n: usize) -> char {
+        self.chars.get(self.pos + n).copied().unwrap_or('\0')
+    }
+}
+
+impl BorrowedInput<'static> for WindowedInput {
+    fn slice_borrowed(&self, _start: usize, _end: usize) -> Option<&'static str> {
+        None
+    }
+}
+
+/// An input with stable byte offsets and (optionally) `slice_bytes`, but no zero-copy borrowing.
+///
+/// This models an input that owns its backing storage: it can hand out `&str` slices tied to
+/// `&self` (`slice_bytes`) but not slices with the `'input` lifetime (`slice_borrowed`).
+struct SliceableStreamInput {
+    source: &'static str,
+    /// Current byte offset into `source`.
+    pos: usize,
+    /// Sticky lookahead window, mirroring `StrInput`.
+    window: usize,
+    /// Whether `slice_bytes` is offered.
+    provide_slices: bool,
+    /// Which `start..end` ranges `slice_borrowed` lends as `'static` slices of the source.
+    lends: fn(usize, usize) -> bool,
+    /// What `may_contain_comments` reports, regardless of the source.
+    comment_hint: bool,
+    /// The last byte offset reported; later positions report none, breaking the offset contract.
+    offsets_until: usize,
+    /// Whether `next_can_be_plain_scalar` rejects every character.
+    reject_plain: bool,
+}
+
+impl SliceableStreamInput {
+    fn new(source: &'static str, provide_slices: bool) -> Self {
+        Self {
+            source,
+            pos: 0,
+            window: 0,
+            provide_slices,
+            lends: |_, _| false,
+            comment_hint: true,
+            offsets_until: usize::MAX,
+            reject_plain: false,
+        }
+    }
+
+    fn rest(&self) -> &str {
+        &self.source[self.pos..]
+    }
+}
+
+impl Input for SliceableStreamInput {
+    fn lookahead(&mut self, count: usize) {
+        self.window = self.window.max(count);
+    }
+
+    fn buflen(&self) -> usize {
+        self.window
+    }
+
+    fn bufmaxlen(&self) -> usize {
+        128
+    }
+
+    fn raw_read_ch(&mut self) -> char {
+        match self.rest().chars().next() {
+            Some(c) => {
+                self.pos += c.len_utf8();
+                c
+            }
+            None => '\0',
+        }
+    }
+
+    fn raw_read_non_breakz_ch(&mut self) -> Option<char> {
+        let c = self.rest().chars().next()?;
+        if is_breakz(c) {
+            None
+        } else {
+            self.pos += c.len_utf8();
+            Some(c)
+        }
+    }
+
+    fn skip(&mut self) {
+        if let Some(c) = self.rest().chars().next() {
+            self.pos += c.len_utf8();
+        }
+    }
+
+    fn skip_n(&mut self, count: usize) {
+        for _ in 0..count {
+            self.skip();
+        }
+    }
+
+    fn peek(&self) -> char {
+        self.rest().chars().next().unwrap_or('\0')
+    }
+
+    fn peek_nth(&self, n: usize) -> char {
+        self.rest().chars().nth(n).unwrap_or('\0')
+    }
+
+    fn byte_offset(&self) -> Option<usize> {
+        (self.pos <= self.offsets_until).then_some(self.pos)
+    }
+
+    fn next_can_be_plain_scalar(&self, in_flow: bool) -> bool {
+        let (c, nc) = (self.peek(), self.peek_nth(1));
+        let ends_plain = (c == ':'
+            && (is_blank_or_breakz(nc) || in_flow && is_flow(nc)))
+            || in_flow && is_flow(c);
+        !self.reject_plain && !ends_plain
+    }
+
+    fn may_contain_comments(&self) -> bool {
+        self.comment_hint
+    }
+
+    fn slice_bytes(&self, start: usize, end: usize) -> Option<&str> {
+        if self.provide_slices {
+            self.source.get(start..end)
+        } else {
+            None
+        }
+    }
+}
+
+impl BorrowedInput<'static> for SliceableStreamInput {
+    fn slice_borrowed(&self, start: usize, end: usize) -> Option<&'static str> {
+        self.source
+            .get(start..end)
+            .filter(|_| (self.lends)(start, end))
+    }
+}
+
+// -------------------------------------------------------------------------------------------
+// Block scalars
+// -------------------------------------------------------------------------------------------
+
+/// The default block-scalar line reader must consume the full line even when the input's
+/// lookahead window drains partway through it.
+#[test]
+fn block_scalar_line_longer_than_lookahead_window_is_read_completely() {
+    let events: Result<Vec<Event<'static>>, ScanError> = Parser::new(
+        WindowedInput::new("|\n abcdefghijklmnopqrstuvwxyz 0123456789\n"),
+    )
+    .map(|event| event.map(|(event, _)| event))
+    .collect();
+    let events = events.expect("valid literal scalar must parse");
+
+    assert_eq!(
+        scalars_of(&events),
+        vec![(
+            "abcdefghijklmnopqrstuvwxyz 0123456789\n".to_owned(),
+            ScalarStyle::Literal
+        )]
+    );
+}
+
+/// A folded scalar with two long lines exercises the default line reader together with line
+/// folding.
+#[test]
+fn folded_scalar_long_lines_with_windowed_input_fold_to_spaces() {
+    let events: Result<Vec<Event<'static>>, ScanError> =
+        Parser::new(WindowedInput::new(
+            ">\n the quick brown fox jumps over\n the lazy dog and runs away\n",
+        ))
+        .map(|event| event.map(|(event, _)| event))
+        .collect();
+    let events = events.expect("valid folded scalar must parse");
+
+    assert_eq!(
+        scalars_of(&events),
+        vec![(
+            "the quick brown fox jumps over the lazy dog and runs away\n".to_owned(),
+            ScalarStyle::Folded
+        )]
+    );
+}
+
+/// A block scalar indented deeper than the input's buffer size must skip indentation through the
+/// chunked loop (scanner.rs `skip_block_scalar_indent`, `indent >= bufmaxlen - 2` branch),
+/// including its early exit when a line holds content before the indent level is reached.
+#[test]
+fn deeply_indented_block_scalar_with_buffered_input() {
+    let indent = " ".repeat(16);
+    let yaml = format!("k:\n{indent}|\n{indent}aaaa\n\n{indent}bbbb\n");
+
+    let events: Result<Vec<Event<'static>>, ScanError> =
+        Parser::new_from_iter(yaml.chars().collect::<Vec<char>>().into_iter())
+            .map(|event| event.map(|(event, _)| event))
+            .collect();
+    let events = events.expect("valid literal scalar must parse");
+
+    assert_eq!(
+        scalars_of(&events),
+        vec![
+            ("k".to_owned(), ScalarStyle::Plain),
+            ("aaaa\n\nbbbb\n".to_owned(), ScalarStyle::Literal),
+        ]
+    );
+}
+
+/// A block scalar whose indentation is deeper than the input's lookahead buffer must re-request
+/// lookahead in the middle of skipping a single line's indentation (scanner.rs
+/// `skip_block_scalar_indent`, inner loop repeating because the buffer drained before the indent
+/// level was reached).
+#[test]
+fn deeply_indented_block_scalar_with_windowed_input() {
+    let indent = " ".repeat(10);
+    let yaml = format!("k:\n{indent}|\n{indent}aaaa\n\n{indent}bbbb\n");
+
+    let events: Result<Vec<Event<'static>>, ScanError> =
+        Parser::new(WindowedInput::new(&yaml))
+            .map(|event| event.map(|(event, _)| event))
+            .collect();
+    let events = events.expect("valid literal scalar must parse");
+
+    assert_eq!(
+        scalars_of(&events),
+        vec![
+            ("k".to_owned(), ScalarStyle::Plain),
+            ("aaaa\n\nbbbb\n".to_owned(), ScalarStyle::Literal),
+        ]
+    );
+}
+
+// -------------------------------------------------------------------------------------------
+// Quoted scalars
+// -------------------------------------------------------------------------------------------
+
+/// Trailing blanks before a line break inside a double-quoted scalar are discarded; with
+/// `StrInput` this forces the zero-copy buffer to be promoted to an owned string
+/// (scanner.rs `scan_flow_scalar`, pending-whitespace discard branch).
+#[test]
+fn double_quoted_trailing_blank_before_break_folds_to_space() {
+    let events = parse_events("\"a \nb\"\n").unwrap();
+
+    assert_eq!(
+        scalars_of(&events),
+        vec![("a b".to_owned(), ScalarStyle::DoubleQuoted)]
+    );
+}
+
+/// Same as above for single-quoted scalars, with several blanks before the break.
+#[test]
+fn single_quoted_trailing_blanks_before_break_fold_to_space() {
+    let events = parse_events("'a  \n  b'\n").unwrap();
+
+    assert_eq!(
+        scalars_of(&events),
+        vec![("a b".to_owned(), ScalarStyle::SingleQuoted)]
+    );
+}
+
+/// An input that advertises byte offsets but no zero-copy borrowing makes the scanner fall back
+/// to copying the quoted scalar out of `slice_bytes` (scanner.rs `scan_flow_scalar`, borrowed
+/// contents fallback).
+#[test]
+fn quoted_scalar_from_offsets_without_borrowing_is_copied() {
+    let events: Result<Vec<Event<'static>>, ScanError> =
+        Parser::new(SliceableStreamInput::new("\"hello world\"\n", true))
+            .map(|event| event.map(|(event, _)| event))
+            .collect();
+    let events = events.expect("valid double quoted scalar must parse");
+
+    assert_eq!(
+        scalars_of(&events),
+        vec![("hello world".to_owned(), ScalarStyle::DoubleQuoted)]
+    );
+}
+
+/// If the input advertises byte offsets but then refuses to provide the slice, the scanner
+/// reports an internal error rather than panicking.
+#[test]
+fn quoted_scalar_from_offsets_without_slices_is_internal_error() {
+    let mut parser = Parser::new(SliceableStreamInput::new("\"hello world\"\n", false));
+
+    let error = parser.find_map(Result::err).expect("expected parser error");
+    assert_eq!(
+        error.info(),
+        "internal error: input advertised offsets but did not provide a slice"
+    );
+}
+
+// -------------------------------------------------------------------------------------------
+// Keys and error paths
+// -------------------------------------------------------------------------------------------
+
+/// An explicit key indicator right after a flow sequence on the same line is invalid
+/// (scanner.rs `fetch_key`, "mapping keys are not allowed in this context").
+#[test]
+fn explicit_key_after_flow_sequence_end_is_rejected() {
+    assert_eq!(
+        first_error_info("[a] ? b\n"),
+        "mapping keys are not allowed in this context"
+    );
+}
+
+/// A `,` after a flow sequence that opened at a required-simple-key position trips the
+/// required-key check in `remove_simple_key` (scanner.rs, "simple key expected ':'").
+#[test]
+fn flow_entry_after_required_simple_key_is_rejected() {
+    assert_eq!(
+        first_error_info("x: y\n[a], b\n"),
+        "simple key expected ':'"
+    );
+}
+
+/// An empty flow sequence used as a mapping key in an already-open block mapping calls
+/// `roll_indent` while the current indent is still the one-column indent prepared by the `[`
+/// indicator, so no new block mapping is started (scanner.rs `roll_indent`,
+/// `self.indent > col` case).
+#[test]
+fn empty_flow_sequence_key_in_existing_block_mapping() {
+    let events = parse_events("x: y\n[]: b\n").unwrap();
+
+    assert_eq!(
+        events,
+        vec![
+            Event::StreamStart,
+            Event::DocumentStart(false, None),
+            Event::MappingStart(StructureStyle::Block, 0, None),
+            Event::Scalar("x".into(), ScalarStyle::Plain, 0, None),
+            Event::Scalar("y".into(), ScalarStyle::Plain, 0, None),
+            Event::SequenceStart(StructureStyle::Flow, 0, None),
+            Event::SequenceEnd,
+            Event::Scalar("b".into(), ScalarStyle::Plain, 0, None),
+            Event::MappingEnd,
+            Event::DocumentEnd,
+            Event::StreamEnd,
+        ]
+    );
+}
+
+/// A block sequence indented one column under its mapping key replaces the non-block indent
+/// prepared by the `:` value with a block sequence indent (scanner.rs `roll_indent`, non-block
+/// indent removal).
+#[test]
+fn sequence_indented_one_column_under_mapping_key() {
+    let events = parse_events("a:\n - b\n").unwrap();
+
+    assert_eq!(
+        events,
+        vec![
+            Event::StreamStart,
+            Event::DocumentStart(false, None),
+            Event::MappingStart(StructureStyle::Block, 0, None),
+            Event::Scalar("a".into(), ScalarStyle::Plain, 0, None),
+            Event::SequenceStart(StructureStyle::Block, 0, None),
+            Event::Scalar("b".into(), ScalarStyle::Plain, 0, None),
+            Event::SequenceEnd,
+            Event::MappingEnd,
+            Event::DocumentEnd,
+            Event::StreamEnd,
+        ]
+    );
+}
+
+/// Inputs that need a copied or transformed slice: escapes, folds, comments, tags, anchors.
+const SLICED_INPUTS: &[&str] = &[
+    "\"a\\tb\"\n",
+    "\"a\\\n  b\"\n",
+    "\"a\n  b\"\n",
+    "'it''s'\n",
+    "\"a  \n  b\"\n",
+    "'a\n\n  b'\n",
+    "\"a\n\n  b\"\n",
+    "a\n b\n",
+    "a # c\n",
+    "%TAG !e! tag:x,2000:\n--- !e!y v\n",
+    "!t v\n",
+    "!!str v\n",
+    "&anchor v\n",
+    "!<tag:x> v\n",
+];
+
+/// Offsets with copyable slices reproduce `StrInput`'s events; offsets without slices either
+/// copy the text as a stream would or fail loudly, never losing text.
+#[test]
+fn offset_inputs_copy_slices_or_report_their_absence() {
+    for yaml in SLICED_INPUTS {
+        let expected = parse_events(yaml).expect("every input is valid YAML");
+        let copied: Result<Vec<Event<'static>>, ScanError> =
+            Parser::new(SliceableStreamInput::new(yaml, true))
+                .map(|event| event.map(|(event, _)| event))
+                .collect();
+        assert_eq!(copied.as_ref(), Ok(&expected), "{yaml:?}");
+        let unsliced: Result<Vec<Event<'static>>, ScanError> =
+            Parser::new(SliceableStreamInput::new(yaml, false))
+                .map(|event| event.map(|(event, _)| event))
+                .collect();
+        match unsliced {
+            Ok(events) => assert_eq!(events, expected, "{yaml:?}"),
+            Err(error) => assert!(
+                matches!(
+                    error.kind(),
+                    ErrorKind::InputOffsetsWithoutSlice
+                        | ErrorKind::InputSlicingUnavailable
+                ),
+                "{yaml:?}: {error}"
+            ),
+        }
+    }
+}
+
+/// A borrowing input without its own plain-scalar fast path uses the trait's chunked default,
+/// which must stop after each chunk of a scalar longer than the lookahead window.
+#[test]
+fn borrowing_input_reads_long_plain_scalars_in_chunks() {
+    let yaml: &'static str =
+        Box::leak(format!("key: {}\n", "v".repeat(300)).into_boxed_str());
+    let mut input = SliceableStreamInput::new(yaml, true);
+    input.lends = |_, _| true;
+    let events: Result<Vec<Event<'static>>, ScanError> = Parser::new(input)
+        .map(|event| event.map(|(event, _)| event))
+        .collect();
+    assert_eq!(events, parse_events(yaml));
+}
+
+/// An input may claim to hold no comments; one it does hold is still validated.
+#[test]
+fn comment_hint_does_not_skip_comment_separation_checks() {
+    let mut input = SliceableStreamInput::new("\"a\"#c\n", true);
+    input.comment_hint = false;
+    let error = Parser::new(input)
+        .find_map(Result::err)
+        .expect("an unseparated comment fails");
+    assert_eq!(error.kind(), &ErrorKind::CommentNotSeparated);
+}
+
+/// Lending a local tag's handle and suffix separately does not oblige an input to lend them
+/// as one range; the tag is then copied.
+#[test]
+fn local_tag_is_copied_when_its_combined_range_is_not_lent() {
+    let mut input = SliceableStreamInput::new("!foo/bar a", true);
+    input.lends = |start, end| (start, end) != (1, 8);
+    let events: Result<Vec<Event<'static>>, ScanError> = Parser::new(input)
+        .map(|event| event.map(|(event, _)| event))
+        .collect();
+    assert_eq!(events, parse_events("!foo/bar a"));
+}
+
+/// Lending an empty slice at a plain scalar's start does not oblige an input to lend the
+/// whole scalar; declining it fails loudly rather than losing text.
+#[test]
+fn plain_scalar_whose_full_range_is_not_lent_is_an_error() {
+    // A continuation line copies the first line before folding, so it asks for it too.
+    for yaml in ["abc", "a\n b"] {
+        let mut input = SliceableStreamInput::new(yaml, true);
+        input.lends = |start, end| start == end;
+        let error = Parser::new(input)
+            .find_map(Result::err)
+            .expect("the scalar cannot be lent");
+        assert_eq!(
+            error.kind(),
+            &ErrorKind::InputOffsetsWithoutSlice,
+            "{yaml:?}"
+        );
+    }
+}
+
+/// An input whose `next_can_be_plain_scalar` rejects a character the scanner dispatched as a
+/// plain scalar gets an error instead of an endless loop of empty scalars.
+#[test]
+fn plain_scalar_rejected_by_the_input_is_an_error() {
+    let mut input = SliceableStreamInput::new("abc", true);
+    input.reject_plain = true;
+    let error = Parser::new(input)
+        .find_map(Result::err)
+        .expect("nothing can be consumed");
+    assert_eq!(error.kind(), &ErrorKind::UnexpectedEndOfPlainScalar);
+}
+
+/// Offsets that stop part-way through a tag are an error, never a panic.
+#[test]
+fn tag_survives_offsets_vanishing_mid_tag() {
+    for (offsets_until, expected) in [
+        (1, ErrorKind::InputSlicingUnavailable),
+        (3, ErrorKind::MissingTagUri),
+    ] {
+        let mut input = SliceableStreamInput::new("!!str a", true);
+        input.lends = |_, _| true;
+        input.offsets_until = offsets_until;
+        let error = Parser::new(input)
+            .find_map(Result::err)
+            .expect("the tag needs offsets");
+        assert_eq!(error.kind(), &expected, "offsets until {offsets_until}");
+    }
+}

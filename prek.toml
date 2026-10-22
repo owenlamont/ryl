@@ -1,7 +1,7 @@
 #:schema https://www.schemastore.org/prek.json
 
-# The vendored parser keeps upstream formatting until it adopts ryl's standards.
-exclude = '^crates/ryl-yaml-parser/'
+# Inherited license notices stay byte-for-byte as upstream published them.
+exclude = '^crates/ryl-yaml-parser/\.licenses/'
 
 [[repos]]
 repo = "https://github.com/pre-commit/pre-commit-hooks"
