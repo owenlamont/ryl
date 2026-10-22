@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use ryl_yaml_parser::{Event, ScalarStyle};
 
 use crate::fix::{PassTracking, Passes};
-use crate::rules::support::collection_style;
+use crate::rules::support::{collection_style, event_compare};
 use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, hyphens, indentation, new_lines, quoted_strings,
@@ -495,20 +495,8 @@ fn changed_documents<'a>(
     expected: impl Iterator<Item = Event<'a>>,
     frozen: Option<&[Option<indentation::Cause>]>,
 ) -> Option<Vec<Option<indentation::Cause>>> {
-    fn documents<'e>(events: impl Iterator<Item = Event<'e>>) -> Vec<Vec<Event<'e>>> {
-        let mut documents: Vec<Vec<Event<'e>>> = Vec::new();
-        for event in events {
-            if matches!(event, Event::DocumentStart(..)) {
-                documents.push(Vec::new());
-            }
-            if let Some(document) = documents.last_mut() {
-                document.push(event);
-            }
-        }
-        documents
-    }
-    let before = documents(expected);
-    let after = documents(output.event_iter().map(|(event, _)| event));
+    let before = event_compare::documents(expected);
+    let after = event_compare::documents(output.event_values());
     let mut rejected = frozen.map_or_else(|| vec![None; before.len()], <[_]>::to_vec);
     let mut changed = false;
     for (index, document) in before.iter().enumerate() {

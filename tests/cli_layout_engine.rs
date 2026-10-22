@@ -1301,3 +1301,13 @@ fn lf_only_collection_conversion_plans_line_records() {
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(statistics["line_table_builds"], 2, "{statistics}");
 }
+
+#[test]
+fn a_trimmed_comment_does_not_freeze_its_document_beside_a_refused_one() {
+    let config = "indent-width = 1\n";
+    let reindented = "a: |\n #g\n# x\n---\na: |\n  #g\n # x\n";
+    let (output, _) =
+        format_with_statistics("a: |\n  #g\n # x \n---\na: |\n  #g\n # x\n", config);
+    assert_eq!(output, reindented);
+    assert_eq!(format_with_statistics(&output, config).0, reindented);
+}

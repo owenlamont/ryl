@@ -253,7 +253,7 @@ impl<'text> Analysis<'text> {
         })
     }
 
-    fn event_values(self) -> impl Iterator<Item = Event<'text>> {
+    pub(crate) fn event_values(self) -> impl Iterator<Item = Event<'text>> {
         let facts = self.parsed();
         facts
             .events
