@@ -70,15 +70,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh skill publish --dry-run
 
-      - name: Run ryl-yaml-parser's suite
-        run: |-
-          git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite
-          cargo nextest run -p ryl-yaml-parser --all-features
+      - name: Fetch the YAML test suite
+        run: git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite
 
       - name: Replay saved property seeds
         env:
           PROPTEST_CASES: '0'
-        run: cargo nextest run --test 'property_*'
+        run: cargo nextest run --workspace --test 'property_*'
+
+      - name: Run doctests
+        run: cargo test --workspace --doc
 
       - name: Run tests with coverage (nextest + cargo-llvm-cov)
         env:
@@ -91,13 +92,13 @@ jobs:
           # A cache restored for an older Cargo.lock still holds this crate's
           # instrumented binaries, which the report would otherwise count.
           cargo llvm-cov clean --workspace
-          cargo llvm-cov nextest --no-report
+          cargo llvm-cov nextest --workspace --no-report
           echo '### Test Coverage (nextest + cargo-llvm-cov)' > coverage.md
           echo '```text' >> coverage.md
-          cargo llvm-cov report --summary-only | tee -a coverage.md
+          cargo llvm-cov report --workspace --summary-only | tee -a coverage.md
           echo '```' >> coverage.md
           # Produce LCOV for detailed per-line/branch analysis
-          cargo llvm-cov report --lcov --output-path lcov.info
+          cargo llvm-cov report --workspace --lcov --output-path lcov.info
           echo '' >> coverage.md
           echo '#### Missed Lines (per file)' >> coverage.md
           awk -F: '
@@ -144,7 +145,7 @@ jobs:
           # Enforce zero missed lines and regions, reusing the single test run's data.
           # Kept as the final step so the coverage artifact is uploaded (and the
           # coverage-comment job can post it) before a coverage gap fails the job.
-          cargo llvm-cov report --summary-only \
+          cargo llvm-cov report --workspace --summary-only \
             --fail-uncovered-lines 0 \
             --fail-uncovered-regions 0
 
@@ -186,10 +187,13 @@ jobs:
         with:
           tool: cargo-nextest
 
+      - name: Fetch the YAML test suite
+        run: git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite
+
       - name: Run tests
         env:
           PROPTEST_CASES: '0'
-        run: cargo nextest run ${{ matrix.cargo-args }}
+        run: cargo nextest run --workspace ${{ matrix.cargo-args }}
 
   coverage-comment:
     # Posting the coverage comment needs `pull-requests: write`, so it is isolated here,

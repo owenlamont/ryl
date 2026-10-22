@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 use ryl_yaml_parser::{Event, Options, Parser, ParserStack, Span, StrInput};
 use ryl_yaml_parser::{Marker, ParserTrait, Placement, ReplayParser, ScalarStyle};
 use std::borrow::Cow;

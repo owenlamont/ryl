@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 use ryl_yaml_parser::{
     BufferedInput, ErrorKind, Event, FallibleBufferedInput, Options, Parser, Scanner,
     StrInput, TokenType,

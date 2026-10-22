@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 use ryl_yaml_parser::{ErrorKind, Event, Marker, Options, Parser, ScanError, Span};
 
 fn trace_all_inputs(

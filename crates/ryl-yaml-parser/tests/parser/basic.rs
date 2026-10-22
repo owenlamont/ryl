@@ -1,6 +1,6 @@
 #![allow(clippy::bool_assert_comparison)]
 #![allow(clippy::float_cmp)]
-mod support;
+use crate::support;
 use ryl_yaml_parser::Placement;
 use ryl_yaml_parser::{
     Event, Parser, ScalarStyle, ScanError, StructureStyle, YamlVersion,

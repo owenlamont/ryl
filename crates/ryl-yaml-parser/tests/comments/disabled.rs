@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 use std::{borrow::Cow, cell::Cell, rc::Rc};
 
 use ryl_yaml_parser::{

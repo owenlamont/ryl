@@ -94,7 +94,7 @@ def generate_report_json(root: Path) -> dict:
     if shutil.which("cargo") is None:
         sys.exit("cargo is required to run this script")
     summary = subprocess.run(
-        ["cargo", "llvm-cov", "nextest", "--summary-only"],
+        ["cargo", "llvm-cov", "nextest", "--workspace", "--summary-only"],
         cwd=root,
         env=os.environ
         | {"PROPTEST_CASES": "0", "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1"},
@@ -127,7 +127,15 @@ def generate_report_json(root: Path) -> dict:
         tmp_path = Path(handle.name)
     try:
         report = subprocess.run(
-            ["cargo", "llvm-cov", "report", "--json", "--output-path", str(tmp_path)],
+            [
+                "cargo",
+                "llvm-cov",
+                "report",
+                "--workspace",
+                "--json",
+                "--output-path",
+                str(tmp_path),
+            ],
             cwd=root,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

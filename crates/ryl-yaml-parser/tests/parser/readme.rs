@@ -1,6 +1,6 @@
 use ryl_yaml_parser::{Parser, ScanError};
 
-const README: &str = include_str!("../README.md");
+const README: &str = include_str!("../../README.md");
 
 fn minimal_example_section() -> &'static str {
     README

@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 use ryl_yaml_parser::Placement;
 use ryl_yaml_parser::{
     ErrorKind, Event, Marker, Options, Parser, ParserStack, ParserTrait, ReplayParser,
