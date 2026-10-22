@@ -163,17 +163,17 @@ resolution; extend both when an invariant changes. Failing inputs persist to
 
 ### Corpus gate
 
-Before a formatter performance change lands, run
+The full gate runs only at release time (see the `release` skill); on PRs,
+`--fixtures-only` is the routine check. Command:
 `uv run --script scripts/formatter_output_parity.py <baseline-ryl> <candidate-ryl>`.
 Build both binaries before the run. The gate restores each pinned corpus file from its
 original bytes before both binaries, then compares output bytes, exit status, stdout
 and stderr. It covers the corpus's default/fold modes, formatter configuration profiles
 and named edge cases, including Markdown hosts. Use repeated `--repo` and `--profile`
 options to split a long run into bounded batches; `--markdown-only` runs just the pinned
-Markdown repos. Cover every repo and profile across the batches. `--fixtures-only` is a
-quick smoke check, not the gate. Run
+Markdown repos. A full run covers every repo and profile across the batches. Run
 `uv run scripts/formatter_corpus_check.py run` independently for preservation and
-idempotence. Any output difference requires a separate correctness PR.
+idempotence. Any output difference a changelog entry does not explain blocks the release.
 Set `RYL_CORPUS_BINARY` to pin an immutable candidate; the Rust oracle build can
 replace `target/release/ryl` during the run.
 The checker disables ryl's result cache so the second format actually checks idempotence.
@@ -192,6 +192,10 @@ the Rust oracle still judges the pair. An
 entry waives that oracle's value verdict only while the original and formatted bytes
 match its `before-sha256` and `after-sha256`, and one the run no longer hits fails the
 gate as stale. Any ryl error, panic or timeout fails it too.
+`uv run scripts/formatter_corpus_check.py refresh` moves every pin to the head of its
+`branch`, else the default branch (`refresh = false` holds one; `--repo` limits it;
+`--dry-run` only reports; a full run sets `tested-date`), and lists each known-error
+waiver whose file changed at the new commit, so the waiver would stop applying.
 `uv run --with pytest --with typer --with py-yaml12 --with pyyaml --with platformdirs
 pytest tests/test_formatter_corpus_check.py tests/test_formatter_output_parity.py` tests
 both gate scripts. Minimise a failing
