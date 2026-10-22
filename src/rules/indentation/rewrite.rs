@@ -220,6 +220,15 @@ impl<'a> Layout<'a> {
             let document = self.starts.partition_point(|&at| at <= line) - 1;
             targets.refused[document].is_some()
         };
+        let byte_starts = self.input.byte_line_starts();
+        for (at, column) in &mut targets.scalar_owners {
+            let origin = byte_starts.partition_point(|&start| start <= *at) - 1;
+            if frozen(origin) {
+                *column = column.saturating_add_signed(
+                    -targets.deltas[self.project_line(origin, *at)],
+                );
+            }
+        }
         for (index, line) in self.lines.iter().enumerate() {
             if frozen(line.origin) {
                 targets.deltas[index] = 0;
@@ -562,8 +571,8 @@ impl<'a> Layout<'a> {
                 }
                 let next = facts.borrow_mut().sites.edits_through(
                     original + 1,
-                    passes.colons.is_some(),
-                    passes.hyphens.is_some(),
+                    passes.colons == Some(crate::rules::colons::Config::format()),
+                    passes.hyphens == Some(crate::rules::hyphens::Config::format()),
                 );
                 gaps.append(input, &next);
                 spacing.extend(next);

@@ -153,3 +153,15 @@ fn fix_with_a_huge_tolerance_leaves_clean_input_alone() {
         assert_eq!(fs::read_to_string(&file).unwrap(), content, "{rule}");
     }
 }
+
+#[test]
+fn fix_leaves_adjacent_flow_values_that_max_spaces_allows() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("adjacent.yaml");
+    fs::write(&file, "- {\"café\":value}\n").unwrap();
+    let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "--fix", "-d", "rules:\n  colons: enable\n"])
+        .arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "- {\"café\":value}\n");
+}

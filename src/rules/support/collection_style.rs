@@ -61,27 +61,6 @@ impl Finding {
     }
 }
 
-/// `buffer` with every convertible collection restyled, and the rules whose collections
-/// changed; `None` when nothing changes.
-#[must_use]
-pub fn restyle(
-    buffer: &str,
-    cfg: Config,
-    indent: Option<&indentation::Config>,
-    events: Option<crate::text_version::Analysis<'_>>,
-) -> Option<(String, Vec<&'static str>)> {
-    let (edits, findings) = plan(buffer, cfg, indent, events);
-    let restyled = apply_replacements(buffer, edits);
-    (restyled != buffer && same_data(buffer, &restyled)).then(|| {
-        let rules = findings
-            .into_iter()
-            .filter(|finding| finding.refused.is_none())
-            .map(|finding| finding.rule)
-            .collect();
-        (restyled, rules)
-    })
-}
-
 pub(crate) fn prepare(
     input: Analysis<'_>,
     cfg: Config,
@@ -733,26 +712,4 @@ impl Restyler<'_> {
     fn break_to(&self, col: usize) -> String {
         format!("{}{}", self.newline, " ".repeat(col))
     }
-}
-
-/// Whether `after` holds the same data as `before`, comments and collection style aside.
-fn same_data(before: &str, after: &str) -> bool {
-    fn data(text: &str) -> Option<Vec<Event<'_>>> {
-        Parser::new_from_str(text)
-            .map(|item| {
-                item.map(|(event, _)| match event {
-                    Event::SequenceStart(_, anchor, tag) => {
-                        Event::SequenceStart(StructureStyle::Block, anchor, tag)
-                    }
-                    Event::MappingStart(_, anchor, tag) => {
-                        Event::MappingStart(StructureStyle::Block, anchor, tag)
-                    }
-                    event => event,
-                })
-            })
-            .filter(|item| !matches!(item, Ok(Event::Comment(..))))
-            .collect::<Result<_, _>>()
-            .ok()
-    }
-    data(before) == data(after)
 }

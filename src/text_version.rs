@@ -130,10 +130,6 @@ impl<'text> TextVersion<'text> {
         self.strict_valid = true;
     }
 
-    pub(crate) fn into_facts(self) -> Option<ParsedFacts> {
-        self.parsed.into_inner()
-    }
-
     pub(crate) fn take_facts(&mut self) -> Option<ParsedFacts> {
         self.parsed.take()
     }

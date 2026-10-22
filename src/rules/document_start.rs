@@ -88,6 +88,15 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>, cfg: Config) -> Option<Stri
 }
 
 pub(crate) fn edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
+    edits_keeping_magic(input, cfg, true)
+}
+
+/// [`edits`], placing a marker above a magic first line unless `keep_magic`.
+pub(crate) fn edits_keeping_magic(
+    input: Analysis<'_>,
+    cfg: Config,
+    keep_magic: bool,
+) -> Vec<Edit> {
     let buffer = input.text();
     let content_lines = scan(input, cfg).implicit_starts;
     if content_lines.is_empty() {
@@ -97,7 +106,7 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
         .lines()
         .map(|(_, content, ending)| (content, ending))
         .collect();
-    let first_line = if is_magic_first_line(split_bom(lines[0].0).1) {
+    let first_line = if keep_magic && is_magic_first_line(split_bom(lines[0].0).1) {
         2
     } else {
         1

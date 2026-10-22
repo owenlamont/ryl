@@ -392,13 +392,13 @@ fn markers_do_not_terminate_a_blank_line_erased_by_indentation() {
 }
 
 #[test]
-fn folded_unterminated_blank_tail_retains_ordered_refusal_history() {
+fn folded_unterminated_blank_tail_folds_before_reindenting() {
     let (output, statistics) = format_with_statistics(
         "  >\n  abc def ghi jkl\n    more\n\n\n  ",
         "line-length = 12\nindent-width = 1\n[format]\nfold-long-lines = true\n",
     );
     assert_eq!(output, ">\n abc def\n ghi jkl\n   more\n");
-    assert_eq!(statistics["fallback"], "ScalarInteraction", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
@@ -439,11 +439,11 @@ fn root_quotes_complete_a_verified_layout_plan() {
 }
 
 #[test]
-fn empty_flow_scalar_verification_rolls_back_before_the_ordered_driver() {
+fn empty_dash_reindentation_freezes_its_changed_document() {
     let (output, statistics) =
         format_with_statistics("empty:\n-\n- null\nmap: {a:,b: null}\n", "[format]\n");
     assert_eq!(output, "empty:\n-\n- null\nmap: {a:, b: null}\n");
-    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(statistics["rollback"], 1, "{statistics}");
 }
 
@@ -482,7 +482,7 @@ fn format_with_skipped_rules(input: &str, config: &str, skip: &[&str]) -> String
 }
 
 #[test]
-fn skip_finishing_matches_ordered_formatter() {
+fn skip_finishing_formats_in_layout() {
     let output = format_with_skipped_rules(
         "a : b  \n\n\n",
         "[format]\n",
@@ -563,7 +563,7 @@ fn bom_root_scalar_fold_restarts_the_ordered_driver() {
 }
 
 #[test]
-fn skip_final_newline_matches_ordered_formatter() {
+fn skip_final_newline_formats_in_layout() {
     let output = format_with_skipped_rules(
         "a: |+\n  a\n  ",
         "[format]\n",
@@ -573,7 +573,7 @@ fn skip_final_newline_matches_ordered_formatter() {
 }
 
 #[test]
-fn skip_ending_markers_matches_ordered_formatter() {
+fn skip_ending_markers_formats_in_layout() {
     let output = format_with_skipped_rules(
         "a : b\r\n",
         "[format]\ndocument-start='add'\ndocument-end='add'\n",
@@ -583,7 +583,7 @@ fn skip_ending_markers_matches_ordered_formatter() {
 }
 
 #[test]
-fn overlapping_collapses_matches_ordered_formatter() {
+fn overlapping_collapses_formats_in_layout() {
     let output = format_with_skipped_rules(
         "a: ['first\n  second', 'third\n  fourth']\n",
         "[format]\n",
@@ -593,20 +593,20 @@ fn overlapping_collapses_matches_ordered_formatter() {
 }
 
 #[test]
-fn joined_quote_matches_ordered_formatter() {
+fn joined_quote_formats_in_layout() {
     let output =
         format_with_skipped_rules("-\n  a: 'first\n    second'\n", "[format]\n", &[]);
     assert_eq!(output, "- a: first second\n");
 }
 
 #[test]
-fn collapsed_trailing_matches_ordered_formatter() {
+fn collapsed_trailing_formats_in_layout() {
     let output = format_with_skipped_rules("a: 'one  \n  two'\n", "[format]\n", &[]);
     assert_eq!(output, "a: one two\n");
 }
 
 #[test]
-fn underindented_quoted_matches_ordered_formatter() {
+fn underindented_quoted_formats_in_layout() {
     let output = format_with_skipped_rules(
         "a: 'alpha beta\n gamma delta epsilon'\n",
         "indent-width=1\nline-length=12\n[format]\nquote-style='preserve'\nfold-long-lines=true\n",
@@ -616,7 +616,7 @@ fn underindented_quoted_matches_ordered_formatter() {
 }
 
 #[test]
-fn folded_blank_matches_ordered_formatter() {
+fn folded_blank_formats_in_layout() {
     let output = format_with_skipped_rules(
         "é: >+\n  alpha beta gamma\n  \n  delta epsilon zeta\n",
         "line-length=12\n[format]\nfold-long-lines=true\n",
@@ -629,7 +629,7 @@ fn folded_blank_matches_ordered_formatter() {
 }
 
 #[test]
-fn directive_fold_matches_ordered_formatter() {
+fn directive_fold_formats_in_layout() {
     let output = format_with_skipped_rules(
         "é: alpha beta gamma delta # ryl disable-line rule:truthy\n",
         "line-length=12\n[format]\nfold-long-lines=true\n",
@@ -642,7 +642,7 @@ fn directive_fold_matches_ordered_formatter() {
 }
 
 #[test]
-fn bom_fold_matches_ordered_formatter() {
+fn bom_fold_formats_in_layout() {
     let output = format_with_skipped_rules(
         "﻿é: alpha beta gamma delta\n",
         "line-length=12\n[format]\nfold-long-lines=true\n",
@@ -652,7 +652,7 @@ fn bom_fold_matches_ordered_formatter() {
 }
 
 #[test]
-fn gap_fold_matches_ordered_formatter() {
+fn gap_fold_formats_in_layout() {
     let output = format_with_skipped_rules(
         "-   alpha beta gamma delta\n",
         "line-length=12\n[format]\nfold-long-lines=true\n",
@@ -662,20 +662,20 @@ fn gap_fold_matches_ordered_formatter() {
 }
 
 #[test]
-fn erased_dash_tail_matches_ordered_formatter() {
+fn erased_dash_tail_formats_in_layout() {
     let output = format_with_skipped_rules("-   \n  a: 1\n", "[format]\n", &[]);
     assert_eq!(output, "- a: 1\n");
 }
 
 #[test]
-fn unicode_flow_gap_matches_ordered_formatter() {
+fn unicode_flow_gap_formats_in_layout() {
     let output =
         format_with_skipped_rules("[😀😀, ?   key: value]\n", "[format]\n", &[]);
     assert_eq!(output, "[😀😀, ? key: value]\n");
 }
 
 #[test]
-fn unicode_flow_gap_space_matches_ordered_formatter() {
+fn unicode_flow_gap_space_formats_in_layout() {
     let output = format_with_skipped_rules(
         "[😀😀, ?   key: value]\n",
         "[format]\nbrace-spacing=true\n",
@@ -843,11 +843,11 @@ fn late_parse_error_keeps_original_bytes_and_error() {
 }
 
 #[test]
-fn candidate_verification_failure_preserves_rollback() {
+fn large_candidate_verification_failure_freezes_its_document() {
     let input = threshold_input(1_048_620, "empty:\n-\n- null\nmap: {a:,b: null}\n");
     let (output, stats) = format_with_statistics(&input, "[format]\n");
     assert!(output == input.replace("{a:,b:", "{a:, b:"));
-    assert_eq!(stats["fallback"], "Verification", "{stats}");
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
     assert_eq!(stats["rollback"], 1);
 }
 
@@ -1007,12 +1007,12 @@ fn folding_settles_multiline_quote_offsets_without_collection_targets() {
 }
 
 #[test]
-fn rejected_collection_without_layout_progress_restarts_the_ordered_driver() {
+fn rejected_collection_without_layout_progress_keeps_the_settled_layout() {
     let input = "---\u{a0}x\n---\nitems: [a, b]\n";
     let (output, statistics) =
         format_with_statistics(input, "[format]\nsequence-style = 'block'\n");
     assert_eq!(output, input);
-    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
@@ -1083,5 +1083,38 @@ fn strict_invalid_indentation_is_repaired_before_layout() {
     let (output, statistics) =
         format_with_statistics("---\ncafé: [a,\nb,\nc]\n", "[format]\n");
     assert_eq!(output, "---\ncafé: [a,\n       b,\n       c]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn explicit_indicator_folds_keep_more_indented_lines() {
+    let (output, statistics) = format_with_statistics(
+        "a: >1\n  café words here and more words here\n regular words here and more words\n",
+        "line-length = 20\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(
+        output,
+        "a: >1\n  café words here and more words here\n regular words here\n and more words\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn frozen_documents_fold_from_their_original_indentation() {
+    let (output, statistics) = format_with_statistics(
+        "file:\n  path: \"/tmp/{{ item }}\"\nloop:\n-\n- café\n",
+        "line-length = 12\nindent-width = 4\n[format]\nfold-long-lines = true\n",
+    );
+    assert_eq!(
+        output,
+        "file:\n  path: /tmp/{{\n      item\n      }}\nloop:\n-\n- café\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn tabbed_blank_lines_are_erased() {
+    let (output, statistics) = format_with_statistics(" \t\ncafé: 1\n", "[format]\n");
+    assert_eq!(output, "café: 1\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }

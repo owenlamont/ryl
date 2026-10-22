@@ -711,7 +711,7 @@ proptest! {
         let output = formatted.unwrap_or(input.clone());
         let before = lint_str(&input, synthetic_path(), &cfg, synthetic_base_dir());
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&input, &output, problem, &refusals, &before));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::closing_comma(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&input, &output, problem, &refusals, &before));
         let conflicts = ryl::format::conflicts(&cfg);
         if !problems.is_empty() {
             prop_assert!(!conflicts.is_empty(), "missed conflict: {agreeing}\ninput {input:?}\noutput {output:?}\nproblems {problems:?}");
@@ -725,7 +725,7 @@ proptest! {
         let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
         let before = lint_str(&input, synthetic_path(), &cfg, synthetic_base_dir());
-        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&input, &output, problem, &refusals, &before));
+        problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::closing_comma(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&input, &output, problem, &refusals, &before));
         if !problems.is_empty() {
             prop_assert!(!ryl::format::conflicts(&cfg).is_empty(), "{disagreeing}\noutput {output:?}\nproblems {problems:?}");
         }

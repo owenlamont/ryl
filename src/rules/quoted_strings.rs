@@ -929,20 +929,6 @@ pub(crate) fn fix_with_events(
     fixer.finish()
 }
 
-pub(crate) fn fix_format_with_cache(
-    input: crate::text_version::Analysis<'_>,
-    cfg: &Config,
-    cache: &mut HashMap<String, Option<bool>>,
-    settle: bool,
-) -> (Option<String>, bool) {
-    let (replacements, settled, _) = format_replacements(input, cfg, cache, settle);
-    (
-        (!replacements.is_empty())
-            .then(|| apply_replacements(input.text(), replacements)),
-        settled,
-    )
-}
-
 pub(crate) fn format_replacements(
     input: crate::text_version::Analysis<'_>,
     cfg: &Config,

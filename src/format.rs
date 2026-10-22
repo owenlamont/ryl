@@ -10,9 +10,8 @@ use crate::config_schema::{
     QuoteStyleTarget,
 };
 use crate::fix::{
-    FIX_PIPELINE_MAX_PASSES, NewlinePolicy, ParsedInput, PassTracking, Passes,
-    ReindentCache, region_prefix, rewrite_parse_gate, run_passes,
-    run_passes_with_facts, suppressed_rules,
+    NewlinePolicy, ParsedInput, PassTracking, Passes, ReindentCache, region_prefix,
+    rewrite_parse_gate, suppressed_rules,
 };
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::markdown_embed::markdown_region_problems;
@@ -230,6 +229,7 @@ pub fn format_str(
             edited: &mut Vec::new(),
             reindented: None,
             strict_input: Some(parsed.strict_error.is_none()),
+            cycles: Vec::new(),
         },
         Some(&mut parsed),
     )
@@ -309,7 +309,7 @@ fn format_tracked(
         tracking.strict_input,
     );
     let passes = Passes::format(cfg, input, skip);
-    let mut source = TextVersion::new(input);
+    let source = TextVersion::new(input);
     if let Some(parsed) = parsed {
         let prefetched = std::mem::take(&mut parsed.prefetched);
         if prefetched {
@@ -328,34 +328,7 @@ fn format_tracked(
             source.analysis().seed_tokens(tokens);
         }
     }
-    let strict = tracking
-        .strict_input
-        .unwrap_or_else(|| crate::lint::strict_parse_error(input).is_none());
-    if strict {
-        source.mark_strict_valid();
-    } else {
-        let Some(repaired) = crate::fix::repair(source.analysis(), &passes) else {
-            return TextVersion::new(input.to_string());
-        };
-        tracking.edited.push(indentation::ID);
-        source = repaired;
-    }
-    match layout::format(&mut source, &passes, tracking) {
-        Ok(output) if strict || crate::fix::repair_events_match(input, &output) => {
-            return output;
-        }
-        Ok(_) => return TextVersion::new(input.to_string()),
-        Err(reason) => layout::stats::Recording::fallback(reason),
-    }
-    run_passes_with_facts(
-        input,
-        &passes,
-        path,
-        FIX_PIPELINE_MAX_PASSES,
-        &mut std::io::stderr(),
-        tracking,
-        source.into_facts().filter(|_| strict),
-    )
+    crate::fix::rewrite(input, source, &passes, path, &mut std::io::sink(), tracking)
 }
 
 /// Formatter output and edited rules by input text, so a preview that both diffs and
@@ -407,6 +380,7 @@ impl FormatCache {
                     edited: &mut edited,
                     reindented: Some(&mut self.reindented),
                     strict_input,
+                    cycles: Vec::new(),
                 },
                 parsed,
             );
@@ -498,6 +472,7 @@ fn lines_changed_by(
             edited: &mut Vec::new(),
             reindented: None,
             strict_input: None,
+            cycles: Vec::new(),
         },
         None,
     );
@@ -780,14 +755,7 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
         MarkerTarget::Preserve => "",
     };
     let probe = format!("{shebang}{CONFLICT_PROBE}{blanks}last: 1\n");
-    let formatted = run_passes(
-        &probe,
-        &Passes::format(cfg, &probe, &[]),
-        Path::new(""),
-        FIX_PIPELINE_MAX_PASSES,
-        &mut std::io::sink(),
-        &mut Vec::new(),
-    );
+    let formatted = format_str(&probe, cfg, Path::new(""), &[]);
     let preserved_forbid = |problem: &LintProblem| match problem.rule {
         Some(braces::ID) => {
             table.mapping_style == CollectionStyleTarget::Preserve

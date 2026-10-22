@@ -49,7 +49,8 @@ use stack::{Decoration, Filler, FollowOn, StackedDocument, arb_stacked_document}
 
 type RuleFix = (&'static str, Box<dyn Fn(&str) -> Option<String>>);
 
-/// The rules one `FixContext::pass` runs, in its order. Every matrix config
+/// The safe-fix rules in the order whose sequential fixes `apply_safe_fixes` reproduces.
+/// Every matrix config
 /// enables `new-lines`, so the final newline is always the configured one.
 fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
     let newline = new_lines::expected_newline(

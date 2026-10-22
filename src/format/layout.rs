@@ -45,6 +45,7 @@ struct DocumentPlan<'a> {
     folds: Vec<FoldBreak>,
     refused: Vec<indentation::Refusal>,
     guard: Option<Box<Guard>>,
+    cycles: Vec<&'static str>,
 }
 
 struct ScalarFold {
@@ -75,26 +76,63 @@ struct FormatStep {
     settled: bool,
 }
 
+impl FormatStep {
+    fn output(output: TextVersion<'static>, settled: bool) -> Self {
+        Self {
+            output: Some(output),
+            frozen: Vec::new(),
+            settled,
+        }
+    }
+
+    fn replan(frozen: Vec<Option<indentation::Cause>>) -> Self {
+        Self {
+            output: None,
+            frozen,
+            settled: false,
+        }
+    }
+}
+
 pub(crate) fn format(
     source: &mut TextVersion<'_>,
     passes: &Passes<'_>,
     tracking: &mut PassTracking<'_>,
 ) -> Result<TextVersion<'static>, Fallback> {
-    if crate::directives::disables_file(source.analysis().text()) {
-        stats::count(stats::Counter::Skip);
-        return Ok(
-            std::mem::replace(source, TextVersion::new(String::new())).into_owned()
-        );
-    }
     let Some(cfg) = passes.collection_style else {
-        if let Some(mut quoted) = prepare_quotes(source.analysis(), passes)? {
-            let output = format_document(&mut quoted, passes, tracking)?;
-            tracking.edited.push(quoted_strings::ID);
-            return Ok(output);
-        }
-        return format_document(source, passes, tracking);
+        let staged = passes.line_length.is_some();
+        let edited = tracking.edited.len();
+        let result = match prepare_quotes(source.analysis(), passes, staged)? {
+            Some(mut quoted) => format_quoted(&mut quoted, passes, tracking),
+            None => format_document(source, passes, tracking),
+        };
+        return match result {
+            Err(Fallback::ScalarInteraction) if !staged => {
+                tracking.edited.truncate(edited);
+                prepare_quotes(source.analysis(), passes, true)?
+                    .ok_or(Fallback::ScalarInteraction)
+                    .and_then(|mut quoted| format_quoted(&mut quoted, passes, tracking))
+            }
+            Err(Fallback::ScalarInteraction) if passes.indentation.is_some() => {
+                tracking.edited.truncate(edited);
+                let mut unindented = passes.clone();
+                unindented.indentation = None;
+                format_document_staged(source, passes, tracking, Some(&unindented))
+            }
+            result => result,
+        };
     };
     format_collections(source, passes, tracking, cfg)
+}
+
+fn format_quoted(
+    quoted: &mut TextVersion<'static>,
+    passes: &Passes<'_>,
+    tracking: &mut PassTracking<'_>,
+) -> Result<TextVersion<'static>, Fallback> {
+    let output = format_document(quoted, passes, tracking)?;
+    tracking.edited.push(quoted_strings::ID);
+    Ok(output)
 }
 
 fn format_collections(
@@ -124,7 +162,9 @@ fn format_collections(
                     Vec::new(),
                 )
             });
-        if let Some(quoted) = prepare_quotes(converted.analysis(), passes)? {
+        if let Some(quoted) =
+            prepare_quotes(converted.analysis(), passes, passes.line_length.is_some())?
+        {
             converted = quoted;
             tracking.edited.push(quoted_strings::ID);
         }
@@ -143,7 +183,7 @@ fn format_collections(
         }?;
         tracking.edited.extend(rules);
         if rejected.as_deref() == Some(output.analysis().text()) {
-            return Err(Fallback::Verification);
+            return Ok(output);
         }
         prepared = collection_style::prepare(
             output.analysis(),
@@ -207,6 +247,7 @@ fn format_document_refused(
     let (prepared, kept) =
         DocumentPlan::new(source.analysis(), passes, &mut quotes, Sink::Emit, frozen)
             .and_then(|plan| {
+            tracking.cycles.extend_from_slice(&plan.cycles);
             let consistent = plan.dirty
                 || !passes.indentation.is_some_and(|cfg| {
                     cfg.requires_consistency()
@@ -230,25 +271,25 @@ fn format_document_refused(
         remember(tracking, source, passes.indentation, kept.0, kept.1);
         source.release_tokens();
         source.mark_strict_valid();
-        return Ok(FormatStep {
-            output: Some(
-                std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
-            ),
-            frozen: Vec::new(),
-            settled: true,
-        });
+        return Ok(FormatStep::output(
+            std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
+            true,
+        ));
     };
     source.release_layout();
     let input = source.analysis();
     let mut output = TextVersion::new(text);
     stats::count(stats::Counter::Emit);
-    verify_presentation(
+    if let Some(frozen) = verify_layout(
         input,
         output.analysis(),
         &styles,
-        passes.document_start.is_some(),
+        passes,
         guard.as_deref(),
-    )?;
+        frozen,
+    )? {
+        return Ok(FormatStep::replan(frozen));
+    }
     output.mark_strict_valid();
     source.take_facts();
     let dry = DocumentPlan::new(
@@ -261,6 +302,7 @@ fn format_document_refused(
     .inspect_err(|_| {
         stats::count(stats::Counter::Rollback);
     })?;
+    tracking.cycles.extend_from_slice(&dry.cycles);
     if dry.dirty {
         stats::count(stats::Counter::Rollback);
         drop(dry);
@@ -268,19 +310,11 @@ fn format_document_refused(
             return Err(Fallback::DryEdits);
         }
         tracking.edited.extend(rules);
-        return Ok(FormatStep {
-            output: Some(output),
-            frozen: Vec::new(),
-            settled: false,
-        });
+        return Ok(FormatStep::output(output, false));
     }
     if let Some(rejected) = dry.rejected_documents(passes, frozen) {
         drop(dry);
-        return Ok(FormatStep {
-            output: None,
-            frozen: rejected,
-            settled: false,
-        });
+        return Ok(FormatStep::replan(rejected));
     }
     remember(
         tracking,
@@ -296,13 +330,37 @@ fn format_document_refused(
     source
         .apply(plan)
         .expect("layout plan belongs to the input epoch");
-    Ok(FormatStep {
-        output: Some(
-            std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
-        ),
-        frozen: Vec::new(),
-        settled: true,
-    })
+    Ok(FormatStep::output(
+        std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
+        true,
+    ))
+}
+
+/// `Ok(None)` for a verified layout, or the documents to freeze before replanning one
+/// whose re-indentation changed them.
+fn verify_layout(
+    input: Analysis<'_>,
+    output: Analysis<'_>,
+    styles: &[(usize, ScalarStyle)],
+    passes: &Passes<'_>,
+    guard: Option<&Guard>,
+    frozen: Option<&[Option<indentation::Cause>]>,
+) -> Result<Option<Vec<Option<indentation::Cause>>>, Fallback> {
+    let document_start = passes.document_start.is_some();
+    match verify_presentation(input, output, styles, document_start, guard) {
+        Ok(()) => Ok(None),
+        Err(reason) => passes
+            .indentation
+            .and_then(|_| {
+                changed_documents(
+                    output,
+                    expected_events(input, styles, document_start, guard),
+                    frozen,
+                )
+            })
+            .map(Some)
+            .ok_or(reason),
+    }
 }
 
 fn verify_presentation(
@@ -316,12 +374,47 @@ fn verify_presentation(
     if input
         .verify_format_events(output, expected)
         .unwrap_or(false)
+        || (output.parsed().valid
+            && crate::lint::strict_parse_error(output.text()).is_none()
+            && crate::fix::format_events_match(input.text(), output.text()))
     {
         Ok(())
     } else {
         stats::count(stats::Counter::Rollback);
         Err(Fallback::Verification)
     }
+}
+
+/// The documents a rejected layout changed, frozen alongside `frozen`, or `None` when
+/// freezing more documents cannot help.
+fn changed_documents<'a>(
+    output: Analysis<'_>,
+    expected: impl Iterator<Item = Event<'a>>,
+    frozen: Option<&[Option<indentation::Cause>]>,
+) -> Option<Vec<Option<indentation::Cause>>> {
+    fn documents<'e>(events: impl Iterator<Item = Event<'e>>) -> Vec<Vec<Event<'e>>> {
+        let mut documents: Vec<Vec<Event<'e>>> = Vec::new();
+        for event in events {
+            if matches!(event, Event::DocumentStart(..)) {
+                documents.push(Vec::new());
+            }
+            if let Some(document) = documents.last_mut() {
+                document.push(event);
+            }
+        }
+        documents
+    }
+    let before = documents(expected);
+    let after = documents(output.event_iter().map(|(event, _)| event));
+    let mut rejected = frozen.map_or_else(|| vec![None; before.len()], <[_]>::to_vec);
+    let mut changed = false;
+    for (index, document) in before.iter().enumerate() {
+        if rejected[index].is_none() && after.get(index) != Some(document) {
+            rejected[index] = Some(indentation::Cause::Changed);
+            changed = true;
+        }
+    }
+    changed.then_some(rejected)
 }
 
 fn expected_events<'a>(
@@ -357,8 +450,9 @@ fn expected_events<'a>(
 fn prepare_quotes(
     input: Analysis<'_>,
     passes: &Passes<'_>,
+    staged: bool,
 ) -> Result<Option<TextVersion<'static>>, Fallback> {
-    if passes.line_length.is_none() {
+    if !staged {
         return Ok(None);
     }
     let presentation = Presentation::quotes(input, passes, &mut HashMap::new())
@@ -402,6 +496,7 @@ struct Presentation {
     styles: Vec<(usize, ScalarStyle)>,
     rules: Vec<&'static str>,
     guard: Option<Box<Guard>>,
+    cycles: Vec<&'static str>,
 }
 
 impl Presentation {
@@ -413,25 +508,32 @@ impl Presentation {
     ) -> Result<Self, Fallback> {
         let mut presentation = Self::pre_scan(input, passes, cache)?;
         presentation.comments(input, passes, layout);
-        for (rule, edits) in [
-            (
-                colons::ID,
-                passes
-                    .colons
-                    .as_ref()
-                    .map_or_else(Vec::new, |cfg| colons::edits(input, cfg)),
-            ),
-            (
-                hyphens::ID,
-                passes
-                    .hyphens
-                    .as_ref()
-                    .map_or_else(Vec::new, |cfg| hyphens::edits(input, cfg)),
-            ),
-        ] {
-            presentation.extend(rule, edits);
-        }
+        presentation.spacing(input, passes.colons, passes.hyphens);
         presentation.settle().map(|()| presentation)
+    }
+
+    fn lint_spacing(&mut self, input: Analysis<'_>, passes: &Passes<'_>) {
+        self.spacing(
+            input,
+            passes.colons.filter(|cfg| *cfg != colons::Config::format()),
+            passes
+                .hyphens
+                .filter(|cfg| *cfg != hyphens::Config::format()),
+        );
+    }
+
+    fn spacing(
+        &mut self,
+        input: Analysis<'_>,
+        colons: Option<colons::Config>,
+        hyphens: Option<hyphens::Config>,
+    ) {
+        if let Some(cfg) = colons {
+            self.extend(colons::ID, colons::edits(input, &cfg));
+        }
+        if let Some(cfg) = hyphens {
+            self.extend(hyphens::ID, hyphens::edits(input, &cfg));
+        }
     }
 
     fn pre_scan(
@@ -515,7 +617,7 @@ impl Presentation {
     }
 
     fn closing_comma(
-        &self,
+        &mut self,
         input: Analysis<'_>,
         passes: &Passes<'_>,
         edit: &mut crate::rules::support::token_spacing::SpaceEdit,
@@ -551,6 +653,15 @@ impl Presentation {
         edit.2 = crate::rules::support::punctuation::target_spacing(
             edit.2, minimum, maximum,
         );
+        if passes.commas.is_some_and(|cfg| {
+            crate::rules::support::punctuation::target_spacing(
+                edit.2,
+                cfg.min_spaces_after(),
+                cfg.max_spaces_after(),
+            ) != edit.2
+        }) {
+            self.cycles.push(rule);
+        }
         true
     }
 
@@ -717,6 +828,7 @@ impl Presentation {
                         pieces::Replacement::Spaces(spaces),
                     ));
                 }
+                presentation.lint_spacing(input, passes);
                 presentation.comments(input, passes, &mut layout);
                 presentation.settle().map(|()| {
                     let targets = targets.finish(&layout);
@@ -783,6 +895,7 @@ impl Presentation {
                 styles,
                 rules,
                 guard,
+                cycles: Vec::new(),
             }
         })
     }
@@ -857,18 +970,12 @@ impl<'a> DocumentPlan<'a> {
             &cfg,
             frozen,
         )?;
-        if crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
-            input,
-        )
-        .is_some()
-        {
-            return Err(Fallback::ScalarInteraction);
-        }
         let Presentation {
             edits,
             styles,
             mut rules,
             guard,
+            cycles,
         } = presentation;
         if passes.line_length.is_some()
             && folded_tail_interacts(input, &layout, &targets)
@@ -911,6 +1018,7 @@ impl<'a> DocumentPlan<'a> {
             folds: Vec::new(),
             refused,
             guard,
+            cycles,
         };
         plan.finish(passes).map(|()| plan)
     }
@@ -960,23 +1068,18 @@ impl<'a> DocumentPlan<'a> {
                     boundaries.push(edit);
                     continue;
                 }
-                let original = input
-                    .byte_line_starts()
-                    .partition_point(|&at| at <= edit.0.get())
-                    - 1;
-                let index = layout.project_line(original, edit.0.get());
-                let line = &mut layout.lines[index];
-                if line.body.is_empty() && line.tail.is_empty() {
-                    line.prefix = 0;
-                    continue;
+                if !blank_whitespace_line(input, layout, edit.0) {
+                    edits.push(plan_edit(edit));
                 }
-                edits.push(plan_edit(edit));
             }
         }
     }
 
     fn markers(&mut self, passes: &Passes<'_>) {
-        let final_newline = self.final_newline_enabled(passes);
+        let final_newline = self.final_newline_enabled(passes)
+            || (self.layout.lines.len() > 1
+                && self.layout.lines.last().is_some_and(VirtualLine::is_empty));
+        let keep_magic = !self.edits_magic_first_line(passes);
         let input = self.input;
         let edits = &mut self.edits;
         let boundaries = &mut self.boundaries;
@@ -984,9 +1087,9 @@ impl<'a> DocumentPlan<'a> {
         for (rule, mut next) in [
             (
                 document_start::ID,
-                passes
-                    .document_start
-                    .map_or_else(Vec::new, |cfg| document_start::edits(input, cfg)),
+                passes.document_start.map_or_else(Vec::new, |cfg| {
+                    document_start::edits_keeping_magic(input, cfg, keep_magic)
+                }),
             ),
             (
                 document_end::ID,
@@ -1003,7 +1106,8 @@ impl<'a> DocumentPlan<'a> {
             }
             for mut edit in next {
                 if edit.0 != edit.1 {
-                    edits.push(plan_edit(edit));
+                    let blank = blank_whitespace_line(input, &mut self.layout, edit.0);
+                    edits.extend((!blank).then(|| plan_edit(edit)));
                     continue;
                 }
                 if rule == document_start::ID {
@@ -1031,6 +1135,28 @@ impl<'a> DocumentPlan<'a> {
                 boundaries.push(edit);
             }
         }
+    }
+
+    fn edits_magic_first_line(&self, passes: &Passes<'_>) -> bool {
+        let Some(cfg) = passes
+            .comments
+            .as_ref()
+            .filter(|cfg| !cfg.ignore_shebangs())
+        else {
+            return false;
+        };
+        let first = self.input.text().lines().next().unwrap_or_default();
+        crate::rules::support::line_syntax::is_magic_first_line(
+            first.strip_prefix('\u{feff}').unwrap_or(first),
+        ) && comments::edits(self.input, cfg)
+            .iter()
+            .any(|(start, end, _)| {
+                start.get() <= first.len()
+                    && self
+                        .guard
+                        .as_ref()
+                        .is_none_or(|guard| guard.allows(comments::ID, *start, *end))
+            })
     }
 
     fn final_newline_enabled(&self, passes: &Passes<'_>) -> bool {
@@ -1328,6 +1454,10 @@ impl<'a> DocumentPlan<'a> {
     ) -> Option<usize> {
         let line = &self.layout.lines[index];
         let source = self.input.text();
+        let body = line.body.as_ptr() as usize - source.as_ptr() as usize;
+        if !line.body.is_empty() && byte < body && body - byte <= line.prefix {
+            return self.prefix(index).checked_sub(body - byte);
+        }
         let mut position = self.prefix(index) + usize::from(line.bom) * 3;
         let mut valid = true;
         [line.body, line.tail]
@@ -1555,6 +1685,27 @@ impl<'a> DocumentPlan<'a> {
             }));
         })
     }
+}
+
+/// Empties the whitespace-only line holding `at`, which a trailing-space edit clears.
+fn blank_whitespace_line(
+    input: Analysis<'_>,
+    layout: &mut indentation::Layout<'_>,
+    at: crate::rules::support::span_utils::BytePos,
+) -> bool {
+    let original = input
+        .byte_line_starts()
+        .partition_point(|&start| start <= at.get())
+        - 1;
+    let index = layout.project_line(original, at.get());
+    let line = &mut layout.lines[index];
+    let blank = line.tail.is_empty()
+        && line.body.bytes().all(|byte| matches!(byte, b' ' | b'\t'));
+    if blank {
+        line.prefix = 0;
+        line.body = &line.body[..0];
+    }
+    blank
 }
 
 fn attach_marker_bom(
