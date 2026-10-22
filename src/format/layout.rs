@@ -124,11 +124,11 @@ fn format_collections(
         {
             let mut staged = passes.clone();
             staged.comments_indentation = None;
-            let mut output = format_document(&mut converted, &staged, tracking)?;
-            format_document(&mut output, passes, tracking)?
+            format_document(&mut converted, &staged, tracking)
+                .and_then(|mut output| format_document(&mut output, passes, tracking))
         } else {
-            format_document(&mut converted, passes, tracking)?
-        };
+            format_document(&mut converted, passes, tracking)
+        }?;
         tracking.edited.extend(rules);
         if rejected.as_deref() == Some(output.analysis().text()) {
             return Err(Fallback::Verification);
@@ -255,8 +255,8 @@ fn prepare_quotes(
     if passes.line_length.is_none() {
         return Ok(None);
     }
-    let mut presentation = Presentation::quotes(input, passes, &mut HashMap::new())?;
-    presentation.settle()?;
+    let presentation = Presentation::quotes(input, passes, &mut HashMap::new())
+        .and_then(|mut presentation| presentation.settle().map(|()| presentation))?;
     if presentation.edits.is_empty() {
         return Ok(None);
     }
@@ -637,8 +637,7 @@ impl<'a> DocumentPlan<'a> {
             removed: Vec::new(),
             folds: Vec::new(),
         };
-        plan.finish(passes)?;
-        Ok(plan)
+        plan.finish(passes).map(|()| plan)
     }
 
     fn trim(&mut self, passes: &Passes<'_>) {
@@ -790,14 +789,15 @@ impl<'a> DocumentPlan<'a> {
             .then_some(())
             .ok_or(Fallback::Overlap)
             .and_then(|()| {
-                if let Some(cfg) = passes.line_length {
-                    self.plan_folds(cfg)?;
-                }
+                passes
+                    .line_length
+                    .map_or(Ok(()), |cfg| self.plan_folds(cfg))
+            })
+            .map(|()| {
                 if !self.folds.is_empty() {
                     self.rules.push(crate::rules::line_length::ID);
                     self.dirty = true;
                 }
-                Ok(())
             })
     }
 
@@ -1025,17 +1025,18 @@ impl<'a> DocumentPlan<'a> {
         cfg: crate::rules::line_length::Fold,
     ) -> Result<(), Fallback> {
         let projection = projection::Projection::new(self.input, &self.edits);
-        for scalar in crate::rules::line_length::fold::foldable_scalars(self.input) {
-            self.plan_scalar_fold(scalar.content, scalar.style, cfg, &projection)?;
-        }
-        self.folds.sort_by_key(|site| (site.line, site.byte));
-        Ok(())
+        crate::rules::line_length::fold::foldable_scalars(self.input)
+            .into_iter()
+            .try_for_each(|scalar| {
+                self.plan_scalar_fold(scalar.content, scalar.style, cfg, &projection)
+            })
+            .map(|()| self.folds.sort_by_key(|site| (site.line, site.byte)))
     }
 
     fn plan_scalar_fold(
         &mut self,
         range: std::ops::Range<usize>,
-        original_style: ScalarStyle,
+        style: ScalarStyle,
         cfg: crate::rules::line_length::Fold,
         projection: &projection::Projection,
     ) -> Result<(), Fallback> {
@@ -1045,22 +1046,14 @@ impl<'a> DocumentPlan<'a> {
                 .partition_point(|&start| start <= byte)
                 .saturating_sub(1)
         };
-        let original_quotes = usize::from(matches!(
-            original_style,
-            ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
-        ));
-        let full = range.start - original_quotes..range.end + original_quotes;
-        if full.is_empty() {
-            return Ok(());
-        }
-        let style = self
-            .styles
-            .binary_search_by_key(&full.start, |(at, _)| *at)
-            .map_or(original_style, |index| self.styles[index].1);
         let quotes = usize::from(matches!(
             style,
             ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
         ));
+        let full = range.start - quotes..range.end + quotes;
+        if full.is_empty() {
+            return Ok(());
+        }
         let first = self.layout.project_line(line_of(full.start), full.start);
         let last = self
             .layout
@@ -1098,10 +1091,11 @@ impl<'a> DocumentPlan<'a> {
                     indent,
                     width: cfg.width,
                 };
-                for index in (first..=last).filter(|_| !folded || content > owner) {
-                    self.plan_fold_line(index, &scalar, projection)?;
-                }
-                Ok(())
+                (first..=last)
+                    .filter(|_| !folded || content > owner)
+                    .try_for_each(|index| {
+                        self.plan_fold_line(index, &scalar, projection)
+                    })
             })
     }
 
@@ -1144,48 +1138,45 @@ impl<'a> DocumentPlan<'a> {
                 let length = prefix
                     + bom.len()
                     + parts.iter().map(|part| part.len()).sum::<usize>();
-                let scalar = if folded {
-                    indent..length
+                let start = if folded {
+                    indent
+                } else if index == first {
+                    content
                 } else {
-                    let start = if index == first { content } else { 0 };
-                    let end = if index == last {
-                        self.byte_on_line(index, full.end, projection)
-                            .ok_or(Fallback::ScalarInteraction)?
-                            - quotes
-                    } else {
-                        length
-                    };
-                    start..end
+                    0
                 };
-                if index == last
-                    && source[full.end..]
-                        .split(['\r', '\n'])
-                        .next()
-                        .and_then(|rest| rest.split_once('#'))
-                        .is_some_and(|(_, comment)| {
-                            crate::directives::directive_scope(comment).is_some()
-                        })
-                {
-                    return Ok(Vec::new());
-                }
-                let chars = bom
-                    .chars()
-                    .chain(std::iter::repeat_n(' ', prefix))
-                    .chain(parts.iter().flat_map(|part| part.chars()));
-                let mut byte = 0;
-                let chars = chars.map(|ch| {
-                    let at = byte;
-                    byte += ch.len_utf8();
-                    (at, ch)
-                });
-                let breaks = breaks_from_chars(
-                    chars,
-                    &scalar,
-                    style,
-                    indent,
-                    usize::from(width),
-                );
-                Ok(breaks)
+                let end = if folded || index != last {
+                    Some(length)
+                } else {
+                    self.byte_on_line(index, full.end, projection)
+                        .map(|end| end - quotes)
+                };
+                end.ok_or(Fallback::ScalarInteraction).map(|end| {
+                    let scalar = start..end;
+                    if index == last
+                        && source[full.end..]
+                            .split(['\r', '\n'])
+                            .next()
+                            .and_then(|rest| rest.split_once('#'))
+                            .is_some_and(|(_, comment)| {
+                                crate::directives::directive_scope(comment).is_some()
+                            })
+                    {
+                        return Vec::new();
+                    }
+                    let chars = bom
+                        .chars()
+                        .chain(std::iter::repeat_n(' ', prefix))
+                        .chain(parts.iter().flat_map(|part| part.chars()));
+                    let mut byte = 0;
+                    let chars = chars.map(|ch| {
+                        let at = byte;
+                        byte += ch.len_utf8();
+                        (at, ch)
+                    });
+
+                    breaks_from_chars(chars, &scalar, style, indent, usize::from(width))
+                })
             });
         result.map(|breaks| {
             self.folds.extend(breaks.into_iter().map(|byte| FoldBreak {
