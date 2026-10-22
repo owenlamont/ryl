@@ -817,3 +817,43 @@ fn forced_collections_settle_multiline_quote_offsets_before_folding() {
     assert_eq!(statistics["verification_parses"], 3, "{statistics}");
     assert_eq!(format_with_statistics(&output, config).0, output);
 }
+
+#[test]
+fn non_ascii_marker_rolls_back_the_collection_stage() {
+    let input = "---\u{a0}x\n---\nitems: [a,b]\n";
+    let (output, statistics) =
+        format_with_statistics(input, "[format]\nsequence-style = 'block'\n");
+    assert_eq!(output, input);
+    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+}
+
+#[test]
+fn non_ascii_marker_rolls_back_the_quote_stage() {
+    let input = "---\u{a0}x\n---\nkey: 'value'\n";
+    let (output, statistics) = format_with_statistics(
+        input,
+        "[format]\nsequence-style = 'block'\nfold-long-lines = true\n",
+    );
+    assert_eq!(output, input);
+    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+}
+
+#[test]
+fn quote_shortening_restarts_a_dirty_collection_dry_plan() {
+    let (output, statistics) = format_with_statistics(
+        "key:\n  - 'a'\n  - 'b'\n",
+        "line-length = 11\n[format]\nsequence-style = 'flow'\n",
+    );
+    assert_eq!(output, "key: [a, b]\n");
+    assert_eq!(statistics["fallback"], "DryEdits", "{statistics}");
+}
+
+#[test]
+fn forced_style_keeps_the_unsettled_root_quote_fallback() {
+    let (output, statistics) = format_with_statistics(
+        "---\n\"foo\"\n",
+        "[format]\nsequence-style = 'block'\nfold-long-lines = true\n",
+    );
+    assert_eq!(output, "---\nfoo\n");
+    assert_eq!(statistics["fallback"], "unsettled-quote:4", "{statistics}");
+}
