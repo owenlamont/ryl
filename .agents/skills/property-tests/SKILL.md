@@ -163,9 +163,8 @@ resolution; extend both when an invariant changes. Failing inputs persist to
 
 ### Corpus gate
 
-Run the full gate selectively (see `AGENTS.md`): for a change that rewrites how the
-formatter plans or emits output, and before a release; `--fixtures-only` is the routine
-check. Command:
+The full gate runs only at release time (see the `release` skill); on PRs,
+`--fixtures-only` is the routine check. Command:
 `uv run --script scripts/formatter_output_parity.py <baseline-ryl> <candidate-ryl>`.
 Build both binaries before the run. The gate restores each pinned corpus file from its
 original bytes before both binaries, then compares output bytes, exit status, stdout

@@ -106,6 +106,11 @@ description: >-
     notes source.
 - Release-candidate gates, **after the version bump and before tagging**:
   - Build the release candidate with `cargo build --release`.
+  - Run the full corpus gates once, comparing the previous release binary with the
+    candidate: `uv run --script scripts/formatter_output_parity.py <previous> <candidate>`
+    and `RYL_CORPUS_BINARY=<candidate> uv run scripts/formatter_corpus_check.py run`
+    (commands and batching in the `property-tests` skill). Any output difference not
+    explained by a changelog entry blocks the release.
   - Run the performance gate against the newest published stable `v*` release:
 
     ```sh
