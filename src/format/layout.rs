@@ -30,7 +30,6 @@ pub(crate) enum Fallback {
     Refusal,
     Verification,
     DryEdits,
-    UnsettledQuote(usize),
 }
 
 struct DocumentPlan<'a> {
@@ -74,6 +73,7 @@ enum Sink {
 struct FormatStep {
     output: Option<TextVersion<'static>>,
     frozen: Vec<Option<indentation::Cause>>,
+    settled: bool,
 }
 
 pub(crate) fn format(
@@ -138,8 +138,7 @@ fn format_collections(
         {
             let mut staged = passes.clone();
             staged.comments_indentation = None;
-            format_document(&mut converted, &staged, tracking)
-                .and_then(|mut output| format_document(&mut output, passes, tracking))
+            format_document_staged(&mut converted, passes, tracking, Some(&staged))
         } else {
             format_document(&mut converted, passes, tracking)
         }?;
@@ -167,16 +166,34 @@ fn format_document(
     passes: &Passes<'_>,
     tracking: &mut PassTracking<'_>,
 ) -> Result<TextVersion<'static>, Fallback> {
+    format_document_staged(source, passes, tracking, None)
+}
+
+fn format_document_staged(
+    source: &mut TextVersion<'_>,
+    passes: &Passes<'_>,
+    tracking: &mut PassTracking<'_>,
+    first: Option<&Passes<'_>>,
+) -> Result<TextVersion<'static>, Fallback> {
     let mut frozen = None;
+    let mut current = None;
     let mut result = Err(Fallback::Refusal);
-    for _ in 0..crate::fix::FIX_PIPELINE_MAX_PASSES {
-        let step =
-            format_document_refused(source, passes, tracking, frozen.as_deref())?;
-        if let Some(output) = step.output {
-            result = Ok(output);
+    for epoch in 0..crate::fix::FIX_PIPELINE_MAX_PASSES {
+        let input = current.as_mut().unwrap_or(source);
+        let active = if epoch == 0 {
+            first.unwrap_or(passes)
+        } else {
+            passes
+        };
+        let step = format_document_refused(input, active, tracking, frozen.as_deref())?;
+        if step.settled && (epoch > 0 || first.is_none()) {
+            result = Ok(step.output.expect("a settled layout has output"));
             break;
         }
-        frozen = Some(step.frozen);
+        current = step.output;
+        if current.is_none() {
+            frozen = Some(step.frozen);
+        }
     }
     result
 }
@@ -219,6 +236,7 @@ fn format_document_refused(
                 std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
             ),
             frozen: Vec::new(),
+            settled: true,
         });
     };
     source.release_layout();
@@ -246,23 +264,23 @@ fn format_document_refused(
     })?;
     if dry.dirty {
         stats::count(stats::Counter::Rollback);
-        return Err(Fallback::DryEdits);
-    }
-    if let Some(cfg) = passes.indentation
-        && cfg.requires_consistency()
-        && !dry.layout.consistent_except(&cfg, &dry.refused)
-    {
-        stats::count(stats::Counter::Rollback);
-        let mut rejected = dry.layout.inconsistent_documents(&cfg);
-        if let Some(frozen) = frozen {
-            for (rejected, previous) in rejected.iter_mut().zip(frozen) {
-                *rejected = rejected.or(*previous);
-            }
+        drop(dry);
+        if output.analysis().text() == source.analysis().text() {
+            return Err(Fallback::DryEdits);
         }
+        tracking.edited.extend(rules);
+        return Ok(FormatStep {
+            output: Some(output),
+            frozen: Vec::new(),
+            settled: false,
+        });
+    }
+    if let Some(rejected) = dry.rejected_documents(passes, frozen) {
         drop(dry);
         return Ok(FormatStep {
             output: None,
             frozen: rejected,
+            settled: false,
         });
     }
     remember(
@@ -284,6 +302,7 @@ fn format_document_refused(
             std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
         ),
         frozen: Vec::new(),
+        settled: true,
     })
 }
 
@@ -433,6 +452,7 @@ impl Presentation {
             .filter(|_| !templates)
             .and_then(|cfg| brackets::edit_sites(cfg, input.text()));
         let mut comma_edits = Vec::new();
+        let mut closing_edits = Vec::new();
         let mut depth = 0usize;
         for &(at, ch) in input.flow_sites() {
             if let Some(edits) = &mut braces {
@@ -445,30 +465,94 @@ impl Presentation {
                 b'[' | b'{' => depth += 1,
                 b']' | b'}' => depth = depth.saturating_sub(1),
                 b',' if depth > 0 => {
-                    if let Some(cfg) = &passes.commas {
-                        commas::collect_comma_fixes(
-                            cfg,
-                            input.text().as_bytes(),
-                            at,
-                            &mut comma_edits,
-                        );
+                    let Some(cfg) = &passes.commas else { continue };
+                    commas::collect_comma_fixes(
+                        cfg,
+                        input.text().as_bytes(),
+                        at,
+                        &mut comma_edits,
+                    );
+                    if let Some(edit) = comma_edits.last_mut()
+                        && edit.0.get() == at + 1
+                        && presentation.closing_comma(input, passes, edit)
+                    {
+                        closing_edits.push((edit.0, edit.1));
                     }
                 }
                 _ => {}
             }
         }
+        if !closing_edits.is_empty() {
+            comma_edits.retain(|(from, to, count)| {
+                to.get() - from.get() != *count
+                    || !input.text()[from.get()..to.get()]
+                        .bytes()
+                        .all(|byte| byte == b' ')
+            });
+        }
         presentation.extend_spaces(commas::ID, comma_edits);
+        let close = |edits: Vec<crate::rules::support::token_spacing::SpaceEdit>| {
+            if closing_edits.is_empty() {
+                return edits;
+            }
+            edits
+                .into_iter()
+                .filter(|(from, to, _)| {
+                    closing_edits.binary_search(&(*from, *to)).is_err()
+                })
+                .collect()
+        };
         if let Some(edits) = braces {
-            presentation.extend_spaces(braces::ID, edits.finish());
+            presentation.extend_spaces(braces::ID, close(edits.finish()));
         }
         if let Some(edits) = brackets {
-            presentation.extend_spaces(brackets::ID, edits.finish());
+            presentation.extend_spaces(brackets::ID, close(edits.finish()));
         }
         if templates && let Some(cfg) = &passes.brackets {
             presentation.extend(brackets::ID, brackets::edits(input, cfg));
         }
         presentation.settle()?;
         Ok(presentation)
+    }
+
+    fn closing_comma(
+        &self,
+        input: Analysis<'_>,
+        passes: &Passes<'_>,
+        edit: &mut crate::rules::support::token_spacing::SpaceEdit,
+    ) -> bool {
+        let (cfg, rule) = match input.text().as_bytes().get(edit.1.get()) {
+            Some(b'}') => (
+                passes
+                    .braces
+                    .as_ref()
+                    .filter(|cfg| cfg.forbid() == braces::Forbid::None)
+                    .map(|cfg| (cfg.min_spaces_inside(), cfg.max_spaces_inside())),
+                braces::ID,
+            ),
+            Some(b']') => (
+                passes
+                    .brackets
+                    .as_ref()
+                    .filter(|cfg| cfg.forbid() == brackets::Forbid::None)
+                    .map(|cfg| (cfg.min_spaces_inside(), cfg.max_spaces_inside())),
+                brackets::ID,
+            ),
+            _ => return false,
+        };
+        let Some((minimum, maximum)) = cfg else {
+            return false;
+        };
+        if self.guard.as_ref().is_some_and(|guard| {
+            !guard.allows(rule, edit.0, edit.1)
+                || !guard.allows(commas::ID, edit.0, edit.1)
+        }) {
+            return false;
+        }
+        edit.2 = crate::rules::support::punctuation::target_spacing(
+            edit.2, minimum, maximum,
+        );
+        true
     }
 
     fn extend(&mut self, rule: &'static str, mut edits: Vec<Edit>) {
@@ -583,7 +667,13 @@ impl Presentation {
             .windows(2)
             .any(|pair| pair[0].1 > pair[1].0 || pair[0].0 == pair[1].0)
         {
-            return Err(Fallback::Overlap);
+            self.edits.dedup();
+            if self.edits.windows(2).any(|pair| {
+                pair[0].1 > pair[1].0
+                    || (pair[0].0 == pair[1].0 && pair[1].0 == pair[1].1)
+            }) {
+                return Err(Fallback::Overlap);
+            }
         }
 
         self.rules.sort_by_key(|rule| {
@@ -645,8 +735,12 @@ impl Presentation {
         let mut styles = Vec::new();
         let guard = Guard::new(input, passes);
         let result = passes.quoted_strings.as_ref().map_or(Ok(()), |cfg| {
-            let (mut next, settled, unsettled) =
-                quoted_strings::format_replacements(input, cfg, quotes, true);
+            let (mut next, _, _) = quoted_strings::format_replacements(
+                input,
+                cfg,
+                quotes,
+                passes.preserve_events,
+            );
             if let Some(guard) = &guard {
                 let mut partial = false;
                 next.retain(|(start, end, _)| {
@@ -659,11 +753,6 @@ impl Presentation {
                     stats::count(stats::Counter::Rollback);
                     return Err(Fallback::Verification);
                 }
-            }
-            if !settled && !next.is_empty() {
-                return Err(Fallback::UnsettledQuote(
-                    unsettled.expect("unsettled scalar has a source offset"),
-                ));
             }
             for (start, _, text) in &next {
                 let style = match text.as_bytes().first() {
@@ -701,6 +790,27 @@ impl Presentation {
 }
 
 impl<'a> DocumentPlan<'a> {
+    fn rejected_documents(
+        &self,
+        passes: &Passes<'_>,
+        frozen: Option<&[Option<indentation::Cause>]>,
+    ) -> Option<Vec<Option<indentation::Cause>>> {
+        let cfg = passes
+            .indentation
+            .filter(|cfg| cfg.requires_consistency())?;
+        if self.layout.consistent_except(&cfg, &self.refused) {
+            return None;
+        }
+        stats::count(stats::Counter::Rollback);
+        let mut rejected = self.layout.inconsistent_documents(&cfg);
+        if let Some(frozen) = frozen {
+            for (rejected, previous) in rejected.iter_mut().zip(frozen) {
+                *rejected = rejected.or(*previous);
+            }
+        }
+        Some(rejected)
+    }
+
     fn new(
         input: Analysis<'a>,
         passes: &Passes<'_>,
@@ -983,9 +1093,9 @@ impl<'a> DocumentPlan<'a> {
         let rules = &mut self.rules;
         edits.sort_by_key(|(start, end, _)| (start.get(), end.get()));
         edits.dedup();
-        let disjoint = !edits
-            .windows(2)
-            .any(|pair| pair[0].1 > pair[1].0 || pair[0].0 == pair[1].0);
+        let disjoint = !edits.windows(2).any(|pair| {
+            pair[0].1 > pair[1].0 || (pair[0].0 == pair[1].0 && pair[1].0 == pair[1].1)
+        });
         boundaries.sort_by_key(|(start, _, _)| start.get());
         styles.sort_by_key(|(start, _)| *start);
         self.dirty = !rules.is_empty();

@@ -371,6 +371,7 @@ fn dirty_stacked_document() -> StackedDocument {
         layout: ast::Layout::default(),
     };
     let dirty_flow = FlowStyle {
+        trailing_comma: false,
         inner_padding: 1,
         spaces_before_comma: 1,
         spaces_after_comma: 2,

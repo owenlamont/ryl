@@ -110,6 +110,7 @@ pub enum MultilineLine {
 
 #[derive(Debug, Clone, Copy)]
 pub struct FlowStyle {
+    pub trailing_comma: bool,
     pub inner_padding: u8,
     pub spaces_before_comma: u8,
     pub spaces_after_comma: u8,
@@ -250,6 +251,9 @@ impl Node {
                     }
                     item.render(buffer);
                 }
+                if style.trailing_comma && !items.is_empty() {
+                    buffer.push(',');
+                }
                 push_spaces(buffer, style.inner_padding);
                 buffer.push(']');
             }
@@ -272,6 +276,9 @@ impl Node {
                         style.spaces_after_colon.max(u8::from(!adjacent)),
                     );
                     value.render(buffer);
+                }
+                if style.trailing_comma && !pairs.is_empty() {
+                    buffer.push(',');
                 }
                 push_spaces(buffer, style.inner_padding);
                 buffer.push('}');

@@ -413,29 +413,29 @@ fn an_erased_unterminated_line_is_not_an_empty_line_edit() {
 }
 
 #[test]
-fn quoted_flow_key_gap_conflicts_restart_the_ordered_driver() {
+fn quoted_flow_key_gaps_compose_with_boundary_insertions() {
     let (output, statistics) = format_with_statistics(
         "{\"foo\"\n: bar}\n",
         "[format]\nbrace-spacing = true\n",
     );
     assert_eq!(output, "{ foo\n  : bar }\n");
-    assert_eq!(statistics["fallback"], "Overlap", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
-fn a_dirty_dry_plan_rolls_back_before_the_ordered_driver() {
+fn a_dirty_dry_plan_requires_another_verified_epoch() {
     let (output, statistics) =
         format_with_statistics("---\n{ \"foo\"\n  :bar }\n", "[format]\n");
     assert_eq!(output, "---\n{foo\n : bar}\n");
-    assert_eq!(statistics["fallback"], "DryEdits", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(statistics["rollback"], 1, "{statistics}");
 }
 
 #[test]
-fn an_unsettled_root_quote_restarts_the_ordered_driver() {
+fn root_quotes_complete_a_verified_layout_plan() {
     let (output, statistics) = format_with_statistics("---\n\"foo\"\n", "[format]\n");
     assert_eq!(output, "---\nfoo\n");
-    assert_eq!(statistics["fallback"], "unsettled-quote:4", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
@@ -852,11 +852,11 @@ fn candidate_verification_failure_preserves_rollback() {
 }
 
 #[test]
-fn dirty_dry_plan_restarts_from_original_bytes() {
+fn dirty_dry_plans_settle_without_restarting_the_driver() {
     let input = threshold_input(1_048_620, "---\n{ \"foo\"\n  :bar }\n");
     let (output, stats) = format_with_statistics(&input, "[format]\n");
     assert!(output == input.replace("{ \"foo\"\n  :bar }", "{foo\n : bar}"));
-    assert_eq!(stats["fallback"], "DryEdits", "{stats}");
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
     assert_eq!(stats["rollback"], 1);
 }
 
@@ -976,13 +976,13 @@ fn quote_shortening_reuses_a_dirty_collection_dry_plan() {
 }
 
 #[test]
-fn forced_style_keeps_the_unsettled_root_quote_fallback() {
+fn forced_style_settles_root_quotes_in_layout() {
     let (output, statistics) = format_with_statistics(
         "---\n\"foo\"\n",
         "[format]\nsequence-style = 'block'\nfold-long-lines = true\n",
     );
     assert_eq!(output, "---\nfoo\n");
-    assert_eq!(statistics["fallback"], "unsettled-quote:4", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
 #[test]
@@ -1036,4 +1036,26 @@ fn flow_conversion_settles_misaligned_comments_before_reindentation() {
     assert_eq!(output, "café: {key: value}\n# note\nnext: value\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn converted_trailing_comments_align_before_document_end_insertion() {
+    let (output, statistics) = format_with_statistics(
+        "- name: café\n  tags: [a, b]\n  tasks:\n  - name: value\n# tail\n",
+        "[format]\nsequence-style = 'block'\ndocument-end = 'add'\n",
+    );
+    assert_eq!(
+        output,
+        "- name: café\n  tags:\n    - a\n    - b\n  tasks:\n    - name: value\n    # tail\n...\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn trailing_commas_use_the_closing_collections_spacing_target() {
+    let (output, statistics) =
+        format_with_statistics("café: [ one, two, ]\nmap: { a : b , }\n", "[format]\n");
+    assert_eq!(output, "café: [one, two,]\nmap: {a: b,}\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["emissions"], 1, "{statistics}");
 }

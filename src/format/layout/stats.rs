@@ -128,15 +128,10 @@ impl Recording {
         })
     }
 
-    pub(crate) fn fallback(reason: &super::Fallback) {
+    pub(crate) fn fallback(reason: super::Fallback) {
         COUNTS.with_borrow_mut(|counts| {
             if let Some(counts) = counts {
-                counts.fallback = Some(match reason {
-                    super::Fallback::UnsettledQuote(byte) => {
-                        format!("unsettled-quote:{byte}")
-                    }
-                    other => format!("{other:?}"),
-                });
+                counts.fallback = Some(format!("{reason:?}"));
             }
         });
     }

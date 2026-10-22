@@ -335,10 +335,10 @@ fn format_tracked(
         source.mark_strict_valid();
         match layout::format(&mut source, &passes, tracking) {
             Ok(output) => return output,
-            Err(reason) => layout::stats::Recording::fallback(&reason),
+            Err(reason) => layout::stats::Recording::fallback(reason),
         }
     } else if tracking.strict_input == Some(false) {
-        layout::stats::Recording::fallback(&layout::Fallback::Repair);
+        layout::stats::Recording::fallback(layout::Fallback::Repair);
     }
     run_passes_with_facts(
         input,
