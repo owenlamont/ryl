@@ -211,11 +211,80 @@ fn standalone_dashes_separate_mapping_indentation_from_sequence_indentation() {
 }
 
 #[test]
-fn suppression_restarts_the_ordered_driver() {
+fn suppression_filters_only_the_disabled_rules_edits() {
     let input = "# ryl disable rule:quoted-strings\né : 'café'\n";
     let (output, statistics) = format_with_statistics(input, "[format]\n");
     assert_eq!(output, "# ryl disable rule:quoted-strings\né: 'café'\n");
-    assert_eq!(statistics["fallback"], "Suppression", "{statistics}");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn suppressed_endings_and_blank_runs_keep_their_bytes() {
+    let (output, stats) = format_with_statistics(
+        "# ryl disable rule:new-lines rule:empty-lines\né : value \n\n\n",
+        "[format]\nline-ending='cr-lf'\n",
+    );
+    assert_eq!(
+        output,
+        "# ryl disable rule:new-lines rule:empty-lines\né: value\n\n\n"
+    );
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
+}
+
+#[test]
+fn end_marker_insertion_obeys_the_last_lines_directive() {
+    let (output, stats) = format_with_statistics(
+        "é : value # ryl disable-line rule:document-end\n",
+        "[format]\ndocument-start='add'\ndocument-end='add'\n",
+    );
+    assert_eq!(
+        output,
+        "---\né: value  # ryl disable-line rule:document-end\n"
+    );
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
+}
+
+#[test]
+fn partially_suppressed_multiline_quotes_preserve_rollback() {
+    let input =
+        "other : x\né: 'first\n  last' # ryl disable-line rule:quoted-strings\n";
+    let (output, stats) = format_with_statistics(input, "[format]\n");
+    assert_eq!(output, input);
+    assert_eq!(stats["fallback"], "Verification", "{stats}");
+    assert_eq!(stats["rollback"], 1, "{stats}");
+}
+
+#[test]
+fn suppressed_document_starts_still_allow_spacing_changes() {
+    let (output, stats) = format_with_statistics(
+        "é : value # ryl disable-line rule:document-start\n",
+        "[format]\ndocument-start='add'\n",
+    );
+    assert_eq!(output, "é: value  # ryl disable-line rule:document-start\n");
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
+}
+
+#[test]
+fn inserted_markers_keep_suppressed_line_endings() {
+    let (output, stats) = format_with_statistics(
+        "# ryl disable rule:new-lines\né : value\r\n",
+        "[format]\ndocument-end='add'\n",
+    );
+    assert_eq!(output, "# ryl disable rule:new-lines\né: value\r\n...\r\n");
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
+}
+
+#[test]
+fn folding_keeps_other_rules_inline_directives_attached() {
+    let (output, stats) = format_with_statistics(
+        "other : x\né: alpha beta gamma delta # ryl disable-line rule:comments\n",
+        "line-length=12\n[format]\nfold-long-lines=true\n",
+    );
+    assert_eq!(
+        output,
+        "other: x\né: alpha beta gamma delta # ryl disable-line rule:comments\n"
+    );
+    assert_eq!(stats["fallback"], Value::Null, "{stats}");
 }
 
 #[test]

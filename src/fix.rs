@@ -1246,7 +1246,7 @@ pub(crate) enum NewlinePolicy {
 }
 
 impl NewlinePolicy {
-    fn newline<'a>(&'a self, content: &'a str) -> &'a str {
+    pub(crate) fn newline<'a>(&'a self, content: &'a str) -> &'a str {
         match self {
             Self::Configured(newline) => newline,
             Self::FirstBreak => first_line_break(content).map_or("\n", |(_, nl)| nl),
