@@ -746,7 +746,7 @@ fn rewrite_parse_notice(
     })
 }
 
-fn repair_events_match(original: &str, repaired: &str) -> bool {
+pub(crate) fn repair_events_match(original: &str, repaired: &str) -> bool {
     let before = TextVersion::new(original);
     let after = TextVersion::new(repaired);
     representation_matches(before.analysis(), after.analysis())
@@ -1455,33 +1455,14 @@ pub(crate) fn run_passes_with_facts(
     {
         input
     } else {
-        let Some(target) = passes.repair_indentation else {
-            return TextVersion::new(input.to_string());
-        };
         let snapshot = TextVersion::new(input);
         if let Some(facts) = facts.take() {
             snapshot.analysis().seed_facts(facts);
         }
-        repaired = strict_output(
-            input,
-            TextVersion::new(
-                Directives::parse_per_line_with_analysis(
-                    snapshot.analysis(),
-                    &passes.per_line,
-                )
-                .reconcile(
-                    indentation::ID,
-                    input,
-                    &indentation::reindent_with_analysis(snapshot.analysis(), &target)
-                        .0
-                        .text,
-                ),
-            ),
-        )
-        .into_text();
-        if repaired == input || !repair_events_match(input, &repaired) {
+        let Some(version) = repair(snapshot.analysis(), passes) else {
             return TextVersion::new(input.to_string());
-        }
+        };
+        repaired = version.into_text();
         tracking.edited.push(indentation::ID);
         &repaired
     };
@@ -1496,6 +1477,29 @@ pub(crate) fn run_passes_with_facts(
         return TextVersion::new(original.to_string());
     }
     formatted
+}
+
+/// `input` re-indented to the repair target, where that alone makes it strictly valid
+/// without changing its representation.
+pub(crate) fn repair(
+    input: Analysis<'_>,
+    passes: &Passes,
+) -> Option<TextVersion<'static>> {
+    let target = passes.repair_indentation?;
+    let repaired = Directives::parse_per_line_with_analysis(input, &passes.per_line)
+        .reconcile(
+            indentation::ID,
+            input.text(),
+            &indentation::reindent_with_analysis(input, &target).0.text,
+        );
+    (repaired != input.text()
+        && crate::lint::strict_parse_error(&repaired).is_none()
+        && repair_events_match(input.text(), &repaired))
+    .then(|| {
+        let mut version = TextVersion::new(repaired);
+        version.mark_strict_valid();
+        version
+    })
 }
 
 fn strict_output(

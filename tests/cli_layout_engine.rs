@@ -1077,3 +1077,11 @@ fn splitting_a_mapping_discards_the_old_dash_spacing() {
     assert_eq!(output, "-\n    café: ''\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
+
+#[test]
+fn strict_invalid_indentation_is_repaired_before_layout() {
+    let (output, statistics) =
+        format_with_statistics("---\ncafé: [a,\nb,\nc]\n", "[format]\n");
+    assert_eq!(output, "---\ncafé: [a,\n       b,\n       c]\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}

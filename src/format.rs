@@ -328,17 +328,24 @@ fn format_tracked(
             source.analysis().seed_tokens(tokens);
         }
     }
-    if tracking
+    let strict = tracking
         .strict_input
-        .unwrap_or_else(|| crate::lint::strict_parse_error(input).is_none())
-    {
+        .unwrap_or_else(|| crate::lint::strict_parse_error(input).is_none());
+    if strict {
         source.mark_strict_valid();
-        match layout::format(&mut source, &passes, tracking) {
-            Ok(output) => return output,
-            Err(reason) => layout::stats::Recording::fallback(reason),
+    } else {
+        let Some(repaired) = crate::fix::repair(source.analysis(), &passes) else {
+            return TextVersion::new(input.to_string());
+        };
+        tracking.edited.push(indentation::ID);
+        source = repaired;
+    }
+    match layout::format(&mut source, &passes, tracking) {
+        Ok(output) if strict || crate::fix::repair_events_match(input, &output) => {
+            return output;
         }
-    } else if tracking.strict_input == Some(false) {
-        layout::stats::Recording::fallback(layout::Fallback::Repair);
+        Ok(_) => return TextVersion::new(input.to_string()),
+        Err(reason) => layout::stats::Recording::fallback(reason),
     }
     run_passes_with_facts(
         input,
@@ -347,7 +354,7 @@ fn format_tracked(
         FIX_PIPELINE_MAX_PASSES,
         &mut std::io::stderr(),
         tracking,
-        source.into_facts(),
+        source.into_facts().filter(|_| strict),
     )
 }
 

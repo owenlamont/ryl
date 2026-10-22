@@ -24,7 +24,6 @@ pub(crate) mod stats;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Fallback {
-    Repair,
     ScalarInteraction,
     Overlap,
     Refusal,
