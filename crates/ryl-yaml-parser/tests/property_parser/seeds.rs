@@ -35,6 +35,21 @@ pub const RAW_INPUTS: &[&str] = &[
     "clé:\r\n- é\r\n? suivant\r\n",
 ];
 
+/// Prefixes of yaml-test-suite inputs, cut and extended until a scanner or parser error path
+/// that no construction reaches fires; distilled from a sweep over every prefix.
+pub const ERROR_PATH_INPUTS: &[&str] = &[
+    "!f@",
+    "  # Leading comment line spaces are\n   # neither content nor indentation.\n    \nNot indented:\n By one space: |\n    By four\n      spaces\n Flow style: [    #\u{1}",
+    "-\n\t",
+    "%YAML 1.2\n---\nDocument\n... #\u{1}",
+    "!\u{1}",
+    "one:\n- 2\n-",
+    "\"\"x",
+    "%F\t",
+    "[\nfoo:]",
+    "%TAG !e! tag:example.com,2000:app/\n---\n- !local foo\n- !!str bar\n- !e!tag%",
+];
+
 // Conforming and under-indented inputs exercise strict-mode errors as well as successful traces.
 const STRICT_INPUTS: &[&str] = &[
     "key: [ # opening\n# unindented comment\n value\n ]\n",

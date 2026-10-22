@@ -8,6 +8,8 @@ mod block_scalar_keep;
 mod blocks;
 #[path = "scanner/closing_bracket.rs"]
 mod closing_bracket;
+#[path = "scanner/directive_budget.rs"]
+mod directive_budget;
 #[path = "scanner/empty_lines_and_chomping.rs"]
 mod empty_lines_and_chomping;
 #[path = "scanner/indentation.rs"]
@@ -31,6 +33,8 @@ mod support;
 mod surrogates;
 #[path = "scanner/tags_and_flow.rs"]
 mod tags_and_flow;
+#[path = "scanner/token_kinds.rs"]
+mod token_kinds;
 #[path = "scanner/token_observer.rs"]
 mod token_observer;
 #[path = "scanner/tokens.rs"]

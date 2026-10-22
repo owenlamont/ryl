@@ -1177,35 +1177,31 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             self.skip_non_blank();
         }
 
-        let Some(end) = self.input.byte_offset() else {
-            return Err(ScanError::from_kind(
-                *mark,
-                ErrorKind::InputSlicingUnavailable,
-            ));
-        };
-
-        let Some(slice) = self.try_borrow_slice(start, end) else {
-            // Fall back to allocating if zero-copy borrow is not available.
-            let slice = self.input.slice_bytes(start, end).ok_or_else(|| {
-                ScanError::from_kind(*mark, ErrorKind::InputSlicingUnavailable)
-            })?;
-            if !slice.ends_with('!') && slice != "!" {
-                return Err(ScanError::from_kind(
-                    *mark,
-                    ErrorKind::ExpectedTagDirectiveBang,
-                ));
-            }
-            return Ok(Cow::Owned(slice.to_owned()));
-        };
-
-        if !slice.ends_with('!') && slice != "!" {
+        let handle = self.source_since(start, mark)?;
+        if !handle.ends_with('!') {
             return Err(ScanError::from_kind(
                 *mark,
                 ErrorKind::ExpectedTagDirectiveBang,
             ));
         }
+        Ok(handle)
+    }
 
-        Ok(Cow::Borrowed(slice))
+    /// The source text from byte `start` to the cursor, borrowed when the input allows it.
+    fn source_since(
+        &self,
+        start: usize,
+        mark: &Marker,
+    ) -> Result<Cow<'input, str>, ScanError> {
+        let end = self.input.byte_offset();
+        if let Some(slice) = end.and_then(|end| self.try_borrow_slice(start, end)) {
+            return Ok(Cow::Borrowed(slice));
+        }
+        end.and_then(|end| self.input.slice_bytes(start, end))
+            .map(|slice| Cow::Owned(slice.to_owned()))
+            .ok_or_else(|| {
+                ScanError::from_kind(*mark, ErrorKind::InputSlicingUnavailable)
+            })
     }
 
     /// Owned `%TAG`-handle scanner for streaming inputs, with allocation bounded by `budget`.
@@ -1311,22 +1307,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             return Ok(Cow::Owned(out));
         }
 
-        let Some(end) = self.input.byte_offset() else {
-            return Err(ScanError::from_kind(
-                *start_mark,
-                ErrorKind::InputSlicingUnavailable,
-            ));
-        };
-
-        let Some(slice) = self.try_borrow_slice(start, end) else {
-            // Fall back to allocating if zero-copy borrow is not available.
-            let slice = self.input.slice_bytes(start, end).ok_or_else(|| {
-                ScanError::from_kind(*start_mark, ErrorKind::InputSlicingUnavailable)
-            })?;
-            return Ok(Cow::Owned(slice.to_owned()));
-        };
-
-        Ok(Cow::Borrowed(slice))
+        self.source_since(start, start_mark)
     }
 
     /// Owned `%TAG`-prefix scanner for streaming inputs, with allocation bounded by `budget`.
@@ -2692,18 +2673,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             self.skip_non_blank();
         }
 
-        let Some(end) = self.input.byte_offset() else {
-            return Ok(Cow::Owned(self.scan_tag_handle(false, mark)?));
-        };
-
-        if let Some(slice) = self.try_borrow_slice(start, end) {
-            Ok(Cow::Borrowed(slice))
-        } else {
-            let slice = self.input.slice_bytes(start, end).ok_or_else(|| {
-                ScanError::from_kind(*mark, ErrorKind::InputSlicingUnavailable)
-            })?;
-            Ok(Cow::Owned(slice.to_owned()))
-        }
+        self.source_since(start, mark)
     }
 
     /// Append the remaining tag characters to `out`, decoding URI escapes.

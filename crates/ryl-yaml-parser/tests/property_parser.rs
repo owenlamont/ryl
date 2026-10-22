@@ -63,6 +63,17 @@ fn raw_regressions_keep_backends_in_agreement() {
 }
 
 #[test]
+fn error_path_inputs_keep_backends_in_agreement_in_both_indentation_modes() {
+    let strict = ryl_yaml_parser::options! { strict_indentation: true };
+    for input in seeds::ERROR_PATH_INPUTS {
+        check_raw_text(input);
+        common::parse_with_options(input, strict.clone());
+        common::scan_with_options(input, strict.clone());
+        common::check_comment_suppression_with_options(input, strict.clone());
+    }
+}
+
+#[test]
 fn named_seeds_reach_their_oracles() {
     for target in seeds::TARGETS {
         for input in seeds::seeds(target) {

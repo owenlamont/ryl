@@ -12,7 +12,7 @@
 //!   forces the owned-copy fallbacks when finalizing quoted scalars.
 
 use ryl_yaml_parser::{
-    Event, Parser, ScalarStyle, ScanError, StructureStyle,
+    ErrorKind, Event, Parser, ScalarStyle, ScanError, StructureStyle,
     input::{BorrowedInput, Input, is_breakz},
 };
 
@@ -456,4 +456,50 @@ fn sequence_indented_one_column_under_mapping_key() {
             Event::StreamEnd,
         ]
     );
+}
+
+/// Inputs that need a copied or transformed slice: escapes, folds, comments, tags, anchors.
+const SLICED_INPUTS: &[&str] = &[
+    "\"a\\tb\"\n",
+    "\"a\\\n  b\"\n",
+    "'it''s'\n",
+    "\"a  \n  b\"\n",
+    "'a\n\n  b'\n",
+    "\"a\n\n  b\"\n",
+    "a\n b\n",
+    "a # c\n",
+    "%TAG !e! tag:x,2000:\n--- !e!y v\n",
+    "!t v\n",
+    "!!str v\n",
+    "&anchor v\n",
+    "!<tag:x> v\n",
+];
+
+/// Offsets with copyable slices reproduce `StrInput`'s events; offsets without slices either
+/// copy the text as a stream would or fail loudly, never losing text.
+#[test]
+fn offset_inputs_copy_slices_or_report_their_absence() {
+    for yaml in SLICED_INPUTS {
+        let expected = parse_events(yaml).expect("every input is valid YAML");
+        let copied: Result<Vec<Event<'static>>, ScanError> =
+            Parser::new(SliceableStreamInput::new(yaml, true))
+                .map(|event| event.map(|(event, _)| event))
+                .collect();
+        assert_eq!(copied.as_ref(), Ok(&expected), "{yaml:?}");
+        let unsliced: Result<Vec<Event<'static>>, ScanError> =
+            Parser::new(SliceableStreamInput::new(yaml, false))
+                .map(|event| event.map(|(event, _)| event))
+                .collect();
+        match unsliced {
+            Ok(events) => assert_eq!(events, expected, "{yaml:?}"),
+            Err(error) => assert!(
+                matches!(
+                    error.kind(),
+                    ErrorKind::InputOffsetsWithoutSlice
+                        | ErrorKind::InputSlicingUnavailable
+                ),
+                "{yaml:?}: {error}"
+            ),
+        }
+    }
 }
