@@ -168,3 +168,19 @@ fn node_properties_report_undeclared_tags_and_anchor_overflow_in_either_order() 
         .expect("anchor ids must not overflow");
     assert_eq!(error.kind(), &ErrorKind::AnchorCountOverflow);
 }
+
+#[test]
+fn explicit_key_before_a_literal_nul_needs_separation() {
+    use ryl_yaml_parser::ErrorKind;
+    for strict in [false, true] {
+        let options = ryl_yaml_parser::options! { strict_indentation: strict };
+        assert_eq!(
+            first_error_kind("?\0", options.clone()),
+            ErrorKind::ExpectedWhitespace
+        );
+        let streamed = Parser::new_from_iter_with_options("?\0".chars(), options)
+            .find_map(Result::err)
+            .expect("a literal NUL is not the end of input");
+        assert_eq!(streamed.kind(), &ErrorKind::ExpectedWhitespace);
+    }
+}

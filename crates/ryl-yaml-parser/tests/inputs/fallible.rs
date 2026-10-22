@@ -314,3 +314,17 @@ fn receiver_api_returns_byte_limit_error() {
         &ErrorKind::InputByteLimitExceeded { limit: 8 }
     );
 }
+
+#[test]
+fn invalid_low_surrogate_is_reported_before_a_later_source_failure() {
+    let source = "\"\\uD800\\uD800"
+        .chars()
+        .map(Ok)
+        .chain(core::iter::once(Err(ErrorKind::InputDecoding {
+            message: "injected".to_owned(),
+        })));
+    let error = Scanner::new(FallibleBufferedInput::new(source))
+        .find_map(Result::err)
+        .expect("the second escape is not a low surrogate");
+    assert_eq!(error.kind(), &ErrorKind::InvalidLowSurrogate);
+}

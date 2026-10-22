@@ -202,6 +202,8 @@ pub enum ErrorKind {
     TabInBlockIndentation,
     /// A comment interrupted a multiline plain scalar.
     CommentInterceptedScalar,
+    /// Required whitespace was not found.
+    ExpectedWhitespace,
     /// A comment was not separated from the preceding token by whitespace.
     CommentNotSeparated,
     /// A directive did not end with a comment or line break.
@@ -304,6 +306,8 @@ pub enum ErrorKind {
     PlainScalarStartsWithDashFlowIndicator,
     /// A tab appeared where a plain scalar could not accept it.
     TabInPlainScalar,
+    /// A plain scalar ended before consuming any content.
+    UnexpectedEndOfPlainScalar,
     /// A mapping key appeared in a context that does not allow one.
     MappingKeyNotAllowed,
     /// A flow mapping value indicator was adjacent to a collection start.
@@ -405,6 +409,7 @@ impl fmt::Display for ErrorKind {
             Self::CommentInterceptedScalar => {
                 f.write_str("comment intercepting the multiline text")
             }
+            Self::ExpectedWhitespace => f.write_str("expected whitespace"),
             Self::CommentNotSeparated => {
                 f.write_str("comments must be separated from other tokens by whitespace")
             }
@@ -531,6 +536,7 @@ impl fmt::Display for ErrorKind {
             Self::TabInPlainScalar => {
                 f.write_str("while scanning a plain scalar, found a tab")
             }
+            Self::UnexpectedEndOfPlainScalar => f.write_str("unexpected end of plain scalar"),
             Self::MappingKeyNotAllowed => {
                 f.write_str("mapping keys are not allowed in this context")
             }

@@ -211,6 +211,7 @@ fn every_error_kind_renders_its_message() {
             ErrorKind::CommentInterceptedScalar,
             "comment intercepting the multiline text",
         ),
+        (ErrorKind::ExpectedWhitespace, "expected whitespace"),
         (
             ErrorKind::CommentNotSeparated,
             "comments must be separated from other tokens by whitespace",
@@ -383,6 +384,10 @@ fn every_error_kind_renders_its_message() {
         (
             ErrorKind::TabInPlainScalar,
             "while scanning a plain scalar, found a tab",
+        ),
+        (
+            ErrorKind::UnexpectedEndOfPlainScalar,
+            "unexpected end of plain scalar",
         ),
         (
             ErrorKind::MappingKeyNotAllowed,

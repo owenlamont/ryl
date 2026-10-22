@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -59,6 +60,33 @@ def coalesce(lines: list[int]) -> str:
 # The parser is generic over `Input`, so CI gates it on regions covered by any instantiation;
 # every other file must cover each region within a single instantiation.
 UNION_GATED_PREFIX = "crates/ryl-yaml-parser/"
+
+
+FUNCTION_DEFINITION = re.compile(
+    r"^\s*(pub(\([a-z]+\))?\s+)?(const\s+)?fn ", re.MULTILINE
+)
+
+
+def missing_parser_files(data: dict, root: Path) -> list[str]:
+    """List parser sources defining functions that the report does not cover at all.
+
+    The strict gate in CI ignores the parser, so a report that omits it must not pass.
+
+    Returns:
+        The repo-relative paths absent from the report.
+    """
+    normalized_root = root.as_posix().rstrip("/") + "/"
+    reported = {
+        file["filename"].replace("\\", "/").removeprefix(normalized_root)
+        for entry in data.get("data", [])
+        for file in entry.get("files", [])
+    }
+    expected = (
+        path.relative_to(root).as_posix()
+        for path in sorted((root / UNION_GATED_PREFIX / "src").rglob("*.rs"))
+        if FUNCTION_DEFINITION.search(path.read_text(encoding="utf-8"))
+    )
+    return [path for path in expected if path not in reported]
 
 
 def build_report(data: dict, root: Path) -> list[str]:
@@ -175,6 +203,8 @@ def main() -> None:
         else generate_report_json(root)
     )
 
+    if missing := missing_parser_files(data, root):
+        sys.exit("coverage report lacks parser sources: " + ", ".join(missing))
     report = build_report(data, root)
     if report:
         print("Uncovered regions (file:path line ranges):")

@@ -2071,9 +2071,10 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
     }
 
     /// Skip the separation after a block explicit key indicator, which the dispatcher only
-    /// recognizes before a blank, a line break or the end of input. Returns whether it stopped
-    /// after a comment.
+    /// recognizes before a blank, a line break or a NUL. Returns whether it stopped after a
+    /// comment.
     fn skip_yaml_whitespace(&mut self) -> Result<bool, ScanError> {
+        let mut need_whitespace = true;
         loop {
             match self.input.look_ch() {
                 ' ' => self.skip_blank(),
@@ -2083,12 +2084,20 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                     self.skip_linebreak();
                     self.allow_simple_key();
                 }
+                // A comment needs separation, which the dispatcher already saw.
                 '#' => {
                     self.consume_comment()?;
                     return Ok(true);
                 }
-                _ => return Ok(false),
+                _ => break,
             }
+            need_whitespace = false;
+        }
+        // A literal NUL also follows `?` in the dispatcher, but only the end of input separates.
+        if need_whitespace && !self.input.next_is_z() {
+            Err(self.scan_error(ErrorKind::ExpectedWhitespace))
+        } else {
+            Ok(false)
         }
     }
 
@@ -2441,9 +2450,9 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         self.input.lookahead(2);
 
         // If byte_offset is not available, use the original owned-only path.
-        if self.input.byte_offset().is_none() {
+        let Some(start) = self.input.byte_offset() else {
             return self.scan_tag_owned(&start_mark);
-        }
+        };
 
         let (handle, suffix): (Cow<'input, str>, Cow<'input, str>) = if self
             .input
@@ -2454,7 +2463,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             (Cow::Owned(String::new()), Cow::Owned(suffix))
         } else {
             // The tag has either the '!suffix' or the '!handle!suffix'
-            let handle = self.scan_tag_handle_cow(&start_mark)?;
+            let handle = self.scan_tag_handle_cow(start, &start_mark)?;
             // Check if it is, indeed, handle.
             if handle.len() >= 2 && handle.starts_with('!') && handle.ends_with('!') {
                 // A tag handle starting with "!!" is a secondary tag handle.
@@ -2522,9 +2531,16 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                     .and_then(|start| start.checked_add(1))
                     .zip(self.input.byte_offset())
                     .and_then(|(start, end)| self.try_borrow_slice(start, end));
-                // Both parts were borrowed from the source, so together they are contiguous.
-                Cow::Borrowed(
-                    borrowed.expect("a borrowed local tag is contiguous in the source"),
+                // An input may lend each part yet decline the combined range.
+                borrowed.map_or_else(
+                    || {
+                        let mut combined =
+                            String::with_capacity(handle.len() - 1 + remaining.len());
+                        combined.push_str(&handle[1..]);
+                        combined.push_str(remaining);
+                        Cow::Owned(combined)
+                    },
+                    Cow::Borrowed,
                 )
             }
             (Cow::Borrowed(handle), Cow::Owned(mut remaining)) => {
@@ -2599,13 +2615,9 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
     /// Since they contain no escape sequences, they can always be borrowed from `StrInput`.
     fn scan_tag_handle_cow(
         &mut self,
+        start: usize,
         mark: &Marker,
     ) -> Result<Cow<'input, str>, ScanError> {
-        let start = self
-            .input
-            .byte_offset()
-            .expect("the borrowing tag scanner runs only on inputs with offsets");
-
         // Consume the leading '!'.
         self.skip_non_blank();
 
@@ -2649,10 +2661,11 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         mark: &Marker,
         require_non_empty: bool,
     ) -> Result<Cow<'input, str>, ScanError> {
+        // The handle just scanned ended here with an offset.
         let start = self
             .input
             .byte_offset()
-            .expect("the borrowing tag scanner runs only on inputs with offsets");
+            .expect("byte_offset() must remain available once enabled");
 
         // Scan tag characters, checking for URI escapes.
         while is_tag_char(self.input.look_ch()) {
@@ -2672,10 +2685,12 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             self.skip_non_blank();
         }
 
-        let end = self
-            .input
-            .byte_offset()
-            .expect("byte_offset() must remain available once enabled");
+        // An input may stop reporting offsets part-way through a tag.
+        let Some(end) = self.input.byte_offset() else {
+            return Ok(Cow::Owned(
+                self.scan_tag_shorthand_suffix(false, false, "", mark)?,
+            ));
+        };
 
         if require_non_empty && start == end {
             return Err(ScanError::from_kind(*mark, ErrorKind::MissingTagUri));
@@ -3808,16 +3823,26 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         start_mark: &Marker,
         kind: ErrorKind,
     ) -> Result<u32, ScanError> {
+        let value = self.peek_hex_escape(len, start_mark, kind)?;
+        self.skip_n_non_blank(len);
+        Ok(value)
+    }
+
+    /// Read `len` hex digits without consuming them, failing with `kind` on any other character.
+    fn peek_hex_escape(
+        &mut self,
+        len: usize,
+        start_mark: &Marker,
+        kind: ErrorKind,
+    ) -> Result<u32, ScanError> {
         self.input.lookahead(len);
         let mut value = 0u32;
         for i in 0..len {
-            let c = self.input.peek_nth(i);
-            let Some(digit) = c.to_digit(16) else {
+            let Some(digit) = self.input.peek_nth(i).to_digit(16) else {
                 return Err(ScanError::from_kind(*start_mark, kind));
             };
             value = (value << 4) + digit;
         }
-        self.skip_n_non_blank(len);
         Ok(value)
     }
 
@@ -3835,7 +3860,8 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             ));
         }
         self.skip_n_non_blank(2);
-        let low = self.scan_hex_escape(
+        // Validate before consuming, so a later source error cannot replace this one.
+        let low = self.peek_hex_escape(
             4,
             start_mark,
             ErrorKind::InvalidLowSurrogateHexEscape,
@@ -3846,6 +3872,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                 ErrorKind::InvalidLowSurrogate,
             ));
         }
+        self.skip_n_non_blank(4);
         Ok(0x10000 + (((high - 0xD800) << 10) | (low - 0xDC00)))
     }
 
@@ -3854,14 +3881,16 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         &self,
         start: Option<usize>,
         end_mark: Marker,
-    ) -> &'input str {
+        start_mark: Marker,
+    ) -> Result<&'input str, ScanError> {
         let start = start.expect("borrowed scalar has a start offset");
+        // Lending an empty slice does not oblige an input to lend the whole scalar.
         end_mark
             .byte_offset()
             .and_then(|end| self.try_borrow_slice(start, end))
-            .expect(
-                "an input that borrowed the scalar's start borrows the whole scalar",
-            )
+            .ok_or_else(|| {
+                ScanError::from_kind(start_mark, ErrorKind::InputOffsetsWithoutSlice)
+            })
     }
 
     /// Append the blanks between two content runs on one plain scalar line to `output`.
@@ -4018,7 +4047,8 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             {
                 // A continuation line can't be borrowed: folding transforms the source.
                 if self.leading_whitespace && has_content && string.is_none() {
-                    let prefix = self.borrowed_plain_scalar(borrow_start, end_mark);
+                    let prefix =
+                        self.borrowed_plain_scalar(borrow_start, end_mark, start_mark)?;
                     string = Some(prefix.to_owned());
                 }
                 if self.leading_whitespace {
@@ -4065,7 +4095,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         }
 
         let borrowed_contents = if string.is_none() {
-            Some(self.borrowed_plain_scalar(borrow_start, end_mark))
+            Some(self.borrowed_plain_scalar(borrow_start, end_mark, start_mark)?)
         } else {
             None
         };
@@ -4082,7 +4112,14 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         }
         self.ensure_current_char_is_printable()?;
 
-        // The dispatcher only starts a plain scalar on a character that can begin one.
+        // A custom input's `next_can_be_plain_scalar` may reject the first character; failing
+        // here guarantees progress, since `fetch_next_token` retries until something is consumed.
+        if !has_content {
+            return Err(ScanError::from_kind(
+                start_mark,
+                ErrorKind::UnexpectedEndOfPlainScalar,
+            ));
+        }
         let contents = if let Some(slice) = borrowed_contents {
             Cow::Borrowed(slice)
         } else {

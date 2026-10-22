@@ -13,7 +13,7 @@
 
 use ryl_yaml_parser::{
     ErrorKind, Event, Parser, ScalarStyle, ScanError, StructureStyle,
-    input::{BorrowedInput, Input, is_breakz},
+    input::{BorrowedInput, Input, is_blank_or_breakz, is_breakz, is_flow},
 };
 
 fn parse_events(input: &str) -> Result<Vec<Event<'_>>, ScanError> {
@@ -145,10 +145,14 @@ struct SliceableStreamInput {
     window: usize,
     /// Whether `slice_bytes` is offered.
     provide_slices: bool,
-    /// Whether `slice_borrowed` lends `'static` slices of the source.
-    borrow: bool,
+    /// Which `start..end` ranges `slice_borrowed` lends as `'static` slices of the source.
+    lends: fn(usize, usize) -> bool,
     /// What `may_contain_comments` reports, regardless of the source.
     comment_hint: bool,
+    /// The last byte offset reported; later positions report none, breaking the offset contract.
+    offsets_until: usize,
+    /// Whether `next_can_be_plain_scalar` rejects every character.
+    reject_plain: bool,
 }
 
 impl SliceableStreamInput {
@@ -158,8 +162,10 @@ impl SliceableStreamInput {
             pos: 0,
             window: 0,
             provide_slices,
-            borrow: false,
+            lends: |_, _| false,
             comment_hint: true,
+            offsets_until: usize::MAX,
+            reject_plain: false,
         }
     }
 
@@ -222,7 +228,15 @@ impl Input for SliceableStreamInput {
     }
 
     fn byte_offset(&self) -> Option<usize> {
-        Some(self.pos)
+        (self.pos <= self.offsets_until).then_some(self.pos)
+    }
+
+    fn next_can_be_plain_scalar(&self, in_flow: bool) -> bool {
+        let (c, nc) = (self.peek(), self.peek_nth(1));
+        let ends_plain = (c == ':'
+            && (is_blank_or_breakz(nc) || in_flow && is_flow(nc)))
+            || in_flow && is_flow(c);
+        !self.reject_plain && !ends_plain
     }
 
     fn may_contain_comments(&self) -> bool {
@@ -240,7 +254,9 @@ impl Input for SliceableStreamInput {
 
 impl BorrowedInput<'static> for SliceableStreamInput {
     fn slice_borrowed(&self, start: usize, end: usize) -> Option<&'static str> {
-        self.source.get(start..end).filter(|_| self.borrow)
+        self.source
+            .get(start..end)
+            .filter(|_| (self.lends)(start, end))
     }
 }
 
@@ -522,7 +538,7 @@ fn borrowing_input_reads_long_plain_scalars_in_chunks() {
     let yaml: &'static str =
         Box::leak(format!("key: {}\n", "v".repeat(300)).into_boxed_str());
     let mut input = SliceableStreamInput::new(yaml, true);
-    input.borrow = true;
+    input.lends = |_, _| true;
     let events: Result<Vec<Event<'static>>, ScanError> = Parser::new(input)
         .map(|event| event.map(|(event, _)| event))
         .collect();
@@ -538,4 +554,64 @@ fn comment_hint_does_not_skip_comment_separation_checks() {
         .find_map(Result::err)
         .expect("an unseparated comment fails");
     assert_eq!(error.kind(), &ErrorKind::CommentNotSeparated);
+}
+
+/// Lending a local tag's handle and suffix separately does not oblige an input to lend them
+/// as one range; the tag is then copied.
+#[test]
+fn local_tag_is_copied_when_its_combined_range_is_not_lent() {
+    let mut input = SliceableStreamInput::new("!foo/bar a", true);
+    input.lends = |start, end| (start, end) != (1, 8);
+    let events: Result<Vec<Event<'static>>, ScanError> = Parser::new(input)
+        .map(|event| event.map(|(event, _)| event))
+        .collect();
+    assert_eq!(events, parse_events("!foo/bar a"));
+}
+
+/// Lending an empty slice at a plain scalar's start does not oblige an input to lend the
+/// whole scalar; declining it fails loudly rather than losing text.
+#[test]
+fn plain_scalar_whose_full_range_is_not_lent_is_an_error() {
+    // A continuation line copies the first line before folding, so it asks for it too.
+    for yaml in ["abc", "a\n b"] {
+        let mut input = SliceableStreamInput::new(yaml, true);
+        input.lends = |start, end| start == end;
+        let error = Parser::new(input)
+            .find_map(Result::err)
+            .expect("the scalar cannot be lent");
+        assert_eq!(
+            error.kind(),
+            &ErrorKind::InputOffsetsWithoutSlice,
+            "{yaml:?}"
+        );
+    }
+}
+
+/// An input whose `next_can_be_plain_scalar` rejects a character the scanner dispatched as a
+/// plain scalar gets an error instead of an endless loop of empty scalars.
+#[test]
+fn plain_scalar_rejected_by_the_input_is_an_error() {
+    let mut input = SliceableStreamInput::new("abc", true);
+    input.reject_plain = true;
+    let error = Parser::new(input)
+        .find_map(Result::err)
+        .expect("nothing can be consumed");
+    assert_eq!(error.kind(), &ErrorKind::UnexpectedEndOfPlainScalar);
+}
+
+/// Offsets that stop part-way through a tag are an error, never a panic.
+#[test]
+fn tag_survives_offsets_vanishing_mid_tag() {
+    for (offsets_until, expected) in [
+        (1, ErrorKind::InputSlicingUnavailable),
+        (3, ErrorKind::MissingTagUri),
+    ] {
+        let mut input = SliceableStreamInput::new("!!str a", true);
+        input.lends = |_, _| true;
+        input.offsets_until = offsets_until;
+        let error = Parser::new(input)
+            .find_map(Result::err)
+            .expect("the tag needs offsets");
+        assert_eq!(error.kind(), &expected, "offsets until {offsets_until}");
+    }
 }
