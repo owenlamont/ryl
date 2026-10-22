@@ -197,8 +197,9 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   its default count. See the `property-tests` dev skill.
 - The full corpus gates (output parity over every corpus repo and profile, and the
   preservation/idempotence check) cost tens of minutes, so they run only at release
-  time (the `release` skill). PRs rely on the test and property suites plus
-  `--fixtures-only` parity. The `property-tests` skill has the commands.
+  time, and only for a release that changes `src/` or `crates/` (the `release` skill).
+  PRs rely on the test and property suites plus `--fixtures-only` parity. The
+  `property-tests` skill has the commands.
 - Several traps make a test pass vacuously or fail only in CI — config discovery walking
   out of a tempdir, and CI's `GITHUB_ACTIONS` switching the output format. See the
   `testing-traps` dev skill before writing a test that drives the binary.
