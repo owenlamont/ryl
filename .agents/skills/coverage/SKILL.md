@@ -9,8 +9,9 @@ description: >-
 
 # Coverage Workflow
 
-The CI enforces zero missed lines and zero missed regions. Use this workflow instead of
-hunting through scattered tips:
+The CI enforces zero missed lines and zero missed regions across the workspace, so
+`crates/ryl-yaml-parser` is gated too. Use this workflow instead of hunting through
+scattered tips:
 
 Deterministic tests own coverage. The helper disables random property cases and saved-seed
 replay; add named example tests for uncovered regions instead of relying on property cases.
