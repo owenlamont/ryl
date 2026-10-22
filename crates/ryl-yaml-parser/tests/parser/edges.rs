@@ -127,3 +127,44 @@ fn block_sequence_rejects_explicit_mapping_entry_without_dash() {
         "while parsing a block collection, did not find expected '-' indicator"
     );
 }
+
+fn first_error_kind(
+    input: &str,
+    options: ryl_yaml_parser::Options,
+) -> ryl_yaml_parser::ErrorKind {
+    Parser::new_from_str_with_options(input, options)
+        .find_map(Result::err)
+        .unwrap_or_else(|| panic!("{input:?} must fail"))
+        .kind()
+        .clone()
+}
+
+#[test]
+fn block_collections_starting_a_node_respect_the_nesting_limit() {
+    use ryl_yaml_parser::ErrorKind;
+    let limit = ryl_yaml_parser::options! { block_nesting_limit: 0 };
+    assert_eq!(
+        first_error_kind("- a\n", limit.clone()),
+        ErrorKind::RecursionLimitExceeded
+    );
+    assert_eq!(
+        first_error_kind("a: b\n", limit),
+        ErrorKind::RecursionLimitExceeded
+    );
+}
+
+#[test]
+fn node_properties_report_undeclared_tags_and_anchor_overflow_in_either_order() {
+    use ryl_yaml_parser::ErrorKind;
+    let options = ryl_yaml_parser::Options::default();
+    assert_eq!(
+        first_error_kind("&a !u!x v\n", options),
+        ErrorKind::UndeclaredTagHandle
+    );
+    let mut parser = Parser::new_from_str("!t &a v\n");
+    parser.set_anchor_offset(usize::MAX);
+    let error = parser
+        .find_map(Result::err)
+        .expect("anchor ids must not overflow");
+    assert_eq!(error.kind(), &ErrorKind::AnchorCountOverflow);
+}

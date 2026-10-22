@@ -124,10 +124,6 @@ fn every_error_kind_renders_its_message() {
             "unexpected EOF while parsing a block mapping",
         ),
         (
-            ErrorKind::ExpectedStreamStart,
-            "did not find expected <stream-start>",
-        ),
-        (
             ErrorKind::DuplicateVersionDirective,
             "duplicate version directive",
         ),
@@ -146,10 +142,6 @@ fn every_error_kind_renders_its_message() {
         (
             ErrorKind::MissingDocumentEndBeforeDirective,
             "missing explicit document end marker before directive",
-        ),
-        (
-            ErrorKind::AnchorCountOverflow,
-            "while parsing anchor, anchor count exceeded supported limit",
         ),
         (
             ErrorKind::UnknownAnchor,

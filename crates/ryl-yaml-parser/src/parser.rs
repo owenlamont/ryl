@@ -1128,19 +1128,28 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
             .expect("the next token is peeked before state dispatch")
     }
 
+    /// Take the peeked token when `accept` matches its type, leaving any other token peeked.
+    fn take_peeked_if(
+        &mut self,
+        accept: impl FnOnce(&QueuedTokenType<'input>) -> bool,
+    ) -> Option<QueuedToken<'input>> {
+        if accept(&self.peeked().1) {
+            self.token.take()
+        } else {
+            None
+        }
+    }
+
     /// Extract and return the next token from the scanner.
     ///
     /// This function does _not_ make use of `self.token`.
     fn scan_next_token(&mut self) -> Result<QueuedToken<'input>, ScanError> {
-        match self.scanner.next_queued_token()? {
-            None => unreachable!(
-                "scanner ended before the parser consumed its stream-end token"
-            ),
-            Some(tok) => {
-                self.observer.on_token(&tok.0, tok.1.kind());
-                Ok(tok)
-            }
-        }
+        let tok = self
+            .scanner
+            .next_queued_token()?
+            .expect("scanner ended before the parser consumed its stream-end token");
+        self.observer.on_token(&tok.0, tok.1.kind());
+        Ok(tok)
     }
 
     #[inline]
@@ -1162,24 +1171,22 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        let is_comment = {
-            let token = self.peek_token()?;
-            matches!(token.1, QueuedTokenType::Comment(_))
+        self.peek_token()?;
+        Ok(self.take_comment_event())
+    }
+
+    /// Take the peeked token as a comment event, if it is one.
+    fn take_comment_event<'a>(&mut self) -> Option<(Event<'a>, Span)>
+    where
+        'input: 'a,
+    {
+        let Some(QueuedToken(span, QueuedTokenType::Comment(comment))) =
+            self.take_peeked_if(|token| matches!(token, QueuedTokenType::Comment(_)))
+        else {
+            return None;
         };
-
-        if !is_comment {
-            return Ok(None);
-        }
-
-        let QueuedToken(span, token) = self.fetch_token();
-        match token {
-            QueuedTokenType::Comment(comment) => {
-                let placement =
-                    self.refined_comment_placement(span, comment.placement());
-                Ok(Some((Event::Comment(comment.into_text(), placement), span)))
-            }
-            _ => unreachable!("comment token disappeared after peek"),
-        }
+        let placement = self.refined_comment_placement(span, comment.placement());
+        Some((Event::Comment(comment.into_text(), placement), span))
     }
 
     #[inline]
@@ -1203,13 +1210,13 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
 
             if events.len() >= self.max_buffered_comment_events {
                 return Err(ScanError::from_kind(
-                    self.peek_token()?.0.start,
+                    self.peeked().0.start,
                     ErrorKind::TooManyComments,
                 ));
             }
 
             let comment = self
-                .next_comment_event()?
+                .take_comment_event()
                 .expect("comment token disappeared after peek");
             events.push(comment);
             if self.deferred_error.is_some() {
@@ -1316,20 +1323,6 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         }
     }
 
-    /// Take the token buffered by [`Self::peek_token`].
-    ///
-    /// # Panics
-    /// Panics if no token has been buffered.
-    #[track_caller]
-    fn fetch_token<'a>(&mut self) -> QueuedToken<'a>
-    where
-        'input: 'a,
-    {
-        self.token
-            .take()
-            .expect("fetch_token needs to be preceded by peek_token")
-    }
-
     /// Skip the next token from the scanner.
     fn skip(&mut self) {
         self.token = None;
@@ -1373,11 +1366,9 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
+        // Comments before a node were already emitted, so its first token is peeked.
         self.push_state(return_state);
         self.state = node_state;
-        if let Some(comment) = self.maybe_next_comment_event()? {
-            return Ok(comment);
-        }
         self.parse_node(block, indentless_sequence)
     }
 
@@ -1499,7 +1490,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         'input: 'a,
     {
         match self.state {
-            State::StreamStart => self.stream_start(),
+            State::StreamStart => Ok(self.stream_start()),
 
             State::ImplicitDocumentStart => self.document_start(true),
             State::DocumentStart => self.document_start(false),
@@ -1549,21 +1540,15 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         }
     }
 
-    fn stream_start<'a>(&mut self) -> ParseResult<'a>
+    fn stream_start<'a>(&mut self) -> (Event<'a>, Span)
     where
         'input: 'a,
     {
-        match *self.peeked() {
-            QueuedToken(span, QueuedTokenType::StreamStart) => {
-                self.state = State::ImplicitDocumentStart;
-                self.skip();
-                Ok((Event::StreamStart, span))
-            }
-            QueuedToken(span, _) => Err(ScanError::from_kind(
-                span.start,
-                ErrorKind::ExpectedStreamStart,
-            )),
-        }
+        // The scanner always emits `StreamStart` first.
+        let QueuedToken(span, _) = *self.peeked();
+        self.state = State::ImplicitDocumentStart;
+        self.skip();
+        (Event::StreamStart, span)
     }
 
     fn has_pending_document_directives(&self) -> bool {
@@ -1597,7 +1582,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
             return Ok(comment);
         }
 
-        match *self.peek_token()? {
+        match *self.peeked() {
             QueuedToken(span, QueuedTokenType::StreamEnd) => {
                 self.state = State::End;
                 self.skip();
@@ -1614,7 +1599,9 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                 self.explicit_document_start()
             }
             QueuedToken(span, _) if implicit => {
-                self.parser_process_directives(None, false, BTreeSet::new())?;
+                if !self.keep_tags {
+                    self.tags.clear();
+                }
                 self.push_state(State::DocumentEnd);
                 self.state = State::BlockNode;
                 Ok((Event::DocumentStart(false, None), span))
@@ -1639,19 +1626,12 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         };
 
         loop {
-            let is_directive = matches!(
-                self.peek_token()?.1,
-                QueuedTokenType::VersionDirective(..)
-                    | QueuedTokenType::TagDirective(..)
-                    | QueuedTokenType::ReservedDirective(..)
-            );
-            if !is_directive {
-                break;
-            }
-
-            let QueuedToken(span, token) = self.fetch_token();
-            match token {
-                QueuedTokenType::VersionDirective(major, minor) => {
+            self.peek_token()?;
+            match self.token.take() {
+                Some(QueuedToken(
+                    span,
+                    QueuedTokenType::VersionDirective(major, minor),
+                )) => {
                     if version.is_some() {
                         return Err(ScanError::from_kind(
                             span.start,
@@ -1666,7 +1646,10 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                     }
                     version = Some(YamlVersion::new(major, minor));
                 }
-                QueuedTokenType::TagDirective(handle, prefix) => {
+                Some(QueuedToken(
+                    span,
+                    QueuedTokenType::TagDirective(handle, prefix),
+                )) => {
                     if !document_tag_handles.insert(handle.clone()) {
                         return Err(ScanError::from_kind(
                             span.start,
@@ -1675,10 +1658,12 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                     }
                     tags.insert(handle, prefix);
                 }
-                QueuedTokenType::ReservedDirective(_, _) => {
-                    // Reserved directives are ignored
+                // Reserved directives are ignored.
+                Some(QueuedToken(_, QueuedTokenType::ReservedDirective(..))) => {}
+                other => {
+                    self.token = other;
+                    break;
                 }
-                _ => unreachable!("non-directive token passed the directive guard"),
             }
         }
 
@@ -1709,7 +1694,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
             }
             version
         };
-        match *self.peek_token()? {
+        match *self.peeked() {
             QueuedToken(mark, QueuedTokenType::DocumentStart) => {
                 self.push_state(State::DocumentEnd);
                 self.state = State::DocumentContent;
@@ -1728,7 +1713,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         'input: 'a,
     {
         if let QueuedToken(
-            mark,
+            _,
             QueuedTokenType::VersionDirective(..)
             | QueuedTokenType::TagDirective(..)
             | QueuedTokenType::ReservedDirective(..)
@@ -1738,10 +1723,10 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         ) = *self.peeked()
         {
             self.pop_state();
-            let span = self
+            let end = self
                 .last_non_comment_event_end
-                .map_or_else(|| Span::empty(mark.start), Span::empty);
-            Ok((Event::empty_scalar(), span))
+                .expect("a document start precedes its content");
+            Ok((Event::empty_scalar(), Span::empty(end)))
         } else {
             self.state = State::BlockNode;
             self.parse_node(true, false)
@@ -1759,9 +1744,10 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                 self.skip();
                 span
             }
-            QueuedToken(span, _) => self
-                .last_non_comment_event_end
-                .map_or_else(|| Span::empty(span.start), Span::empty),
+            QueuedToken(..) => Span::empty(
+                self.last_non_comment_event_end
+                    .expect("a document's events precede its end"),
+            ),
         };
 
         if self.keep_tags {
@@ -1839,94 +1825,88 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        if let Some(comment) = self.maybe_next_comment_event()? {
-            return Ok(comment);
-        }
-
         let (mut anchor_id, mut tag, mut tag_start, mut property_end) = (
             core::mem::take(&mut self.pending_node_anchor_id),
             self.pending_node_tag.take(),
             self.pending_node_tag_start.take(),
             self.pending_node_property_end.take(),
         );
-        match *self.peek_token()? {
-            QueuedToken(_, QueuedTokenType::Alias(_))
-                if anchor_id == 0 && tag.is_none() =>
-            {
-                self.pop_state();
-                let QueuedToken(span, QueuedTokenType::Alias(name)) =
-                    self.fetch_token()
-                else {
-                    unreachable!("alias token disappeared after peek")
-                };
-                return match self.anchors.get(&*name) {
-                    None => {
-                        Err(ScanError::from_kind(span.start, ErrorKind::UnknownAnchor))
-                    }
-                    Some(id) => Ok((Event::Alias(*id), span)),
-                };
-            }
-            QueuedToken(_, QueuedTokenType::Anchor(_)) if anchor_id == 0 => {
-                let QueuedToken(span, QueuedTokenType::Anchor(name)) =
-                    self.fetch_token()
-                else {
-                    unreachable!("anchor token disappeared after peek")
-                };
-                anchor_id = self.register_anchor(name, &span)?;
-                property_end = Some(span.end);
-                if tag.is_none()
-                    && matches!(self.peek_token()?.1, QueuedTokenType::Tag(..))
+        if anchor_id == 0
+            && tag.is_none()
+            && let Some(QueuedToken(span, QueuedTokenType::Alias(name))) =
+                self.take_peeked_if(|token| matches!(token, QueuedTokenType::Alias(_)))
+        {
+            self.pop_state();
+            return match self.anchors.get(&*name) {
+                None => Err(ScanError::from_kind(span.start, ErrorKind::UnknownAnchor)),
+                Some(id) => Ok((Event::Alias(*id), span)),
+            };
+        }
+        if anchor_id == 0
+            && let Some(QueuedToken(span, QueuedTokenType::Anchor(name))) =
+                self.take_peeked_if(|token| matches!(token, QueuedTokenType::Anchor(_)))
+        {
+            anchor_id = self.register_anchor(name, &span)?;
+            property_end = Some(span.end);
+            if tag.is_none() {
+                self.peek_token()?;
+                if let Some(QueuedToken(
+                    tag_span,
+                    QueuedTokenType::Tag(handle, suffix),
+                )) = self
+                    .take_peeked_if(|token| matches!(token, QueuedTokenType::Tag(..)))
                 {
-                    let QueuedToken(tag_span, QueuedTokenType::Tag(handle, suffix)) =
-                        self.fetch_token()
-                    else {
-                        unreachable!("tag token disappeared after peek")
-                    };
                     tag_start = Some(tag_span.start);
                     tag = Some(self.resolve_tag(tag_span, &handle, suffix)?);
                     property_end = Some(tag_span.end);
                 }
-                if let Some(comment) = self.maybe_next_comment_event()? {
-                    self.save_pending_node_properties(
-                        anchor_id,
-                        tag,
-                        tag_start,
-                        property_end,
-                    );
-                    return Ok(comment);
-                }
             }
-            QueuedToken(mark, QueuedTokenType::Tag(..)) if tag.is_none() => {
-                let QueuedTokenType::Tag(handle, suffix) = self.fetch_token().1 else {
-                    unreachable!("tag token disappeared after peek")
-                };
-                tag_start = Some(mark.start);
-                property_end = Some(mark.end);
-                tag = Some(self.resolve_tag(mark, &handle, suffix)?);
-                if anchor_id == 0
-                    && let QueuedTokenType::Anchor(_) = &self.peek_token()?.1
+            if let Some(comment) = self.maybe_next_comment_event()? {
+                self.save_pending_node_properties(
+                    anchor_id,
+                    tag,
+                    tag_start,
+                    property_end,
+                );
+                return Ok(comment);
+            }
+        } else if tag.is_none()
+            && let Some(QueuedToken(mark, QueuedTokenType::Tag(handle, suffix))) =
+                self.take_peeked_if(|token| matches!(token, QueuedTokenType::Tag(..)))
+        {
+            tag_start = Some(mark.start);
+            property_end = Some(mark.end);
+            tag = Some(self.resolve_tag(mark, &handle, suffix)?);
+            if anchor_id == 0 {
+                self.peek_token()?;
+                if let Some(QueuedToken(mark, QueuedTokenType::Anchor(name))) = self
+                    .take_peeked_if(|token| matches!(token, QueuedTokenType::Anchor(_)))
                 {
-                    let QueuedToken(mark, QueuedTokenType::Anchor(name)) =
-                        self.fetch_token()
-                    else {
-                        unreachable!("anchor token disappeared after peek")
-                    };
                     anchor_id = self.register_anchor(name, &mark)?;
                     property_end = Some(mark.end);
                 }
-                if let Some(comment) = self.maybe_next_comment_event()? {
-                    self.save_pending_node_properties(
-                        anchor_id,
-                        tag,
-                        tag_start,
-                        property_end,
-                    );
-                    return Ok(comment);
-                }
             }
-            _ => {}
+            if let Some(comment) = self.maybe_next_comment_event()? {
+                self.save_pending_node_properties(
+                    anchor_id,
+                    tag,
+                    tag_start,
+                    property_end,
+                );
+                return Ok(comment);
+            }
         }
-        match *self.peek_token()? {
+        if let Some(QueuedToken(mark, QueuedTokenType::Scalar(style, v))) =
+            self.take_peeked_if(|token| matches!(token, QueuedTokenType::Scalar(..)))
+        {
+            self.pop_state();
+            return Ok(Self::attach_tag_start(
+                Event::Scalar(v, style, anchor_id, tag),
+                mark,
+                tag_start,
+            ));
+        }
+        match *self.peeked() {
             QueuedToken(mark, QueuedTokenType::BlockEntry) if indentless_sequence => {
                 self.start_block_collection(mark.start)?;
                 self.skip();
@@ -1975,19 +1955,6 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                     Ok(self.queue_event_by_span(comments, start))
                 }
             }
-            QueuedToken(_, QueuedTokenType::Scalar(..)) => {
-                self.pop_state();
-                let QueuedToken(mark, QueuedTokenType::Scalar(style, v)) =
-                    self.fetch_token()
-                else {
-                    unreachable!("scalar token disappeared after peek")
-                };
-                Ok(Self::attach_tag_start(
-                    Event::Scalar(v, style, anchor_id, tag),
-                    mark,
-                    tag_start,
-                ))
-            }
             QueuedToken(mark, QueuedTokenType::FlowSequenceStart) => {
                 self.state = State::FlowSequenceFirstEntry;
                 self.skip();
@@ -2027,10 +1994,11 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                 ))
             }
             // ex 7.2, an empty scalar can follow a secondary tag
-            QueuedToken(mark, _) if tag.is_some() || anchor_id > 0 => {
+            QueuedToken(..) if tag.is_some() || anchor_id > 0 => {
                 self.pop_state();
-                let span =
-                    property_end.map_or_else(|| Span::empty(mark.start), Span::empty);
+                let span = Span::empty(
+                    property_end.expect("node properties record where they end"),
+                );
                 Ok(Self::attach_tag_start(
                     Event::empty_scalar_with_anchor(anchor_id, tag),
                     span,
@@ -2073,13 +2041,9 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         'input: 'a,
     {
         match *self.peeked() {
-            QueuedToken(_, QueuedTokenType::Key) => {
+            QueuedToken(key_span, QueuedTokenType::Key) => {
                 // Indentation is only meaningful for block mapping keys.
-                if let QueuedToken(key_span, QueuedTokenType::Key) =
-                    *self.peek_token()?
-                {
-                    self.pending_key_indent = Some(key_span.start.col());
-                }
+                self.pending_key_indent = Some(key_span.start.col());
                 self.skip();
                 if let Some(comment) = self.maybe_next_comment_event()? {
                     self.state = State::BlockMappingKeyNode;
@@ -2165,11 +2129,10 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        let Some(mark) = self.pending_empty_scalar_span.take() else {
-            unreachable!(
-                "block mapping value-node state entered without a pending empty-scalar span"
-            )
-        };
+        let mark = self
+            .pending_empty_scalar_span
+            .take()
+            .expect("block mapping value-node state entered without a pending empty-scalar span");
         self.block_mapping_value_node_with_empty_span(mark)
     }
 
@@ -2207,7 +2170,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
             mark
         } else {
             if !first {
-                match *self.peek_token()? {
+                match *self.peeked() {
                     QueuedToken(_, QueuedTokenType::FlowEntry) => self.skip(),
                     QueuedToken(span, _) => {
                         return Err(ScanError::from_kind(
@@ -2222,7 +2185,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                 }
             }
 
-            match *self.peek_token()? {
+            match *self.peeked() {
                 QueuedToken(_, QueuedTokenType::Key) => {
                     self.skip();
                     if let Some(comment) = self.maybe_next_comment_event()? {
@@ -2287,7 +2250,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
                 self.state = State::FlowMappingKey;
                 return Ok((Event::empty_scalar(), Span::empty(mark.start)));
             }
-            match *self.peek_token()? {
+            match *self.peeked() {
                 QueuedToken(span, QueuedTokenType::Value) => {
                     self.skip();
                     let comments = self.next_comment_events()?;
@@ -2322,11 +2285,9 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        let Some(mark) = self.pending_empty_scalar_span.take() else {
-            unreachable!(
-                "flow mapping value-node state entered without a pending empty-scalar span"
-            )
-        };
+        let mark = self.pending_empty_scalar_span.take().expect(
+            "flow mapping value-node state entered without a pending empty-scalar span",
+        );
         self.flow_mapping_value_node_with_empty_span(mark)
     }
 
@@ -2376,7 +2337,7 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
             }
             _ => { /* next */ }
         }
-        match *self.peek_token()? {
+        match *self.peeked() {
             QueuedToken(mark, QueuedTokenType::FlowSequenceEnd) => {
                 self.pop_state();
                 self.skip();
@@ -2439,11 +2400,10 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        let Some(mark) = self.pending_empty_scalar_span.take() else {
-            unreachable!(
-                "indentless sequence entry-node state entered without a pending empty-scalar span"
-            )
-        };
+        let mark = self
+            .pending_empty_scalar_span
+            .take()
+            .expect("indentless sequence entry-node state entered without a pending empty-scalar span");
         self.indentless_sequence_entry_node_with_empty_span(mark)
     }
 
@@ -2517,11 +2477,10 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
     where
         'input: 'a,
     {
-        let Some(mark) = self.pending_empty_scalar_span.take() else {
-            unreachable!(
-                "block sequence entry-node state entered without a pending empty-scalar span"
-            )
-        };
+        let mark = self
+            .pending_empty_scalar_span
+            .take()
+            .expect("block sequence entry-node state entered without a pending empty-scalar span");
         self.block_sequence_entry_node_with_empty_span(mark)
     }
 
@@ -2724,12 +2683,6 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> ParserTrait<'inp
             matches!(self.current.as_ref(), Some((Event::StreamStart, _)));
         if !self.scanner.stream_started() || stream_start_buffered {
             let (ev, span) = self.next_event_impl()?;
-            if ev != Event::StreamStart {
-                return Err(TryLoadError::scan(ScanError::from_kind(
-                    span.start,
-                    ErrorKind::ExpectedStreamStart,
-                )));
-            }
             try_emit(recv, ev, span)?;
         }
 

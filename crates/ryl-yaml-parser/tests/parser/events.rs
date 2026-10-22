@@ -1,11 +1,9 @@
-use std::string::String;
-use std::{borrow::Cow, format, string::ToString, vec, vec::Vec};
-
-use ryl_yaml_parser::ErrorKind;
-use ryl_yaml_parser::{ScalarStyle, Span};
+use std::borrow::Cow;
+use std::fmt;
 
 use ryl_yaml_parser::{
-    Event, EventReceiver, Parser, StructureStyle, Tag, TryEventReceiver, TryLoadError,
+    ErrorKind, Event, EventReceiver, Marker, ParseResult, Parser, ParserTrait,
+    ScalarStyle, ScanError, Span, StructureStyle, Tag, TryEventReceiver, TryLoadError,
     TrySpannedEventReceiver, YamlVersion,
 };
 
@@ -1059,4 +1057,108 @@ fn test_load_after_peek_stream_start() {
 
     assert!(matches!(sink.events.first(), Some(Event::StreamStart)));
     assert!(matches!(sink.events.get(1), Some(Event::DocumentStart(..))));
+}
+
+#[derive(Debug, PartialEq)]
+struct Rejected;
+
+impl fmt::Display for Rejected {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("rejected")
+    }
+}
+
+impl core::error::Error for Rejected {}
+
+/// Rejects the first event `reject` selects.
+struct RejectWhen(fn(&Event<'_>) -> bool);
+
+impl<'input> TryEventReceiver<'input> for RejectWhen {
+    type Error = Rejected;
+
+    fn on_event(&mut self, ev: Event<'input>) -> Result<(), Self::Error> {
+        if (self.0)(&ev) { Err(Rejected) } else { Ok(()) }
+    }
+}
+
+/// A caller-implemented parser replaying `self.0` from the back.
+struct FailingSource(Vec<ParseResult<'static>>);
+
+impl ParserTrait<'static> for FailingSource {
+    fn peek(&mut self) -> Option<Result<&(Event<'static>, Span), ScanError>> {
+        unimplemented!("the default load methods only read events")
+    }
+
+    fn next_event(&mut self) -> Option<ParseResult<'static>> {
+        self.0.pop()
+    }
+
+    fn load<R: ryl_yaml_parser::SpannedEventReceiver<'static>>(
+        &mut self,
+        _recv: &mut R,
+        _multi: bool,
+    ) -> Result<(), ScanError> {
+        unimplemented!("only the default try_load is under test")
+    }
+}
+
+#[test]
+fn try_load_errors_render_and_chain_their_cause() {
+    use core::error::Error as _;
+
+    let scan =
+        TryLoadError::<Rejected>::Scan(ScanError::new(Marker::new(0, 1, 0), "boom"));
+    assert_eq!(
+        scan.to_string(),
+        "parser error: boom at char 0 line 1 column 1"
+    );
+    assert_eq!(
+        scan.source().unwrap().to_string(),
+        "boom at char 0 line 1 column 1"
+    );
+    let receiver = TryLoadError::<Rejected>::Receiver(Rejected);
+    assert_eq!(receiver.to_string(), "receiver error: rejected");
+    assert_eq!(receiver.source().unwrap().to_string(), "rejected");
+}
+
+#[test]
+fn try_load_reports_a_source_failure_before_the_stream_starts() {
+    let failure = ErrorKind::InputDecoding {
+        message: "bad byte".to_owned(),
+    };
+    let mut parser =
+        Parser::new_from_fallible_iter(std::iter::once(Err(failure.clone())));
+    let error = parser
+        .try_load(&mut RejectWhen(|_| false), true)
+        .unwrap_err();
+    assert!(matches!(error, TryLoadError::Scan(error) if *error.kind() == failure));
+}
+
+#[test]
+fn try_load_stops_at_a_rejected_stream_start_or_end() {
+    for input in ["", "a"] {
+        let mut parser = Parser::new_from_str(input);
+        let error = parser
+            .try_load(&mut RejectWhen(|ev| *ev == Event::StreamStart), true)
+            .unwrap_err();
+        assert_eq!(error, TryLoadError::Receiver(Rejected), "{input:?}");
+        let mut parser = Parser::new_from_str(input);
+        let error = parser
+            .try_load(&mut RejectWhen(|ev| *ev == Event::StreamEnd), true)
+            .unwrap_err();
+        assert_eq!(error, TryLoadError::Receiver(Rejected), "{input:?}");
+    }
+}
+
+#[test]
+fn default_try_load_propagates_a_caller_parser_error() {
+    let error = ScanError::new(Marker::new(0, 1, 0), "caller failure");
+    let mut source = FailingSource(vec![
+        Err(error.clone()),
+        Ok((Event::StreamStart, Span::empty(Marker::new(0, 1, 0)))),
+    ]);
+    assert_eq!(
+        source.try_load(&mut RejectWhen(|_| false), true),
+        Err(TryLoadError::Scan(error))
+    );
 }

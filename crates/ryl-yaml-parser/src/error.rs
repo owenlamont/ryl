@@ -147,8 +147,6 @@ pub enum ErrorKind {
     UnexpectedEofBlockSequence,
     /// Input ended while parsing a block mapping.
     UnexpectedEofBlockMapping,
-    /// A stream-start token was expected.
-    ExpectedStreamStart,
     /// More than one YAML version directive was found for a document.
     DuplicateVersionDirective,
     /// The YAML major version is unsupported.
@@ -335,6 +333,9 @@ impl fmt::Display for ErrorKind {
             Self::TooManyComments => {
                 f.write_str("too many consecutive comments before resolving collection entry")
             }
+            Self::AnchorCountOverflow => {
+                f.write_str("while parsing anchor, anchor count exceeded supported limit")
+            }
             Self::InputIo { error } => write!(f, "input I/O error: {error}"),
             Self::InputDecoding { message } => {
                 write!(f, "input decoding error: {message}")
@@ -357,7 +358,6 @@ impl fmt::Display for ErrorKind {
             Self::UnexpectedEofBlockMapping => {
                 f.write_str("unexpected EOF while parsing a block mapping")
             }
-            Self::ExpectedStreamStart => f.write_str("did not find expected <stream-start>"),
             Self::DuplicateVersionDirective => f.write_str("duplicate version directive"),
             Self::UnsupportedYamlMajorVersion => {
                 f.write_str("unsupported YAML major version")
@@ -370,9 +370,6 @@ impl fmt::Display for ErrorKind {
             }
             Self::MissingDocumentEndBeforeDirective => {
                 f.write_str("missing explicit document end marker before directive")
-            }
-            Self::AnchorCountOverflow => {
-                f.write_str("while parsing anchor, anchor count exceeded supported limit")
             }
             Self::UnknownAnchor => f.write_str("while parsing node, found unknown anchor"),
             Self::ExpectedNodeContent => {

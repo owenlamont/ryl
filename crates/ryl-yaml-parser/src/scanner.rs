@@ -957,26 +957,25 @@ struct SkipToNextTokenOutcome {
     queued_comment: bool,
 }
 
-#[derive(Debug)]
-enum FlowScalarBuf {
-    /// Candidate for `Cow::Borrowed`.
-    ///
+/// A flow scalar's contents: a borrowed source range until a transformation forces a copy.
+#[derive(Debug, Default)]
+struct FlowScalarBuf {
+    /// The contents once they can no longer be borrowed from the source.
+    owned: Option<String>,
     /// `start..end` is the committed verbatim range.
+    start: usize,
+    end: usize,
     /// `pending_ws_start..pending_ws_end` is a run of blanks that were seen but not yet
     /// committed (they must be dropped if followed by a line break).
-    Borrowed {
-        start: usize,
-        end: usize,
-        pending_ws_start: Option<usize>,
-        pending_ws_end: usize,
-    },
-    Owned(String),
+    pending_ws_start: Option<usize>,
+    pending_ws_end: usize,
 }
 
 impl FlowScalarBuf {
     #[inline]
     fn new_borrowed(start: usize) -> Self {
-        Self::Borrowed {
+        Self {
+            owned: None,
             start,
             end: start,
             pending_ws_start: None,
@@ -986,59 +985,29 @@ impl FlowScalarBuf {
 
     #[inline]
     fn new_owned() -> Self {
-        Self::Owned(String::new())
-    }
-
-    #[inline]
-    fn as_owned_mut(&mut self) -> Option<&mut String> {
-        match self {
-            Self::Owned(s) => Some(s),
-            Self::Borrowed { .. } => None,
+        Self {
+            owned: Some(String::new()),
+            ..Self::default()
         }
     }
 
     #[inline]
     fn commit_pending_ws(&mut self) {
-        if let Self::Borrowed {
-            end,
-            pending_ws_start,
-            pending_ws_end,
-            ..
-        } = self
-            && pending_ws_start.is_some()
-        {
-            *end = *pending_ws_end;
-            *pending_ws_start = None;
+        if self.pending_ws_start.take().is_some() {
+            self.end = self.pending_ws_end;
         }
     }
 
     #[inline]
     fn note_pending_ws(&mut self, ws_start: usize, ws_end: usize) {
-        if let Self::Borrowed {
-            pending_ws_start,
-            pending_ws_end,
-            ..
-        } = self
-        {
-            if pending_ws_start.is_none() {
-                *pending_ws_start = Some(ws_start);
-            }
-            *pending_ws_end = ws_end;
-        }
+        self.pending_ws_start.get_or_insert(ws_start);
+        self.pending_ws_end = ws_end;
     }
 
     #[inline]
     fn discard_pending_ws(&mut self) {
-        if let Self::Borrowed {
-            pending_ws_start,
-            pending_ws_end,
-            end,
-            ..
-        } = self
-        {
-            *pending_ws_start = None;
-            *pending_ws_end = *end;
-        }
+        self.pending_ws_start = None;
+        self.pending_ws_end = self.end;
     }
 }
 
@@ -1049,14 +1018,20 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         start_mark: &Marker,
         buf: &'b mut FlowScalarBuf,
     ) -> Result<&'b mut String, ScanError> {
-        if let FlowScalarBuf::Borrowed { start, end, .. } = *buf {
-            let slice = self.input.slice_bytes(start, end).ok_or_else(|| {
-                ScanError::from_kind(*start_mark, ErrorKind::InputOffsetsWithoutSlice)
-            })?;
-            *buf = FlowScalarBuf::Owned(slice.to_owned());
+        if buf.owned.is_none() {
+            let slice =
+                self.input.slice_bytes(buf.start, buf.end).ok_or_else(|| {
+                    ScanError::from_kind(
+                        *start_mark,
+                        ErrorKind::InputOffsetsWithoutSlice,
+                    )
+                })?;
+            buf.owned = Some(slice.to_owned());
+            buf.pending_ws_start = None;
         }
         Ok(buf
-            .as_owned_mut()
+            .owned
+            .as_mut()
             .expect("a borrowed buffer was just replaced by an owned one"))
     }
 
@@ -1107,7 +1082,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             } else {
                 self.input.lookahead(2);
                 if let Some(pos) = trailing_ws_start.take()
-                    && let FlowScalarBuf::Owned(string) = buf
+                    && let Some(string) = &mut buf.owned
                 {
                     string.truncate(pos);
                 }
@@ -1136,20 +1111,20 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         trailing_ws_start: &mut Option<usize>,
         pending_ws_start: &mut Option<usize>,
     ) {
-        match buf {
-            FlowScalarBuf::Owned(string) => {
+        match &mut buf.owned {
+            Some(string) => {
                 trailing_ws_start.get_or_insert(string.len());
                 string.push(self.input.peek());
             }
-            FlowScalarBuf::Borrowed { .. } => {
+            None => {
                 if pending_ws_start.is_none() {
                     *pending_ws_start = self.input.byte_offset();
                 }
             }
         }
         self.skip_blank();
-        if let (FlowScalarBuf::Borrowed { .. }, Some(ws_start), Some(ws_end)) =
-            (&*buf, *pending_ws_start, self.input.byte_offset())
+        if let (Some(ws_start), Some(ws_end)) =
+            (*pending_ws_start, self.input.byte_offset())
         {
             buf.note_pending_ws(ws_start, ws_end);
         }
@@ -3736,30 +3711,22 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             ScalarStyle::DoubleQuoted
         };
 
-        let contents = match buf {
-            FlowScalarBuf::Owned(string) => Cow::Owned(string),
-            FlowScalarBuf::Borrowed {
-                start,
-                mut end,
-                pending_ws_start,
-                pending_ws_end,
-            } => {
-                // If we ended after a whitespace run, it is part of the output (no break followed).
-                if pending_ws_start.is_some() {
-                    end = pending_ws_end;
-                }
-                if let Some(slice) = self.try_borrow_slice(start, end) {
-                    Cow::Borrowed(slice)
-                } else {
-                    let slice =
-                        self.input.slice_bytes(start, end).ok_or_else(|| {
-                            ScanError::from_kind(
-                                start_mark,
-                                ErrorKind::InputOffsetsWithoutSlice,
-                            )
-                        })?;
-                    Cow::Owned(slice.to_owned())
-                }
+        let contents = if let Some(string) = buf.owned {
+            Cow::Owned(string)
+        } else {
+            // A trailing whitespace run is part of the output when no break followed it.
+            buf.commit_pending_ws();
+            let (start, end) = (buf.start, buf.end);
+            if let Some(slice) = self.try_borrow_slice(start, end) {
+                Cow::Borrowed(slice)
+            } else {
+                let slice = self.input.slice_bytes(start, end).ok_or_else(|| {
+                    ScanError::from_kind(
+                        start_mark,
+                        ErrorKind::InputOffsetsWithoutSlice,
+                    )
+                })?;
+                Cow::Owned(slice.to_owned())
             }
         };
 
@@ -3781,9 +3748,9 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             return false;
         }
 
-        match buf {
-            FlowScalarBuf::Owned(string) => string.push_str(chunk),
-            FlowScalarBuf::Borrowed { .. } => buf.commit_pending_ws(),
+        match &mut buf.owned {
+            Some(string) => string.push_str(chunk),
+            None => buf.commit_pending_ws(),
         }
 
         // The input already consumed the run; all its characters are ASCII.
@@ -3791,10 +3758,8 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         self.mark.col += consumed;
         self.mark.offsets.bytes = self.input.byte_offset();
         self.leading_whitespace = false;
-        if let (Some(new_end), FlowScalarBuf::Borrowed { end, .. }) =
-            (self.mark.offsets.bytes, buf)
-        {
-            *end = new_end;
+        if let Some(new_end) = self.mark.offsets.bytes {
+            buf.end = new_end;
         }
         true
     }
@@ -3854,20 +3819,14 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                         self.input.lookahead(2);
                         continue;
                     }
-                    match buf {
-                        FlowScalarBuf::Owned(string) => {
-                            string.push(c);
-                        }
-                        FlowScalarBuf::Borrowed { .. } => {
-                            buf.commit_pending_ws();
-                        }
+                    match &mut buf.owned {
+                        Some(string) => string.push(c),
+                        None => buf.commit_pending_ws(),
                     }
                     self.skip_non_blank();
 
-                    if let Some(new_end) = self.input.byte_offset()
-                        && let FlowScalarBuf::Borrowed { end, .. } = buf
-                    {
-                        *end = new_end;
+                    if let Some(new_end) = self.input.byte_offset() {
+                        buf.end = new_end;
                     }
                 }
             }
