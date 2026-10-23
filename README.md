@@ -157,7 +157,9 @@ Where ryl does not win:
 - Under defaults, yamlfmt is up to 6% faster at 4 KiB, 16 KiB, 260 KiB and 0.9 MiB.
   Under aligned configs, ryl is ahead by 1–9% at 1–16 KiB.
 - Under max common work (single quotes, folding at 80 columns), yamlfmt is faster
-  on every single file from 4 KiB, taking up to a third less time (0.9 MiB).
+  on every single file from 4 KiB, taking up to a third less time (0.9 MiB), and
+  dprint + pretty_yaml peaks at less memory on the 9.4 MiB file (240 MiB against
+  ryl's 286 MiB).
 
 Profiles and what they cannot equalise:
 
