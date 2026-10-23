@@ -2,11 +2,6 @@ use ryl_yaml_parser::{Marker, Span};
 
 const INDENT_AT_START: u32 = 1 << 31;
 
-#[inline]
-fn narrow_coordinate(value: usize) -> Option<u32> {
-    u32::try_from(value).ok().filter(|&value| value != u32::MAX)
-}
-
 #[derive(Clone, Copy)]
 pub(super) struct StoredSpan([u32; 8]);
 
@@ -18,40 +13,38 @@ pub(super) struct Spans {
 impl Spans {
     #[inline]
     pub(super) fn store(&mut self, span: &Span) -> StoredSpan {
-        let compact = || {
-            if span.tag_start().is_some()
-                || span.indent.is_some_and(|indent| indent != span.start.col())
-            {
-                return None;
-            }
-            let values = [
-                Some(span.start.index()),
-                span.start.byte_offset(),
-                Some(span.start.line()),
-                Some(span.start.col()),
-                Some(span.end.index()),
-                span.end.byte_offset(),
-                Some(span.end.line()),
-                Some(span.end.col()),
-            ];
-            let mut compact = [u32::MAX; 8];
-            for (slot, value) in compact.iter_mut().zip(values) {
-                *slot = value.map_or(Some(u32::MAX), narrow_coordinate)?;
-            }
-            if compact[2] >= INDENT_AT_START || compact[6] >= INDENT_AT_START {
-                return None;
-            }
-            compact[2] |= u32::from(span.indent.is_some()) * INDENT_AT_START;
-            Some(StoredSpan(compact))
-        };
-        compact().unwrap_or_else(|| {
-            let index =
-                u32::try_from(self.wide.len()).expect("wide span count fits u32");
-            self.wide.push(*span);
-            let mut values = [u32::MAX; 8];
-            values[1] = index;
-            StoredSpan(values)
-        })
+        let (start, end) = (span.start, span.end);
+        let widest = start
+            .index()
+            .max(end.index())
+            .max(start.col())
+            .max(end.col())
+            .max(start.byte_offset().unwrap_or(0))
+            .max(end.byte_offset().unwrap_or(0));
+        let narrow = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
+        if narrow(widest) < u32::MAX
+            && narrow(start.line().max(end.line())) < INDENT_AT_START
+            && span.tag_start().is_none()
+            && span.indent.is_none_or(|indent| indent == start.col())
+        {
+            let byte = |at: Option<usize>| at.map_or(u32::MAX, narrow);
+            return StoredSpan([
+                narrow(start.index()),
+                byte(start.byte_offset()),
+                narrow(start.line())
+                    | (u32::from(span.indent.is_some()) * INDENT_AT_START),
+                narrow(start.col()),
+                narrow(end.index()),
+                byte(end.byte_offset()),
+                narrow(end.line()),
+                narrow(end.col()),
+            ]);
+        }
+        let index = u32::try_from(self.wide.len()).expect("wide span count fits u32");
+        self.wide.push(*span);
+        let mut values = [u32::MAX; 8];
+        values[1] = index;
+        StoredSpan(values)
     }
 
     #[inline]
