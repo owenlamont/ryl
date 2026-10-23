@@ -420,6 +420,9 @@ For `- |+\n   ` (a spaces-only last line without a line break), `ryl format`
 and `ryl check --fix` with `trailing-spaces` enabled write `- |+\n\n`.
 The YAML 1.2 reference parser and eemeli `yaml` read `"\n"` before and after;
 PyYAML and ruamel read `""` before and `"\n"` after.
+After a content line, as in `a: |+\n  h\n `, ryl-yaml-parser also drops that last
+line and reads `"h\n"` where the reference parser reads `"h\n\n"`; the formatter
+keeps the reference value.
 
 With `[format] document-end = 'add'`, `'#hash': |+\n\n    ` (also
 with CRLF line breaks) becomes `'#hash': |+\n\n\n...\n`.

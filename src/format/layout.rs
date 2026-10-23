@@ -1184,7 +1184,6 @@ impl<'a> DocumentPlan<'a> {
     }
 
     fn trim(&mut self, passes: &Passes<'_>) {
-        let final_newline = self.final_newline_enabled(passes);
         let input = self.input;
         let layout = &mut self.layout;
         let edits = &mut self.edits;
@@ -1218,9 +1217,11 @@ impl<'a> DocumentPlan<'a> {
                     continue;
                 }
                 if edit.0 == edit.1
-                    && final_newline
                     && edit.0.get() == input.text().len()
-                    && !input.text().ends_with(['\n', '\r'])
+                    && layout
+                        .lines
+                        .last()
+                        .is_some_and(|line| !line.ending.is_empty())
                 {
                     continue;
                 }

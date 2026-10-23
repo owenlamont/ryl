@@ -7,6 +7,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- `ryl format` keeps a keep-chomped block scalar's final spaces-only line when
+  re-indenting empties that line, as at indent width 1, so the scalar keeps its final
+  empty line.
 - Root strings resembling document markers and scalars containing a BOM keep their
   quotes in formatting and lint fixes; formatting rolls back rewrites that change
   document events.
