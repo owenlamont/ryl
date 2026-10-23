@@ -940,7 +940,7 @@ fn forced_collections_settle_multiline_quote_offsets_before_folding() {
         "é: The allowed models may change\n  over time and depend on the\n  user's settings. Supported values\n  include café and many more\n  options.\nlist:\n  - café\n  - 世\n"
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["verification_parses"], 3, "{statistics}");
+    assert_eq!(statistics["verification_parses"], 2, "{statistics}");
     assert_eq!(format_with_statistics(&output, config).0, output);
 }
 
@@ -1001,7 +1001,7 @@ fn folding_settles_multiline_quote_offsets_without_collection_targets() {
         format_with_statistics("é: 'one two three\n  user''s four five six'\n", config);
     assert_eq!(output, "é: one two three\n  user's four\n  five six\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["verification_parses"], 2, "{statistics}");
+    assert_eq!(statistics["verification_parses"], 1, "{statistics}");
     assert_eq!(format_with_statistics(&output, config).0, output);
 }
 
