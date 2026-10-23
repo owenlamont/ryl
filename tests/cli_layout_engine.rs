@@ -869,6 +869,38 @@ fn concurrent_previews_do_not_charge_another_files_recording() {
     assert_independent_recordings(true);
 }
 
+#[test]
+fn a_failed_fold_without_quote_edits_plans_once() {
+    let directory = tempfile::tempdir().unwrap();
+    let configuration = directory.path().join("ryl.toml");
+    let statistics = directory.path().join("statistics.jsonl");
+    fs::write(
+        &configuration,
+        "line-length = 12\n[format]\nfold-long-lines = true\nquote-style = 'single'\n",
+    )
+    .unwrap();
+    let input = directory.path().join("lun.yaml");
+    fs::write(&input, "spec:\n volumes:\n       lun: <ADD LUN ID Here>\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["format", "--check", "--no-cache", "-c"])
+        .arg(configuration)
+        .arg(input)
+        .env("RYL_LAYOUT_STATS", &statistics)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let failed: Vec<Value> = fs::read_to_string(statistics)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|row| row["fallback"] == "Verification")
+        .collect();
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    for counter in ["planning_invocations", "emissions", "verification_parses"] {
+        assert_eq!(failed[0][counter], 1, "{counter}: {}", failed[0]);
+    }
+}
+
 fn assert_independent_recordings(preview: bool) {
     let directory = tempfile::tempdir().unwrap();
     let configuration = directory.path().join("ryl.toml");

@@ -108,12 +108,20 @@ pub(crate) fn format(
             source,
             passes,
             tracking,
-            |input, passes, tracking, retry_held| {
-                plan_document(input, passes, tracking, None, retry_held)
+            |input, passes, tracking, attempt| {
+                plan_document(input, passes, tracking, None, attempt)
             },
         );
     };
     format_collections(source, passes, tracking, cfg)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Attempt {
+    Unstaged,
+    Staged,
+    /// A staged attempt whose unheld plan already failed with a scalar interaction.
+    Held,
 }
 
 /// Plans `input`; a folded tail that re-indentation would disturb folds before its document
@@ -123,12 +131,17 @@ fn plan_document(
     passes: &Passes<'_>,
     tracking: &mut PassTracking<'_>,
     first: Option<&Passes<'_>>,
-    retry_held: bool,
+    attempt: Attempt,
 ) -> Result<TextVersion<'static>, Fallback> {
     let edited = tracking.edited.len();
-    match format_document_staged(input, passes, tracking, first, None) {
+    let result = if attempt == Attempt::Held {
         Err(Fallback::ScalarInteraction)
-            if retry_held
+    } else {
+        format_document_staged(input, passes, tracking, first, None)
+    };
+    match result {
+        Err(Fallback::ScalarInteraction)
+            if attempt != Attempt::Unstaged
                 && passes.line_length.is_some()
                 && passes.indentation.is_some() =>
         {
@@ -154,25 +167,32 @@ fn with_quote_stage(
         &mut TextVersion<'_>,
         &Passes<'_>,
         &mut PassTracking<'_>,
-        bool,
+        Attempt,
     ) -> Result<TextVersion<'static>, Fallback>,
 ) -> Result<TextVersion<'static>, Fallback> {
     let folding = passes.line_length.is_some();
     let edited = tracking.edited.len();
-    match plan(input, passes, tracking, false) {
+    let reason = match plan(input, passes, tracking, Attempt::Unstaged) {
         Err(reason)
             if matches!(reason, Fallback::ScalarInteraction)
                 || (folding && !matches!(reason, Fallback::Ambiguous)) =>
         {
             tracking.edited.truncate(edited);
+            reason
         }
         result => return result,
-    }
+    };
     prepare_quotes(input.analysis(), passes).and_then(|quoted| match quoted {
         Some(mut quoted) => probe(tracking, input.analysis())
-            .and_then(|()| plan(&mut quoted, passes, tracking, true))
+            .and_then(|()| plan(&mut quoted, passes, tracking, Attempt::Staged))
             .inspect(|_| tracking.edited.push(quoted_strings::ID)),
-        None => plan(input, passes, tracking, true),
+        // Without quote edits the unstaged plan was the staged one, so only its held retry is new.
+        None => match reason {
+            Fallback::ScalarInteraction if folding => {
+                plan(input, passes, tracking, Attempt::Held)
+            }
+            reason => Err(reason),
+        },
     })
 }
 
@@ -217,7 +237,7 @@ fn format_collections(
             &mut converted,
             passes,
             tracking,
-            |input, passes, tracking, retry_held| {
+            |input, passes, tracking, attempt| {
                 if !rules.is_empty()
                     && passes.comments_indentation.is_some()
                     && input
@@ -227,9 +247,9 @@ fn format_collections(
                 {
                     let mut staged = passes.clone();
                     staged.comments_indentation = None;
-                    plan_document(input, passes, tracking, Some(&staged), retry_held)
+                    plan_document(input, passes, tracking, Some(&staged), attempt)
                 } else {
-                    plan_document(input, passes, tracking, None, retry_held)
+                    plan_document(input, passes, tracking, None, attempt)
                 }
             },
         )?;
