@@ -344,7 +344,11 @@ fn arb_inline_comment() -> impl Strategy<Value = InlineComment> {
     (
         "[ \t]{1,6}",
         0u8..=2,
-        "[a-z][a-z0-9 ]{0,8}",
+        prop_oneof![
+            8 => "[a-z][a-z0-9 ]{0,8}",
+            1 => Just("@ value".to_owned()),
+            1 => Just("@overlay/match missing_ok=True".to_owned()),
+        ],
         prop::option::of(arb_multibyte_char()),
     )
         .prop_map(

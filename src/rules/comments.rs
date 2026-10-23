@@ -1,7 +1,7 @@
 //! `comments`: `#` comment formatting: a required space after the `#`, a minimum and
 //! (ryl-only) maximum gap from preceding inline content, and an optional exemption
 //! for a line-1 shebang or `#cloud-config`. Mirrors yamllint's `comments`. Safe
-//! `--fix` pads or trims the spaces.
+//! `--fix` pads or trims the spaces; ytt `#@` directives are left unchanged.
 use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
 
@@ -83,6 +83,9 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Viol
     for comment in
         crate::rules::support::comments_scan::collect_comments_with_analysis(input)
     {
+        if comment.text.starts_with('@') {
+            continue;
+        }
         let line = comment.span.start.line();
         let hash_column = comment.span.start.col() + 1;
 
@@ -160,6 +163,9 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
     for comment in
         crate::rules::support::comments_scan::collect_comments_with_analysis(input)
     {
+        if comment.text.starts_with('@') {
+            continue;
+        }
         let byte_start = comment_byte_start(&comment);
         let line = comment.span.start.line();
         let hash_column = comment.span.start.col() + 1;

@@ -1882,6 +1882,14 @@ fn a_trailing_comment_keeps_its_node_on_the_key_line() {
 }
 
 #[test]
+fn annotation_oracle_distinguishes_ytt_directives_from_plain_comments() {
+    assert_ne!(
+        annotations("key: #@ name\n"),
+        annotations("key: # @ name\n")
+    );
+}
+
+#[test]
 fn a_dash_line_comment_survives_sequence_and_mapping_layout_changes() {
     for (toml, input, expected) in [
         (
