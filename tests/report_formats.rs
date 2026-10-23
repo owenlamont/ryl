@@ -69,10 +69,10 @@ fn gitlab_output_matches_vendored_schema_and_maps_severity() {
             .expect("vendored schema is valid JSON");
     let validator = validator_for(&schema).expect("vendored schema compiles");
 
-    let entries = vec![
+    let entries = [
         ReportEntry {
             path: "sub/dirty.yaml".to_string(),
-            problems: vec![
+            problems: &[
                 problem(3, 5, Severity::Error, Some("commas"), "too many spaces"),
                 problem(4, 1, Severity::Warning, Some("truthy"), "truthy value"),
                 problem(5, 2, Severity::Error, None, "syntax error: boom"),
@@ -81,8 +81,8 @@ fn gitlab_output_matches_vendored_schema_and_maps_severity() {
         },
         ReportEntry {
             path: "broken.yaml".to_string(),
-            problems: Vec::new(),
-            error: Some("failed to read broken.yaml".to_string()),
+            problems: &[],
+            error: Some("failed to read broken.yaml"),
         },
     ];
 
@@ -127,9 +127,9 @@ fn gitlab_output_matches_vendored_schema_and_maps_severity() {
 
 #[test]
 fn gitlab_skips_clean_files() {
-    let entries = vec![ReportEntry {
+    let entries = [ReportEntry {
         path: "clean.yaml".to_string(),
-        problems: Vec::new(),
+        problems: &[],
         error: None,
     }];
     let json = gitlab_json(&entries);
@@ -144,9 +144,9 @@ fn gitlab_skips_clean_files() {
 fn gitlab_duplicate_diagnostics_get_distinct_fingerprints() {
     // Two byte-identical diagnostics on the same line collide on the base hash; the salt
     // must disambiguate them so GitLab's within-report uniqueness requirement holds.
-    let entries = vec![ReportEntry {
+    let entries = [ReportEntry {
         path: "dup.yaml".to_string(),
-        problems: vec![
+        problems: &[
             problem(2, 3, Severity::Error, Some("commas"), "too many spaces"),
             problem(2, 3, Severity::Error, Some("commas"), "too many spaces"),
         ],
@@ -166,7 +166,7 @@ fn gitlab_salts_follow_raw_hash_inputs_across_entries() {
     let entries = [
         ReportEntry {
             path: "a\0commas".to_string(),
-            problems: vec![
+            problems: &[
                 problem(1, 1, Severity::Error, Some("truthy"), "bad"),
                 problem(9, 4, Severity::Warning, Some("truthy"), "bad"),
             ],
@@ -174,7 +174,7 @@ fn gitlab_salts_follow_raw_hash_inputs_across_entries() {
         },
         ReportEntry {
             path: "a".to_string(),
-            problems: vec![problem(
+            problems: &[problem(
                 2,
                 1,
                 Severity::Error,
@@ -185,17 +185,17 @@ fn gitlab_salts_follow_raw_hash_inputs_across_entries() {
         },
         ReportEntry {
             path: "a\0commas".to_string(),
-            problems: vec![problem(3, 1, Severity::Error, Some("truthy"), "bad")],
+            problems: &[problem(3, 1, Severity::Error, Some("truthy"), "bad")],
             error: None,
         },
         ReportEntry {
             path: "e".to_string(),
-            problems: Vec::new(),
-            error: Some("bad".to_string()),
+            problems: &[],
+            error: Some("bad"),
         },
         ReportEntry {
             path: "e".to_string(),
-            problems: vec![
+            problems: &[
                 problem(4, 1, Severity::Error, Some("error"), "bad"),
                 problem(5, 1, Severity::Error, Some("error"), "b\0ad"),
             ],
@@ -226,9 +226,9 @@ fn gitlab_salts_follow_raw_hash_inputs_across_entries() {
 #[test]
 fn gitlab_fingerprints_are_stable_across_runs() {
     let build = || {
-        vec![ReportEntry {
+        gitlab_json(&[ReportEntry {
             path: "a.yaml".to_string(),
-            problems: vec![problem(
+            problems: &[problem(
                 1,
                 1,
                 Severity::Error,
@@ -236,10 +236,10 @@ fn gitlab_fingerprints_are_stable_across_runs() {
                 "too many spaces",
             )],
             error: None,
-        }]
+        }])
     };
-    let first = gitlab_json(&build());
-    let second = gitlab_json(&build());
+    let first = build();
+    let second = build();
     assert_eq!(
         first[0]["fingerprint"], second[0]["fingerprint"],
         "a stable hash keeps the fingerprint constant across runs"
@@ -251,9 +251,9 @@ fn gitlab_fingerprint_ignores_line_shifts() {
     // An edit elsewhere that shifts a diagnostic's line must not change its fingerprint,
     // or GitLab would treat the same issue as newly introduced and lose cross-run tracking.
     let at = |line| {
-        vec![ReportEntry {
+        gitlab_json(&[ReportEntry {
             path: "a.yaml".to_string(),
-            problems: vec![problem(
+            problems: &[problem(
                 line,
                 1,
                 Severity::Error,
@@ -261,10 +261,10 @@ fn gitlab_fingerprint_ignores_line_shifts() {
                 "too many spaces",
             )],
             error: None,
-        }]
+        }])
     };
-    let early = gitlab_json(&at(3));
-    let later = gitlab_json(&at(40));
+    let early = at(3);
+    let later = at(40);
     assert_eq!(
         early[0]["fingerprint"], later[0]["fingerprint"],
         "fingerprint must be independent of the diagnostic's line"
@@ -277,10 +277,10 @@ fn gitlab_fingerprint_ignores_line_shifts() {
 
 #[test]
 fn junit_output_is_well_formed_with_matching_counts() {
-    let entries = vec![
+    let entries = [
         ReportEntry {
             path: "sub/dirty.yaml".to_string(),
-            problems: vec![
+            problems: &[
                 problem(3, 5, Severity::Error, Some("commas"), "too many spaces"),
                 problem(4, 1, Severity::Warning, None, "syntax error"),
             ],
@@ -288,13 +288,13 @@ fn junit_output_is_well_formed_with_matching_counts() {
         },
         ReportEntry {
             path: "clean.yaml".to_string(),
-            problems: Vec::new(),
+            problems: &[],
             error: None,
         },
         ReportEntry {
             path: "broken.yaml".to_string(),
-            problems: Vec::new(),
-            error: Some("failed to read broken.yaml".to_string()),
+            problems: &[],
+            error: Some("failed to read broken.yaml"),
         },
     ];
 
@@ -322,9 +322,9 @@ fn junit_output_is_well_formed_with_matching_counts() {
 fn junit_disambiguates_testcases_at_an_identical_position() {
     // Two diagnostics from the same rule at the same line:col must get distinct testcase
     // names, or a JUnit consumer that dedups by name would drop one.
-    let entries = vec![ReportEntry {
+    let entries = [ReportEntry {
         path: "dup.yaml".to_string(),
-        problems: vec![
+        problems: &[
             problem(2, 3, Severity::Error, Some("commas"), "first"),
             problem(2, 3, Severity::Error, Some("commas"), "second"),
         ],
@@ -362,9 +362,9 @@ fn junit_escapes_special_characters_in_messages() {
     // A crafted message with XML metacharacters must round-trip through the writer and a
     // re-parse, proving quick-xml escaped it rather than producing malformed XML.
     let raw = "a < b & \"c\" > d";
-    let entries = vec![ReportEntry {
+    let entries = [ReportEntry {
         path: "x.yaml".to_string(),
-        problems: vec![problem(1, 1, Severity::Error, Some("commas"), raw)],
+        problems: &[problem(1, 1, Severity::Error, Some("commas"), raw)],
         error: None,
     }];
     let xml = junit_xml(&entries);
@@ -396,9 +396,9 @@ fn junit_message_cannot_inject_extra_elements() {
     // A message crafted to close the <failure> and open a new <testcase> must be escaped to
     // text: the document stays well-formed with exactly one testcase and one failure.
     let raw = "boom</failure><testcase name=\"x\"/><failure>";
-    let entries = vec![ReportEntry {
+    let entries = [ReportEntry {
         path: "p.yaml".to_string(),
-        problems: vec![problem(1, 1, Severity::Error, Some("commas"), raw)],
+        problems: &[problem(1, 1, Severity::Error, Some("commas"), raw)],
         error: None,
     }];
     let counts = element_counts(&junit_xml(&entries));
@@ -419,9 +419,9 @@ fn junit_escapes_xml_forbidden_noncharacters() {
     // U+FFFE/U+FFFF are valid Rust chars but illegal in XML 1.0 (even as references); they
     // must be escaped so a crafted scalar cannot make the whole report unparsable.
     let raw = "boom\u{fffe}\u{ffff}";
-    let entries = vec![ReportEntry {
+    let entries = [ReportEntry {
         path: "p.yaml".to_string(),
-        problems: vec![problem(1, 1, Severity::Error, Some("commas"), raw)],
+        problems: &[problem(1, 1, Severity::Error, Some("commas"), raw)],
         error: None,
     }];
     let xml = junit_xml(&entries);
@@ -438,9 +438,9 @@ fn gitlab_message_cannot_inject_json_structure() {
     // A message crafted to break out of its JSON string must be encoded as data, never
     // injecting a sibling field or extra issue.
     let raw = "evil\",\"check_name\":\"injected\",\"x\":\"\n}], [{";
-    let entries = vec![ReportEntry {
+    let entries = [ReportEntry {
         path: "p.yaml".to_string(),
-        problems: vec![problem(1, 1, Severity::Error, Some("commas"), raw)],
+        problems: &[problem(1, 1, Severity::Error, Some("commas"), raw)],
         error: None,
     }];
     let json = gitlab_json(&entries);

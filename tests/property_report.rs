@@ -102,9 +102,22 @@ fn arb_problem() -> impl Strategy<Value = LintProblem> {
         })
 }
 
+type OwnedEntry = (String, Vec<LintProblem>, Option<String>);
+
+fn borrow_entries(owned: &[OwnedEntry]) -> Vec<ReportEntry<'_>> {
+    owned
+        .iter()
+        .map(|(path, problems, error)| ReportEntry {
+            path: path.clone(),
+            problems,
+            error: error.as_deref(),
+        })
+        .collect()
+}
+
 /// `error` and `problems` are mutually exclusive in real entries (a file failed to process,
 /// or it has diagnostics, or it is clean); the generator mirrors that.
-fn arb_entry() -> impl Strategy<Value = ReportEntry> {
+fn arb_entry() -> impl Strategy<Value = OwnedEntry> {
     (
         arb_hostile_string(),
         prop_oneof![
@@ -113,14 +126,10 @@ fn arb_entry() -> impl Strategy<Value = ReportEntry> {
                 .prop_map(|problems| (problems, None)),
         ],
     )
-        .prop_map(|(path, (problems, error))| ReportEntry {
-            path,
-            problems,
-            error,
-        })
+        .prop_map(|(path, (problems, error))| (path, problems, error))
 }
 
-fn arb_entries() -> impl Strategy<Value = Vec<ReportEntry>> {
+fn arb_entries() -> impl Strategy<Value = Vec<OwnedEntry>> {
     proptest::collection::vec(arb_entry(), 0..6)
 }
 
@@ -145,7 +154,8 @@ proptest! {
     /// the allowed severities, has report-unique fingerprints, and one issue per diagnostic
     /// (plus one per processing error; clean files contribute none).
     #[test]
-    fn gitlab_output_is_always_valid_and_schema_conformant(entries in arb_entries()) {
+    fn gitlab_output_is_always_valid_and_schema_conformant(owned in arb_entries()) {
+        let entries = borrow_entries(&owned);
         let bytes = render_gitlab(&entries);
         let json: Value = serde_json::from_slice(&bytes)
             .map_err(|err| TestCaseError::fail(format!("invalid JSON: {err}")))?;
@@ -181,8 +191,9 @@ proptest! {
     /// suite share a `name`.
     #[test]
     fn junit_output_is_always_well_formed_with_consistent_counts(
-        entries in arb_entries(),
+        owned in arb_entries(),
     ) {
+        let entries = borrow_entries(&owned);
         let bytes = render_junit(&entries);
         let xml = String::from_utf8(bytes)
             .map_err(|err| TestCaseError::fail(format!("non-UTF-8 output: {err}")))?;
