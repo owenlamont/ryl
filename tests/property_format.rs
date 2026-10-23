@@ -460,6 +460,22 @@ fn one_terminal_blank_after_clipped_literal_is_removable() {
 }
 
 #[test]
+fn keep_scalar_eof_blank_line_survives_a_reindent_that_empties_it() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "line-length = 12\nindent-width = 1\n[format]\nfold-long-lines = true\n",
+    )
+    .unwrap();
+    let format =
+        |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+    for input in [
+        "tail: |+\n  h67x6\ncollection_0: |+\n  h67x6\n ",
+        "a: >+\r\n  h\r\n ",
+    ] {
+        check_invariants(&format, input).unwrap();
+    }
+}
+
+#[test]
 fn leading_space_before_header_only_scalar_is_fixable() {
     let input = " \na: |";
     let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
