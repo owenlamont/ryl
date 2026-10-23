@@ -258,6 +258,17 @@ The [reference parser](https://play.yaml.com/#ez8JYTogYn0=) reads the flow form 
 `+MAP`, `=VAL :a`, `=VAL :b`, `-MAP`; [the block form](https://play.yaml.com/#PwlrZXkKOiB2YWx1ZQo=)
 emits `+MAP`, `=VAL :key`, `=VAL :value`, `-MAP`. Tabs used as indentation remain invalid.
 
+### `?` directly before a flow indicator
+
+`ryl check` reports a syntax error for `[?,]`, `[?]` and `{?}`; yamllint (via PyYAML)
+reads `[?,]` as `[{null: null}]`. YAML 1.2.2
+[production 126](https://spec.yaml.io/main/spec/1.2.2/#rule-ns-plain-first) lets `?` start a plain
+scalar only when an `ns-plain-safe` character follows, which excludes `, [ ] { }` in flow
+context, and an explicit key needs separation after the `?`. The
+[reference parser](https://play.yaml.com/#Wz8sXQo=) rejects `[?,]`; with a space,
+[`[? ,]`](https://play.yaml.com/#Wz8gLF0K) is a valid empty key and value. `ryl format`
+and `ryl check --fix` read the input as PyYAML does and repair it: `[?,]` becomes `[? ]`.
+
 ### Anchor and alias names containing a colon
 
 YAML 1.2.2 §6.9.2 defines an anchor/alias name as `ns-anchor-char+`, and

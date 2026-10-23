@@ -142,9 +142,44 @@ fn plain_scalar_cannot_start_with_dash_before_flow_delimiter() {
             let error = result.expect_err(yaml);
             assert_eq!(
                 error.kind(),
-                &ErrorKind::PlainScalarStartsWithDashFlowIndicator,
+                &ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator {
+                    indicator: '-'
+                },
                 "input: {yaml:?}",
             );
         }
+    }
+}
+
+#[test]
+fn flow_question_mark_before_flow_delimiter_is_an_empty_key_only_when_relaxed() {
+    for yaml in ["[?,]", "[?]", "{?}", "[a, ?]"] {
+        let strict = Parser::new_from_str_with_options(
+            yaml,
+            ryl_yaml_parser::options! { strict_indentation: true },
+        )
+        .collect::<Result<Vec<_>, _>>()
+        .expect_err(yaml);
+        assert_eq!(
+            strict.kind(),
+            &ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator {
+                indicator: '?'
+            },
+            "input: {yaml:?}",
+        );
+        let relaxed = Parser::new_from_str(yaml)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap_or_else(|error| panic!("input: {yaml:?}: {error}"));
+        let empty_key = relaxed.windows(3).any(|events| {
+            matches!(
+                events,
+                [
+                    (Event::MappingStart(..), _),
+                    (Event::Scalar(key, ScalarStyle::Plain, ..), _),
+                    (Event::Scalar(value, ScalarStyle::Plain, ..), _),
+                ] if key == "~" && value == "~"
+            )
+        });
+        assert!(empty_key, "input: {yaml:?}: {relaxed:?}");
     }
 }

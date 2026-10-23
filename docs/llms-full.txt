@@ -273,7 +273,9 @@ See the [Rules reference](https://ryl-docs.pages.dev/rules/) for which rules are
 
 If a write fails, `--fix` names the file on stderr, continues with other files,
 and exits `2` even when other files have lint findings. Failed files do not count
-as fixed in the summary.
+as fixed in the summary. Where `commas` and `brackets` (or `braces`) disagree on the
+gap before a closing bracket, as yamllint's defaults do on `[a,]`, `--fix` drops the
+trailing comma.
 
 `--fix` rewrites files in place but never writes through a symlink: a
 symlinked input is linted but skipped for fixing (with a warning on
@@ -859,6 +861,17 @@ places `s-separate(n,c)` after `?`, and separation permits tabs outside indentat
 The [reference parser](https://play.yaml.com/#ez8JYTogYn0=) reads the flow form as
 `+MAP`, `=VAL :a`, `=VAL :b`, `-MAP`; [the block form](https://play.yaml.com/#PwlrZXkKOiB2YWx1ZQo=)
 emits `+MAP`, `=VAL :key`, `=VAL :value`, `-MAP`. Tabs used as indentation remain invalid.
+
+### `?` directly before a flow indicator
+
+`ryl check` reports a syntax error for `[?,]`, `[?]` and `{?}`; yamllint (via PyYAML)
+reads `[?,]` as `[{null: null}]`. YAML 1.2.2
+[production 126](https://spec.yaml.io/main/spec/1.2.2/#rule-ns-plain-first) lets `?` start a plain
+scalar only when an `ns-plain-safe` character follows, which excludes `, [ ] { }` in flow
+context, and an explicit key needs separation after the `?`. The
+[reference parser](https://play.yaml.com/#Wz8sXQo=) rejects `[?,]`; with a space,
+[`[? ,]`](https://play.yaml.com/#Wz8gLF0K) is a valid empty key and value. `ryl format`
+and `ryl check --fix` read the input as PyYAML does and repair it: `[?,]` becomes `[? ]`.
 
 ### Anchor and alias names containing a colon
 
@@ -1820,10 +1833,11 @@ whitespace also keep quotes for
 [reference-parser compatibility](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#marker-like-root-strings-and-unicode-whitespace).
 
 Input rejected by strict YAML parsing is left alone and reported on stderr as
-`skipped by ryl format`, with one exception: spec-invalid indentation accepted by
-the parser's relaxed mode can be repaired when the output parses strictly and preserves
-the relaxed input's values, tags, anchors and structure. Repairs print
-`input was YAML the spec rejects; repaired indentation`; `--check` exits 1.
+`skipped by ryl format`, with one exception: spec-invalid indentation, or a flow `?` key
+with no space before the next indicator (`[?,]`), accepted by the parser's relaxed mode
+can be repaired when the output parses strictly and preserves the relaxed input's values,
+tags, anchors and structure. `[?,]` becomes `[? ]`. Repairs print
+`input was YAML the spec rejects; repaired it`; `--check` exits 1.
 An unsafe or disabled repair leaves the entire file unchanged with a syntax skip.
 Flow closing delimiters stay deeper than the enclosing block, even when the
 yamllint indentation rule previously preferred the block's column.
@@ -1900,7 +1914,7 @@ The rest of the layout is fixed:
 | Concern | `ryl format` writes |
 | :--- | :--- |
 | Own-line comments | Aligned with the content they precede |
-| Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after |
+| Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after; no trailing comma (`[a, b,]` becomes `[a, b]`) |
 | Blank lines | None at the start or end of the file |
 | Line ends | Remove trailing whitespace outside scalar content; add a final newline |
 | After `-`, `?` and `:` | One space, re-indenting a compact collection that hangs on it |
@@ -4349,7 +4363,9 @@ list: [10, 20, 30, {x: 1, y: 2}]
 
 `ryl check --fix` normalises whitespace around commas to satisfy the configured
 limits, leaving the spacing after a comma as it is when `min-spaces-after` exceeds
-`max-spaces-after`. Disable with:
+`max-spaces-after`. Before a closing bracket, the `brackets` or `braces` spacing wins;
+where it contradicts these limits (yamllint's defaults on `[a,]`), the fix drops the
+trailing comma. Disable with:
 
 ```toml
 [lint]

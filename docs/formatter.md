@@ -54,10 +54,11 @@ whitespace also keep quotes for
 [reference-parser compatibility](getting-started/migrating-from-yamllint.md#marker-like-root-strings-and-unicode-whitespace).
 
 Input rejected by strict YAML parsing is left alone and reported on stderr as
-`skipped by ryl format`, with one exception: spec-invalid indentation accepted by
-the parser's relaxed mode can be repaired when the output parses strictly and preserves
-the relaxed input's values, tags, anchors and structure. Repairs print
-`input was YAML the spec rejects; repaired indentation`; `--check` exits 1.
+`skipped by ryl format`, with one exception: spec-invalid indentation, or a flow `?` key
+with no space before the next indicator (`[?,]`), accepted by the parser's relaxed mode
+can be repaired when the output parses strictly and preserves the relaxed input's values,
+tags, anchors and structure. `[?,]` becomes `[? ]`. Repairs print
+`input was YAML the spec rejects; repaired it`; `--check` exits 1.
 An unsafe or disabled repair leaves the entire file unchanged with a syntax skip.
 Flow closing delimiters stay deeper than the enclosing block, even when the
 yamllint indentation rule previously preferred the block's column.
@@ -134,7 +135,7 @@ The rest of the layout is fixed:
 | Concern | `ryl format` writes |
 | :--- | :--- |
 | Own-line comments | Aligned with the content they precede |
-| Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after |
+| Flow collections | No spaces inside `[]` or empty `{}`, and inside other `{}` per `brace-spacing`; no space before a comma, one after; no trailing comma (`[a, b,]` becomes `[a, b]`) |
 | Blank lines | None at the start or end of the file |
 | Line ends | Remove trailing whitespace outside scalar content; add a final newline |
 | After `-`, `?` and `:` | One space, re-indenting a compact collection that hangs on it |

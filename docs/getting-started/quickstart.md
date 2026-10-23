@@ -130,7 +130,9 @@ See the [Rules reference](../rules.md) for which rules are fixable.
 
 If a write fails, `--fix` names the file on stderr, continues with other files,
 and exits `2` even when other files have lint findings. Failed files do not count
-as fixed in the summary.
+as fixed in the summary. Where `commas` and `brackets` (or `braces`) disagree on the
+gap before a closing bracket, as yamllint's defaults do on `[a,]`, `--fix` drops the
+trailing comma.
 
 `--fix` rewrites files in place but never writes through a symlink: a
 symlinked input is linted but skipped for fixing (with a warning on

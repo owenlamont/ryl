@@ -1263,7 +1263,7 @@ fn fix_all_repairs_9c9n_and_reports_the_repair() {
                 && notice.params["message"]
                     .as_str()
                     .unwrap()
-                    .contains("input was YAML the spec rejects; repaired indentation")
+                    .contains("input was YAML the spec rejects; repaired it")
         }),
         "repair edit must carry a warning: {notices:?}"
     );

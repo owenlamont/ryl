@@ -339,7 +339,7 @@ impl Normalizer<'_> {
                 }
                 Kind::Scalar {
                     style: *style,
-                    empty: *empty,
+                    empty: *empty && start == end,
                 }
             }
             _ => Kind::Other,

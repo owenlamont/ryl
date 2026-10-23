@@ -1758,7 +1758,13 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             '}' => self.fetch_flow_collection_end(TokenType::FlowMappingEnd, '{', '}'),
             ',' => self.fetch_flow_entry(),
             '-' if is_blank_or_breakz(nc) => self.fetch_block_entry(),
-            '?' if is_blank_or_breakz(nc) => self.fetch_key(),
+            '?' if is_blank_or_breakz(nc)
+                || (self.flow_level > 0
+                    && is_flow(nc)
+                    && !self.options.strict_indentation) =>
+            {
+                self.fetch_key()
+            }
             ':' if is_blank_or_breakz(nc) => self.fetch_value(),
             ':' if self.flow_level > 0
                 && (is_flow(nc)
@@ -4031,15 +4037,18 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                 break;
             }
 
-            // The dash restriction applies only at the start of a plain scalar.
+            // The indicator restriction applies only at the start of a plain scalar.
+            let indicator = self.input.peek();
             if !has_content
                 && self.flow_level > 0
-                && self.input.peek() == '-'
+                && matches!(indicator, '-' | '?')
                 && is_flow(self.input.peek_nth(1))
             {
-                return Err(
-                    self.scan_error(ErrorKind::PlainScalarStartsWithDashFlowIndicator)
-                );
+                return Err(self.scan_error(
+                    ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator {
+                        indicator,
+                    },
+                ));
             }
 
             if !self.input.next_is_blank_or_breakz()

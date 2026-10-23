@@ -108,11 +108,7 @@ pipeline repeats until a pass changes nothing (capped at `FIX_PIPELINE_MAX_PASSE
 ruff's `MAX_ITERATIONS`): one `--fix` reaches the fixed point, and the "N fixed, M
 remaining" summary and `--diff` see only the final text. N sums each file's drop per
 safe-fix rule and "Found" is N + M, as in ruff, so a problem a fix introduces raises it
-above the pre-fix count. If a pass past the cap would still change the text,
-`apply_safe_fixes_capped` writes ruff's "Failed to converge" error (a ryl bug report
-request naming the rules still changing) to stderr from the loop itself, so the CLI and
-LSP both get it; `--no-warnings` does not suppress it, the text as of the cap is kept,
-and the exit code is unaffected. After convergence,
+above the pre-fix count. After convergence,
 `key_ordering::unfixed` names each mapping its fix declined; `FixOutcome::skipped` and
 `DiffOutcome::skipped` carry those as `rule: Some("key-ordering")` problems, which the
 CLI prints as `<path>:L:C key-ordering not fixed: <reason>` (Markdown regions mapped to
@@ -181,10 +177,11 @@ Layout handles suppression and indentation refusals while retaining source bytes
 refused documents; a candidate whose re-indentation changes a document's events
 freezes that document and replans. Collapses that cannot share a virtual line retry
 after a separately verified quote epoch, and a folded-tail interaction retries with an
-unindented first epoch. A comma before a closing bracket takes the bracket rule's
-spacing; where the two lint options contradict, `check --fix` reports the
-non-convergence error instead of looping. Lint colon and hyphen options plan from
-their own configs; the cached spacing sites serve only the formatter targets.
+unindented first epoch. The formatter drops a comma before a closing bracket. In
+`check --fix` the comma takes the bracket rule's spacing, and is dropped where the two
+lint options contradict. Lint colon and
+hyphen options plan from their own configs; the cached spacing sites serve only the
+formatter targets.
 Flow spacing shares cached punctuation sites; brackets retain their existing traversal
 when template text occurs, because braces and commas skip template spans.
 

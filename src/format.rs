@@ -229,7 +229,6 @@ pub fn format_str(
             edited: &mut Vec::new(),
             reindented: None,
             strict_input: Some(parsed.strict_error.is_none()),
-            cycles: Vec::new(),
             unprobed: false,
         },
         Some(&mut parsed),
@@ -329,7 +328,7 @@ fn format_tracked(
             source.analysis().seed_tokens(tokens);
         }
     }
-    crate::fix::rewrite(input, source, &passes, path, &mut std::io::sink(), tracking)
+    crate::fix::rewrite(input, source, &passes, tracking)
 }
 
 /// Formatter output and edited rules by input text, so a preview that both diffs and
@@ -381,7 +380,6 @@ impl FormatCache {
                     edited: &mut edited,
                     reindented: Some(&mut self.reindented),
                     strict_input,
-                    cycles: Vec::new(),
                     unprobed: false,
                 },
                 parsed,
@@ -474,7 +472,6 @@ fn lines_changed_by(
             edited: &mut Vec::new(),
             reindented: None,
             strict_input: None,
-            cycles: Vec::new(),
             unprobed: false,
         },
         None,

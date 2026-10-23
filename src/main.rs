@@ -34,7 +34,7 @@ use ryl::fix::{
     DiffStats, Rewrite, SAFE_FIX_RULE_IDS, decoded_diff_outcome, diff_files,
     diff_files_with_notices, rewrite_files, rewrite_str, skip_notice,
 };
-use ryl::lint::with_indentation_repair_help;
+use ryl::lint::with_syntax_repair_help;
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup,
     UserConfigMigration, WriteMode, migrate_configs,
@@ -1917,9 +1917,7 @@ fn lint_files_cached(
                     }
                     SourceKind::Yaml => {
                         let problems = lint_str(&content, path, cfg, base_dir);
-                        with_indentation_repair_help(
-                            &content, problems, path, cfg, base_dir,
-                        )
+                        with_syntax_repair_help(&content, problems, path, cfg, base_dir)
                     }
                 }),
             None => match kind {

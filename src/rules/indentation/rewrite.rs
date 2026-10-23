@@ -5,7 +5,7 @@ use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift};
 use crate::directives::Directives;
 use crate::format::layout::{VirtualLine, lines as virtual_lines};
 use crate::rules::hyphens;
-use crate::rules::support::event_compare::documents_with_analysis;
+use crate::rules::support::event_compare;
 use crate::rules::support::line_syntax::buffer_newline;
 use crate::text_version::{Analysis, TextVersion};
 
@@ -626,11 +626,11 @@ impl<'a> Layout<'a> {
                 rollback = refused[0].is_none() && changed;
                 refused[0] = refused[0].or(changed.then_some(Cause::Changed));
             } else {
-                let (original, _) = documents_with_analysis(self.input);
-                let (rewritten, _) = documents_with_analysis(output.analysis());
+                let original = event_compare::documents(self.input.event_values());
+                let rewritten =
+                    event_compare::documents(output.analysis().event_values());
                 for (index, cause) in refused.iter_mut().enumerate() {
-                    let changed = rewritten.get(index).map(|document| &document.events)
-                        != Some(&original[index].events);
+                    let changed = rewritten.get(index) != Some(&original[index]);
                     rollback |= cause.is_none() && changed;
                     *cause = cause.or(changed.then_some(Cause::Changed));
                 }

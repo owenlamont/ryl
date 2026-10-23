@@ -302,8 +302,11 @@ pub enum ErrorKind {
     UnpairedLowSurrogate,
     /// A quoted scalar escape did not represent a valid Unicode scalar value.
     InvalidUnicodeEscape,
-    /// A plain scalar began with a dash followed by a flow indicator.
-    PlainScalarStartsWithDashFlowIndicator,
+    /// A plain scalar began with `-` or `?` followed by a flow indicator.
+    PlainScalarStartsWithIndicatorBeforeFlowIndicator {
+        /// The `-` or `?` that began the scalar.
+        indicator: char,
+    },
     /// A tab appeared where a plain scalar could not accept it.
     TabInPlainScalar,
     /// A plain scalar ended before consuming any content.
@@ -530,8 +533,8 @@ impl fmt::Display for ErrorKind {
             Self::InvalidUnicodeEscape => f.write_str(
                 "while parsing a quoted scalar, found invalid Unicode character escape code",
             ),
-            Self::PlainScalarStartsWithDashFlowIndicator => {
-                f.write_str("plain scalar cannot start with '-' followed by ,[]{}")
+            Self::PlainScalarStartsWithIndicatorBeforeFlowIndicator { indicator } => {
+                write!(f, "plain scalar cannot start with '{indicator}' followed by ,[]{{}}")
             }
             Self::TabInPlainScalar => {
                 f.write_str("while scanning a plain scalar, found a tab")

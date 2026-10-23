@@ -378,8 +378,10 @@ fn every_error_kind_renders_its_message() {
             "while parsing a quoted scalar, found invalid Unicode character escape code",
         ),
         (
-            ErrorKind::PlainScalarStartsWithDashFlowIndicator,
-            "plain scalar cannot start with '-' followed by ,[]{}",
+            ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator {
+                indicator: '?',
+            },
+            "plain scalar cannot start with '?' followed by ,[]{}",
         ),
         (
             ErrorKind::TabInPlainScalar,

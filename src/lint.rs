@@ -64,7 +64,7 @@ pub fn lint_file(
 ) -> Result<Vec<LintProblem>, String> {
     let content = decoder::read_file(path)?;
     let problems = lint_str(&content, path, cfg, base_dir);
-    Ok(with_indentation_repair_help(
+    Ok(with_syntax_repair_help(
         &content, problems, path, cfg, base_dir,
     ))
 }
@@ -440,7 +440,7 @@ pub fn lint_str(
     diagnostics
 }
 
-fn scan(
+pub(crate) fn scan(
     content: &str,
     strict_indentation: bool,
 ) -> Result<(), ryl_yaml_parser::ScanError> {
@@ -533,7 +533,7 @@ fn syntax_diagnostic(
 }
 
 #[must_use]
-pub fn with_indentation_repair_help(
+pub fn with_syntax_repair_help(
     content: &str,
     mut problems: Vec<LintProblem>,
     path: &Path,
@@ -544,7 +544,13 @@ pub fn with_indentation_repair_help(
         return problems;
     };
     if problem.rule.is_some()
-        || !matches!(scan(content, true), Err(err) if matches!(err.kind(), ryl_yaml_parser::ErrorKind::InvalidIndentation))
+        || !matches!(scan(content, true), Err(err) if matches!(
+            err.kind(),
+            ryl_yaml_parser::ErrorKind::InvalidIndentation
+                | ryl_yaml_parser::ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator {
+                    indicator: '?'
+                }
+        ))
     {
         return problems;
     }
@@ -564,7 +570,7 @@ pub fn with_indentation_repair_help(
     if !commands.is_empty() {
         problem.message.push_str("; help: ");
         problem.message.push_str(commands);
-        problem.message.push_str(" can repair the indentation");
+        problem.message.push_str(" can repair it");
     }
     problems
 }
