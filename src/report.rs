@@ -26,11 +26,11 @@ const INFALLIBLE: &str = "writing report output to an in-memory buffer cannot fa
 /// `problems` are mutually exclusive; a clean file has both empty, which `JUnit` renders
 /// as a passing test and `GitLab` omits entirely.
 #[derive(Debug)]
-pub struct ReportEntry {
+pub struct ReportEntry<'a> {
     /// Display path, already relativized to the project root and forward-slashed.
     pub path: String,
-    pub problems: Vec<LintProblem>,
-    pub error: Option<String>,
+    pub problems: &'a [LintProblem],
+    pub error: Option<&'a str>,
 }
 
 /// Render every entry as a `JUnit` `<testsuites>` document: one `<testsuite>` per file, one
@@ -93,7 +93,7 @@ fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
     suite.push_attribute(("errors", errors.to_string().as_str()));
     writer.write_event(Event::Start(suite)).expect(INFALLIBLE);
 
-    if let Some(error) = &entry.error {
+    if let Some(error) = entry.error {
         let message = xml_sanitize(error);
         write_case_with_child(
             writer,
@@ -113,7 +113,7 @@ fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
         // A `#n` suffix disambiguates a repeated `rule:line:col`: some JUnit consumers
         // merge testcases that share a name.
         let mut seen: HashMap<String, u32> = HashMap::new();
-        for problem in &entry.problems {
+        for problem in entry.problems {
             let rule = problem.rule.unwrap_or("syntax");
             let base = format!("{rule}:{}:{}", problem.line, problem.column);
             let occurrence = seen.entry(base.clone()).or_insert(0);
@@ -227,7 +227,7 @@ pub fn render_gitlab(entries: &[ReportEntry]) -> Vec<u8> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut next_salts: HashMap<String, u64> = HashMap::new();
     for entry in entries {
-        if let Some(error) = &entry.error {
+        if let Some(error) = entry.error {
             issues.push(make_issue(
                 &entry.path,
                 "error",
@@ -238,7 +238,7 @@ pub fn render_gitlab(entries: &[ReportEntry]) -> Vec<u8> {
                 &mut next_salts,
             ));
         } else {
-            for problem in &entry.problems {
+            for problem in entry.problems {
                 let check_name = problem.rule.unwrap_or("syntax");
                 let severity = gitlab_severity(problem.level);
                 issues.push(make_issue(

@@ -290,7 +290,7 @@ pub fn rewrite_str(
     }
 }
 
-/// Apply `rewrite` to each file in place.
+/// Apply `rewrite` to each file in place, writing each file as soon as it is rewritten.
 #[must_use]
 pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
     let mut stats = FixStats::default();
@@ -300,7 +300,10 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
             |decoded, (path, base_dir, cfg, kind)| {
                 let (rewritten, skipped) =
                     rewrite_str(decoded.content(), cfg, path, base_dir, *kind, rewrite);
-                (decoded, rewritten, skipped)
+                if let Some(rewritten) = &rewritten {
+                    decoded.write(path, rewritten)?;
+                }
+                Ok((rewritten.is_some(), skipped))
             },
         );
         for (index, (result, stderr)) in batch.zip(results) {
@@ -315,13 +318,7 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
                 continue;
             }
             stats.notices.extend(stderr);
-            let written = result.and_then(|(decoded, rewritten, skipped)| {
-                if let Some(rewritten) = &rewritten {
-                    decoded.write(path, rewritten)?;
-                }
-                Ok((rewritten.is_some(), skipped))
-            });
-            match written {
+            match result {
                 Ok((changed, skipped)) => {
                     stats.changed_files += usize::from(changed);
                     if !skipped.is_empty() {
@@ -375,7 +372,7 @@ fn hard_link_batches(files: &[LintFile]) -> Vec<std::ops::Range<usize>> {
 /// Never reads a symlink; pairs each result with stderr for ordered replay.
 fn read_in_parallel<T: Send>(
     files: &[LintFile],
-    compute: impl Fn(decoder::DecodedFile, &LintFile) -> T + Sync,
+    compute: impl Fn(decoder::DecodedFile, &LintFile) -> Result<T, String> + Sync,
 ) -> Vec<(Result<T, String>, Vec<u8>)> {
     let compute_file = |file: &LintFile| {
         crate::cli_support::capture_file_stderr(|| {
@@ -383,7 +380,7 @@ fn read_in_parallel<T: Send>(
                 Err(format!("skipped symlink {}", file.0.display()))
             } else {
                 decoder::read_file_lossless(&file.0)
-                    .map(|decoded| compute(decoded, file))
+                    .and_then(|decoded| compute(decoded, file))
             }
         })
     };
@@ -966,7 +963,9 @@ pub fn diff_files_with_notices(
 ) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
     let results = read_in_parallel(files, |decoded, (path, base_dir, cfg, kind)| {
-        decoded_diff_outcome(&decoded, cfg, path, base_dir, *kind, rewrite)
+        Ok(decoded_diff_outcome(
+            &decoded, cfg, path, base_dir, *kind, rewrite,
+        ))
     });
     for (index, ((path, ..), (result, stderr))) in files.iter().zip(results).enumerate()
     {

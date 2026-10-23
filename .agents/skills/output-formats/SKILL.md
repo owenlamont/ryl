@@ -55,8 +55,10 @@ keeps the default console target.
 `collect_records` does the shared filter+tally once into format-agnostic
 `FileRecord{path,kept,error}`; `write_targets` renders each target via `render_target`
 (`render_streaming` + an `append_*` fn for console formats; `render_junit`/
-`render_gitlab` over `build_entries` for reports, built once and shared) and `commit`s to
-each `open_destination`.
+`render_gitlab` over `build_entries` for reports, built once and shared) and streams
+it to each `open_destination` through `OutputSink::commit`. Console formats write one
+file's block at a time through a `BufWriter`, so output never accumulates for the whole
+run; reports render in memory, since JUnit's root counts precede the body.
 
 A file is opened create+write **without** truncate, then truncated+written at commit, so
 an *existing* artifact survives a later target failing to open; a *freshly*-created
@@ -87,7 +89,7 @@ fast). An empty/all-ignored input set still emits a valid empty report per targe
 `report::ReportEntry` carries the report display path (relativized via
 `cli_support::report_display_path` against the project root = `CI_PROJECT_DIR` or cwd,
 like ruff; forward-slashed, no `./` prefix; a path outside the root gets `..` segments),
-the kept problems, and an optional processing-error message.
+and borrows the record's kept problems and optional processing-error message.
 
 GitLab severity maps error->`major`, warning->`minor`, a file processing failure->`blocker`;
 its `fingerprint` is a stable SHA-256 (`sha2`) of `(path, rule, message)` — deliberately

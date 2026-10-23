@@ -770,24 +770,27 @@ fn detect_output_format(choice: CliFormat) -> OutputFormat {
 /// failing to open then cannot destroy an existing artifact (a freshly created one may be
 /// left empty if a later target aborts; see [`open_destination`]).
 enum OutputSink {
-    /// stdout or stderr, written and flushed as-is.
+    /// Buffered stdout or stderr.
     Stream(Box<dyn Write>),
     /// A `--output-file` target, truncated then written at commit time.
     File(File),
 }
 
 impl OutputSink {
-    /// Write `bytes` as this sink's complete contents (a file is truncated first, clearing
-    /// any prior artifact). The only fallible output step (rendering is infallible, see
-    /// [`OUTPUT_INFALLIBLE`]); write and flush are chained into one coverable error.
-    fn commit(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+    /// Stream `render`'s output as this sink's complete contents (a file is truncated first,
+    /// clearing any prior artifact). Truncate, write and flush are chained into one coverable
+    /// error.
+    fn commit(
+        &mut self,
+        render: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
         match self {
-            Self::Stream(writer) => {
-                writer.write_all(bytes).and_then(|()| writer.flush())
-            }
+            Self::Stream(writer) => render(&mut **writer).and_then(|()| writer.flush()),
             Self::File(file) => {
-                file.set_len(0).and_then(|()| file.write_all(bytes))?;
-                file.flush()
+                let mut writer = BufWriter::new(&*file);
+                file.set_len(0)
+                    .and_then(|()| render(&mut writer))
+                    .and_then(|()| writer.flush())
             }
         }
     }
@@ -807,7 +810,9 @@ fn open_destination(destination: &Destination) -> Result<OutputSink, String> {
         Destination::Stdout => Ok(OutputSink::Stream(Box::new(BufWriter::new(
             std::io::stdout(),
         )))),
-        Destination::Stderr => Ok(OutputSink::Stream(Box::new(std::io::stderr()))),
+        Destination::Stderr => Ok(OutputSink::Stream(Box::new(BufWriter::new(
+            std::io::stderr(),
+        )))),
         Destination::File(path) => {
             let file = File::options()
                 .create(true)
@@ -870,9 +875,10 @@ fn write_targets(
         .any(|target| !target.format.is_streaming())
         .then(|| build_entries(records, &project_root));
     for (target, sink) in targets.iter().zip(sinks.iter_mut()) {
-        let bytes = render_target(target.format, records, entries.as_deref());
-        sink.commit(&bytes)
-            .map_err(|err| write_output_error(&err))?;
+        sink.commit(|out| {
+            render_target(target.format, records, entries.as_deref(), out)
+        })
+        .map_err(|err| write_output_error(&err))?;
     }
     Ok(())
 }
@@ -891,26 +897,27 @@ fn emit_targets(
     write_targets(targets, &mut sinks, records)
 }
 
-/// Render `records` to bytes in `format`. The report arms serialize the pre-built `entries`,
+/// Render `records` to `out` in `format`. The report arms serialize the pre-built `entries`,
 /// always `Some` when a report target is present (see [`write_targets`]).
 fn render_target(
     format: OutputFormat,
     records: &[FileRecord],
     entries: Option<&[ReportEntry]>,
-) -> Vec<u8> {
+    out: &mut dyn Write,
+) -> std::io::Result<()> {
     let append: fn(&mut Vec<u8>, &Path, &[LintProblem]) = match format {
         OutputFormat::Standard => append_standard,
         OutputFormat::Colored => append_colored,
         OutputFormat::Github => append_github,
         OutputFormat::Parsable => append_parsable,
         OutputFormat::Junit => {
-            return render_junit(entries.expect(REPORT_ENTRIES_BUILT));
+            return out.write_all(&render_junit(entries.expect(REPORT_ENTRIES_BUILT)));
         }
         OutputFormat::Gitlab => {
-            return render_gitlab(entries.expect(REPORT_ENTRIES_BUILT));
+            return out.write_all(&render_gitlab(entries.expect(REPORT_ENTRIES_BUILT)));
         }
     };
-    render_streaming(records, append)
+    render_streaming(records, append, out)
 }
 
 // A report target means entries are built, so the junit/gitlab arms only see `Some`; the
@@ -918,32 +925,37 @@ fn render_target(
 const REPORT_ENTRIES_BUILT: &str =
     "report entries are built when a report target is present";
 
-/// Append each record's per-file block via `append`, skipping clean files; a processing-error
+/// Write each record's per-file block via `append`, skipping clean files; a processing-error
 /// record contributes its (already-sanitized) message line.
 fn render_streaming(
     records: &[FileRecord],
     append: fn(&mut Vec<u8>, &Path, &[LintProblem]),
-) -> Vec<u8> {
-    let mut out: Vec<u8> = Vec::new();
-    for record in records {
+    out: &mut dyn Write,
+) -> std::io::Result<()> {
+    let mut block: Vec<u8> = Vec::new();
+    records.iter().try_for_each(|record| {
+        block.clear();
         if let Some(message) = &record.error {
-            writeln!(out, "error: {message}").expect(OUTPUT_INFALLIBLE);
+            writeln!(block, "error: {message}").expect(OUTPUT_INFALLIBLE);
         } else if !record.kept.is_empty() {
-            append(&mut out, record.path, &record.kept);
+            append(&mut block, record.path, &record.kept);
         }
-    }
-    out
+        out.write_all(&block)
+    })
 }
 
 /// Convert every record (clean files included) into a [`ReportEntry`] with a project-root
 /// relative display path; the report emitters decide how to render a clean file.
-fn build_entries(records: &[FileRecord], project_root: &Path) -> Vec<ReportEntry> {
+fn build_entries<'a>(
+    records: &'a [FileRecord],
+    project_root: &Path,
+) -> Vec<ReportEntry<'a>> {
     records
         .iter()
         .map(|record| ReportEntry {
             path: report_display_path(record.path, project_root),
-            problems: record.kept.clone(),
-            error: record.error.clone(),
+            problems: &record.kept,
+            error: record.error.as_deref(),
         })
         .collect()
 }
@@ -2050,19 +2062,17 @@ fn collect_records<'a>(
                     error: Some(message),
                 });
             }
-            Ok(diagnostics) => {
-                let mut kept: Vec<LintProblem> = Vec::new();
-                for problem in diagnostics {
-                    if no_warnings && problem.level == Severity::Warning {
-                        continue;
-                    }
+            Ok(mut kept) => {
+                kept.retain(|problem| {
+                    !(no_warnings && problem.level == Severity::Warning)
+                });
+                for problem in &kept {
                     match problem.level {
                         Severity::Error => summary.has_error = true,
                         Severity::Warning => summary.has_warning = true,
                     }
-                    summary.problem_count += 1;
-                    kept.push(problem);
                 }
+                summary.problem_count += kept.len();
                 records.push(FileRecord {
                     path,
                     kept,
