@@ -1837,6 +1837,10 @@ impl<'a> DocumentPlan<'a> {
                         .map(|end| end - quotes)
                 };
                 end.ok_or(Fallback::ScalarInteraction).map(|end| {
+                    // Bytes bound chars, and `breaks_from_chars` only breaks past `width` chars.
+                    if length <= usize::from(width) {
+                        return Vec::new();
+                    }
                     let scalar = start..end;
                     if index == last
                         && !source[..full.end].ends_with(['\n', '\r'])
