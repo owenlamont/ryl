@@ -130,11 +130,11 @@ documentation, see the docs site.
 The chart times ryl against yamllint and three formatters on pinned real-world
 YAML: single files from 1 KiB to 9.4 MiB, and 1 to 1,000 files of under 16 KiB
 (98% of the 76,000 YAML files in the 40 pinned repos are under 16 KiB). Both axes
-are logarithmic. The chart is provisional while its layout is reviewed.
+are logarithmic.
 
-![Lint and closest-output format: wall time and peak memory](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark.svg)
+![Lint and aligned-config format: wall time and peak memory](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark.svg)
 
-Closest-output profile, median of 10 runs; peak RSS is the median of 3 more:
+Aligned configs (see below), median of 10 runs; peak RSS is the median of 3 more:
 
 | Input | ryl | yamlfmt | dprint + pretty_yaml | Prettier |
 | --- | ---: | ---: | ---: | ---: |
@@ -155,22 +155,23 @@ Where ryl does not win:
   every file count, and less CPU time at 1,000 files (0.30 s against 0.40 s): ryl's
   lead there comes from formatting files in parallel.
 - Under defaults, yamlfmt is up to 6% faster at 4 KiB, 16 KiB, 260 KiB and 0.9 MiB.
-  Under closest output, ryl is ahead by 1–9% at 1–16 KiB.
+  Under aligned configs, ryl is ahead by 1–9% at 1–16 KiB.
 - Under max common work (single quotes, folding at 80 columns), yamlfmt is faster
   on every single file from 4 KiB, taking up to a third less time (0.9 MiB).
 
 Profiles and what they cannot equalise:
 
-- **Defaults**: each tool's own defaults, which do different work.
-- **Closest output** (headline): ryl `quote-style = "double"`, `max-blank-lines = 1`,
-  `comment-spacing = 1`, `comment-starting-space = "preserve"`,
-  `brace-spacing = true`; yamlfmt `retain_line_breaks_single`, double quotes,
+- **Aligned configs** (charted): each formatter set up to produce output as close
+  to the others' as its options allow. ryl `quote-style = "double"`,
+  `max-blank-lines = 1`, `comment-spacing = 1`, `comment-starting-space =
+  "preserve"`, `brace-spacing = true`; yamlfmt `retain_line_breaks_single`, double quotes,
   `pad_line_comments: 1`, `trim_trailing_whitespace`; dprint and Prettier defaults.
   Pairwise identical lines are 94–98%. The rest: ryl's double quote style also
   removes quotes no value needs, yamlfmt drops `---`, dprint keeps inline comment
   alignment, and dprint and Prettier wrap long strings at 80 columns.
-- **Max common work**: closest output plus single quotes and folding at 80
-  columns, the transformations all four offer; 91–96% identical lines, as each
+- **Defaults**: each tool with no configuration, so each does different work.
+- **Max common work**: aligned configs plus the extra rewrites all four offer,
+  single quotes and folding at 80 columns; 91–96% identical lines, as each
   tool folds differently.
 - **Lint**: yamllint reads `extends: default` and ryl reads the TOML that
   `ryl --migrate-configs` writes from the same file. On the benchmark inputs they

@@ -55,7 +55,7 @@ description: >-
       --runs 2 --sizes-kib 1 --counts 1,10 --max-load 100
     uv run scripts/benchmark_yaml_tools.py run --ryl-bin target/release/ryl
     uv run scripts/benchmark_yaml_tools.py plot manual_outputs/benchmarks/<ts>
-    cp manual_outputs/benchmarks/<ts>/benchmark-compact.svg img/benchmark.svg
+    cp manual_outputs/benchmarks/<ts>/benchmark.svg img/benchmark.svg
     ```
 
     The full run takes about 35 minutes and retries a case whose load average passed

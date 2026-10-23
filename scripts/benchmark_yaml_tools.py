@@ -30,6 +30,7 @@ import fnmatch
 from hashlib import sha256
 import itertools
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -51,7 +52,7 @@ import typer
 
 class Profile(StrEnum):
     DEFAULTS = "defaults"
-    CLOSEST = "closest"
+    ALIGNED = "aligned"
     MAX_WORK = "max-work"
 
 
@@ -69,14 +70,14 @@ RSS_RUNS: Final = 3
 TYPICAL_MAX_BYTES: Final = 16 * 1024
 LINT_CONFIG: Final = "extends: default\n"
 
-_RYL_CLOSEST: Final = """[format]
+_RYL_ALIGNED: Final = """[format]
 quote-style = "double"
 max-blank-lines = 1
 comment-spacing = 1
 comment-starting-space = "preserve"
 brace-spacing = true
 """
-_YAMLFMT_CLOSEST: Final = """formatter:
+_YAMLFMT_ALIGNED: Final = """formatter:
   type: basic
   retain_line_breaks_single: true
   force_quote_style: double
@@ -90,16 +91,16 @@ PROFILE_CONFIGS: Final[Mapping[Profile, Mapping[str, str | dict[str, str | bool]
         "dprint": {},
         "Prettier": {},
     },
-    Profile.CLOSEST: {
-        "ryl": _RYL_CLOSEST,
-        "yamlfmt": _YAMLFMT_CLOSEST,
+    Profile.ALIGNED: {
+        "ryl": _RYL_ALIGNED,
+        "yamlfmt": _YAMLFMT_ALIGNED,
         "dprint": {},
         "Prettier": {},
     },
     Profile.MAX_WORK: {
-        "ryl": _RYL_CLOSEST.replace('"double"', '"single"')
+        "ryl": _RYL_ALIGNED.replace('"double"', '"single"')
         + "fold-long-lines = true\n",
-        "yamlfmt": _YAMLFMT_CLOSEST.replace("double", "single")
+        "yamlfmt": _YAMLFMT_ALIGNED.replace("double", "single")
         + "  max_line_length: 80\n",
         "dprint": {"quotes": "forceSingle", "proseWrap": "always"},
         "Prettier": {"singleQuote": True, "proseWrap": "always"},
@@ -634,78 +635,64 @@ COLORS: Final = {
     "Prettier": "#eda100",
     "yamllint": "#e87ba4",
 }
-MARKERS: Final = {"ryl": "o", "yamlfmt": "s", "dprint": "^", "Prettier": "D"}
-MARKERS_LINT: Final = {"ryl": "o", "yamllint": "v"}
+PANEL_TOOLS: Final = {
+    "lint": {"ryl": "o", "yamllint": "v"},
+    Profile.ALIGNED: {"ryl": "o", "yamlfmt": "s", "dprint": "^", "Prettier": "D"},
+}
 LABELS: Final = {"dprint": "dprint + pretty_yaml"}
-ROW_TITLES: Final = {
-    "lint": "Lint, yamllint `extends: default`",
-    Profile.DEFAULTS: "Format, each tool's defaults",
-    Profile.CLOSEST: "Format, closest output (headline)",
-    Profile.MAX_WORK: "Format, max common work",
+PANEL_TITLES: Final = {
+    "lint": "Lint, the same yamllint `extends: default` rules",
+    Profile.ALIGNED: "Format, configs aligned for similar output",
 }
 X_LABELS: Final = {
     Sweep.SIZE: "Single file size",
-    Sweep.COUNT: "Files (pinned real-world, each < 16 KiB)",
-}
-METRICS: Final = {
-    "wall_seconds": "Median wall time (s)",
-    "max_rss_mib": "Peak RSS (MiB)",
+    Sweep.COUNT: "Number of files (real-world, each under 16 KiB)",
 }
 _INK: Final = "#3d3c38"
 _MUTED: Final = "#8a8981"
+_DECADES_FOR_SPARSE_TICKS: Final = 2.0
 
 
-def _size_label(value: float, _: float) -> str:
+def _plain(value: float) -> str:
+    return f"{value:,.10g}"
+
+
+def _size_label(value: float) -> str:
     return f"{value / 1024**2:g} MiB" if value >= 1024**2 else f"{value / 1024:g} KiB"
 
 
-def _style(axis: plt.Axes, sweep: str, metric: str) -> None:
-    axis.set_xscale("log")
-    axis.set_yscale("log")
-    if sweep == Sweep.SIZE:
-        axis.xaxis.set_major_locator(ticker.LogLocator(base=4))
-        axis.xaxis.set_major_formatter(ticker.FuncFormatter(_size_label))
-    else:
-        axis.xaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:,.0f}"))
-    axis.xaxis.set_minor_formatter(ticker.NullFormatter())
-    axis.grid(visible=True, which="major", color="#e4e3dd", linewidth=0.8)
-    axis.tick_params(colors=_MUTED, labelcolor=_INK, labelsize=8)
-    for spine in axis.spines.values():
-        spine.set_color("#d0cfc8")
-    axis.set_xlabel(X_LABELS[Sweep(sweep)], color=_INK, fontsize=9)
-    axis.set_ylabel(METRICS[metric], color=_INK, fontsize=9)
+def _log_axis(axis: plt.Axis, values: Sequence[float]) -> None:
+    """Label 1-2-5 steps over a narrow range and powers of ten over a wide one."""
+    span = math.log10(max(values) / min(values))
+    subs = (1.0,) if span > _DECADES_FOR_SPARSE_TICKS else (1.0, 2.0, 5.0)
+    axis.set_major_locator(ticker.LogLocator(subs=subs))
+    axis.set_major_formatter(ticker.FuncFormatter(lambda v, _: _plain(v)))
+    axis.set_minor_locator(ticker.NullLocator())
 
 
-def _series(
-    summary: Sequence[Mapping[str, str | float]], **match: str
-) -> tuple[list[float], list[float]]:
-    rows = sorted(
-        (
-            r
-            for r in summary
-            if all(r[k] == v for k, v in match.items() if k != "metric")
-        ),
-        key=lambda r: float(r["x"]),
-    )
-    return [float(r["x"]) for r in rows], [float(r[match["metric"]]) for r in rows]
-
-
-def _lines(
+def _panel(
     axis: plt.Axes,
     summary: Sequence[Mapping[str, str | float]],
     *,
-    sweep: str,
     profile: str,
+    sweep: Sweep,
     metric: str,
 ) -> None:
-    markers = MARKERS_LINT if profile == "lint" else MARKERS
-    for tool, marker in markers.items():
-        xs, ys = _series(
-            summary, sweep=sweep, profile=profile, tool=tool, metric=metric
+    rows = [r for r in summary if r["profile"] == profile and r["sweep"] == sweep]
+    values = [float(r[metric]) for r in rows]
+    if metric == "max_rss_mib":
+        scale, label = 1.0, "Peak memory (MiB)"
+    elif max(values) < 1.0:
+        scale, label = 1000.0, "Median wall time (ms)"
+    else:
+        scale, label = 1.0, "Median wall time (s)"
+    for tool, marker in PANEL_TOOLS[profile].items():
+        points = sorted(
+            (int(r["x"]), float(r[metric])) for r in rows if r["tool"] == tool
         )
         axis.plot(
-            xs,
-            ys,
+            [x for x, _ in points],
+            [y * scale for _, y in points],
             color=COLORS[tool],
             marker=marker,
             markersize=6,
@@ -713,128 +700,43 @@ def _lines(
             markeredgecolor="white",
             label=LABELS.get(tool, tool),
         )
-    _style(axis, sweep, metric)
+    axis.set_xscale("log")
+    axis.set_yscale("log")
+    _log_axis(axis.yaxis, [v * scale for v in values])
+    xs = [float(r["x"]) for r in rows]
+    if sweep == Sweep.SIZE:
+        axis.xaxis.set_major_locator(ticker.LogLocator(base=4))
+        axis.xaxis.set_major_formatter(
+            ticker.FuncFormatter(lambda v, _: _size_label(v))
+        )
+        axis.xaxis.set_minor_locator(ticker.NullLocator())
+    else:
+        _log_axis(axis.xaxis, xs)
+    axis.grid(visible=True, which="major", color="#e4e3dd", linewidth=0.8)
+    axis.tick_params(colors=_MUTED, labelcolor=_INK, labelsize=8)
+    for spine in axis.spines.values():
+        spine.set_color("#d0cfc8")
+    axis.set_xlabel(X_LABELS[sweep], color=_INK, fontsize=9)
+    axis.set_ylabel(label, color=_INK, fontsize=9)
+    axis.set_title(PANEL_TITLES[profile], fontsize=9, color=_INK, loc="left")
 
 
-def _figure(rows: int, cols: int, *, width: float, height: float) -> plt.Figure:
+def plot_chart(summary: Sequence[Mapping[str, str | float]], path: Path) -> None:
+    """Lint and aligned-config format: wall time and peak memory over both sweeps."""
     plt.rcParams.update({"svg.fonttype": "none", "font.family": "sans-serif"})
-    figure, _ = plt.subplots(rows, cols, figsize=(width, height), squeeze=False)
+    figure, axes = plt.subplots(2, 4, figsize=(17, 7.5))
     figure.patch.set_facecolor("white")
-    return figure
-
-
-def _finish(figure: plt.Figure, title: str, path: Path) -> None:
-    figure.suptitle(title, color=_INK, fontsize=12, x=0.01, ha="left")
+    panels = list(itertools.product(Sweep, ("wall_seconds", "max_rss_mib")))
+    for row, profile in zip(axes, PANEL_TITLES, strict=True):
+        for axis, (sweep, metric) in zip(row, panels, strict=True):
+            _panel(axis, summary, profile=profile, sweep=sweep, metric=metric)
+        row[0].legend(fontsize=8, frameon=False)
+    figure.suptitle(
+        "Wall time and peak memory", color=_INK, fontsize=12, x=0.01, ha="left"
+    )
     figure.tight_layout()
     figure.savefig(path)
     plt.close(figure)
-
-
-def plot_grid(summary: Sequence[Mapping[str, str | float]], path: Path) -> None:
-    """Rows: lint and the three format profiles; columns: sweep by metric."""
-    columns = list(itertools.product(Sweep, METRICS))
-    figure = _figure(4, 4, width=17, height=14)
-    for row, profile in enumerate(ROW_TITLES):
-        for col, (sweep, metric) in enumerate(columns):
-            axis = figure.axes[row * 4 + col]
-            _lines(axis, summary, sweep=sweep, profile=profile, metric=metric)
-            axis.set_title(ROW_TITLES[profile], fontsize=9, color=_INK, loc="left")
-        figure.axes[row * 4 + 3].legend(fontsize=8, frameon=False)
-    _finish(figure, "Wall time and peak memory, every profile", path)
-
-
-def plot_per_tool(summary: Sequence[Mapping[str, str | float]], path: Path) -> None:
-    """One column per tool; line style marks the profile."""
-    styles = {Profile.DEFAULTS: ":", Profile.CLOSEST: "-", Profile.MAX_WORK: "--"}
-    figure = _figure(2, 5, width=19, height=7.5)
-    tools = [*((t, styles) for t in FORMATTERS), ("yamllint", {"lint": "-"})]
-    for col, (tool, profile_styles) in enumerate(tools):
-        for row, sweep in enumerate(Sweep):
-            axis = figure.axes[row * 5 + col]
-            for profile, style in profile_styles.items():
-                xs, ys = _series(
-                    summary,
-                    sweep=sweep,
-                    profile=profile,
-                    tool=tool,
-                    metric="wall_seconds",
-                )
-                axis.plot(xs, ys, style, color=COLORS[tool], linewidth=2, label=profile)
-            reference = Profile.CLOSEST if tool != "yamllint" else "lint"
-            xs, ys = _series(
-                summary,
-                sweep=sweep,
-                profile=reference,
-                tool="ryl",
-                metric="wall_seconds",
-            )
-            axis.plot(
-                xs, ys, "-", color=_MUTED, linewidth=1, label=f"ryl ({reference})"
-            )
-            _style(axis, sweep, "wall_seconds")
-            axis.set_title(LABELS.get(tool, tool), fontsize=10, color=_INK, loc="left")
-            axis.legend(fontsize=7, frameon=False)
-    _finish(figure, "Each tool across profiles, ryl in grey for reference", path)
-
-
-def plot_compact(summary: Sequence[Mapping[str, str | float]], path: Path) -> None:
-    """Closest-output format and lint: time and memory over both sweeps."""
-    figure = _figure(2, 4, width=17, height=7.5)
-    for row, profile in enumerate(("lint", Profile.CLOSEST)):
-        for col, (sweep, metric) in enumerate(itertools.product(Sweep, METRICS)):
-            axis = figure.axes[row * 4 + col]
-            _lines(axis, summary, sweep=sweep, profile=profile, metric=metric)
-            axis.set_title(ROW_TITLES[profile], fontsize=9, color=_INK, loc="left")
-        figure.axes[row * 4].legend(fontsize=8, frameon=False)
-    _finish(figure, "Headline: lint and closest-output format", path)
-
-
-def plot_ratio(summary: Sequence[Mapping[str, str | float]], path: Path) -> None:
-    """Each tool's wall time over ryl's; below 1 means that tool beat ryl."""
-    figure = _figure(2, 4, width=17, height=7.5)
-    for col, profile in enumerate(ROW_TITLES):
-        markers = MARKERS_LINT if profile == "lint" else MARKERS
-        for row, sweep in enumerate(Sweep):
-            axis = figure.axes[row * 4 + col]
-            _, base = _series(
-                summary, sweep=sweep, profile=profile, tool="ryl", metric="wall_seconds"
-            )
-            for tool, marker in markers.items():
-                if tool == "ryl":
-                    continue
-                xs, ys = _series(
-                    summary,
-                    sweep=sweep,
-                    profile=profile,
-                    tool=tool,
-                    metric="wall_seconds",
-                )
-                ratios = [y / b for y, b in zip(ys, base, strict=True)]
-                axis.plot(
-                    xs,
-                    ratios,
-                    color=COLORS[tool],
-                    marker=marker,
-                    linewidth=2,
-                    markeredgecolor="white",
-                    label=LABELS.get(tool, tool),
-                )
-            axis.axhline(1.0, color=_INK, linewidth=1)
-            axis.axhspan(0.1, 1.0, color="#f3f2ee", zorder=0)
-            _style(axis, sweep, "wall_seconds")
-            axis.set_ylabel("Time ÷ ryl time (below 1: faster than ryl)", fontsize=9)
-            axis.yaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:g}x"))
-            axis.set_title(ROW_TITLES[profile], fontsize=9, color=_INK, loc="left")
-            axis.legend(fontsize=7, frameon=False)
-    _finish(figure, "How many times slower than ryl", path)
-
-
-LAYOUTS: Final = {
-    "grid": plot_grid,
-    "per-tool": plot_per_tool,
-    "compact": plot_compact,
-    "ratio": plot_ratio,
-}
 
 
 @app.command()
@@ -923,13 +825,12 @@ def plot(
     run_dir: Path = typer.Argument(..., help="A directory written by `run`."),
     output_dir: Path | None = typer.Option(None, help="Defaults to RUN_DIR."),
 ) -> None:
-    """Draw every chart layout from a finished run."""
+    """Draw the README chart from a finished run."""
     with (run_dir / "runs.csv").open() as handle:
         summary = median_rows(csv.DictReader(handle))
     target = output_dir or run_dir
     target.mkdir(parents=True, exist_ok=True)
-    for name, draw in LAYOUTS.items():
-        draw(summary, target / f"benchmark-{name}.svg")
+    plot_chart(summary, target / "benchmark.svg")
     with (target / "summary.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(summary[0]))
         writer.writeheader()
