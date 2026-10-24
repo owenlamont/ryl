@@ -34,7 +34,10 @@ mod strategy;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
-use ryl::fix::{FIX_PIPELINE_MAX_PASSES, RULE_FIX_MAX_ITERATIONS, apply_safe_fixes};
+use ryl::fix::{
+    FIX_PIPELINE_MAX_PASSES, RULE_FIX_MAX_ITERATIONS, apply_safe_fixes,
+    repair_events_match, safe_fix_start,
+};
 use ryl::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, hyphens, key_ordering, new_line_at_end_of_file,
@@ -225,7 +228,7 @@ fn drop_contradicted_commas(
             commas.min_spaces_after(),
             commas.max_spaces_after(),
         );
-        if !gap.bytes().all(|byte| byte == b' ') {
+        if !gap.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
             continue;
         }
         let closing_gap = target(wanted, min, max);
@@ -247,9 +250,8 @@ fn drop_contradicted_commas(
     })
 }
 
-/// One `apply_safe_fixes` pass rebuilt from the rules' own `fix` functions. Mirrors the
-/// production gate that leaves unparsable input untouched; generated input carries no
-/// aliases, so `parse_for_compare` agrees with that gate's stricter parse.
+/// One `apply_safe_fixes` pass rebuilt from the rules' own `fix` functions, leaving
+/// unparsable input untouched.
 fn probe_pass(
     state: &str,
     rules: &[RuleFix],
@@ -280,9 +282,11 @@ fn probe_pass(
         })
 }
 
-/// Re-runs the probe pass until it changes nothing, failing on a revisited state or on
-/// exceeding the production pass cap, then checks one `apply_safe_fixes` call lands on
-/// that fixed point and stays there. Returns the number of passes that changed the input.
+/// Re-runs the probe pass from production's starting text until it changes nothing,
+/// failing on a revisited state or on exceeding the production pass cap, then checks one
+/// `apply_safe_fixes` call lands on that fixed point (or, for a repaired input whose fixes
+/// changed its representation, on the input) and stays there. Returns the number of
+/// passes that changed the starting text.
 fn assert_converges(
     input: &str,
     cfg: &YamlLintConfig,
@@ -290,14 +294,25 @@ fn assert_converges(
 ) -> Result<usize, TestCaseError> {
     let rules = pipeline_rules(cfg);
     let fixed = apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
-    let mut seen = vec![input.to_string()];
+    let Some(start) =
+        safe_fix_start(input, cfg, synthetic_path(), synthetic_base_dir())
+    else {
+        prop_assert_eq!(&fixed, input, "unrepairable input must stay untouched");
+        return Ok(0);
+    };
+    let mut seen = vec![start];
     for pass in 0..FIX_PIPELINE_MAX_PASSES {
         let state = &seen[pass];
         let next = probe_pass(state, &rules, cfg, cfg_name)?;
         if &next == state {
+            let expected = if seen[0] == input || repair_events_match(input, state) {
+                state
+            } else {
+                input
+            };
             prop_assert_eq!(
                 &fixed,
-                state,
+                expected,
                 "rule-by-rule probe disagrees with apply_safe_fixes under config '{}'; input {:?}",
                 cfg_name,
                 input
@@ -402,13 +417,35 @@ fn ambiguous_scalar_still_allows_verified_key_ordering() {
 
 #[test]
 fn trailing_comma_the_closing_rule_contradicts_drops_in_one_probe_pass() {
-    let input = "a: [b, ]\nk: |4\n       \n";
     let cfg = named_config("yamllint-default");
-    assert_eq!(
-        apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir()),
-        "---\na: ['b']\nk: |4\n       \n...\n"
-    );
-    assert_converges(input, cfg, "yamllint-default").unwrap();
+    for gap in [" ", "\t"] {
+        let input = format!("a: [b,{gap}]\nk: |4\n       \n");
+        assert_eq!(
+            apply_safe_fixes(&input, cfg, synthetic_path(), synthetic_base_dir()),
+            "---\na: ['b']\nk: |4\n       \n...\n",
+            "gap {gap:?}"
+        );
+        assert_converges(&input, cfg, "yamllint-default").unwrap();
+    }
+}
+
+#[test]
+fn strict_invalid_input_is_fixed_only_where_its_repair_survives() {
+    let cfg = named_config("yamllint-default");
+    for (input, fixed) in [
+        (
+            "a: [b, # comment\n]\n",
+            "---\na: ['b',  # comment\n ]\n...\n",
+        ),
+        ("z: [b,\n]\na: c\n", "z: [b,\n]\na: c\n"),
+        ("a: 'x\ny'\n", "a: 'x\ny'\n"),
+    ] {
+        assert_eq!(
+            apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir()),
+            fixed
+        );
+        assert_converges(input, cfg, "yamllint-default").unwrap();
+    }
 }
 
 #[test]
