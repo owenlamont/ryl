@@ -225,7 +225,7 @@ fn drop_contradicted_commas(
             commas.min_spaces_after(),
             commas.max_spaces_after(),
         );
-        if !gap.bytes().all(|byte| byte == b' ') || wanted == gap.len() {
+        if !gap.bytes().all(|byte| byte == b' ') {
             continue;
         }
         let closing_gap = target(wanted, min, max);
@@ -397,6 +397,17 @@ fn ambiguous_scalar_still_allows_verified_key_ordering() {
     let input = "gt: [1]\r\ng_0:\r\n  - !!str |1\r\n \r\n\r\n...\r\na: 1\r\n";
     let fixed = apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
     assert!(fixed.find("g_0:") < fixed.find("gt:"), "{fixed:?}");
+    assert_converges(input, cfg, "yamllint-default").unwrap();
+}
+
+#[test]
+fn trailing_comma_the_closing_rule_contradicts_drops_in_one_probe_pass() {
+    let input = "a: [b, ]\nk: |4\n       \n";
+    let cfg = named_config("yamllint-default");
+    assert_eq!(
+        apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir()),
+        "---\na: ['b']\nk: |4\n       \n...\n"
+    );
     assert_converges(input, cfg, "yamllint-default").unwrap();
 }
 

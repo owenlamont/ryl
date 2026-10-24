@@ -123,6 +123,10 @@ fn reference_events_ignore_presentation_but_not_content() {
         );
     }
     assert_eq!(reference::check_events("a: [", "a: []\n"), Ok(()));
+    assert_eq!(
+        reference::check_events("p:\n - |\nq: 1\n", "p:\n  - |\nq: 1\n"),
+        Ok(())
+    );
     let anchor_like = "i: '&j *x'\n";
     assert_eq!(
         reference::check_events(anchor_like, "i: \"&j *x\"\n"),
