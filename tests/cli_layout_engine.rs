@@ -450,6 +450,70 @@ fn a_flow_key_keeps_its_quotes_where_colons_are_disabled() {
 }
 
 #[test]
+fn a_mapping_one_column_after_its_dash_joins_it_in_one_pass() {
+    let width_4 = "indent-width = 4\n[format]\n";
+    for (input, config, expected) in [
+        (
+            "-\n foo: bar\n baz: 1\n",
+            "[format]\n",
+            "- foo: bar\n  baz: 1\n",
+        ),
+        ("-\n \"foo\": bar\n", "[format]\n", "- foo: bar\n"),
+        ("-\n a: x\n", "indent-width = 1\n[format]\n", "-\n a: x\n"),
+        ("-\n  a: x\n", "indent-width = 1\n[format]\n", "- a: x\n"),
+        (
+            "-\n foo: bar  # yamllint disable-line rule:hyphens\n",
+            "[format]\n",
+            "- foo: bar  # yamllint disable-line rule:hyphens\n",
+        ),
+        (
+            "# yamllint disable rule:hyphens\n-\n a: x\n",
+            width_4,
+            "# yamllint disable rule:hyphens\n-\n    a: x\n",
+        ),
+        (
+            "-\n a: x\n# yamllint disable rule:hyphens\n-\n a: x\n",
+            width_4,
+            "-\n    a: x\n# yamllint disable rule:hyphens\n-\n    a: x\n",
+        ),
+        (
+            "# yamllint disable rule:indentation\n-\n a: x  \n",
+            "[format]\n",
+            "# yamllint disable rule:indentation\n-\n a: x\n",
+        ),
+        (
+            "-\n a: x\n---\n# yamllint disable rule:indentation\n-\n a: x  \n",
+            "[format]\n",
+            "- a: x\n---\n# yamllint disable rule:indentation\n-\n a: x\n",
+        ),
+    ] {
+        assert_one_pass(input, config, expected);
+    }
+}
+
+#[test]
+fn a_mapping_split_from_its_dash_drops_the_gap_in_one_pass() {
+    let flush = "indent-width = 4\n[format]\nindent-sequences = false\ndash-on-own-line = true\n";
+    let own_line = "[format]\ndash-on-own-line = true\n";
+    for (input, config, expected) in [
+        ("-  a: x\n", flush, "-\n    a: x\n"),
+        ("-  a:  x\n", flush, "-\n    a: x\n"),
+        (
+            "# yamllint disable rule:indentation\n-  a: x\n",
+            own_line,
+            "# yamllint disable rule:indentation\n- a: x\n",
+        ),
+        (
+            "# yamllint disable rule:hyphens rule:indentation\n-  a: x\n",
+            own_line,
+            "# yamllint disable rule:hyphens rule:indentation\n-  a: x\n",
+        ),
+    ] {
+        assert_one_pass(input, config, expected);
+    }
+}
+
+#[test]
 fn trailing_comments_keep_what_comments_indentation_exempts() {
     for (input, config, expected) in [
         (

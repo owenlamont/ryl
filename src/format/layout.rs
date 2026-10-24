@@ -981,6 +981,26 @@ impl Presentation {
             return Ok(Vec::new());
         }
         let refused = targets.refused.clone();
+        for (from, to, spaces) in std::mem::take(&mut layout.reshaped) {
+            let line = input
+                .byte_line_starts()
+                .partition_point(|&at| at <= from.get())
+                - 1;
+            if !layout.frozen(&refused, line) {
+                continue;
+            }
+            if from == to {
+                self.edits.retain(|edit| (edit.0, edit.1) != (from, to));
+            } else if self
+                .guard
+                .as_ref()
+                .is_none_or(|guard| guard.allows(hyphens::ID, from, to))
+            {
+                self.rules.push(hyphens::ID);
+                self.edits
+                    .push((from, to, pieces::Replacement::Spaces(spaces)));
+            }
+        }
         layout
             .keep_refused(&refused, &self.edits)
             .then_some(())
@@ -1068,14 +1088,20 @@ impl Presentation {
                         == crate::rules::support::token_spacing::Indicator::Dash;
                     let rule = if dash { hyphens::ID } else { colons::ID };
                     let (from, to, spaces) = site.edit;
-                    if presentation
-                        .guard
-                        .as_ref()
-                        .is_some_and(|guard| !guard.allows(rule, from, to))
+                    // A space inserted after a dash is its join's, which `indentation`
+                    // owns, so a refused document can drop it again.
+                    let join = dash && from == to;
+                    if !join
+                        && presentation
+                            .guard
+                            .as_ref()
+                            .is_some_and(|guard| !guard.allows(rule, from, to))
                     {
                         continue;
                     }
-                    presentation.rules.push(rule);
+                    if !join {
+                        presentation.rules.push(rule);
+                    }
                     presentation.edits.push((
                         from,
                         to,
