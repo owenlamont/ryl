@@ -737,7 +737,9 @@ fn rewrite_parse_notice(
     })
 }
 
-pub(crate) fn repair_events_match(original: &str, repaired: &str) -> bool {
+#[doc(hidden)]
+#[must_use]
+pub fn repair_events_match(original: &str, repaired: &str) -> bool {
     let before = TextVersion::new(original);
     let after = TextVersion::new(repaired);
     representation_matches(before.analysis(), after.analysis())
@@ -1211,6 +1213,29 @@ pub fn apply_safe_fixes_filtered(
         unprobed: false,
     };
     rewrite(input, TextVersion::new(input), &passes, &mut tracking).into_text()
+}
+
+/// The text `apply_safe_fixes` runs its fixers on: `input` where it is strictly valid,
+/// else its indentation repair, or `None` where no repair makes it valid.
+#[doc(hidden)]
+#[must_use]
+pub fn safe_fix_start(
+    input: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) -> Option<String> {
+    let source = TextVersion::new(input);
+    if crate::lint::parse_error_from_result(
+        input,
+        source.analysis().parsed().strict_error(),
+    )
+    .is_none()
+    {
+        return Some(input.to_owned());
+    }
+    repair(source.analysis(), &Passes::lint(cfg, path, base_dir, &[]))
+        .map(TextVersion::into_text)
 }
 
 /// `input` (whose analysis is `source`) rewritten by `passes`.

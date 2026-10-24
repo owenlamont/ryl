@@ -22,7 +22,7 @@ pub enum Node {
 }
 
 /// Continuation lines start `1 + extra` columns past the parent's indentation, so they
-/// stay deeper than it; the closer may sit at it.
+/// stay deeper than it, as does the closer.
 #[derive(Debug, Clone)]
 pub struct MultilineFlowSpec {
     pub items: Vec<(u8, Scalar)>,
