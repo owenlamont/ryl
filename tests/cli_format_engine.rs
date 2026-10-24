@@ -70,6 +70,7 @@ fn reference_block_scalar_spaces_survive_formatting() {
         "|-2\n  x\n  ",
         ">2\n  x\n  ",
         "|2+\n  x\n  ",
+        "|+2\n  x\n  ",
         "&a |2\n  x\n  ",
         "!foo |2\n  x\n  ",
         "---\n|2\n  x\n  \n...\n---\nq: v\n",

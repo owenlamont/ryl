@@ -10,9 +10,9 @@ use crate::rules::{
     document_start, empty_lines, hyphens, indentation, new_lines, quoted_strings,
     trailing_spaces,
 };
+use crate::text_version::Analysis;
 use crate::text_version::TextVersion;
 use crate::text_version::edits::Edit;
-use crate::text_version::{Analysis, ParsedFacts};
 
 pub(crate) mod facts;
 mod guard;
@@ -250,23 +250,32 @@ fn format_document_staged(
     let staged = first.is_some() || held.is_some();
     let mut frozen = held;
     let mut current = None;
-    for epoch in 0..crate::fix::FIX_PIPELINE_MAX_PASSES {
-        let input = current.as_mut().unwrap_or(source);
-        let active = if epoch == 0 {
-            first.unwrap_or(passes)
-        } else {
-            passes
-        };
-        let last = epoch > 0 || !staged;
-        let held = frozen.take();
-        let (output, settled) =
-            format_document_refused(input, active, tracking, held.as_deref(), last)?;
-        if settled && last {
-            return Ok(output);
-        }
-        current = Some(output);
-    }
-    Err(Fallback::Refusal)
+    (0..crate::fix::FIX_PIPELINE_MAX_PASSES)
+        .find_map(|epoch| {
+            let input = current.as_mut().unwrap_or(&mut *source);
+            let active = if epoch == 0 {
+                first.unwrap_or(passes)
+            } else {
+                passes
+            };
+            let last = epoch > 0 || !staged;
+            let held = frozen.take();
+            match format_document_refused(
+                input,
+                active,
+                tracking,
+                held.as_deref(),
+                last,
+            ) {
+                Ok((output, true)) if last => Some(Ok(output)),
+                Ok((output, _)) => {
+                    current = Some(output);
+                    None
+                }
+                Err(reason) => Some(Err(reason)),
+            }
+        })
+        .unwrap_or(Err(Fallback::Refusal))
 }
 
 type Candidate = (
@@ -363,19 +372,14 @@ fn format_document_refused(
     );
     output.mark_strict_valid();
     tracking.edited.extend(rules);
-    if !passes.preserve_events {
-        let (facts, tokens, _) =
-            ParsedFacts::parse_for_format(output.analysis().text());
-        output.analysis().seed_facts(facts);
-        if let Some(tokens) = tokens {
-            output.analysis().seed_tokens(tokens);
-        }
-        if DocumentPlan::new(output.analysis(), passes, &mut quotes, None)?.dirty {
-            stats::count(stats::Counter::Rollback);
-            return (output.analysis().text() != source.analysis().text())
-                .then_some((output, false))
-                .ok_or(Fallback::DryEdits);
-        }
+    if !passes.preserve_events
+        && DocumentPlan::new(output.analysis(), passes, &mut quotes, None)
+            .is_ok_and(|replan| replan.dirty)
+    {
+        stats::count(stats::Counter::Rollback);
+        return (output.analysis().text() != source.analysis().text())
+            .then_some((output, false))
+            .ok_or(Fallback::DryEdits);
     }
     remember(tracking, &output, passes.indentation, kept, unambiguous);
     output.release_tokens();
@@ -483,9 +487,7 @@ fn verify_presentation(
     guard: Option<&Guard>,
 ) -> Result<(), Fallback> {
     let expected = expected_events(input, styles, document_start, guard);
-    if input
-        .verify_format_events(output, expected)
-        .unwrap_or(false)
+    if input.verify_format_events(output, expected)
         || (output.parsed().valid
             && crate::lint::strict_parse_error(output.text()).is_none()
             && crate::fix::format_events_match(input.text(), output.text()))
@@ -2111,17 +2113,14 @@ fn drops_final_break(input: Analysis<'_>) -> bool {
     rooted
         && input.headers().last().is_some_and(|header| {
             let line = input.line_content(header.line - 1);
-            let indicator: String = line
-                .chars()
-                .skip(header.column)
-                .take_while(|ch| ch.is_ascii_digit() || matches!(ch, '+' | '-'))
-                .collect();
             header.chomping == Some('+')
                 && header.line + 1 < input.line_count()
-                && indicator
-                    .trim_matches(['+', '-'])
-                    .parse::<usize>()
-                    .is_ok_and(|indent| width <= indent)
+                && line
+                    .chars()
+                    .skip(header.column)
+                    .find(|&ch| ch != '+')
+                    .and_then(|ch| ch.to_digit(10))
+                    .is_some_and(|indent| width <= indent as usize)
         })
 }
 

@@ -5,7 +5,6 @@ use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift};
 use crate::directives::Directives;
 use crate::format::layout::{VirtualLine, lines as virtual_lines};
 use crate::rules::hyphens;
-use crate::rules::support::event_compare;
 use crate::rules::support::line_syntax::buffer_newline;
 use crate::text_version::{Analysis, TextVersion};
 
@@ -394,13 +393,11 @@ impl<'a> Layout<'a> {
         };
         let mut output = TextVersion::new(render(&refused));
         output.inherit_event_capacity(input);
-        let rollback = self.verify_events(&mut output, &mut refused);
-        if rollback {
-            let plan = output.analysis().plan(render(&refused));
-            output
-                .apply(plan)
-                .expect("refusal plan belongs to the current epoch");
-        }
+        debug_assert!(
+            output.analysis().text() == buffer
+                || input.significant_events_match(output.analysis()),
+            "re-indentation changed a document's events"
+        );
         if cfg.require_consistent {
             let verified = if output.analysis().text() == buffer {
                 input
@@ -753,62 +750,6 @@ impl<'a> Layout<'a> {
             token.end_line = end;
             Some((original, token))
         })
-    }
-
-    fn verify_events(
-        &self,
-        output: &mut TextVersion<'static>,
-        refused: &mut [Option<Cause>],
-    ) -> bool {
-        if output.analysis().text() == self.input.text() {
-            return false;
-        }
-        let strict = output.analysis().text().len() >= 1_000_000;
-        let single = refused.len() == 1;
-        if strict
-            && single
-            && let Ok(matches) = self.input.verify_strict(output.analysis())
-        {
-            let rollback = refused[0].is_none() && !matches;
-            refused[0] = refused[0].or((!matches).then_some(Cause::Changed));
-            if matches {
-                output.mark_strict_valid();
-            }
-            return rollback;
-        }
-        let mut rollback = false;
-        let mut compare = || {
-            if single {
-                let changed = !self.input.significant_events_match(output.analysis());
-                rollback = refused[0].is_none() && changed;
-                refused[0] = refused[0].or(changed.then_some(Cause::Changed));
-            } else {
-                let original = event_compare::documents(self.input.event_values());
-                let rewritten =
-                    event_compare::documents(output.analysis().event_values());
-                for (index, cause) in refused.iter_mut().enumerate() {
-                    let changed = rewritten.get(index) != Some(&original[index]);
-                    rollback |= cause.is_none() && changed;
-                    *cause = cause.or(changed.then_some(Cause::Changed));
-                }
-            }
-        };
-        let valid = if strict && !single {
-            std::thread::scope(|scope| {
-                let text = output.analysis().text();
-                let check = scope
-                    .spawn(move || crate::lint::strict_parse_error(text).is_none());
-                compare();
-                check.join().expect("strict parser thread finishes")
-            })
-        } else {
-            compare();
-            false
-        };
-        if valid && !rollback {
-            output.mark_strict_valid();
-        }
-        rollback
     }
 
     fn result(

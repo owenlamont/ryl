@@ -245,13 +245,10 @@ Check captures lexical evidence while parsing only when enabled rules need scann
 tokens. Input that only strict indentation rejects keeps the facts and tokens of that
 same relaxed parse for the repair path.
 
-For fallback and indentation-only callers, changed single-document output of at
-least 1 MB uses one strict streaming parse to compare significant events against the
-input tape through EOF and cache compact
-output facts for the subsequent passes. A successful comparison certifies strict validity.
-Strict parse errors retain the cached relaxed comparison and final strict-output guard.
-Small files and multi-document streams retain their existing verification paths.
-Consistency checks, per-document rollback and the bounded fixed-point loop still run.
+Re-indentation for fallback, notice and repair callers shares the layout's refusals, so
+it keeps every document's events; debug builds assert so. `fix::repair` still parses
+its result strictly and compares representations, and collection conversion verifies
+its own output.
 
 - `--check`/`--diff` attach `format::problems` to `DiffOutcome`: the formatting rules'
   checkers on the original text, kept only for rules that actually edited and lines no

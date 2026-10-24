@@ -91,10 +91,7 @@ pub(crate) fn prepare(
         }
     }
     let mut output = TextVersion::new(apply_replacements(input.text(), edits));
-    if !input
-        .verify_collection_events(output.analysis())
-        .unwrap_or(false)
-    {
+    if !input.verify_collection_events(output.analysis()) {
         return Err(crate::format::layout::Fallback::Verification);
     }
     output.mark_strict_valid();

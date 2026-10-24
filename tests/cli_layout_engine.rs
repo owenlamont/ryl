@@ -1171,6 +1171,59 @@ fn non_ascii_marker_rolls_back_the_collection_stage() {
 }
 
 #[test]
+fn non_ascii_marker_falls_back_while_folding_without_quote_edits() {
+    let input = "---\u{a0}x\n---\nkey:  value\n";
+    let (output, statistics) =
+        format_with_statistics(input, "[format]\nfold-long-lines = true\n");
+    assert_eq!(output, input);
+    assert_eq!(statistics["fallback"], "Verification", "{statistics}");
+}
+
+#[test]
+fn a_lint_fix_replans_its_output_until_it_settles() {
+    let (code, _, stderr, fixed) = common::cli::ryl_on(
+        Some("[lint.rules]\nbraces = 'enable'\ncommas = 'enable'\n"),
+        "a: { a: a, }\n",
+        &["check", "--fix", "--no-cache"],
+    );
+    assert_eq!((code, fixed.as_str()), (0, "a: {a: a}\n"), "{stderr}");
+}
+
+#[test]
+fn a_check_reports_the_document_a_comment_would_carry_into_a_block_scalar() {
+    let (code, _, diagnostics, _) = common::cli::ryl_on(
+        Some("[format]\n"),
+        "a:\n -  b: |1\n   \n    # c\n",
+        &["format", "--check", "--output-format", "parsable"],
+    );
+    assert_eq!(code, 1, "{diagnostics}");
+    assert!(
+        diagnostics.contains(
+            ":1:1 indentation not fixed: cannot re-indent this document safely"
+        ),
+        "{diagnostics}"
+    );
+}
+
+#[test]
+fn a_large_sequence_conversion_keeps_its_prefetched_tokens() {
+    let input = threshold_input(1_048_620, "list: [a, b]\n");
+    let (output, statistics) =
+        format_with_statistics(&input, "[format]\nsequence-style = 'block'\n");
+    assert!(output == input.replace("list: [a, b]", "list:\n  - a\n  - b"));
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn a_large_conversion_beside_a_non_ascii_marker_keeps_its_input() {
+    let input = threshold_input(1_048_620, "---\u{a0}x\n---\nitems: [a, b]\n");
+    let (output, statistics) =
+        format_with_statistics(&input, "[format]\nsequence-style = 'block'\n");
+    assert!(output == input);
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
 fn non_ascii_marker_rolls_back_the_quote_stage() {
     let input = "---\u{a0}x\n---\nkey: 'value'\n";
     let (output, statistics) = format_with_statistics(

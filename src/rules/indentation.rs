@@ -912,7 +912,8 @@ impl<'a> Analyzer<'a> {
     /// it, or with the collection it is indented against where an indentation indicator
     /// fixes its column, and a continuation with the line it starts on.
     fn carry_scalar_lines(&mut self, token: &Token, style: ScalarStyle) {
-        let delta = if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+        let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
+        let delta = if !block {
             let lines = self.lines.expect("target analysis has virtual lines");
             // A continuation follows its token, but one deeper than its collection stays so.
             (token.line + 1..=last_line(token))
@@ -941,9 +942,7 @@ impl<'a> Analyzer<'a> {
             self.block_parent()
                 .map_or(0, |parent| parent.indent - self.source_column(parent.start))
         };
-        if token.end_column == 0
-            && matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
-        {
+        if block && token.end_column == 0 {
             // A valid body's content column is at least its first content line's, else at
             // least its widest spaces-only line's.
             let content = self
