@@ -59,8 +59,17 @@ def resolve_roots(raw_roots: list[str] | None) -> list[str]:
 
 
 def iter_files(root: Path, extensions: set[str]) -> list[Path]:
-    """Return recursively discovered files under a root, optionally filtered."""
-    files = [path for path in root.rglob("*") if path.is_file()]
+    """Return recursively discovered files under a root, optionally filtered.
+
+    A submodule checkout is skipped: the baseline worktree never initialises one.
+    """
+    submodules = [git.parent for git in root.rglob(".git") if git.parent != root]
+    files = [
+        path
+        for path in root.rglob("*")
+        if path.is_file()
+        and not any(path.is_relative_to(module) for module in submodules)
+    ]
     if not extensions:
         return sorted(files)
     return sorted(path for path in files if path.suffix in extensions)

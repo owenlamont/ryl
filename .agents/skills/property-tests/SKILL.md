@@ -143,8 +143,7 @@ TOML row for the ryl-only ladder options.
   markers, flow indicators, scalar style and anchor names. It skips an input the
   reference rejects (a lenient repair) and fails an output it rejects. One persistent
   Node process per test thread runs the `tests/yaml-reference-parser` submodule (npm-free
-  through `node_shims/`, with an astral-character lookbehind fix in `reference.cjs`);
-  `RYL_REFERENCE_PARSER` overrides its path.
+  through `node_shims/`, with an astral-character lookbehind fix in `reference.cjs`).
 - Whitespace-tail breadth lives in `arb_whitespace_block_scalar`, shared by YAML and
   Markdown properties. Keep named regressions for the CRLF seed and multiple whitespace
   content lines instead of fixture matrices.

@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use super::representation::representation;
@@ -16,10 +16,7 @@ struct ReferenceParser {
 impl ReferenceParser {
     fn new() -> Self {
         let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-        let parser = std::env::var_os("RYL_REFERENCE_PARSER").map_or_else(
-            || tests.join("yaml-reference-parser/parser-1.2/javascript"),
-            PathBuf::from,
-        );
+        let parser = tests.join("yaml-reference-parser/parser-1.2/javascript");
         assert!(
             parser.join("lib/parser.js").is_file(),
             "{} is not the YAML reference parser: run \
