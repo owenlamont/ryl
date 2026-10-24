@@ -1027,6 +1027,7 @@ impl Presentation {
     ) -> Result<(indentation::Layout<'a>, indentation::Targets, Self), Fallback> {
         facts::prepare_input(input, passes.line_length.is_some()).and_then(|()| {
             let mut layout = indentation::Layout::new(input, cfg);
+            layout.trimmed = passes.trailing_spaces;
             Self::new(input, passes, &mut layout, cache).and_then(|presentation| {
                 if !layout.collapse_scalars(&presentation.edits) {
                     return Err(Fallback::ScalarInteraction);
@@ -1055,6 +1056,7 @@ impl Presentation {
     ) -> Result<(indentation::Layout<'a>, indentation::Targets, Self), Fallback> {
         let mut presentation = Self::pre_scan(input, passes, cache)?;
         let mut layout = indentation::Layout::format(input, cfg);
+        layout.trimmed = passes.trailing_spaces;
         if !layout.collapse_scalars(&presentation.edits) {
             return Err(Fallback::ScalarInteraction);
         }

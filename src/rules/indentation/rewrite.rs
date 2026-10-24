@@ -66,6 +66,8 @@ pub(crate) struct Layout<'a> {
     projection: Option<Vec<usize>>,
     pub(crate) kept_dash_lines: Vec<(usize, usize)>,
     consistent: Option<bool>,
+    /// Whether `trailing-spaces` empties whitespace-only lines.
+    pub(crate) trimmed: bool,
 }
 
 impl<'a> Layout<'a> {
@@ -299,6 +301,7 @@ impl<'a> Layout<'a> {
             projection: None,
             kept_dash_lines,
             consistent: None,
+            trimmed: false,
         };
         layout.reindex();
         layout
@@ -833,9 +836,12 @@ impl<'a> Layout<'a> {
         }
         let mut block_lines = None;
         for (line, content, _) in self.input.lines() {
-            // A whitespace-only line is blank unless a block scalar holds it.
+            // A trimmed whitespace-only line is blank unless a block scalar holds it.
             if tab_in_indentation(content)
                 && (!content.trim_start_matches([' ', '\t']).is_empty()
+                    || !self.trimmed
+                    || directives
+                        .is_disabled(crate::rules::trailing_spaces::ID, line + 1)
                     || block_lines
                         .get_or_insert_with(|| self.block_scalar_lines())
                         .iter()

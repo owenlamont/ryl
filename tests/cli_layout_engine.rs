@@ -507,6 +507,12 @@ fn a_marker_on_a_bom_only_line_counts_the_rest_as_blank_in_one_pass() {
 #[test]
 fn a_tab_only_line_does_not_refuse_reindenting_its_flow_in_one_pass() {
     assert_one_pass("- [\n\t\n foo\n ]\n", "[format]\n", "- [\n\n  foo\n ]\n");
+    for kept in [
+        "# yamllint disable rule:trailing-spaces\n- [\n\t\n foo\n ]\n",
+        "foo: |\n \t\nbar:\n   1\n",
+    ] {
+        assert_one_pass(kept, "[format]\n", kept);
+    }
 }
 
 #[test]
