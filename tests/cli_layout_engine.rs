@@ -459,6 +459,8 @@ fn a_mapping_one_column_after_its_dash_joins_it_in_one_pass() {
             "- foo: bar\n  baz: 1\n",
         ),
         ("-\n \"foo\": bar\n", "[format]\n", "- foo: bar\n"),
+        ("-\n a: x\n", "indent-width = 1\n[format]\n", "-\n a: x\n"),
+        ("-\n  a: x\n", "indent-width = 1\n[format]\n", "- a: x\n"),
         (
             "-\n foo: bar  # yamllint disable-line rule:hyphens\n",
             "[format]\n",

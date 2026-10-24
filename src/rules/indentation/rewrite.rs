@@ -278,13 +278,15 @@ impl<'a> Layout<'a> {
         }
         let kept_dash_lines = if parsed && streaming {
             cfg.dash_on_own_line.map_or_else(Vec::new, |own_line| {
-                // A one-column join inserts the space `hyphens` owns, unless the
-                // re-indent puts the mapping there anyway.
-                let spaced = |at: [usize; 2]| {
-                    cfg.spaces == super::SpacesSetting::Fixed(2)
-                        || !at
-                            .iter()
-                            .any(|&line| directives.is_disabled(hyphens::ID, line + 1))
+                // A one-column join stands in for the join after the re-indent moves
+                // the mapping `spaces` from its dash: none at width 1, and past width 2
+                // only where `hyphens` may trim the gap that leaves.
+                let spaced = |at: [usize; 2]| match cfg.spaces {
+                    super::SpacesSetting::Fixed(1) => false,
+                    super::SpacesSetting::Fixed(2) => true,
+                    _ => !at
+                        .iter()
+                        .any(|&line| directives.is_disabled(hyphens::ID, line + 1)),
                 };
                 reshape_events(input, &mut lines, own_line, &spaced)
             })
@@ -1117,7 +1119,7 @@ fn reshape_events<'a>(
             _ => {}
         }
     }
-    // A refused space refuses its document's re-indent, and so every join in it.
+    // A join `spaced` refuses refuses its document's re-indent, and so every join in it.
     let document = |line| {
         input
             .parsed()
