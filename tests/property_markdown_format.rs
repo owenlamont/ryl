@@ -9,6 +9,8 @@ mod config;
 mod passes;
 #[path = "property_format/properties.rs"]
 mod properties;
+#[path = "property_format/reference.rs"]
+mod reference;
 #[path = "property_format/representation.rs"]
 mod representation;
 #[path = "property_format/settings.rs"]
@@ -27,7 +29,8 @@ use ryl::fix::{Rewrite, fix_markdown_str};
 use ryl::{MarkdownSources, extract_regions};
 
 use config::{synthetic_base_dir, synthetic_path};
-use representation::{check_annotations, check_values, check_yaml_1_1_preserved};
+use reference::check_values;
+use representation::{check_annotations, check_yaml_1_1_preserved};
 
 #[test]
 #[ignore = "driven by scripts/formatter_corpus_check.py over cloned real-world repos"]

@@ -59,8 +59,14 @@ def resolve_roots(raw_roots: list[str] | None) -> list[str]:
 
 
 def iter_files(root: Path, extensions: set[str]) -> list[Path]:
-    """Return recursively discovered files under a root, optionally filtered."""
-    files = [path for path in root.rglob("*") if path.is_file()]
+    """Return the files Git tracks under a root, optionally filtered.
+
+    A submodule is a single gitlink entry, so its checkout is never counted.
+    """
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=root, capture_output=True, text=True, check=True
+    ).stdout
+    files = [root / name for name in tracked.split("\0") if (root / name).is_file()]
     if not extensions:
         return sorted(files)
     return sorted(path for path in files if path.suffix in extensions)

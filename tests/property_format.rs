@@ -56,9 +56,10 @@ use passes::{
     named_pass, yaml_rules_for,
 };
 use properties::arb_document_with_properties;
+use reference::check_values;
 use representation::{
-    Node, Value, annotations, check_annotations, check_values,
-    check_yaml_1_1_preserved, representation,
+    Node, Value, annotations, check_annotations, check_yaml_1_1_preserved,
+    representation,
 };
 
 #[test]
@@ -97,6 +98,42 @@ fn folded_multiple_whitespace_lines_reject_an_invented_newline() {
     let mutated = r#"a: "a\n\n  \n\n  \n""#;
     assert_eq!(check_values(input, equivalent), Ok(()));
     assert!(check_values(input, mutated).is_err());
+}
+
+#[test]
+fn reference_events_ignore_presentation_but_not_content() {
+    let input = "a: &x !!str 'b c'\nd: [e, {f: g}]\nh: *x\n";
+    for same in [
+        "---\na: &x !!str b c\nd:\n- e\n- f: g\nh: *x\n...\n",
+        "a: &x !!str \"b c\"\r\nd: [e, {f: g}]\r\nh: *x\r\n",
+        input,
+    ] {
+        assert_eq!(reference::check_events(input, same), Ok(()), "{same:?}");
+    }
+    for changed in [
+        "a: &x !!str 'b  c'\nd: [e, {f: g}]\nh: *x\n",
+        "a: !!str 'b c'\nd: [e, {f: &x g}]\nh: *x\n",
+        "a: &x 'b c'\nd: [e, {f: g}]\nh: *x\n",
+        "a: &x !!str 'b c'\nd: [e, [f, g]]\nh: *x\n",
+        "a: &x !!str 'b c'\nd: [e, {f: g}\nh: *x\n",
+    ] {
+        assert!(
+            reference::check_events(input, changed).is_err(),
+            "{changed:?}"
+        );
+    }
+    assert_eq!(reference::check_events("a: [", "a: []\n"), Ok(()));
+    let anchor_like = "i: '&j *x'\n";
+    assert_eq!(
+        reference::check_events(anchor_like, "i: \"&j *x\"\n"),
+        Ok(())
+    );
+    assert!(reference::check_events(anchor_like, "i: '&j *y'\n").is_err());
+    assert_eq!(reference::check_events("a: '🦀#'\n", "a: 🦀#\n"), Ok(()));
+    assert!(
+        reference::check_events("[&a x, &a y, &b z, *b]\n", "[&a x, &a y, &b z, *a]\n")
+            .is_err()
+    );
 }
 
 #[test]
@@ -565,16 +602,6 @@ proptest! {
         for pass in format_passes() {
             check_pass(pass, &input).map_err(TestCaseError::fail)?;
         }
-    }
-
-    #[test]
-    #[ignore = "requires Node and RYL_REFERENCE_PARSER pointing to yaml-parser"]
-    fn block_scalar_oracle_matches_reference(input in properties::arb_whitespace_block_scalar()) {
-        let expected = reference::block_value(&input);
-        let equivalent = format!("a: {}\n", serde_json::to_string(&expected).unwrap());
-        prop_assert_eq!(check_values(&input, &equivalent), Ok(()));
-        let mutated = format!("a: {}\n", serde_json::to_string(&format!("\n{expected}")).unwrap());
-        prop_assert!(check_values(&input, &mutated).is_err());
     }
 
     #[test]
