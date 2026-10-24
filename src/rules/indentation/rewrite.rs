@@ -790,8 +790,8 @@ impl<'a> Layout<'a> {
         extra.map_or(column, |extra| extra.column(original, byte, column))
     }
 
-    /// The 0-based lines each block scalar's body spans.
-    fn block_scalar_lines(&self) -> Vec<std::ops::Range<usize>> {
+    /// The 0-based lines each scalar that trailing-spaces protects spans.
+    fn protected_scalar_lines(&self) -> Vec<std::ops::Range<usize>> {
         self.input
             .parsed()
             .scalars()
@@ -800,6 +800,7 @@ impl<'a> Layout<'a> {
                     style,
                     ryl_yaml_parser::ScalarStyle::Literal
                         | ryl_yaml_parser::ScalarStyle::Folded
+                        | ryl_yaml_parser::ScalarStyle::DoubleQuoted
                 )
             })
             .map(|(_, span)| {
@@ -834,17 +835,17 @@ impl<'a> Layout<'a> {
                 refuse(self.lines[gap.line].origin, Cause::Disabled);
             }
         }
-        let mut block_lines = None;
+        let mut protected = None;
         for (line, content, _) in self.input.lines() {
-            // Where trailing-spaces runs, a whitespace-only line outside a block scalar
-            // is blank.
+            // Where trailing-spaces runs, a whitespace-only line outside the scalars it
+            // protects is blank.
             if tab_in_indentation(content)
                 && (!content.trim_start_matches([' ', '\t']).is_empty()
                     || !self.trimmed
                     || directives
                         .is_disabled(crate::rules::trailing_spaces::ID, line + 1)
-                    || block_lines
-                        .get_or_insert_with(|| self.block_scalar_lines())
+                    || protected
+                        .get_or_insert_with(|| self.protected_scalar_lines())
                         .iter()
                         .any(|lines: &std::ops::Range<usize>| lines.contains(&line)))
             {

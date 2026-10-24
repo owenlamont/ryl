@@ -510,9 +510,12 @@ fn a_tab_only_line_does_not_refuse_reindenting_its_flow_in_one_pass() {
     for kept in [
         "# yamllint disable rule:trailing-spaces\n- [\n\t\n foo\n ]\n",
         "foo: |\n \t\nbar:\n   1\n",
+        "a:\n   b: \"x\\\n      \t\n      y\"\n",
     ] {
         assert_one_pass(kept, "[format]\n", kept);
     }
+    let crlf = "a:\r\n   b: \"x\\\r\n      \t\r\n      y\"\r\n";
+    assert_one_pass(crlf, "[format]\nline-ending = 'cr-lf'\n", crlf);
 }
 
 #[test]
