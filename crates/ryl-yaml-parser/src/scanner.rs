@@ -1649,6 +1649,11 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         Ok(())
     }
 
+    /// Fail with invalid indentation under strict indentation; otherwise record it.
+    fn reject_strict_indentation(&mut self) -> ScanResult {
+        self.reject_indentation(self.scan_error(ErrorKind::InvalidIndentation), false)
+    }
+
     /// Record `error` as one strict indentation would have raised, keeping the first.
     fn record_strict_rejection(&mut self, error: ScanError) {
         self.strict_indentation_error.get_or_insert(error);
@@ -1806,10 +1811,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         // Block indentation was handled by `unroll_indent`. Flow entries and delimiters
         // may be under-indented only when strict YAML indentation is disabled.
         if self.flow_level > 0 && (self.mark.col as isize) <= self.flow_block_indent() {
-            self.reject_indentation(
-                self.scan_error(ErrorKind::InvalidIndentation),
-                false,
-            )?;
+            self.reject_strict_indentation()?;
         }
 
         let c = self.input.peek();
@@ -3635,10 +3637,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                 && self.flow_level > 0
                 && (self.mark.col as isize) <= self.flow_block_indent()
             {
-                self.reject_indentation(
-                    self.scan_error(ErrorKind::InvalidIndentation),
-                    false,
-                )?;
+                self.reject_strict_indentation()?;
             }
 
             // Continuation lines of a quoted scalar in block context must be indented more than
@@ -3664,10 +3663,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                 && self.flow_level == 0
                 && (self.mark.col as isize) <= self.flow_block_indent()
             {
-                self.reject_indentation(
-                    self.scan_error(ErrorKind::InvalidIndentation),
-                    false,
-                )?;
+                self.reject_strict_indentation()?;
             }
 
             // A single folded line break becomes one space. Without a break the pending

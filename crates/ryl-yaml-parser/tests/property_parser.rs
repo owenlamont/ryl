@@ -203,6 +203,13 @@ proptest! {
     }
 
     #[test]
+    fn relaxed_token_sequences_predict_strict_indentation(
+        input in "(\\? |\\?|&a |&a|!t |!t|\t|  | |- |-|b|c d|\"x\" |: |:|\\[|\\]|\\{|\\}|,|\"|'|%|#c|\n|\r\n|x|\\\\|---\n|\\.\\.\\.\n|\\||>|\\*a){0,48}"
+    ) {
+        common::check_strict_indentation_prediction(&input);
+    }
+
+    #[test]
     fn anchors_aliases_and_merges_keep_their_relationships(
         data in seeded(vec(0u8..4, 1), 256)
     ) {
