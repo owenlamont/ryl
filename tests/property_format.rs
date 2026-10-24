@@ -162,6 +162,21 @@ fn blank_scalar_body_moves_with_its_compact_collection() {
 }
 
 #[test]
+fn reference_parser_crash_names_the_input_and_keeps_the_parser_alive() {
+    let overflowing = format!("{}b{}\n", "[".repeat(1000), "]".repeat(1000));
+    let crash =
+        std::panic::catch_unwind(|| reference::check_events("a: b\n", &overflowing))
+            .expect_err("a stack overflow in the reference parser must fail the check");
+    let message = crash.downcast_ref::<String>().unwrap();
+    assert!(
+        message.starts_with("reference parser crashed on \"[[[")
+            && message.contains("RangeError"),
+        "{message}"
+    );
+    assert_eq!(reference::check_events("a: c\n", "a: 'c'\n"), Ok(()));
+}
+
+#[test]
 fn reference_block_scalar_matrix_keeps_each_value() {
     #[derive(serde::Deserialize)]
     struct Case {
