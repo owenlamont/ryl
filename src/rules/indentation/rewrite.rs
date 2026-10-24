@@ -325,7 +325,7 @@ impl<'a> Layout<'a> {
             deltas,
             gaps,
             mut refused,
-            scalar_owners: _,
+            ..
         } = self.targets(cfg, &[], false);
         let lines = &self.lines;
         let starts = &self.starts;
@@ -441,6 +441,7 @@ impl<'a> Layout<'a> {
             gaps: analyzer.gaps,
             refused,
             scalar_owners: analyzer.scalar_owners.unwrap_or_default(),
+            last_token: analyzer.shifts.iter().rposition(Option::is_some),
         }
     }
 
@@ -786,6 +787,25 @@ impl<'a> Layout<'a> {
         extra.map_or(column, |extra| extra.column(original, byte, column))
     }
 
+    /// The 0-based lines each block scalar's body spans.
+    fn block_scalar_lines(&self) -> Vec<std::ops::Range<usize>> {
+        self.input
+            .parsed()
+            .scalars()
+            .filter(|(style, _)| {
+                matches!(
+                    style,
+                    ryl_yaml_parser::ScalarStyle::Literal
+                        | ryl_yaml_parser::ScalarStyle::Folded
+                )
+            })
+            .map(|(_, span)| {
+                span.start.line() - 1
+                    ..span.end.line() - usize::from(span.end.col() == 0)
+            })
+            .collect()
+    }
+
     /// Each document's first [`Cause`] other than [`Cause::Changed`].
     fn refusals(
         &self,
@@ -811,8 +831,16 @@ impl<'a> Layout<'a> {
                 refuse(self.lines[gap.line].origin, Cause::Disabled);
             }
         }
+        let mut block_lines = None;
         for (line, content, _) in self.input.lines() {
-            if tab_in_indentation(content) {
+            // A whitespace-only line is blank unless a block scalar holds it.
+            if tab_in_indentation(content)
+                && (!content.trim_start_matches([' ', '\t']).is_empty()
+                    || block_lines
+                        .get_or_insert_with(|| self.block_scalar_lines())
+                        .iter()
+                        .any(|lines: &std::ops::Range<usize>| lines.contains(&line)))
+            {
                 refuse(line, Cause::Tab);
             }
         }
@@ -828,6 +856,8 @@ pub(crate) struct Targets {
     pub(crate) gaps: Vec<Gap>,
     pub(crate) refused: Vec<Option<Cause>>,
     pub(crate) scalar_owners: Vec<(usize, usize)>,
+    /// The last line a token leads or a scalar carries.
+    pub(crate) last_token: Option<usize>,
 }
 
 pub(crate) struct StreamTargets {
@@ -846,6 +876,7 @@ impl StreamTargets {
             refused: layout.refusals(&self.gaps, &self.diagnostics),
             gaps: self.gaps,
             scalar_owners: self.scalar_owners,
+            last_token: self.shifts.iter().rposition(Option::is_some),
         }
     }
 }

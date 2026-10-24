@@ -199,6 +199,12 @@ fn comment_is_aligned(
         || open_indents.contains(&indent)
 }
 
+/// Each line's kind, as `check` and `fix` judge it.
+pub(crate) fn line_kinds(input: Analysis<'_>) -> impl Fn(usize) -> Option<LineKind> {
+    let lines = build_lines(input);
+    move |line| lines.get(line).map(|info| info.kind)
+}
+
 /// Classify every line once, shared by `check` and `fix`. Scalar tokens come from the
 /// scanner rather than the parser, as in `comments_scan`, so a parse error degrades less.
 fn build_lines(input: Analysis<'_>) -> std::borrow::Cow<'_, [LineInfo]> {
@@ -336,7 +342,7 @@ pub(crate) struct LineInfo {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LineKind {
+pub(crate) enum LineKind {
     Empty,
     Comment,
     /// yamllint reads a comment on the line a block scalar's span runs on to as

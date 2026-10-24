@@ -914,21 +914,25 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     fixer.finish()
 }
 
-pub(crate) fn format_replacements(
-    input: crate::text_version::Analysis<'_>,
-    cfg: &Config,
+/// Each scalar's settled replacement; `format` leaves plain and block scalars alone, and
+/// `spaced_colon` says whether the colons pass leaves a space after the `:` at a byte.
+pub(crate) fn format_replacements<'a>(
+    input: crate::text_version::Analysis<'a>,
+    cfg: &'a Config,
     cache: &mut HashMap<String, Option<bool>>,
-    settle: bool,
-) -> (Vec<Replacement>, bool, Option<usize>) {
+    format: bool,
+    spaced_colon: &'a dyn Fn(usize) -> bool,
+) -> Vec<Replacement> {
     let mut fixer = QuotedStringsFixer::new(cfg, input.text());
+    fixer.state.spaced_colon = Some(spaced_colon);
     std::mem::swap(&mut fixer.state.plain_scalar_cache, cache);
-    fixer.settle = settle;
-    fixer.settled = fixer.settle;
+    fixer.format = format;
+    fixer.settle = true;
     for (event, span) in input.event_iter() {
         fixer.on_event(event, span);
     }
     std::mem::swap(&mut fixer.state.plain_scalar_cache, cache);
-    (fixer.replacements, fixer.settled, fixer.unsettled)
+    fixer.replacements
 }
 
 fn initial_consistent_quote_style(cfg: &Config, buffer: &str) -> Option<QuoteStyle> {
@@ -970,9 +974,8 @@ impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
 struct QuotedStringsFixer<'cfg> {
     state: FixState<'cfg>,
     replacements: Vec<Replacement>,
+    format: bool,
     settle: bool,
-    settled: bool,
-    unsettled: Option<usize>,
 }
 
 impl<'cfg> QuotedStringsFixer<'cfg> {
@@ -984,9 +987,8 @@ impl<'cfg> QuotedStringsFixer<'cfg> {
                 initial_consistent_quote_style(cfg, buffer),
             ),
             replacements: Vec::new(),
+            format: false,
             settle: false,
-            settled: false,
-            unsettled: None,
         }
     }
 
@@ -1001,18 +1003,12 @@ impl<'cfg> QuotedStringsFixer<'cfg> {
 impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         let replacements = &mut self.replacements;
-        let settle = self.settle;
-        let settled = &mut self.settled;
-        let unsettled = &mut self.unsettled;
+        let (format, settle) = (self.format, self.settle);
         self.state
             .visit_event(event, span, |state, style, value, tag, span| {
-                let (replacement, final_scalar) =
-                    state.fix_scalar(style, value, tag, span, settle);
-                *settled &= final_scalar;
-                if !final_scalar {
-                    unsettled.get_or_insert(marker_byte_offset(span.start).get());
-                }
-                if let Some(replacement) = replacement {
+                if let Some(replacement) =
+                    state.fix_scalar(style, value, tag, span, format, settle)
+                {
                     replacements.push(replacement);
                 }
             });
@@ -1027,6 +1023,7 @@ struct FixState<'cfg> {
     consistent_quote_style: Option<QuoteStyle>,
     current_version: Option<Version>,
     plain_scalar_cache: HashMap<String, Option<bool>>,
+    spaced_colon: Option<&'cfg dyn Fn(usize) -> bool>,
 }
 
 impl<'cfg> FixState<'cfg> {
@@ -1035,23 +1032,9 @@ impl<'cfg> FixState<'cfg> {
         value: &str,
         active_key: bool,
         replacement: Replacement,
-    ) -> (Replacement, bool) {
-        let prefix = self.buffer[..replacement.0.get()].trim_end_matches('\u{feff}');
-        // A line-leading plain scalar can expose a document marker and a quoted child.
-        if prefix
-            .as_bytes()
-            .last()
-            .is_none_or(|last| matches!(last, b'\n' | b'\r'))
-        {
-            return (replacement, false);
-        }
+    ) -> Replacement {
         let (start, end, text) = replacement;
-        let suffix = if active_key
-            && next_token(&self.buffer[end.get()..])
-                .strip_prefix(':')
-                .and_then(|after| after.chars().next())
-                .is_some_and(|next| !next.is_whitespace())
-        {
+        let suffix = if active_key && self.adjacent_colon(end) {
             ":x"
         } else {
             ""
@@ -1059,7 +1042,7 @@ impl<'cfg> FixState<'cfg> {
         let style = match text.as_bytes().first() {
             Some(b'\'') => ScalarStyle::SingleQuoted,
             Some(b'"') => ScalarStyle::DoubleQuoted,
-            _ => return ((start, end, text), true),
+            _ => return (start, end, text),
         };
         let buffer = format!("{text}{suffix}");
         let chars = text.chars().count();
@@ -1090,13 +1073,25 @@ impl<'cfg> FixState<'cfg> {
             span,
         );
         std::mem::swap(&mut local.plain_scalar_cache, &mut self.plain_scalar_cache);
-        match next {
-            None => ((start, end, text), true),
-            Some((_, _, next)) => {
-                let final_scalar = !next.starts_with(['\'', '"']);
-                ((start, end, next), final_scalar)
-            }
-        }
+        (start, end, next.map_or(text, |(_, _, next)| next))
+    }
+
+    /// Whether a `:` before a non-space (`{'k':v}`, `{'k' :v}`) follows the key ending at
+    /// `end`, even across comments and line breaks: it is a value indicator only because the
+    /// key is quoted, unless the colons pass spaces it.
+    fn adjacent_colon(&self, end: BytePos) -> bool {
+        let rest = &self.buffer[end.get()..];
+        let token = next_token(rest);
+        token
+            .strip_prefix(':')
+            .and_then(|after| after.chars().next())
+            .is_some_and(|next| {
+                !next.is_whitespace()
+                    && (matches!(next, ',' | ']' | '}' | '#')
+                        || self.spaced_colon.is_none_or(|spaced| {
+                            !spaced(end.get() + rest.len() - token.len())
+                        }))
+            })
     }
 
     fn visit_event(
@@ -1143,6 +1138,7 @@ impl<'cfg> FixState<'cfg> {
             consistent_quote_style,
             current_version: None,
             plain_scalar_cache: HashMap::new(),
+            spaced_colon: None,
         }
     }
 
@@ -1187,40 +1183,39 @@ impl<'cfg> FixState<'cfg> {
         value: &str,
         tag: Option<&Tag>,
         span: Span,
+        format: bool,
         settle: bool,
-    ) -> (Option<Replacement>, bool) {
+    ) -> Option<Replacement> {
         let context = self.walker.begin_node();
         let active_key = context.active();
-        if settle
+        if format
             && matches!(
                 style,
                 ScalarStyle::Plain | ScalarStyle::Literal | ScalarStyle::Folded
             )
         {
             self.walker.finish_node(context);
-            return (None, true);
+            return None;
         }
         let resolves_to_string =
             resolves_to_string_for_version(self.current_version, value);
 
         if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
             self.walker.finish_node(context);
-            return (None, true);
+            return None;
         }
 
-        let mut replacement =
-            self.compute_fix(style, value, active_key, resolves_to_string, span);
-
-        let mut settled = true;
-        if settle && let Some(first) = replacement.take() {
-            let (final_replacement, final_scalar) =
-                self.settle_scalar(value, active_key, first);
-            replacement = Some(final_replacement);
-            settled = final_scalar;
-        }
-
+        let replacement = self
+            .compute_fix(style, value, active_key, resolves_to_string, span)
+            .map(|first| {
+                if settle {
+                    self.settle_scalar(value, active_key, first)
+                } else {
+                    first
+                }
+            });
         self.walker.finish_node(context);
-        (replacement, settled)
+        replacement
     }
 
     fn collect_consistent_quote_style(
@@ -1272,14 +1267,7 @@ impl<'cfg> FixState<'cfg> {
             &mut self.plain_scalar_cache,
         );
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
-        // A `:` before a non-space (`{'k':v}`, `{'k' :v}`) is a value indicator only
-        // because the key is quoted, even with comments and line breaks in between.
-        if active_key
-            && next_token(&self.buffer[end.get()..])
-                .strip_prefix(':')
-                .and_then(|after| after.chars().next())
-                .is_some_and(|next| !next.is_whitespace())
-        {
+        if active_key && self.adjacent_colon(end) {
             facts.quotes_needed = Flag::new(true);
         }
 

@@ -73,13 +73,30 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>) -> Option<String> {
 }
 
 pub(crate) fn edits(input: Analysis<'_>) -> Vec<Edit> {
+    edits_restyled(input, |_| false)
+}
+
+/// The edits once each multi-line double-quoted scalar `restyled` names by its start byte
+/// is rewritten in a style whose line ends hold no escapes.
+pub(crate) fn edits_restyled(
+    input: Analysis<'_>,
+    restyled: impl Fn(usize) -> bool,
+) -> Vec<Edit> {
     let buffer = input.text();
     let Some(mut protected) =
         crate::rules::support::line_syntax::protected_scalar_lines_with_analysis(
             input,
             |style, span| match style {
                 ScalarStyle::Literal | ScalarStyle::Folded => true,
-                ScalarStyle::DoubleQuoted => span.end.line() > span.start.line(),
+                ScalarStyle::DoubleQuoted => {
+                    span.end.line() > span.start.line()
+                        && !restyled(
+                            crate::rules::support::span_utils::marker_byte_offset(
+                                span.start,
+                            )
+                            .get(),
+                        )
+                }
                 _ => false,
             },
         )
