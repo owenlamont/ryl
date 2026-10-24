@@ -952,6 +952,16 @@ impl<'input, T: BorrowedInput<'input>, O: crate::TokenObserver> Parser<'input, T
         self.anchor_id_count
     }
 
+    /// Return the error [`crate::Options::strict_indentation`] would have stopped at, while
+    /// it is off; see [`Scanner::strict_indentation_error`].
+    ///
+    /// Strict parsing fails with this error when one is recorded before any other error,
+    /// and otherwise behaves exactly as relaxed parsing did.
+    #[must_use]
+    pub fn strict_indentation_error(&self) -> Option<&ScanError> {
+        self.scanner.strict_indentation_error()
+    }
+
     /// Set the next anchor ID that will be assigned by this parser.
     pub fn set_anchor_offset(&mut self, offset: usize) {
         self.anchor_id_count = offset;

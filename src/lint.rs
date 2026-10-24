@@ -63,10 +63,7 @@ pub fn lint_file(
     base_dir: &Path,
 ) -> Result<Vec<LintProblem>, String> {
     let content = decoder::read_file(path)?;
-    let problems = lint_str(&content, path, cfg, base_dir);
-    Ok(with_syntax_repair_help(
-        &content, problems, path, cfg, base_dir,
-    ))
+    Ok(lint_str_with_repair_help(&content, path, cfg, base_dir))
 }
 
 /// Lint the YAML embedded in a markdown file and return diagnostics whose
@@ -379,8 +376,20 @@ pub fn lint_str(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Vec<LintProblem> {
+    lint_unless_syntax_error(content, path, cfg, base_dir)
+        .unwrap_or_else(|(syntax, _)| vec![syntax])
+}
+
+/// [`lint_str`]'s diagnostics, or the syntax error that stops linting and whether a rewrite
+/// may repair it.
+fn lint_unless_syntax_error(
+    content: &str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> Result<Vec<LintProblem>, (LintProblem, bool)> {
     if crate::directives::disables_file(content) {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let mut diagnostics: Vec<LintProblem> = Vec::new();
@@ -407,12 +416,21 @@ pub fn lint_str(
         cfg.rule_level(rule).is_some() && !cfg.is_rule_ignored(rule, path, base_dir)
     });
     let (facts, tokens) = if lexical {
-        ParsedFacts::parse_observed(content, 0, true)
+        ParsedFacts::parse_observed(content, 0)
     } else {
-        (ParsedFacts::parse_with_options(content, 0, true), None)
+        (ParsedFacts::parse(content, 0), None)
     };
-    if let Some(syntax) = syntax_diagnostic(content, facts.error.as_ref()) {
-        return vec![syntax];
+    if let Some(syntax) = syntax_diagnostic(content, facts.strict_error()) {
+        let repairable = facts.strict_error().is_some_and(|error| {
+            matches!(
+                error.kind(),
+                ryl_yaml_parser::ErrorKind::InvalidIndentation
+                    | ryl_yaml_parser::ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator {
+                        indicator: '?'
+                    }
+            )
+        });
+        return Err((syntax, repairable));
     }
     if facts.valid {
         input.seed_facts(facts);
@@ -437,7 +455,7 @@ pub fn lint_str(
         diagnostics.push(warning);
     }
 
-    diagnostics
+    Ok(diagnostics)
 }
 
 pub(crate) fn scan(
@@ -463,9 +481,20 @@ fn syntax_problem(err: &ryl_yaml_parser::ScanError) -> LintProblem {
     }
 }
 
-pub(crate) fn relaxed_parse_error(content: &str) -> Option<LintProblem> {
-    unsupported_version_error(content)
-        .or_else(|| scan(content, false).err().as_ref().map(syntax_problem))
+/// `content`'s relaxed parse error and the error a strict parse stops at, from one parse.
+pub(crate) fn parse_errors(
+    content: &str,
+) -> (Option<LintProblem>, Option<LintProblem>) {
+    if let Some(problem) = unsupported_version_error(content) {
+        return (Some(problem.clone()), Some(problem));
+    }
+    let mut parser = ryl_yaml_parser::Parser::new_from_str(content);
+    let relaxed = parser.load(&mut NullSink, true).err();
+    let strict = parser.strict_indentation_error().or(relaxed.as_ref());
+    (
+        relaxed.as_ref().map(syntax_problem),
+        strict.map(syntax_problem),
+    )
 }
 
 pub(crate) fn strict_parse_error(content: &str) -> Option<LintProblem> {
@@ -532,28 +561,19 @@ fn syntax_diagnostic(
     }
 }
 
+/// [`lint_str`], naming the rewrites that repair a syntax error ryl can repair.
 #[must_use]
-pub fn with_syntax_repair_help(
+pub fn lint_str_with_repair_help(
     content: &str,
-    mut problems: Vec<LintProblem>,
     path: &Path,
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Vec<LintProblem> {
-    let [problem] = problems.as_mut_slice() else {
-        return problems;
+    let mut problem = match lint_unless_syntax_error(content, path, cfg, base_dir) {
+        Ok(problems) => return problems,
+        Err((problem, false)) => return vec![problem],
+        Err((problem, true)) => problem,
     };
-    if problem.rule.is_some()
-        || !matches!(scan(content, true), Err(err) if matches!(
-            err.kind(),
-            ryl_yaml_parser::ErrorKind::InvalidIndentation
-                | ryl_yaml_parser::ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator {
-                    indicator: '?'
-                }
-        ))
-    {
-        return problems;
-    }
     let repairable = |rewrite| {
         rewrite_str(content, cfg, path, base_dir, SourceKind::Yaml, rewrite)
             .0
@@ -572,7 +592,7 @@ pub fn with_syntax_repair_help(
         problem.message.push_str(commands);
         problem.message.push_str(" can repair it");
     }
-    problems
+    vec![problem]
 }
 
 /// The first lexical scan error in `content`, or `None`. [`syntax_diagnostic`] uses it to

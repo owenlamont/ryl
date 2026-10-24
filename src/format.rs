@@ -321,12 +321,15 @@ fn format_tracked(
                 .take()
                 .expect("format facts are transferred once"),
         );
-        if let Some(tokens) = parsed.tokens.take() {
-            if !prefetched {
-                layout::stats::captured();
-            }
-            source.analysis().seed_tokens(tokens);
+        if !prefetched {
+            layout::stats::captured();
         }
+        source.analysis().seed_tokens(
+            parsed
+                .tokens
+                .take()
+                .expect("format tokens are transferred once"),
+        );
     }
     crate::fix::rewrite(input, source, &passes, tracking)
 }

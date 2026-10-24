@@ -910,10 +910,17 @@ pub struct Scanner<'input, T> {
     interrupted_plain_by_comment: Option<Marker>,
     /// Whether the scanner is still validating whitespace after an explicit `?` key indicator.
     ///
-    /// This stays set across streamed comments, and across node properties in strict mode, to
+    /// This stays set across streamed comments and node properties to
     /// distinguish tab separation from the space-only indentation required by a key node or
     /// compact block collection.
     explicit_key_tab_check_pending: bool,
+    /// Whether a node property followed the pending explicit key indicator.
+    explicit_key_property_seen: bool,
+    /// The first error strict indentation would have raised, recorded while it is off.
+    strict_indentation_error: Option<ScanError>,
+    /// An error strict indentation raises on the next token fetch, after ending the current
+    /// token where relaxed scanning continues it.
+    next_strict_indentation_error: Option<ScanError>,
     /// A stack of markers for opening brackets `[` and `{`.
     flow_markers: smallvec::SmallVec<[(Marker, char); 8]>,
     buf_leading_break: String,
@@ -1035,9 +1042,10 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             .expect("a borrowed buffer was just replaced by an owned one"))
     }
 
-    /// The column a tab must reach to be separation rather than indentation.
-    fn tab_indent_limit(&self) -> isize {
-        if self.options.strict_indentation && self.flow_level > 0 {
+    /// The column a tab must reach to be separation rather than indentation under strict
+    /// indentation. Relaxed scanning lowers it to [`Self::indent`] in flow context.
+    fn strict_tab_indent_limit(&self) -> isize {
+        if self.flow_level > 0 {
             self.flow_block_indent() + 1
         } else {
             self.indent
@@ -1063,9 +1071,13 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         while self.input.next_is_blank() || self.input.next_is_break() {
             if self.input.next_is_blank() && *leading_blanks {
                 if self.input.peek() == '\t'
-                    && (self.mark.col as isize) < self.tab_indent_limit()
+                    && (self.mark.col as isize) < self.strict_tab_indent_limit()
                 {
-                    return Err(self.scan_error(ErrorKind::TabInIndentation));
+                    let error = self.scan_error(ErrorKind::TabInIndentation);
+                    self.reject_indentation(
+                        error,
+                        (self.mark.col as isize) < self.indent,
+                    )?;
                 }
                 self.skip_blank();
             } else if self.input.next_is_blank() {
@@ -1393,6 +1405,9 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             flow_markers: smallvec::SmallVec::new(),
             interrupted_plain_by_comment: None,
             explicit_key_tab_check_pending: false,
+            explicit_key_property_seen: false,
+            strict_indentation_error: None,
+            next_strict_indentation_error: None,
 
             buf_leading_break: String::with_capacity(128),
             buf_trailing_breaks: String::with_capacity(128),
@@ -1609,6 +1624,50 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         self.mark
     }
 
+    /// Return the error [`Options::strict_indentation`] would have stopped at, while it is off.
+    ///
+    /// Scanning with strict indentation off records the first place strict indentation would
+    /// reject, with the error it would report there, and carries on. Only the first is kept:
+    /// strict scanning stops there. One relaxed scan thereby serves as a strict check too.
+    #[inline]
+    #[must_use]
+    pub fn strict_indentation_error(&self) -> Option<&ScanError> {
+        self.strict_indentation_error.as_ref()
+    }
+
+    /// Fail with `error` where relaxed scanning rejects it too or indentation is strict;
+    /// otherwise record it and continue.
+    fn reject_indentation(
+        &mut self,
+        error: ScanError,
+        relaxed_rejects: bool,
+    ) -> ScanResult {
+        if relaxed_rejects || self.options.strict_indentation {
+            return Err(error);
+        }
+        self.record_strict_rejection(error);
+        Ok(())
+    }
+
+    /// Record `error` as one strict indentation would have raised, keeping the first.
+    fn record_strict_rejection(&mut self, error: ScanError) {
+        self.strict_indentation_error.get_or_insert(error);
+    }
+
+    /// The error strict indentation raises at an under-indented flow scalar continuation.
+    fn under_indented_continuation_error(&self) -> ScanError {
+        self.ensure_current_char_is_printable()
+            .err()
+            .unwrap_or_else(|| self.scan_error(ErrorKind::InvalidIndentation))
+    }
+
+    /// Record the error strict indentation raised once the token it ended was fetched.
+    fn flush_next_strict_indentation_error(&mut self) {
+        if let Some(error) = self.next_strict_indentation_error.take() {
+            self.record_strict_rejection(error);
+        }
+    }
+
     /// Return whether this scanner may emit comment tokens.
     #[inline]
     pub(crate) fn comments_possible(&self) -> bool {
@@ -1678,7 +1737,11 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
     /// # Errors
     /// Returns `ScanError` when the scanner does not find the next expected token.
     fn fetch_next_token(&mut self) -> ScanResult {
+        self.flush_next_strict_indentation_error();
         let result = self.fetch_next_token_impl();
+        if result.is_err() {
+            self.flush_next_strict_indentation_error();
+        }
         if let Some(kind) = self.input.take_source_error() {
             return Err(ScanError::from_kind(self.mark, kind));
         }
@@ -1742,11 +1805,11 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
 
         // Block indentation was handled by `unroll_indent`. Flow entries and delimiters
         // may be under-indented only when strict YAML indentation is disabled.
-        if self.options.strict_indentation
-            && self.flow_level > 0
-            && (self.mark.col as isize) <= self.flow_block_indent()
-        {
-            return Err(self.scan_error(ErrorKind::InvalidIndentation));
+        if self.flow_level > 0 && (self.mark.col as isize) <= self.flow_block_indent() {
+            self.reject_indentation(
+                self.scan_error(ErrorKind::InvalidIndentation),
+                false,
+            )?;
         }
 
         let c = self.input.peek();
@@ -1758,11 +1821,16 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             '}' => self.fetch_flow_collection_end(TokenType::FlowMappingEnd, '{', '}'),
             ',' => self.fetch_flow_entry(),
             '-' if is_blank_or_breakz(nc) => self.fetch_block_entry(),
-            '?' if is_blank_or_breakz(nc)
-                || (self.flow_level > 0
-                    && is_flow(nc)
-                    && !self.options.strict_indentation) =>
+            '?' if is_blank_or_breakz(nc) => self.fetch_key(),
+            '?' if self.flow_level > 0
+                && is_flow(nc)
+                && !self.options.strict_indentation =>
             {
+                self.record_strict_rejection(self.scan_error(
+                    ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator {
+                        indicator: '?',
+                    },
+                ));
                 self.fetch_key()
             }
             ':' if is_blank_or_breakz(nc) => self.fetch_value(),
@@ -1942,11 +2010,12 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
     fn skip_tab(&mut self) -> ScanResult {
         if !(self.is_within_block()
             && self.leading_whitespace
-            && (self.mark.col as isize) < self.tab_indent_limit())
+            && (self.mark.col as isize) < self.strict_tab_indent_limit())
         {
             self.skip_blank();
             return Ok(());
         }
+        let relaxed_rejects = (self.mark.col as isize) < self.indent;
         let (chars_consumed, _) = self.input.skip_ws_to_eol_blanks(SkipTabs::Yes);
         self.mark.col += chars_consumed;
         self.mark.offsets.chars += chars_consumed;
@@ -1957,7 +2026,8 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             return Ok(());
         }
         if !self.input.next_is_breakz() {
-            return Err(self.scan_error(ErrorKind::TabInBlockIndentation));
+            let error = self.scan_error(ErrorKind::TabInBlockIndentation);
+            return self.reject_indentation(error, relaxed_rejects);
         }
         if matches!(self.input.look_ch(), '\n' | '\r') {
             self.consume_linebreak();
@@ -1987,7 +2057,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                         continue;
                     }
                     ' ' | '\n' | '\r' | '#' => {}
-                    '&' | '!' if self.options.strict_indentation => {}
+                    '&' | '!' => self.explicit_key_property_seen = true,
                     _ => self.explicit_key_tab_check_pending = false,
                 }
             }
@@ -2059,13 +2129,19 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
     fn skip_explicit_key_tab(&mut self) -> ScanResult {
         if self.leading_whitespace && (self.mark.col as isize) <= self.indent {
             let tab_mark = self.mark;
+            let relaxed_rejects = (self.mark.col as isize) < self.indent;
             let (chars_consumed, _) = self.input.skip_ws_to_eol_blanks(SkipTabs::Yes);
             self.mark.col += chars_consumed;
             self.mark.offsets.chars += chars_consumed;
             self.mark.offsets.bytes = self.input.byte_offset();
-            // Blank and comment-only lines do not require key-node indentation.
+            // Blank and comment-only lines do not require key-node indentation. Relaxed
+            // scanning lets a tab indent a scalar key after node properties.
             if self.input.look_ch() != '#' && !self.input.next_is_breakz() {
-                return Err(ScanError::from_kind(tab_mark, ErrorKind::TabNotAllowed));
+                let error = ScanError::from_kind(tab_mark, ErrorKind::TabNotAllowed);
+                self.reject_indentation(error, !self.explicit_key_property_seen)?;
+                if relaxed_rejects {
+                    return Err(self.scan_error(ErrorKind::TabInBlockIndentation));
+                }
             }
         } else {
             self.skip_blank();
@@ -3556,11 +3632,13 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             // Escaped line breaks also set `leading_blanks`, even without a folded break.
             // In strict flow context the continuation and closing quote must both be indented.
             if leading_blanks
-                && self.options.strict_indentation
                 && self.flow_level > 0
                 && (self.mark.col as isize) <= self.flow_block_indent()
             {
-                return Err(self.scan_error(ErrorKind::InvalidIndentation));
+                self.reject_indentation(
+                    self.scan_error(ErrorKind::InvalidIndentation),
+                    false,
+                )?;
             }
 
             // Continuation lines of a quoted scalar in block context must be indented more than
@@ -3571,10 +3649,9 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
                 let next_ch = self.input.peek();
                 let is_closing_quote =
                     (single && next_ch == '\'') || (!single && next_ch == '"');
-                if (!is_closing_quote || self.options.strict_indentation)
-                    && (self.mark.col as isize) <= self.flow_block_indent()
-                {
-                    return Err(self.scan_error(ErrorKind::InvalidQuotedScalarIndent));
+                if (self.mark.col as isize) <= self.flow_block_indent() {
+                    let error = self.scan_error(ErrorKind::InvalidQuotedScalarIndent);
+                    self.reject_indentation(error, !is_closing_quote)?;
                 }
             }
 
@@ -3584,11 +3661,13 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             // enclosing block, including before a closing quote, as in flow context.
             if leading_blanks
                 && !has_leading_break
-                && self.options.strict_indentation
                 && self.flow_level == 0
                 && (self.mark.col as isize) <= self.flow_block_indent()
             {
-                return Err(self.scan_error(ErrorKind::InvalidIndentation));
+                self.reject_indentation(
+                    self.scan_error(ErrorKind::InvalidIndentation),
+                    false,
+                )?;
             }
 
             // A single folded line break becomes one space. Without a break the pending
@@ -4017,6 +4096,7 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         self.buf_leading_break.clear();
         self.buf_trailing_breaks.clear();
         let mut end_mark = self.mark;
+        let mut under_indented = false;
 
         loop {
             self.input.lookahead(4);
@@ -4054,6 +4134,12 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
             if !self.input.next_is_blank_or_breakz()
                 && self.input.next_can_be_plain_scalar(self.flow_level > 0)
             {
+                if std::mem::take(&mut under_indented)
+                    && self.next_strict_indentation_error.is_none()
+                {
+                    self.next_strict_indentation_error =
+                        Some(self.under_indented_continuation_error());
+                }
                 // A continuation line can't be borrowed: folding transforms the source.
                 if self.leading_whitespace && has_content && string.is_none() {
                     let prefix =
@@ -4092,10 +4178,16 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
 
             // Stop before an under-indented continuation. In strict flow context the
             // next token fetch reports its indentation error without consuming the content.
-            if (self.flow_level == 0 || self.options.strict_indentation)
-                && (self.mark.col as isize) < indent
-            {
-                break;
+            // Relaxed flow scanning continues, except into a column-0 `%`, which PyYAML also
+            // reads as a directive.
+            if (self.mark.col as isize) < indent {
+                if self.flow_level == 0
+                    || self.options.strict_indentation
+                    || (self.mark.col == 0 && self.input.peek() == '%')
+                {
+                    break;
+                }
+                under_indented = true;
             }
         }
 
@@ -4170,15 +4262,15 @@ impl<'input, T: BorrowedInput<'input>> Scanner<'input, T> {
         let end_mark = self.mark;
         let token_index = self.tokens.len();
         self.explicit_key_tab_check_pending = false;
+        self.explicit_key_property_seen = false;
         // Block keys permit tab separation for scalar/flow nodes, but require spaces for
         // compact collections and indentation on subsequent lines. Keep that validation active
-        // across comments, and across properties in strict mode. Flow collections use the
-        // ordinary whitespace skipper.
+        // across comments and properties. Flow collections use the ordinary whitespace
+        // skipper.
         if self.flow_level == 0 {
             let stopped_after_comment = self.skip_yaml_whitespace()?;
-            self.explicit_key_tab_check_pending = stopped_after_comment
-                || (self.options.strict_indentation
-                    && matches!(self.input.peek(), '&' | '!'));
+            self.explicit_key_tab_check_pending =
+                stopped_after_comment || matches!(self.input.peek(), '&' | '!');
         }
         self.insert_token(
             token_index,

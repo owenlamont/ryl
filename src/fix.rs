@@ -135,10 +135,8 @@ pub(crate) fn rewrite_parse_gate(
     rewrite: Rewrite,
 ) -> Result<ParsedInput, crate::lint::LintProblem> {
     if rewrite == Rewrite::Fix {
-        let strict_error = crate::lint::strict_parse_error(content);
-        if strict_error.is_some()
-            && let Some(problem) = crate::lint::relaxed_parse_error(content)
-        {
+        let (relaxed_error, strict_error) = crate::lint::parse_errors(content);
+        if let Some(problem) = relaxed_error {
             return Err(problem);
         }
         return Ok(ParsedInput {
@@ -148,18 +146,14 @@ pub(crate) fn rewrite_parse_gate(
             strict_error,
         });
     }
-    let (mut facts, mut tokens, prefetched) = ParsedFacts::parse_for_format(content);
-    let strict_error =
-        crate::lint::parse_error_from_result(content, facts.error.as_ref());
-    if strict_error.is_some() {
-        tokens.take();
-        facts = ParsedFacts::parse_unrecorded(content, facts.event_count(), false);
-        if let Some(problem) =
-            crate::lint::parse_error_from_result(content, facts.error.as_ref())
-        {
-            return Err(problem);
-        }
+    let (facts, tokens, prefetched) = ParsedFacts::parse_for_format(content);
+    if let Some(problem) =
+        crate::lint::parse_error_from_result(content, facts.error.as_ref())
+    {
+        return Err(problem);
     }
+    let strict_error =
+        crate::lint::parse_error_from_result(content, facts.strict_error());
     Ok(ParsedInput {
         facts: Some(facts),
         tokens,
@@ -1233,9 +1227,13 @@ pub(crate) fn rewrite<'a>(
         );
         return TextVersion::new(input.to_string());
     }
-    let strict = tracking
-        .strict_input
-        .unwrap_or_else(|| crate::lint::strict_parse_error(input).is_none());
+    let strict = tracking.strict_input.unwrap_or_else(|| {
+        crate::lint::parse_error_from_result(
+            input,
+            source.analysis().parsed().strict_error(),
+        )
+        .is_none()
+    });
     if strict {
         source.mark_strict_valid();
     } else {

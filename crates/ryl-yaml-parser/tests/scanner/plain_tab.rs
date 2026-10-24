@@ -329,7 +329,7 @@ fn explicit_key_tab_state_ends_at_a_line_break_and_respects_parent_dedents() {
 #[test]
 fn explicit_key_property_indentation_is_strict_only() {
     // YAML requires n+1 spaces before the key's next content line. Relaxed mode
-    // preserves compatibility with tab indentation after anchor/tag properties.
+    // accepts a tab indenting a scalar key after anchor/tag properties.
     for (yaml, anchor, tagged, in_sequence) in [
         ("?\t&a\n\tkey\n: value\n", 1, false, false),
         ("?\t!local # property\n\tkey\n: value\n", 0, true, false),
@@ -398,17 +398,22 @@ fn explicit_key_property_indentation_is_strict_only() {
 
 #[test]
 fn tabs_cannot_indent_compact_explicit_key_collections_in_either_mode() {
-    let yaml = "- ?\tkey:\n  : value\n";
-    for emit_comments in [false, true] {
-        for strict_indentation in [false, true] {
-            let options = ryl_yaml_parser::options! {
-                emit_comments: emit_comments,
-                strict_indentation: strict_indentation,
-            };
-            assert!(
-                collect_events_with_options(yaml, options).is_err(),
-                "tab supplied compact collection indentation: {yaml:?}, emit_comments={emit_comments}, strict_indentation={strict_indentation}"
-            );
+    for yaml in [
+        "- ?\tkey:\n  : value\n",
+        "? &a\n  \tkey: value\n",
+        "? !t\n  \t- item\n",
+    ] {
+        for emit_comments in [false, true] {
+            for strict_indentation in [false, true] {
+                let options = ryl_yaml_parser::options! {
+                    emit_comments: emit_comments,
+                    strict_indentation: strict_indentation,
+                };
+                assert!(
+                    collect_events_with_options(yaml, options).is_err(),
+                    "tab supplied compact collection indentation: {yaml:?}, emit_comments={emit_comments}, strict_indentation={strict_indentation}"
+                );
+            }
         }
     }
 }

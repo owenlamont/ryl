@@ -53,6 +53,7 @@ fn check_raw_text(input: &str) {
     common::parse_with_both_inputs(input);
     common::scan_with_all_inputs(input);
     common::check_comment_suppression(input);
+    common::check_strict_indentation_prediction(input);
 }
 
 #[test]
@@ -60,6 +61,23 @@ fn raw_regressions_keep_backends_in_agreement() {
     for input in seeds::RAW_INPUTS {
         check_raw_text(input);
     }
+}
+
+#[test]
+fn relaxed_parses_record_each_strict_indentation_rejection() {
+    for input in seeds::STRICT_INDENTATION_INPUTS {
+        let mut parser = ryl_yaml_parser::Parser::new_from_str(input);
+        parser.by_ref().for_each(drop);
+        assert!(parser.strict_indentation_error().is_some(), "{input:?}");
+        common::check_strict_indentation_prediction(input);
+    }
+}
+
+#[test]
+fn a_column_zero_percent_ends_a_flow_plain_scalar_in_both_modes() {
+    let input = "a: [b\n%c]\n";
+    assert!(ryl_yaml_parser::Parser::new_from_str(input).any(|item| item.is_err()));
+    common::check_strict_indentation_prediction(input);
 }
 
 #[test]
