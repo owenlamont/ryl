@@ -1,3 +1,6 @@
 [submodule "crates/ryl-yaml-parser/tests/yaml-test-suite"]
 	path = crates/ryl-yaml-parser/tests/yaml-test-suite
 	url = https://github.com/yaml/yaml-test-suite/
+[submodule "tests/yaml-reference-parser"]
+	path = tests/yaml-reference-parser
+	url = https://github.com/yaml/yaml-reference-parser

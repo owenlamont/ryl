@@ -70,8 +70,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh skill publish --dry-run
 
-      - name: Fetch the YAML test suite
-        run: git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite
+      # The formatter property suites check values against the YAML reference parser.
+      - name: Install Node for the YAML reference parser
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+
+      - name: Fetch the YAML test suite and reference parser
+        run: git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite tests/yaml-reference-parser
 
       - name: Replay saved property seeds
         env:
@@ -195,8 +202,15 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - name: Fetch the YAML test suite
-        run: git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite
+      # The formatter property suites check values against the YAML reference parser.
+      - name: Install Node for the YAML reference parser
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+
+      - name: Fetch the YAML test suite and reference parser
+        run: git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite tests/yaml-reference-parser
 
       - name: Run tests
         env:

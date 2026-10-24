@@ -303,20 +303,6 @@ fn record(
     Some(recorder)
 }
 
-pub fn check_values(input: &str, output: &str) -> Result<(), String> {
-    let before = representation(input);
-    let after = representation(output);
-    if before.is_some() != after.is_some() {
-        return Err(format!("parse-preservation: output {output:?}"));
-    }
-    if before != after {
-        return Err(format!(
-            "value-preservation: output {output:?}; before {before:?}; after {after:?}"
-        ));
-    }
-    Ok(())
-}
-
 pub fn check_annotations(input: &str, output: &str) -> Result<(), String> {
     let (before, after) = (annotations(input), annotations(output));
     if before != after {
