@@ -836,7 +836,8 @@ impl<'a> Layout<'a> {
         }
         let mut block_lines = None;
         for (line, content, _) in self.input.lines() {
-            // A trimmed whitespace-only line is blank unless a block scalar holds it.
+            // Where trailing-spaces runs, a whitespace-only line outside a block scalar
+            // is blank.
             if tab_in_indentation(content)
                 && (!content.trim_start_matches([' ', '\t']).is_empty()
                     || !self.trimmed
