@@ -127,40 +127,79 @@ documentation, see the docs site.
 
 ## Performance
 
-The chart compares lint and format times on real-world YAML sampled from pinned
-repositories: 20–100 files × 1–9 KiB, with five runs per point.
+The chart times ryl against yamllint and three formatters on pinned real-world
+YAML: single files from 1 KiB to 9.4 MiB, and 1 to 1,000 files of under 16 KiB
+(98% of the 76,000 YAML files in the 40 pinned repos are under 16 KiB). Both axes
+are logarithmic.
 
-![Lint and format benchmark on real-world YAML](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-cold-5x5-5runs.svg)
+![Lint and aligned-config format: wall time and peak memory](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark.svg)
 
-The [benchmark script](scripts/benchmark_yaml_tools.py) also offers a generated stress dataset with `--datasets stress`.
+Aligned configs (see below), median of 10 runs; peak RSS is the median of 3 more:
 
-| Tool | Mode | Real-world mean, 100 × 9 KiB (s) |
-| --- | --- | ---: |
-| ryl | Lint | 0.050 |
-| yamllint | Lint | 2.304 |
-| ryl | Format | 0.056 |
-| yamlfmt | Format | 0.113 |
-| Prettier | Format | 1.140 |
-| dprint | Format | 0.105 |
+| Input | ryl | yamlfmt | dprint + pretty_yaml | Prettier |
+| --- | ---: | ---: | ---: | ---: |
+| 1 KiB file | 2.2 ms, 9.0 MiB | 2.4 ms, 5.7 MiB | 6.0 ms, 16 MiB | 104 ms, 64 MiB |
+| 16 KiB file | 3.7 ms, 9.1 MiB | 3.8 ms, 6.4 MiB | 9.3 ms, 16 MiB | 147 ms, 78 MiB |
+| 0.9 MiB file | 129 ms, 24 MiB | 131 ms, 70 MiB | 328 ms, 37 MiB | 1.18 s, 366 MiB |
+| 9.4 MiB file | 1.13 s, 194 MiB | 1.27 s, 658 MiB | 3.15 s, 232 MiB | 9.63 s, 1.8 GiB |
+| 1,000 files | 41 ms, 19 MiB | 246 ms, 18 MiB | 130 ms, 22 MiB | 3.43 s, 249 MiB |
 
-| Tool | Mode | Version |
-| --- | --- | --- |
-| ryl | Lint, format | 0.26.0 |
-| yamllint | Lint | 1.38.0 |
-| yamlfmt | Format | 0.21.0 |
-| Prettier | Format | 3.9.10 |
-| dprint + pretty_yaml plugin | Format | 0.63.0 + 0.6.0 |
+| Lint, `extends: default` | 1 KiB | 9.4 MiB | 1,000 files |
+| --- | ---: | ---: | ---: |
+| ryl | 2.1 ms | 0.65 s | 28 ms |
+| yamllint | 69 ms | 31.0 s | 5.60 s |
 
-Result caches are cold; install artifacts are warm. The
-[benchmark script](scripts/benchmark_yaml_tools.py) records the commands and
-cache checks. On the real-world dataset, ryl format is faster than dprint and yamlfmt
-while still verifying value preservation and convergence
-([formatter guarantees](docs/formatter.md#guarantees)).
+Where ryl does not win:
 
-Run the benchmark with `--warm` to also record second-run timings with each
-tool's result cache enabled. Its warm view is separate from the cold chart above.
+- yamlfmt uses less memory up to 16 KiB (5.5–6.4 MiB against ryl's 9 MiB) and at
+  every file count, and less CPU time at 1,000 files (0.30 s against 0.40 s): ryl's
+  lead there comes from formatting files in parallel.
+- Under defaults, yamlfmt is up to 6% faster at 4 KiB, 16 KiB, 260 KiB and 0.9 MiB.
+  Under aligned configs, ryl is ahead by 1–9% at 1–16 KiB.
+- Under max common work (single quotes, folding at 80 columns), yamlfmt is faster
+  on every single file from 4 KiB, taking up to a third less time (0.9 MiB), and
+  dprint + pretty_yaml peaks at less memory on the 9.4 MiB file (240 MiB against
+  ryl's 286 MiB).
 
-![Warm second-run benchmark on real-world YAML](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark-warm-5x5-5runs.svg)
+Profiles and what they cannot equalise:
+
+- **Aligned configs** (charted): each formatter set up to produce output as close
+  to the others' as its options allow. ryl `quote-style = "double"`,
+  `max-blank-lines = 1`, `comment-spacing = 1`, `comment-starting-space =
+  "preserve"`, `brace-spacing = true`; yamlfmt `retain_line_breaks_single`, double quotes,
+  `pad_line_comments: 1`, `trim_trailing_whitespace`; dprint and Prettier defaults.
+  Pairwise identical lines are 94–98%. The rest: ryl's double quote style also
+  removes quotes no value needs, yamlfmt drops `---`, dprint keeps inline comment
+  alignment, and dprint and Prettier wrap long strings at 80 columns.
+- **Defaults**: each tool with no configuration, so each does different work.
+- **Max common work**: aligned configs plus the extra rewrites all four offer,
+  single quotes and folding at 80 columns; 91–96% identical lines, as each
+  tool folds differently.
+- **Lint**: yamllint reads `extends: default` and ryl reads the TOML that
+  `ryl --migrate-configs` writes from the same file. On the benchmark inputs they
+  share 43,569 diagnostics; yamllint alone reports 36 (20 `braces` inside Jinja
+  `{{ }}`, 10 `trailing-spaces` inside block scalars, 6 `comments`,
+  `comments-indentation` and `document-start`) and ryl alone 2 (`document-start`).
+
+Every run gets a fresh copy of its inputs and an empty cache directory, with
+ryl's and Prettier's caches off and dprint's incremental mode off; dprint keeps
+its compiled plugin, an install artifact. Tools alternate order run to run.
+yamlfmt is the native release binary, not a launcher; ryl, dprint and yamlfmt may
+use several threads, Prettier and yamllint one. Inputs are files every tool
+accepts under every profile, which excludes Helm templates and other non-YAML.
+Each size point is a different file, so content varies along that axis.
+
+| Tool | Version |
+| --- | --- |
+| ryl | 0.26.0 (main at 3482cb4) |
+| yamllint | 1.38.0 |
+| yamlfmt | 0.21.0 |
+| Prettier | 3.9.10 |
+| dprint + pretty_yaml | 0.63.0 + 0.6.0 |
+
+The [benchmark script](scripts/benchmark_yaml_tools.py) reruns everything and draws
+the chart; `--tool-versions latest` uses the newest release of each tool instead of
+the pins in `scripts/benchmark_tool_versions.toml`, and records the versions used.
 
 ## Acknowledgements
 
