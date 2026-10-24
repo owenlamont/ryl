@@ -276,3 +276,33 @@ fn refusal_notice_starts_at_the_marker_format_adds() {
         ]
     );
 }
+
+#[test]
+fn tab_refusal_notices_follow_the_plan_not_the_output() {
+    for (config, input, expected, notices) in [
+        (
+            "[format]\n",
+            "-\t-1\n",
+            "- -1\n",
+            "1:1 indentation not fixed: cannot re-indent this document safely\n",
+        ),
+        (
+            "line-length = 8\n[format]\nfold-long-lines = true\n",
+            "- ? aaa aaa\n  : aaa -\taaa\n",
+            "- ? aaa aaa\n  : aaa\n    -\taaa\n",
+            "",
+        ),
+    ] {
+        let (code, _, stderr, formatted) =
+            ryl_on(Some(config), input, &["format", "--no-cache"]);
+        let actual: String = stderr
+            .lines()
+            .map(|line| format!("{}\n", line.split_once("a.yaml:").unwrap().1))
+            .collect();
+        assert_eq!(
+            (code, formatted.as_str(), actual.as_str()),
+            (0, expected, notices),
+            "{input:?}: {stderr}"
+        );
+    }
+}
