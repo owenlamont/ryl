@@ -45,7 +45,7 @@ fn tabbed_scalar_documents_keep_their_original_indentation() {
 }
 
 #[test]
-fn inconsistent_sibling_documents_replan_from_original_bytes() {
+fn inconsistent_sibling_documents_keep_their_width_without_a_rollback() {
     let (output, statistics) = format_with_statistics(
         "first :\n    body: |\n      \tinside\n    list: [ a,b ] #note\n---\nsecond :\n    mapping:\n        key: 'café'\n",
         "[format]\n",
@@ -55,7 +55,7 @@ fn inconsistent_sibling_documents_replan_from_original_bytes() {
         "first:\n    body: |\n      \tinside\n    list: [a, b]  # note\n---\nsecond:\n    mapping:\n        key: café\n"
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["rollback"], 1, "{statistics}");
+    assert_eq!(statistics["rollback"], 0, "{statistics}");
 }
 
 fn format_with_workers(input: &str, config: &str, workers: usize) -> (String, Value) {

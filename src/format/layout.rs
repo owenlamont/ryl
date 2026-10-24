@@ -46,6 +46,7 @@ struct DocumentPlan<'a> {
     removed: Vec<std::ops::Range<usize>>,
     folds: Vec<FoldBreak>,
     refused: Vec<indentation::Refusal>,
+    inconsistent: Vec<indentation::Violation>,
     guard: Option<Box<Guard>>,
 }
 
@@ -75,7 +76,6 @@ struct FormatStep {
     output: Option<TextVersion<'static>>,
     frozen: Vec<Option<indentation::Cause>>,
     settled: bool,
-    restart: bool,
 }
 
 impl FormatStep {
@@ -84,16 +84,14 @@ impl FormatStep {
             output: Some(output),
             frozen: Vec::new(),
             settled,
-            restart: false,
         }
     }
 
-    fn replan(frozen: Vec<Option<indentation::Cause>>, restart: bool) -> Self {
+    fn replan(frozen: Vec<Option<indentation::Cause>>) -> Self {
         Self {
             output: None,
             frozen,
             settled: false,
-            restart,
         }
     }
 }
@@ -282,7 +280,6 @@ fn format_document_staged(
     let staged = first.is_some() || held.is_some();
     let mut frozen = held;
     let mut current = None;
-    let mut base: Option<String> = None;
     let mut result = Err(Fallback::Refusal);
     for epoch in 0..crate::fix::FIX_PIPELINE_MAX_PASSES {
         let input = current.as_mut().unwrap_or(source);
@@ -298,16 +295,10 @@ fn format_document_staged(
             break;
         }
         if let Some(output) = step.output {
-            if step.settled {
-                base = Some(output.analysis().text().to_owned());
-            }
             frozen = frozen.filter(|_| epoch > 0);
             current = Some(output);
         } else {
             frozen = Some(step.frozen);
-            if step.restart {
-                current = base.clone().map(TextVersion::new);
-            }
         }
     }
     result
@@ -319,7 +310,13 @@ type Candidate = (
     Vec<&'static str>,
     Option<Box<Guard>>,
 );
-type Kept = (Vec<(usize, usize)>, Vec<indentation::Refusal>);
+/// What [`crate::format::unfixed`] reports, on the plan's output lines: each kept dash,
+/// each refused document, and each consistent-width violation.
+type Kept = (
+    Vec<(usize, usize)>,
+    Vec<indentation::Refusal>,
+    Vec<(usize, usize)>,
+);
 
 /// The emitted candidate, or `None` for a clean plan, with the layout facts to remember.
 fn prepare_candidate(
@@ -332,7 +329,7 @@ fn prepare_candidate(
     if blank_stream(input.text(), passes, frozen) {
         stats::count(stats::Counter::Plan);
         let candidate = (String::new(), Vec::new(), vec![empty_lines::ID], None);
-        Ok((Some(candidate), (Vec::new(), Vec::new())))
+        Ok((Some(candidate), Kept::default()))
     } else {
         DocumentPlan::new(input, passes, quotes, Sink::Emit, frozen).and_then(|plan| {
             probe(tracking, plan.input)?;
@@ -341,7 +338,7 @@ fn prepare_candidate(
                     cfg.requires_consistency()
                         && !plan.layout.consistent_except(&cfg, &plan.refused)
                 });
-            let kept = (plan.layout.kept_dash_lines.clone(), plan.refused.clone());
+            let kept = plan.kept();
             consistent
                 .then_some(())
                 .ok_or(Fallback::Refusal)
@@ -368,7 +365,7 @@ fn format_document_refused(
     let (prepared, kept) =
         prepare_candidate(source.analysis(), passes, tracking, &mut quotes, frozen)?;
     let Some((text, styles, rules, guard)) = prepared else {
-        remember(tracking, source, passes.indentation, kept.0, kept.1);
+        remember(tracking, source, passes.indentation, kept);
         source.release_tokens();
         source.mark_strict_valid();
         return Ok(FormatStep::output(
@@ -388,7 +385,7 @@ fn format_document_refused(
         guard.as_deref(),
         frozen,
     )? {
-        return Ok(FormatStep::replan(frozen, false));
+        return Ok(FormatStep::replan(frozen));
     }
     output.mark_strict_valid();
     source.take_facts();
@@ -399,17 +396,9 @@ fn format_document_refused(
         Sink::Validate,
         frozen,
     )
-    .map(|dry| {
-        if dry.dirty {
-            Dry::Dirty
-        } else if let Some(rejected) = dry.rejected_documents(passes, frozen) {
-            Dry::Rejected(rejected)
-        } else {
-            Dry::Clean(dry.layout.kept_dash_lines.clone(), dry.refused.clone())
-        }
-    })
-    .and_then(|dry| match dry {
-        Dry::Dirty => {
+    .map(|dry| dry.dirty)
+    .and_then(|dirty| {
+        if dirty {
             stats::count(stats::Counter::Rollback);
             stats::count(stats::Counter::DryDirty);
             (output.analysis().text() != source.analysis().text())
@@ -418,16 +407,8 @@ fn format_document_refused(
                     FormatStep::output(output, false)
                 })
                 .ok_or(Fallback::DryEdits)
-        }
-        Dry::Rejected(rejected) => Ok(FormatStep::replan(rejected, true)),
-        Dry::Clean(kept_dash_lines, refused) => {
-            remember(
-                tracking,
-                &output,
-                passes.indentation,
-                kept_dash_lines,
-                refused,
-            );
+        } else {
+            remember(tracking, &output, passes.indentation, kept);
             output.release_tokens();
             tracking.edited.extend(rules);
             let plan = source.analysis().plan_version(output);
@@ -495,13 +476,6 @@ fn blank_stream(
             .empty_lines
             .is_some_and(|cfg| cfg.max_start() == 0 && cfg.max_end() == 0)
         && text.bytes().all(|byte| byte == b'\n')
-}
-
-/// The dry plan's verdict on a verified candidate.
-enum Dry {
-    Dirty,
-    Rejected(Vec<Option<indentation::Cause>>),
-    Clean(Vec<(usize, usize)>, Vec<indentation::Refusal>),
 }
 
 /// `Ok(None)` for a verified layout, or the documents to freeze before replanning one
@@ -630,8 +604,7 @@ fn remember(
     tracking: &mut PassTracking<'_>,
     text: &TextVersion<'_>,
     target: Option<indentation::Config>,
-    kept_dash_lines: Vec<(usize, usize)>,
-    refused: Vec<indentation::Refusal>,
+    (kept_dash_lines, refused, inconsistent): Kept,
 ) {
     if let (Some(slot), Some(target)) = (tracking.reindented.as_deref_mut(), target) {
         *slot = Some(crate::fix::ReindentEvidence::new(
@@ -639,6 +612,7 @@ fn remember(
             target,
             refused,
             kept_dash_lines,
+            Some(inconsistent),
         ));
     }
 }
@@ -970,7 +944,8 @@ impl Presentation {
         targets: &mut indentation::Targets,
         cfg: &indentation::Config,
         frozen: Option<&[Option<indentation::Cause>]>,
-    ) -> Result<Vec<indentation::Refusal>, Fallback> {
+    ) -> Result<(Vec<indentation::Refusal>, Vec<indentation::Violation>), Fallback>
+    {
         if passes.indentation.is_none() {
             targets.deltas.fill(0);
             targets.gaps.clear();
@@ -978,40 +953,58 @@ impl Presentation {
         }
         merge_frozen(&mut targets.refused, frozen);
         if !targets.refused.iter().any(Option::is_some) {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
-        let refused = targets.refused.clone();
-        for (from, to, spaces) in std::mem::take(&mut layout.reshaped) {
-            let line = input
-                .byte_line_starts()
-                .partition_point(|&at| at <= from.get())
-                - 1;
-            if !layout.frozen(&refused, line) {
-                continue;
-            }
-            if from == to {
-                self.edits.retain(|edit| (edit.0, edit.1) != (from, to));
-            } else if self
-                .guard
-                .as_ref()
-                .is_none_or(|guard| guard.allows(hyphens::ID, from, to))
+        let mut refused = targets.refused.clone();
+        let mut reshaped = std::mem::take(&mut layout.reshaped);
+        let mut violations = Vec::new();
+        let kept = loop {
+            reshaped.retain(|&(from, to, spaces)| {
+                let line = input
+                    .byte_line_starts()
+                    .partition_point(|&at| at <= from.get())
+                    - 1;
+                if !layout.frozen(&refused, line) {
+                    return true;
+                }
+                if from == to {
+                    self.edits.retain(|edit| (edit.0, edit.1) != (from, to));
+                } else if self
+                    .guard
+                    .as_ref()
+                    .is_none_or(|guard| guard.allows(hyphens::ID, from, to))
+                {
+                    self.rules.push(hyphens::ID);
+                    self.edits
+                        .push((from, to, pieces::Replacement::Spaces(spaces)));
+                }
+                false
+            });
+            let kept = layout.keep_refused(&refused, &self.edits);
+            *targets = layout.targets(cfg, &self.edits, passes.line_length.is_some());
+            targets.refused.clone_from(&refused);
+            if !kept
+                || (!cfg.requires_consistency()
+                    && refused.iter().all(|cause| {
+                        cause.is_none_or(|cause| cause == indentation::Cause::Disabled)
+                    }))
             {
-                self.rules.push(hyphens::ID);
-                self.edits
-                    .push((from, to, pieces::Replacement::Spaces(spaces)));
+                break kept;
             }
-        }
-        layout
-            .keep_refused(&refused, &self.edits)
-            .then_some(())
+            violations = layout.target_violations(cfg, targets, &self.edits);
+            if !cfg.requires_consistency()
+                || !layout.refuse_violated(&violations, &mut refused)
+            {
+                break true;
+            }
+        };
+        kept.then_some(())
             .ok_or(Fallback::ScalarInteraction)
             .and_then(|()| {
-                *targets =
-                    layout.targets(cfg, &self.edits, passes.line_length.is_some());
-                targets.refused = refused;
                 self.align_comments(input, passes, layout);
                 self.align_trailing_comments(input, passes, layout, targets);
-                self.settle().map(|()| layout.freeze_targets(targets))
+                self.settle()
+                    .map(|()| (layout.freeze_targets(targets), violations))
             })
     }
 
@@ -1194,23 +1187,6 @@ impl Presentation {
 }
 
 impl<'a> DocumentPlan<'a> {
-    fn rejected_documents(
-        &self,
-        passes: &Passes<'_>,
-        frozen: Option<&[Option<indentation::Cause>]>,
-    ) -> Option<Vec<Option<indentation::Cause>>> {
-        let cfg = passes
-            .indentation
-            .filter(|cfg| cfg.requires_consistency())?;
-        if self.layout.consistent_except(&cfg, &self.refused) {
-            return None;
-        }
-        stats::count(stats::Counter::Rollback);
-        let mut rejected = self.layout.inconsistent_documents(&cfg);
-        merge_frozen(&mut rejected, frozen);
-        Some(rejected)
-    }
-
     fn new(
         input: Analysis<'a>,
         passes: &Passes<'_>,
@@ -1244,14 +1220,14 @@ impl<'a> DocumentPlan<'a> {
                     &cfg,
                     frozen,
                 )
-                .and_then(|refused| {
+                .and_then(|refusals| {
                     Self::assemble(
                         input,
                         passes,
                         layout,
                         targets,
                         presentation,
-                        refused,
+                        refusals,
                     )
                 })
         })
@@ -1263,7 +1239,10 @@ impl<'a> DocumentPlan<'a> {
         layout: indentation::Layout<'a>,
         targets: indentation::Targets,
         presentation: Presentation,
-        refused: Vec<indentation::Refusal>,
+        (refused, inconsistent): (
+            Vec<indentation::Refusal>,
+            Vec<indentation::Violation>,
+        ),
     ) -> Result<Self, Fallback> {
         let Presentation {
             edits,
@@ -1311,6 +1290,7 @@ impl<'a> DocumentPlan<'a> {
             removed: Vec::new(),
             folds: Vec::new(),
             refused,
+            inconsistent,
             guard,
         };
         plan.finish(passes).map(|()| plan)
@@ -1615,6 +1595,101 @@ impl<'a> DocumentPlan<'a> {
         }
     }
 
+    fn removed(&self, line_start: usize) -> bool {
+        self.removed
+            .get(
+                self.removed
+                    .partition_point(|range| range.end <= line_start),
+            )
+            .is_some_and(|range| range.start <= line_start)
+    }
+
+    fn kept(&self) -> Kept {
+        let refused = &self.targets.refused;
+        if self.layout.kept_dash_lines.is_empty()
+            && !refused.iter().any(Option::is_some)
+        {
+            return Kept::default();
+        }
+        let starts = self.input.byte_line_starts();
+        let mut lines = Vec::with_capacity(self.layout.lines.len());
+        let mut markers = Vec::new();
+        let (mut line, mut boundary) = (0, 0);
+        for (index, virtual_line) in self.layout.lines.iter().enumerate() {
+            let at = starts[virtual_line.origin];
+            while let Some((from, _, text)) = self
+                .boundaries
+                .get(boundary)
+                .filter(|edit| edit.0.get() <= at + usize::from(virtual_line.bom) * 3)
+            {
+                if text.starts_with("---") {
+                    markers.push((
+                        starts.partition_point(|&start| start <= from.get()) - 1,
+                        line,
+                    ));
+                }
+                line += text.matches('\n').count() + text.matches('\r').count()
+                    - text.matches("\r\n").count();
+                boundary += 1;
+            }
+            lines.push(line);
+            if !self.removed(at) {
+                line += self.folds
+                    [self.folds.partition_point(|fold| fold.line < index)..]
+                    .iter()
+                    .take_while(|fold| fold.line == index)
+                    .count()
+                    + usize::from(!virtual_line.ending.is_empty());
+            }
+        }
+        let document_starts = &self.input.parsed().document_starts;
+        let start = |document: usize| {
+            if document == 0 {
+                return 0;
+            }
+            markers
+                .iter()
+                .find(|(marked, _)| {
+                    document_starts.partition_point(|&start| start < *marked)
+                        == document
+                })
+                .map_or_else(
+                    || {
+                        let source = document_starts[document];
+                        lines[self.layout.project_line(source, starts[source])]
+                    },
+                    |&(_, line)| line,
+                )
+        };
+        let refusals = refused
+            .iter()
+            .enumerate()
+            .filter_map(|(document, cause)| {
+                cause.map(|cause| indentation::Refusal {
+                    lines: start(document) + 1..=if document + 1 < refused.len() {
+                        start(document + 1)
+                    } else {
+                        line + 1
+                    },
+                    cause,
+                })
+            })
+            .collect();
+        let place = |(line, column): (usize, usize)| (lines[line - 1] + 1, column);
+        (
+            self.layout
+                .kept_dash_targets(&self.targets, &self.edits)
+                .into_iter()
+                .map(place)
+                .collect(),
+            refusals,
+            self.inconsistent
+                .iter()
+                .map(|violation| place((violation.line, violation.column)))
+                .collect(),
+        )
+    }
+
     fn emit(&self) -> Result<String, Fallback> {
         if self.guard.is_some() {
             self.emit_lines::<true>()
@@ -1647,14 +1722,7 @@ impl<'a> DocumentPlan<'a> {
                         output.push_str(&self.ending(text, *at));
                         boundary += 1;
                     }
-                    let removed = self
-                        .removed
-                        .get(
-                            self.removed
-                                .partition_point(|range| range.end <= line_start),
-                        )
-                        .is_some_and(|range| range.start <= line_start);
-                    if removed {
+                    if self.removed(line_start) {
                         return Ok(());
                     }
                     let prefix = line

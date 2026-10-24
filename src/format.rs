@@ -549,6 +549,7 @@ pub(crate) fn unfixed(
             target,
             result.refused,
             result.kept_dash_lines,
+            None,
         );
         &computed
     };
@@ -557,7 +558,12 @@ pub(crate) fn unfixed(
         .iter()
         .any(|refusal| !matches!(refusal.cause, indentation::Cause::Disabled))
     {
-        indentation::check_with_analysis(input, &target.with_consistent_spaces())
+        reindented.inconsistent.clone().unwrap_or_else(|| {
+            indentation::check_with_analysis(input, &target.with_consistent_spaces())
+                .into_iter()
+                .map(|violation| (violation.line, violation.column))
+                .collect()
+        })
     } else {
         Vec::new()
     };
@@ -587,8 +593,8 @@ pub(crate) fn unfixed(
         .flat_map(|refusal| {
             let sites: Vec<_> = inconsistent
                 .iter()
-                .filter(|violation| refusal.lines.contains(&violation.line))
-                .map(|violation| notice(violation.line, violation.column))
+                .filter(|(line, _)| refusal.lines.contains(line))
+                .map(|&(line, column)| notice(line, column))
                 .collect();
             if sites.is_empty() {
                 vec![notice(*refusal.lines.start(), 1)]

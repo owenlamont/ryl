@@ -7,6 +7,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- `ryl format` reports a document it does not re-indent because of a tab even when another
+  edit removes that tab, and no longer reports one it did re-indent where folding starts
+  a line with `-` and a tab.
 - `ryl check --fix` keeps an indentation repair when `key-ordering` also reorders the
   file, instead of leaving the file unchanged and reporting the indentation as a syntax
   error.

@@ -209,8 +209,7 @@ conversion, defer further comment alignment until after reindentation, then run
 the full layout and dry plan. A dry collection plan must also have no remaining
 edits. A remaining conversion plan becomes the next verified stage. Rejected
 conversions can retry after a changed layout stage, retaining the existing
-fixed-point bound. Dirty dry plans continue from the verified candidate;
-consistency refusals replan from original bytes with the refused documents frozen.
+fixed-point bound. Dirty dry plans continue from the verified candidate.
 
 The layout planner retains source provenance through dash joins, scalar collapses,
 comment shifts, folding and boundary finishing. Set
@@ -221,10 +220,12 @@ Both plans collect shared header, comment, sparse spacing and folding facts duri
 lexical scanning. The input buffers the unresolved line, projects tokens against
 settled local gaps and quotes, and feeds the indentation analyzer directly.
 The dry pass invokes the same producers and layout planner on fresh candidate facts;
-remaining edits start another verified layout epoch, and consistency refusals
-freeze the affected documents before replanning from original bytes.
+remaining edits start another verified layout epoch. With `indent-width` unset, the
+plan checks a consistent width over its own target columns, refusing each document that
+breaks it until none does.
 Strict candidate verification compares expected events and semantic events in
-the same parse. Refusal reporting stores epoch-bound evidence without text copies.
+the same parse. Refusal reporting stores the emit plan's refusals, kept dashes and
+width violations, mapped to output lines, as epoch-bound evidence.
 BOM dry inputs retain the
 cached normalizer, whose marker columns distinguish prefix BOMs from scalar content.
 Physical lines borrow slices from the byte-start table; scalar protection ranges are

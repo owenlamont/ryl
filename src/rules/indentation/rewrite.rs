@@ -238,10 +238,23 @@ impl<'a> Layout<'a> {
             .refused
     }
 
-    pub(crate) fn inconsistent_documents(&self, cfg: &Config) -> Vec<Option<Cause>> {
-        let mut refused = vec![None; self.starts.len()];
-        refuse_inconsistent(self.input, cfg, &mut refused);
-        refused
+    /// Refuses each document holding one of `violations` as [`Cause::Inconsistent`], and
+    /// whether that refused one more.
+    pub(crate) fn refuse_violated(
+        &self,
+        violations: &[super::Violation],
+        refused: &mut [Option<Cause>],
+    ) -> bool {
+        let mut more = false;
+        for violation in violations {
+            let cause = &mut refused[self
+                .starts
+                .partition_point(|&at| at <= self.lines[violation.line - 1].origin)
+                - 1];
+            more |= cause.is_none();
+            cause.get_or_insert(Cause::Inconsistent);
+        }
+        more
     }
 
     pub(crate) fn consistent_except(&self, cfg: &Config, refused: &[Refusal]) -> bool {
@@ -412,20 +425,36 @@ impl<'a> Layout<'a> {
         edits: &[crate::format::layout::PlanEdit],
         folding: bool,
     ) -> Targets {
-        let input = self.input;
-        let lines = &self.lines;
-        let original_line_count = input.line_count();
         let line_starts = self.line_starts();
-        let mut analyzer = Analyzer::new(input.text(), &line_starts, cfg, Mode::Target);
-        let projection =
-            crate::format::layout::projection::Projection::new(input, edits);
+        let mut analyzer =
+            Analyzer::new(self.input.text(), &line_starts, cfg, Mode::Target);
         analyzer.scalar_owners = folding.then(Vec::new);
-        analyzer.lines = Some(lines);
-        analyzer.run(super::normalized_tokens(input, &self.source_starts).map(
-            |mut token| {
+        analyzer.lines = Some(&self.lines);
+        analyzer.run(self.projected(edits));
+        let deltas = settle(&self.lines, &analyzer.shifts);
+        let refused = self.refusals(&analyzer.gaps, &analyzer.diagnostics);
+        Targets {
+            deltas,
+            gaps: analyzer.gaps,
+            refused,
+            scalar_owners: analyzer.scalar_owners.unwrap_or_default(),
+            last_token: analyzer.shifts.iter().rposition(Option::is_some),
+        }
+    }
+
+    /// Each token on its virtual line, at its column after `edits`.
+    fn projected<'b>(
+        &'b self,
+        edits: &'b [crate::format::layout::PlanEdit],
+    ) -> impl Iterator<Item = super::Token> + 'b {
+        let line_count = self.input.line_count();
+        let projection =
+            crate::format::layout::projection::Projection::new(self.input, edits);
+        super::normalized_tokens(self.input, &self.source_starts).map(
+            move |mut token| {
                 let line = self.project_line(token.line, token.start);
-                let end_line = if token.end_line >= original_line_count {
-                    lines.len()
+                let end_line = if token.end_line >= line_count {
+                    self.lines.len()
                 } else {
                     self.project_line(token.end_line, token.end)
                 };
@@ -449,16 +478,73 @@ impl<'a> Layout<'a> {
                 token.end_line = end_line;
                 token
             },
-        ));
-        let deltas = settle(lines, &analyzer.shifts);
-        let refused = self.refusals(&analyzer.gaps, &analyzer.diagnostics);
-        Targets {
-            deltas,
-            gaps: analyzer.gaps,
-            refused,
-            scalar_owners: analyzer.scalar_owners.unwrap_or_default(),
-            last_token: analyzer.shifts.iter().rposition(Option::is_some),
-        }
+        )
+    }
+
+    /// Each token on its virtual line, at the column the layout `targets` emits it at.
+    fn targeted<'b>(
+        &'b self,
+        targets: &'b Targets,
+        edits: &'b [crate::format::layout::PlanEdit],
+    ) -> impl Iterator<Item = super::Token> + 'b {
+        let column = move |line: usize, column: usize| {
+            if self.lines.get(line).is_none_or(|virtual_line| {
+                self.frozen(&targets.refused, virtual_line.origin)
+            }) {
+                return column;
+            }
+            let closed: usize = targets.gaps
+                [targets.gaps.partition_point(|gap| gap.line < line)..]
+                .iter()
+                .take_while(|gap| gap.line == line)
+                .filter(|gap| gap.column < column)
+                .map(|gap| gap.removed)
+                .sum();
+            column.saturating_add_signed(targets.deltas[line]) - closed
+        };
+        self.projected(edits).map(move |mut token| {
+            token.column = column(token.line, token.column);
+            token.end_column = column(token.end_line, token.end_column);
+            token
+        })
+    }
+
+    /// The consistent-width violations of the layout `targets` emits, on virtual lines.
+    pub(crate) fn target_violations(
+        &self,
+        cfg: &Config,
+        targets: &Targets,
+        edits: &[crate::format::layout::PlanEdit],
+    ) -> Vec<super::Violation> {
+        let line_starts = self.line_starts();
+        let mut check = Analyzer::new(
+            self.input.text(),
+            &line_starts,
+            &cfg.with_consistent_spaces(),
+            Mode::Check,
+        );
+        check.run(self.targeted(targets, edits));
+        check.diagnostics
+    }
+
+    /// Each kept dash's 1-based virtual line and column in the layout `targets` emits.
+    pub(crate) fn kept_dash_targets(
+        &self,
+        targets: &Targets,
+        edits: &[crate::format::layout::PlanEdit],
+    ) -> Vec<(usize, usize)> {
+        let starts = self.input.byte_line_starts();
+        let dashes: Vec<usize> = self
+            .kept_dash_lines
+            .iter()
+            .map(|&(line, column)| starts[line - 1] + column - 1)
+            .collect();
+        self.targeted(targets, edits)
+            .filter(|token| {
+                token.kind == Kind::BlockEntry && dashes.contains(&token.start)
+            })
+            .map(|token| (token.line + 1, token.column + 1))
+            .collect()
     }
 
     pub(crate) fn stream_targets(

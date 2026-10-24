@@ -248,3 +248,61 @@ fn a_comment_keeping_a_mapping_beside_its_dash_is_named() {
         "---\nseq:\n  - k: v  # note\n    j: x\n"
     );
 }
+
+#[test]
+fn refusal_notice_starts_at_the_marker_format_adds() {
+    let (code, _, stderr, formatted) = ryl_on(
+        Some("[format]\ndocument-start = 'add'\ndocument-end = 'add'\n"),
+        "a: 1\n...\n# note\nb: |\n  \tx\n---\nc: |\n  \ty\n",
+        &["format", "--no-cache"],
+    );
+    assert_eq!(
+        (code, formatted.as_str()),
+        (
+            0,
+            "---\na: 1\n...\n---\n# note\nb: |\n  \tx\n...\n---\nc: |\n  \ty\n...\n"
+        ),
+        "{stderr}"
+    );
+    let notices: Vec<_> = stderr
+        .lines()
+        .map(|line| line.split_once("a.yaml:").unwrap().1)
+        .collect();
+    assert_eq!(
+        notices,
+        [
+            "4:1 indentation not fixed: cannot re-indent this document safely",
+            "9:1 indentation not fixed: cannot re-indent this document safely",
+        ]
+    );
+}
+
+#[test]
+fn tab_refusal_notices_follow_the_plan_not_the_output() {
+    for (config, input, expected, notices) in [
+        (
+            "[format]\n",
+            "-\t-1\n",
+            "- -1\n",
+            "1:1 indentation not fixed: cannot re-indent this document safely\n",
+        ),
+        (
+            "line-length = 8\n[format]\nfold-long-lines = true\n",
+            "- ? aaa aaa\n  : aaa -\taaa\n",
+            "- ? aaa aaa\n  : aaa\n    -\taaa\n",
+            "",
+        ),
+    ] {
+        let (code, _, stderr, formatted) =
+            ryl_on(Some(config), input, &["format", "--no-cache"]);
+        let actual: String = stderr
+            .lines()
+            .map(|line| format!("{}\n", line.split_once("a.yaml:").unwrap().1))
+            .collect();
+        assert_eq!(
+            (code, formatted.as_str(), actual.as_str()),
+            (0, expected, notices),
+            "{input:?}: {stderr}"
+        );
+    }
+}
