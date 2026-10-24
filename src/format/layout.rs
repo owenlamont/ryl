@@ -411,6 +411,7 @@ fn format_document_refused(
     .and_then(|dry| match dry {
         Dry::Dirty => {
             stats::count(stats::Counter::Rollback);
+            stats::count(stats::Counter::DryDirty);
             (output.analysis().text() != source.analysis().text())
                 .then(|| {
                     tracking.edited.extend(rules);
