@@ -180,6 +180,7 @@ enum Kind {
     Value,
     Property,
     Scalar { style: ScalarStyle, empty: bool },
+    Marker,
     Other,
 }
 
@@ -319,6 +320,7 @@ impl Normalizer<'_> {
                         .is_none_or(|ch| matches!(ch, ' ' | '\t') || is_break(ch)),
             },
             LexicalKind::Value => Kind::Value,
+            LexicalKind::DocumentStart | LexicalKind::DocumentEnd => Kind::Marker,
             LexicalKind::Anchor | LexicalKind::Tag => Kind::Property,
             LexicalKind::Scalar { style, empty } => {
                 if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
@@ -486,12 +488,17 @@ enum Shift {
     Token { found: isize, delta: isize },
     /// A line inside a multi-line scalar.
     Carried(isize),
+    /// A document marker's line, which no comment aligns with, since the markers pass
+    /// adds and removes them after comments settle.
+    Marker(isize),
 }
 
 impl Shift {
     const fn delta(self) -> isize {
         match self {
-            Self::Token { delta, .. } | Self::Carried(delta) => delta,
+            Self::Token { delta, .. } | Self::Carried(delta) | Self::Marker(delta) => {
+                delta
+            }
         }
     }
 }
@@ -637,9 +644,11 @@ impl<'a> Analyzer<'a> {
         let found = to_isize(token.column);
         if first_in_line && self.mode == Mode::Target {
             let expected = self.expected(token, found);
-            self.shifts[token.line] = Some(Shift::Token {
-                found,
-                delta: expected - found,
+            let delta = expected - found;
+            self.shifts[token.line] = Some(if token.kind == Kind::Marker {
+                Shift::Marker(delta)
+            } else {
+                Shift::Token { found, delta }
             });
         }
         if self.mode == Mode::Target {

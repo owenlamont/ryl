@@ -227,9 +227,13 @@ fn compact_indent(line: &str) -> usize {
     {
         rest = after.trim_start_matches(' ');
     }
-    if rest.starts_with(['|', '>']) {
-        line.len() - line.trim_start_matches(' ').len()
-    } else {
+    if rest
+        .split(['|', '>'])
+        .next()
+        .is_some_and(|key| key.contains(": "))
+    {
         line.len() - rest.len()
+    } else {
+        line.len() - line.trim_start_matches(' ').len()
     }
 }

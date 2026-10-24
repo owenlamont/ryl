@@ -462,6 +462,15 @@ fn an_explicit_value_split_from_its_dash_indents_from_its_target_in_one_pass() {
 }
 
 #[test]
+fn a_comment_before_an_added_document_end_keeps_its_column_in_one_pass() {
+    assert_one_pass(
+        "a: >\n\nt: |3\n   #s\n\n  # after\n",
+        "[format]\ndocument-end = 'add'\n",
+        "a: >\n\nt: |3\n   #s\n\n  # after\n...\n",
+    );
+}
+
+#[test]
 fn a_flow_key_before_a_colon_the_formatter_spaces_unquotes_in_one_pass() {
     assert_one_pass(
         "---\n{ \"foo\"\n  :bar }\n",

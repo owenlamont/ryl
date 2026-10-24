@@ -20,6 +20,9 @@ summarize user-visible changes from the tagged commits and published release rec
 - `ryl format` settles in one run, where it took two, for `'---' : x` (now `---: x`), the
   spaces-only lines of a blank keep-chomped body under `- key:`, and a dash it moves onto
   its own line after an explicit `:` or in a file with a byte order mark.
+- `ryl format` no longer aligns a comment with a `---` or `...` line, which it may add,
+  so a comment after a block scalar keeps its column when `document-end = 'add'` adds a
+  marker below it.
 - `ryl format` re-indents a document whose only tab follows an indicator that it respaces,
   and no longer reports one it did re-indent where folding starts a line with `-` and a
   tab.
