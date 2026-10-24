@@ -108,10 +108,20 @@ pub(crate) fn format(
             source,
             passes,
             tracking,
-            |input, passes, tracking| plan_document(input, passes, tracking, None),
+            |input, passes, tracking, attempt| {
+                plan_document(input, passes, tracking, None, attempt)
+            },
         );
     };
     format_collections(source, passes, tracking, cfg)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Attempt {
+    Unstaged,
+    Staged,
+    /// A staged attempt whose unheld plan already failed with a scalar interaction.
+    Held,
 }
 
 /// Plans `input`; a folded tail that re-indentation would disturb folds before its document
@@ -121,11 +131,19 @@ fn plan_document(
     passes: &Passes<'_>,
     tracking: &mut PassTracking<'_>,
     first: Option<&Passes<'_>>,
+    attempt: Attempt,
 ) -> Result<TextVersion<'static>, Fallback> {
     let edited = tracking.edited.len();
-    match format_document_staged(input, passes, tracking, first, None) {
+    let result = if attempt == Attempt::Held {
         Err(Fallback::ScalarInteraction)
-            if passes.line_length.is_some() && passes.indentation.is_some() =>
+    } else {
+        format_document_staged(input, passes, tracking, first, None)
+    };
+    match result {
+        Err(Fallback::ScalarInteraction)
+            if attempt != Attempt::Unstaged
+                && passes.line_length.is_some()
+                && passes.indentation.is_some() =>
         {
             tracking.edited.truncate(edited);
             let mut held = vec![None; input.analysis().parsed().document_starts.len()];
@@ -139,8 +157,8 @@ fn plan_document(
     }
 }
 
-/// `plan` over `input` with its quote edits applied first, when folding needs settled
-/// scalar lengths or collapsed quotes cannot share a virtual line.
+/// `plan` over `input`, retried with its quote edits applied first when they cannot share
+/// its virtual lines, or on any unambiguous failure while folding.
 fn with_quote_stage(
     input: &mut TextVersion<'_>,
     passes: &Passes<'_>,
@@ -149,21 +167,32 @@ fn with_quote_stage(
         &mut TextVersion<'_>,
         &Passes<'_>,
         &mut PassTracking<'_>,
+        Attempt,
     ) -> Result<TextVersion<'static>, Fallback>,
 ) -> Result<TextVersion<'static>, Fallback> {
-    let staged = passes.line_length.is_some();
-    if !staged {
-        let edited = tracking.edited.len();
-        match plan(input, passes, tracking) {
-            Err(Fallback::ScalarInteraction) => tracking.edited.truncate(edited),
-            result => return result,
+    let folding = passes.line_length.is_some();
+    let edited = tracking.edited.len();
+    let reason = match plan(input, passes, tracking, Attempt::Unstaged) {
+        Err(reason)
+            if matches!(reason, Fallback::ScalarInteraction)
+                || (folding && !matches!(reason, Fallback::Ambiguous)) =>
+        {
+            tracking.edited.truncate(edited);
+            reason
         }
-    }
+        result => return result,
+    };
     prepare_quotes(input.analysis(), passes).and_then(|quoted| match quoted {
         Some(mut quoted) => probe(tracking, input.analysis())
-            .and_then(|()| plan(&mut quoted, passes, tracking))
+            .and_then(|()| plan(&mut quoted, passes, tracking, Attempt::Staged))
             .inspect(|_| tracking.edited.push(quoted_strings::ID)),
-        None => plan(input, passes, tracking),
+        // Without quote edits the unstaged plan was the staged one, so only its held retry is new.
+        None => match reason {
+            Fallback::ScalarInteraction if folding => {
+                plan(input, passes, tracking, Attempt::Held)
+            }
+            reason => Err(reason),
+        },
     })
 }
 
@@ -208,7 +237,7 @@ fn format_collections(
             &mut converted,
             passes,
             tracking,
-            |input, passes, tracking| {
+            |input, passes, tracking, attempt| {
                 if !rules.is_empty()
                     && passes.comments_indentation.is_some()
                     && input
@@ -218,9 +247,9 @@ fn format_collections(
                 {
                     let mut staged = passes.clone();
                     staged.comments_indentation = None;
-                    plan_document(input, passes, tracking, Some(&staged))
+                    plan_document(input, passes, tracking, Some(&staged), attempt)
                 } else {
-                    plan_document(input, passes, tracking, None)
+                    plan_document(input, passes, tracking, None, attempt)
                 }
             },
         )?;
@@ -1630,10 +1659,17 @@ impl<'a> DocumentPlan<'a> {
         }
         let mut position = self.prefix(index) + usize::from(line.bom) * 3;
         let mut valid = true;
-        [line.body, line.tail]
+        let bridged = line.bridge.as_ref().map_or(0, |bridge| {
+            self.edits[self
+                .edits
+                .partition_point(|(from, _, _)| from.get() < bridge.start)]
+            .2
+            .len()
+        });
+        [(line.body, 0), (line.tail, bridged)]
             .into_iter()
-            .filter(|part| !part.is_empty())
-            .find_map(|part| {
+            .filter(|(part, bridged)| !part.is_empty() || *bridged > 0)
+            .find_map(|(part, bridged)| {
                 let start = part.as_ptr() as usize - source.as_ptr() as usize;
                 let end = start + part.len();
                 valid &= byte >= start;
@@ -1643,7 +1679,7 @@ impl<'a> DocumentPlan<'a> {
                             self.input,
                             start,
                             byte.min(end),
-                            position,
+                            position + bridged,
                         );
                         (byte <= end).then(|| self.close_gaps(index, position))
                     })
@@ -1704,14 +1740,21 @@ impl<'a> DocumentPlan<'a> {
                 .partition_point(|&start| start <= byte)
                 .saturating_sub(1)
         };
-        let quotes = usize::from(matches!(
-            style,
-            ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
-        ));
-        let full = range.start - quotes..range.end + quotes;
+        let quote_width = |style| {
+            usize::from(matches!(
+                style,
+                ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
+            ))
+        };
+        let full = range.start - quote_width(style)..range.end + quote_width(style);
         if full.is_empty() {
             return Ok(());
         }
+        let style = self
+            .styles
+            .binary_search_by_key(&full.start, |(at, _)| *at)
+            .map_or(style, |index| self.styles[index].1);
+        let quotes = quote_width(style);
         let first = self.layout.project_line(line_of(full.start), full.start);
         let last = self
             .layout
