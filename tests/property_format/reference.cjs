@@ -59,12 +59,12 @@ Parser.prototype.make_receivers = function () {
 
 require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
   const parser = new Parser(new TestReceiver());
-  let events = null;
+  let reply = null;
   try {
     parser.parse(JSON.parse(line));
-    events = parser.receiver.output();
+    reply = parser.receiver.output();
   } catch (error) {
-    if (typeof error !== 'string') throw error;
+    if (typeof error !== 'string') reply = { crash: String(error) };
   }
-  process.stdout.write(JSON.stringify(events) + '\n');
+  process.stdout.write(JSON.stringify(reply) + '\n');
 });

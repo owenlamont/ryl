@@ -66,21 +66,36 @@ impl ReferenceParser {
             "{}",
             serde_json::to_string(&normalized).unwrap()
         )
-        .unwrap();
+        .unwrap_or_else(|error| {
+            panic!("reference parser exited ({error}) before {normalized:?}")
+        });
         let line = match self.output.recv_timeout(Duration::from_secs(60)) {
             Ok(line) => line,
             Err(RecvTimeoutError::Timeout) => {
                 self.stop();
                 panic!("reference parser took over 60 s on {normalized:?}");
             }
-            Err(RecvTimeoutError::Disconnected) => panic!("reference parser exited"),
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("reference parser exited on {normalized:?}")
+            }
         };
-        let events = serde_json::from_str::<Option<String>>(&line)
-            .expect("reference parser events")
-            .map(|events| without_presentation(&events));
+        let events = match serde_json::from_str(&line).expect("reference parser reply")
+        {
+            Reply::Events(events) => events.map(|events| without_presentation(&events)),
+            Reply::Crash { crash } => {
+                panic!("reference parser crashed on {normalized:?}: {crash}")
+            }
+        };
         self.events.insert(normalized, events.clone());
         events
     }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum Reply {
+    Events(Option<String>),
+    Crash { crash: String },
 }
 
 impl Drop for ReferenceParser {
