@@ -422,13 +422,109 @@ fn quoted_flow_key_gaps_compose_with_boundary_insertions() {
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
 
-#[test]
-fn a_dirty_dry_plan_requires_another_verified_epoch() {
-    let (output, statistics) =
-        format_with_statistics("---\n{ \"foo\"\n  :bar }\n", "[format]\n");
-    assert_eq!(output, "---\n{foo\n : bar}\n");
+fn assert_one_pass(input: &str, config: &str, expected: &str) {
+    let (output, statistics) = format_with_statistics(input, config);
+    assert_eq!(output, expected);
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["rollback"], 1, "{statistics}");
+    assert_eq!(statistics["dry_dirty"], 0, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn a_flow_key_before_a_colon_the_formatter_spaces_unquotes_in_one_pass() {
+    assert_one_pass(
+        "---\n{ \"foo\"\n  :bar }\n",
+        "[format]\n",
+        "---\n{foo\n : bar}\n",
+    );
+    assert_one_pass("{\"name\":\"admin\"}\n", "[format]\n", "{name: admin}\n");
+}
+
+#[test]
+fn a_flow_key_keeps_its_quotes_where_colons_are_disabled() {
+    assert_one_pass(
+        "{\"name\":admin}  # yamllint disable-line rule:colons\n",
+        "[format]\n",
+        "{'name':admin}  # yamllint disable-line rule:colons\n",
+    );
+}
+
+#[test]
+fn trailing_comments_keep_what_comments_indentation_exempts() {
+    for (input, config, expected) in [
+        (
+            "a: |\n  x\n\n # t\n# u\n",
+            "[format]\n",
+            "a: |\n  x\n\n # t\n# u\n",
+        ),
+        (
+            "a:\n   b: 1\n# yamllint disable rule:empty-lines\n # c\n",
+            "[format]\n",
+            "a:\n  b: 1\n# yamllint disable rule:empty-lines\n  # c\n",
+        ),
+        (
+            "a:\n   b: 1\n# yamllint disable rule:comments-indentation\n# c\n",
+            "[format]\n",
+            "a:\n  b: 1\n# yamllint disable rule:comments-indentation\n# c\n",
+        ),
+        (
+            "a:\n   b: 1\n# c\n",
+            "[format]\n[lint.rules.comments-indentation]\nallow-any-open-indent = true\n",
+            "a:\n  b: 1\n# c\n",
+        ),
+    ] {
+        assert_one_pass(input, config, expected);
+    }
+}
+
+#[test]
+fn a_root_quote_restyle_settles_its_ladder_in_one_pass() {
+    assert_one_pass(
+        "\"3 inline\ttab\"\n",
+        "[format]\nquote-style = 'single'\n",
+        "3 inline\ttab\n",
+    );
+}
+
+#[test]
+fn a_requoted_multiline_scalar_trims_its_trailing_spaces_in_one_pass() {
+    assert_one_pass(
+        "d: \"  \n  \"\n",
+        "[format]\nquote-style = 'single'\n",
+        "d: '\n  '\n",
+    );
+}
+
+#[test]
+fn a_marker_on_a_bom_only_line_counts_the_rest_as_blank_in_one_pass() {
+    assert_one_pass(
+        "a: a\n...\n\u{feff}\na: 1\n",
+        "[format]\ndocument-start = 'add'\nmax-blank-lines = 0\n",
+        "---\na: a\n...\n\u{feff}---\na: 1\n",
+    );
+}
+
+#[test]
+fn a_tab_only_line_does_not_refuse_reindenting_its_flow_in_one_pass() {
+    assert_one_pass("- [\n\t\n foo\n ]\n", "[format]\n", "- [\n\n  foo\n ]\n");
+    for kept in [
+        "# yamllint disable rule:trailing-spaces\n- [\n\t\n foo\n ]\n",
+        "foo: |\n \t\nbar:\n   1\n",
+        "a:\n   b: \"x\\\n      \t\n      y\"\n",
+    ] {
+        assert_one_pass(kept, "[format]\n", kept);
+    }
+    let crlf = "a:\r\n   b: \"x\\\r\n      \t\r\n      y\"\r\n";
+    assert_one_pass(crlf, "[format]\nline-ending = 'cr-lf'\n", crlf);
+}
+
+#[test]
+fn a_comment_after_the_last_content_aligns_with_its_target_in_one_pass() {
+    assert_one_pass(
+        "a:\n  b:\n   - c\n# end\n\n # tail\n",
+        "[format]\n",
+        "a:\n  b:\n    - c\n    # end\n\n    # tail\n",
+    );
 }
 
 #[test]
@@ -855,11 +951,17 @@ fn large_candidate_verification_failure_freezes_its_document() {
 
 #[test]
 fn dirty_dry_plans_settle_without_restarting_the_driver() {
-    let input = threshold_input(1_048_620, "---\n{ \"foo\"\n  :bar }\n");
-    let (output, stats) = format_with_statistics(&input, "[format]\n");
-    assert!(output == input.replace("{ \"foo\"\n  :bar }", "{foo\n : bar}"));
+    // Folding moves the trailing comment onto a new content line after comments settle.
+    let body = "a:\n  b: xxxxxxxxx yyyyyyyyyy # c\n  # d\n";
+    let input = threshold_input(1_048_620, body);
+    let (output, stats) = format_with_statistics(
+        &input,
+        "line-length = 20\n[format]\nfold-long-lines = true\n",
+    );
+    let folded = "a:\n  b: xxxxxxxxx\n    yyyyyyyyyy  # c\n    # d\n";
+    assert!(output == input.replace(body, folded));
     assert_eq!(stats["fallback"], Value::Null, "{stats}");
-    assert_eq!(stats["rollback"], 1);
+    assert_eq!(stats["dry_dirty"], 1);
 }
 
 #[test]

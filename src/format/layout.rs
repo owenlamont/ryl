@@ -411,6 +411,7 @@ fn format_document_refused(
     .and_then(|dry| match dry {
         Dry::Dirty => {
             stats::count(stats::Counter::Rollback);
+            stats::count(stats::Counter::DryDirty);
             (output.analysis().text() != source.analysis().text())
                 .then(|| {
                     tracking.edited.extend(rules);
@@ -906,6 +907,61 @@ impl Presentation {
         }
     }
 
+    /// `settle` moves an own-line comment below the last content line with that line's
+    /// shift; `comments-indentation` then judges the moved column against the target of
+    /// the content line it follows, as it would on the output.
+    fn align_trailing_comments(
+        &self,
+        input: Analysis<'_>,
+        passes: &Passes<'_>,
+        layout: &indentation::Layout<'_>,
+        targets: &mut indentation::Targets,
+    ) {
+        use comments_indentation::LineKind;
+        let (Some(cfg), Some(last)) = (passes.comments_indentation, targets.last_token)
+        else {
+            return;
+        };
+        let lines = &layout.lines;
+        if cfg != comments_indentation::Config::default()
+            || lines[last + 1..]
+                .iter()
+                .all(|content| content.comment_column().is_none())
+        {
+            return;
+        }
+        let kind = comments_indentation::line_kinds(input);
+        let column = |line: usize| {
+            let content = &lines[line];
+            (content.prefix + content.body.len() - content.body.trim_start().len())
+                .cast_signed()
+        };
+        let previous = (0..=last)
+            .rev()
+            .find(|&line| kind(lines[line].origin) == Some(LineKind::Other))
+            .map_or(0, |line| column(line) + targets.deltas[line]);
+        let mut reference = previous;
+        for (line, content) in lines.iter().enumerate().skip(last + 1) {
+            if content.comment_column().is_none() {
+                continue;
+            }
+            let moved = column(line) + targets.deltas[line];
+            match kind(content.origin) {
+                Some(LineKind::Comment) => {
+                    let aligned = if moved == 0 { 0 } else { reference };
+                    if self.guard.as_ref().is_none_or(|guard| {
+                        guard.line(comments_indentation::ID, content.origin)
+                    }) {
+                        targets.deltas[line] = aligned - column(line);
+                    }
+                    reference = aligned;
+                }
+                Some(LineKind::ScalarTrailingComment) => reference = moved,
+                _ => reference = previous,
+            }
+        }
+    }
+
     fn retain_documents(
         &mut self,
         input: Analysis<'_>,
@@ -934,6 +990,7 @@ impl Presentation {
                     layout.targets(cfg, &self.edits, passes.line_length.is_some());
                 targets.refused = refused;
                 self.align_comments(input, passes, layout);
+                self.align_trailing_comments(input, passes, layout, targets);
                 self.settle().map(|()| layout.freeze_targets(targets))
             })
     }
@@ -970,14 +1027,21 @@ impl Presentation {
     ) -> Result<(indentation::Layout<'a>, indentation::Targets, Self), Fallback> {
         facts::prepare_input(input, passes.line_length.is_some()).and_then(|()| {
             let mut layout = indentation::Layout::new(input, cfg);
+            layout.trimmed = passes.trailing_spaces;
             Self::new(input, passes, &mut layout, cache).and_then(|presentation| {
                 if !layout.collapse_scalars(&presentation.edits) {
                     return Err(Fallback::ScalarInteraction);
                 }
-                let targets = layout.targets(
+                let mut targets = layout.targets(
                     cfg,
                     &presentation.edits,
                     passes.line_length.is_some(),
+                );
+                presentation.align_trailing_comments(
+                    input,
+                    passes,
+                    &layout,
+                    &mut targets,
                 );
                 Ok((layout, targets, presentation))
             })
@@ -992,6 +1056,7 @@ impl Presentation {
     ) -> Result<(indentation::Layout<'a>, indentation::Targets, Self), Fallback> {
         let mut presentation = Self::pre_scan(input, passes, cache)?;
         let mut layout = indentation::Layout::format(input, cfg);
+        layout.trimmed = passes.trailing_spaces;
         if !layout.collapse_scalars(&presentation.edits) {
             return Err(Fallback::ScalarInteraction);
         }
@@ -1020,7 +1085,13 @@ impl Presentation {
                 presentation.lint_spacing(input, passes);
                 presentation.comments(input, passes, &mut layout);
                 presentation.settle().map(|()| {
-                    let targets = targets.finish(&layout);
+                    let mut targets = targets.finish(&layout);
+                    presentation.align_trailing_comments(
+                        input,
+                        passes,
+                        &layout,
+                        &mut targets,
+                    );
                     (layout, targets, presentation)
                 })
             })
@@ -1034,12 +1105,19 @@ impl Presentation {
         let mut edits = Vec::new();
         let mut styles = Vec::new();
         let guard = Guard::new(input, passes);
+        let spaced_colon = |at| {
+            passes.colons == Some(colons::Config::format())
+                && guard.as_ref().is_none_or(|guard| {
+                    guard.allows(colons::ID, BytePos::new(at), BytePos::new(at + 1))
+                })
+        };
         let result = passes.quoted_strings.as_ref().map_or(Ok(()), |cfg| {
-            let (mut next, _, _) = quoted_strings::format_replacements(
+            let mut next = quoted_strings::format_replacements(
                 input,
                 cfg,
                 quotes,
                 passes.preserve_events,
+                &spaced_colon,
             );
             if let Some(guard) = &guard {
                 let mut partial = false;
@@ -1228,7 +1306,12 @@ impl<'a> DocumentPlan<'a> {
             })
             .collect();
         if passes.trailing_spaces {
-            let mut next = trailing_spaces::edits(input);
+            let styles = &self.styles;
+            let mut next = trailing_spaces::edits_restyled(input, |start| {
+                styles
+                    .binary_search_by_key(&start, |(at, _)| *at)
+                    .is_ok_and(|index| styles[index].1 != ScalarStyle::DoubleQuoted)
+            });
             if let Some(guard) = &self.guard {
                 next.retain(|(start, end, _)| {
                     guard.allows(trailing_spaces::ID, *start, *end)
@@ -1468,7 +1551,10 @@ impl<'a> DocumentPlan<'a> {
                     boundary += 1;
                 }
             }
-            if line.is_empty() && !protected[line.origin] {
+            // A marker on a BOM-only line leaves the rest of that line blank.
+            let blank = line.is_empty()
+                || (marker && line.bom && line.prefix == 0 && line.body.is_empty());
+            if blank && !protected[line.origin] {
                 if line.ending.is_empty() {
                     continue;
                 }
