@@ -433,8 +433,7 @@ impl<'a> Layout<'a> {
                 token
             },
         ));
-        let mut deltas = settle(lines, &analyzer.shifts);
-        self.carry_scalar_blank_lines(&mut deltas);
+        let deltas = settle(lines, &analyzer.shifts);
         let refused = self.refusals(&analyzer.gaps, &analyzer.diagnostics);
         Targets {
             deltas,
@@ -681,37 +680,6 @@ impl<'a> Layout<'a> {
         }
     }
 
-    fn carry_scalar_blank_lines(&self, deltas: &mut [isize]) {
-        let input = self.input;
-        let headers = input.headers();
-        // These spaces are scalar content, so they move with the header.
-        for line in input.content_blank_lines().iter().copied() {
-            let header = headers
-                .iter()
-                .rev()
-                .find(|header| header.line < line && line <= header.span.end.line())
-                .expect("content line belongs to a block scalar");
-            let header_line = header.line - 1;
-            let header_index = self
-                .lines
-                .partition_point(|source| source.origin <= header_line)
-                .saturating_sub(1);
-            let header_text = input.line_content(header_line);
-            let original_indent =
-                header_text.len() - header_text.trim_start_matches(' ').len();
-            let shaped_indent = self.lines[header_index].prefix;
-            let shift = deltas[header_index] + super::to_isize(shaped_indent)
-                - super::to_isize(original_indent);
-            let first = self
-                .lines
-                .partition_point(|source| source.origin < line - 1);
-            let last = self.lines.partition_point(|source| source.origin < line);
-            for delta in &mut deltas[first..last] {
-                *delta = shift;
-            }
-        }
-    }
-
     pub(crate) fn project_line(&self, original: usize, byte: usize) -> usize {
         let source = self.input.text().as_ptr() as usize;
         let Some(projection) = &self.projection else {
@@ -839,8 +807,7 @@ pub(crate) struct StreamTargets {
 
 impl StreamTargets {
     pub(crate) fn finish(self, layout: &Layout<'_>) -> Targets {
-        let mut deltas = settle(&layout.lines, &self.shifts);
-        layout.carry_scalar_blank_lines(&mut deltas);
+        let deltas = settle(&layout.lines, &self.shifts);
         Targets {
             deltas,
             refused: layout.refusals(&self.gaps, &self.diagnostics),
