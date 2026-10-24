@@ -975,6 +975,23 @@ fn lines(text: &str) -> Vec<&str> {
 /// after indicators change, a refused document keeps its bytes, and every other line is
 /// where `indentation` expects. An input the parser cannot parse is left to the
 /// parse-preservation check.
+fn has_block_scalar(input: &str) -> bool {
+    ryl_yaml_parser::Parser::new_from_str(input).any(|event| {
+        matches!(
+            event,
+            Ok((
+                ryl_yaml_parser::Event::Scalar(
+                    _,
+                    ryl_yaml_parser::ScalarStyle::Literal
+                        | ryl_yaml_parser::ScalarStyle::Folded,
+                    ..
+                ),
+                _
+            ))
+        )
+    })
+}
+
 fn check_reindent(input: &str, width: usize) -> Result<(), String> {
     if representation(input).is_none() {
         return Ok(());
@@ -985,6 +1002,18 @@ fn check_reindent(input: &str, width: usize) -> Result<(), String> {
         false,
     );
     let out = indentation::reindent(input, &cfg);
+    // Block scalar bodies carry their own re-indent refusals; structure alone must never
+    // need the event check.
+    let changed = out
+        .refused
+        .iter()
+        .find(|doc| doc.cause == indentation::Cause::Changed);
+    if let Some(doc) = changed.filter(|_| !has_block_scalar(input)) {
+        return Err(format!(
+            "plan changed events: lines {:?}, width {width}, {input:?}",
+            doc.lines
+        ));
+    }
     let (before, after) = (lines(input), lines(&out.text));
     let refused = |line: usize| out.refused.iter().any(|doc| doc.lines.contains(&line));
     if before.len() != after.len() {
@@ -1039,6 +1068,39 @@ fn mixed_width_flow_conversion_keeps_consistent_indent_lint_clean() {
             }
         }
     }
+}
+
+#[test]
+fn bare_dash_sequences_reindent_without_a_refusal() {
+    let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    for (input, expected) in [
+        (
+            "- name: t\n  loop:\n  -\n  - a\n  - b\n",
+            "- name: t\n  loop:\n    -\n    - a\n    - b\n",
+        ),
+        ("k:\n-   # c\n- b\n", "k:\n  -  # c\n  - b\n"),
+        (
+            "a:\n- x\n-\nb:\n-\n---\nk: 1\n",
+            "a:\n  - x\n  -\nb:\n  -\n---\nk: 1\n",
+        ),
+    ] {
+        let (formatted, notices) = ryl::fix::rewrite_str(
+            input,
+            &cfg,
+            synthetic_path(),
+            synthetic_base_dir(),
+            ryl::config::SourceKind::Yaml,
+            ryl::fix::Rewrite::Format,
+        );
+        assert_eq!(formatted.as_deref(), Some(expected), "{input:?}");
+        assert!(notices.is_empty(), "{input:?}: {notices:?}");
+        check_values(input, expected).unwrap();
+    }
+}
+
+#[test]
+fn continuation_after_closed_dash_gap_stays_deeper_than_the_dash() {
+    check_reindent("a:\n  -  a\n   a\n", 3).unwrap();
 }
 
 #[test]

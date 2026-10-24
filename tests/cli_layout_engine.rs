@@ -439,10 +439,10 @@ fn root_quotes_complete_a_verified_layout_plan() {
 }
 
 #[test]
-fn empty_dash_reindentation_freezes_its_changed_document() {
-    let (output, statistics) =
-        format_with_statistics("empty:\n-\n- null\nmap: {a:,b: null}\n", "[format]\n");
-    assert_eq!(output, "empty:\n-\n- null\nmap: {a:, b: null}\n");
+fn block_scalar_reindentation_freezes_its_changed_document() {
+    let input = "a:\n -  b: |1\n   \n    # c\n";
+    let (output, statistics) = format_with_statistics(input, "[format]\n");
+    assert_eq!(output, input);
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(statistics["rollback"], 1, "{statistics}");
 }
@@ -843,7 +843,10 @@ fn late_parse_error_keeps_original_bytes_and_error() {
 
 #[test]
 fn large_candidate_verification_failure_freezes_its_document() {
-    let input = threshold_input(1_048_620, "empty:\n-\n- null\nmap: {a:,b: null}\n");
+    let input = threshold_input(
+        1_048_620,
+        "map: {a:,b: null}\na:\n -  b: |1\n   \n    # c\n",
+    );
     let (output, stats) = format_with_statistics(&input, "[format]\n");
     assert!(output == input.replace("{a:,b:", "{a:, b:"));
     assert_eq!(stats["fallback"], Value::Null, "{stats}");
@@ -1145,12 +1148,12 @@ fn explicit_indicator_folds_keep_more_indented_lines() {
 #[test]
 fn frozen_documents_fold_from_their_original_indentation() {
     let (output, statistics) = format_with_statistics(
-        "file:\n  path: \"/tmp/{{ item }}\"\nloop:\n-\n- café\n",
+        "file:\n  path: \"/tmp/{{ item }}\"\nloop:\n -  café: |1\n   \n    # c\n",
         "line-length = 12\nindent-width = 4\n[format]\nfold-long-lines = true\n",
     );
     assert_eq!(
         output,
-        "file:\n  path: /tmp/{{\n      item\n      }}\nloop:\n-\n- café\n"
+        "file:\n  path: /tmp/{{\n      item\n      }}\nloop:\n -  café: |1\n   \n    # c\n"
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }

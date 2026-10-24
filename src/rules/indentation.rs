@@ -595,6 +595,15 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    fn block_parent(&self) -> Option<&Parent> {
+        self.stack.iter().rev().find(|parent| {
+            matches!(
+                parent.kind,
+                ParentKind::BlockMapping | ParentKind::BlockSequence
+            )
+        })
+    }
+
     fn top(&self) -> Parent {
         self.stack[self.stack.len() - 1]
     }
@@ -661,36 +670,17 @@ impl<'a> Analyzer<'a> {
     }
 
     fn record_scalar_owner(&mut self, token: &Token) {
-        let Some(owners) = &mut self.scalar_owners else {
-            return;
-        };
-        let column = self
-            .stack
-            .iter()
-            .rev()
-            .find(|parent| {
-                matches!(
-                    parent.kind,
-                    ParentKind::BlockMapping | ParentKind::BlockSequence
-                )
-            })
-            .map_or(0, |parent| parent.indent);
-        owners.push((token.start, usize::try_from(column).unwrap_or(0)));
+        let column = self.block_parent().map_or(0, |parent| parent.indent);
+        if let Some(owners) = &mut self.scalar_owners {
+            owners.push((token.start, usize::try_from(column).unwrap_or(0)));
+        }
     }
 
     fn expected(&mut self, token: &Token, found: isize) -> isize {
         let top = self.top();
         match token.kind {
             Kind::FlowMappingEnd | Kind::FlowSequenceEnd => top.line_indent.max(
-                self.stack
-                    .iter()
-                    .rev()
-                    .find(|parent| {
-                        matches!(
-                            parent.kind,
-                            ParentKind::BlockMapping | ParentKind::BlockSequence
-                        )
-                    })
+                self.block_parent()
                     .map_or(0, |parent| parent.indent.saturating_add(1)),
             ),
             Kind::Value => top.indent,
@@ -747,7 +737,7 @@ impl<'a> Analyzer<'a> {
                     ..Parent::new(kind, indent)
                 });
             }
-            Kind::BlockEntry if !next.is(&[Kind::BlockEntry, Kind::BlockEnd]) => {
+            Kind::BlockEntry => {
                 if self.top().kind != ParentKind::BlockSequence {
                     self.stack.push(Parent {
                         implicit_block_seq: true,
@@ -755,13 +745,21 @@ impl<'a> Analyzer<'a> {
                         ..Parent::new(ParentKind::BlockSequence, column)
                     });
                 }
-                let indent =
-                    if next.line == token.end_line || next.column == token.column {
+                // An entry's content sits deeper than its `-`, so anything else is a sibling
+                // or the end of the sequence.
+                let empty = next.kind == Kind::BlockEnd
+                    || (next.line != token.end_line && next.column <= token.column);
+                if !empty {
+                    let indent = if next.line == token.end_line {
                         next_column
                     } else {
                         self.detect_indent(column, next_column)
                     };
-                self.stack.push(Parent::new(ParentKind::BlockEntry, indent));
+                    self.stack.push(Parent::new(ParentKind::BlockEntry, indent));
+                } else if next.kind != Kind::BlockEntry && self.top().implicit_block_seq
+                {
+                    self.stack.pop();
+                }
             }
             Kind::Key { explicit } => {
                 self.stack.push(Parent {
@@ -909,22 +907,32 @@ impl<'a> Analyzer<'a> {
     /// fixes its column, and a continuation with the line it starts on.
     fn carry_scalar_lines(&mut self, token: &Token, style: ScalarStyle) {
         let delta = if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
-            self.column(token) - to_isize(token.column)
+            let lines = self.lines.expect("target analysis has virtual lines");
+            // A continuation follows its token, but one deeper than its collection stays so.
+            (token.line + 1..=last_line(token))
+                .map(|line| &lines[line])
+                .filter(|line| !line.body.trim_start().is_empty())
+                .map(|line| {
+                    to_isize(
+                        line.prefix + line.body.len() - line.body.trim_start().len(),
+                    )
+                })
+                .fold(
+                    self.column(token) - to_isize(token.column),
+                    |delta, column| match self.block_parent() {
+                        Some(parent) if column > self.source_column(parent.start) => {
+                            delta.max(parent.indent + 1 - column)
+                        }
+                        _ => delta,
+                    },
+                )
         } else if let Some((_, indent)) = self.body_indents(token).next()
             && !self.has_indentation_indicator(token)
         {
             let found = to_isize(indent);
             self.expected_scalar_indent(token, style, found) - found
         } else {
-            self.stack
-                .iter()
-                .rev()
-                .find(|parent| {
-                    matches!(
-                        parent.kind,
-                        ParentKind::BlockMapping | ParentKind::BlockSequence
-                    )
-                })
+            self.block_parent()
                 .map_or(0, |parent| parent.indent - self.source_column(parent.start))
         };
         for line in token.line + 1..=last_line(token) {

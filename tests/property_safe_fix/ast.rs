@@ -51,6 +51,10 @@ pub enum SeqBody {
     CompactMap(Vec<BlockEntry>),
     /// `- - a` with further items aligned under the inner dash.
     CompactSeq(Vec<(u8, Node)>),
+    /// A bare `-` holding null, optionally commented.
+    Empty(Option<InlineComment>),
+    /// A bare `-` with a sequence on the lines below.
+    BareSeq(Vec<(u8, Node)>),
 }
 
 #[derive(Debug, Clone)]
@@ -548,7 +552,10 @@ impl SeqItem {
     fn render(&self, buffer: &mut String, line_term: &str, indent: &str) {
         buffer.push_str(indent);
         buffer.push('-');
-        if !matches!(self.body, SeqBody::TaggedMap("", _)) {
+        if !matches!(
+            self.body,
+            SeqBody::TaggedMap("", _) | SeqBody::Empty(_) | SeqBody::BareSeq(_)
+        ) {
             push_spaces(buffer, self.dash_spaces);
         }
         let deeper = format!("{indent}{}", " ".repeat(usize::from(self.width)));
@@ -582,6 +589,23 @@ impl SeqItem {
                         buffer.push_str(line_term);
                         buffer.push_str(&content);
                     }
+                    buffer.push('-');
+                    push_spaces(buffer, *spaces);
+                    node.render(buffer);
+                }
+            }
+            SeqBody::Empty(comment) => {
+                if let Some(comment) = comment {
+                    buffer.push_str(&comment.whitespace_before_hash);
+                    buffer.push('#');
+                    push_spaces(buffer, comment.spaces_after_hash);
+                    buffer.push_str(&comment.text);
+                }
+            }
+            SeqBody::BareSeq(items) => {
+                for (spaces, node) in items {
+                    buffer.push_str(line_term);
+                    buffer.push_str(&deeper);
                     buffer.push('-');
                     push_spaces(buffer, *spaces);
                     node.render(buffer);
