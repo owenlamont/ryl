@@ -66,6 +66,8 @@ pub(crate) struct Layout<'a> {
     projection: Option<Vec<usize>>,
     pub(crate) kept_dash_lines: Vec<(usize, usize)>,
     consistent: Option<bool>,
+    /// Whether `trailing-spaces` empties whitespace-only lines.
+    pub(crate) trimmed: bool,
 }
 
 impl<'a> Layout<'a> {
@@ -299,6 +301,7 @@ impl<'a> Layout<'a> {
             projection: None,
             kept_dash_lines,
             consistent: None,
+            trimmed: false,
         };
         layout.reindex();
         layout
@@ -325,7 +328,7 @@ impl<'a> Layout<'a> {
             deltas,
             gaps,
             mut refused,
-            scalar_owners: _,
+            ..
         } = self.targets(cfg, &[], false);
         let lines = &self.lines;
         let starts = &self.starts;
@@ -441,6 +444,7 @@ impl<'a> Layout<'a> {
             gaps: analyzer.gaps,
             refused,
             scalar_owners: analyzer.scalar_owners.unwrap_or_default(),
+            last_token: analyzer.shifts.iter().rposition(Option::is_some),
         }
     }
 
@@ -786,6 +790,26 @@ impl<'a> Layout<'a> {
         extra.map_or(column, |extra| extra.column(original, byte, column))
     }
 
+    /// The 0-based lines each scalar that trailing-spaces protects spans.
+    fn protected_scalar_lines(&self) -> Vec<std::ops::Range<usize>> {
+        self.input
+            .parsed()
+            .scalars()
+            .filter(|(style, _)| {
+                matches!(
+                    style,
+                    ryl_yaml_parser::ScalarStyle::Literal
+                        | ryl_yaml_parser::ScalarStyle::Folded
+                        | ryl_yaml_parser::ScalarStyle::DoubleQuoted
+                )
+            })
+            .map(|(_, span)| {
+                span.start.line() - 1
+                    ..span.end.line() - usize::from(span.end.col() == 0)
+            })
+            .collect()
+    }
+
     /// Each document's first [`Cause`] other than [`Cause::Changed`].
     fn refusals(
         &self,
@@ -811,8 +835,20 @@ impl<'a> Layout<'a> {
                 refuse(self.lines[gap.line].origin, Cause::Disabled);
             }
         }
+        let mut protected = None;
         for (line, content, _) in self.input.lines() {
-            if tab_in_indentation(content) {
+            // Where trailing-spaces runs, a whitespace-only line outside the scalars it
+            // protects is blank.
+            if tab_in_indentation(content)
+                && (!content.trim_start_matches([' ', '\t']).is_empty()
+                    || !self.trimmed
+                    || directives
+                        .is_disabled(crate::rules::trailing_spaces::ID, line + 1)
+                    || protected
+                        .get_or_insert_with(|| self.protected_scalar_lines())
+                        .iter()
+                        .any(|lines: &std::ops::Range<usize>| lines.contains(&line)))
+            {
                 refuse(line, Cause::Tab);
             }
         }
@@ -828,6 +864,8 @@ pub(crate) struct Targets {
     pub(crate) gaps: Vec<Gap>,
     pub(crate) refused: Vec<Option<Cause>>,
     pub(crate) scalar_owners: Vec<(usize, usize)>,
+    /// The last line a token leads or a scalar carries.
+    pub(crate) last_token: Option<usize>,
 }
 
 pub(crate) struct StreamTargets {
@@ -846,6 +884,7 @@ impl StreamTargets {
             refused: layout.refusals(&self.gaps, &self.diagnostics),
             gaps: self.gaps,
             scalar_owners: self.scalar_owners,
+            last_token: self.shifts.iter().rposition(Option::is_some),
         }
     }
 }
