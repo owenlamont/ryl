@@ -1485,6 +1485,8 @@ pub(crate) struct ReindentEvidence {
     config: indentation::Config,
     pub(crate) refused: Vec<indentation::Refusal>,
     pub(crate) kept_dash_lines: Vec<(usize, usize)>,
+    /// The 1-based line and column of each consistent-width violation, when known.
+    pub(crate) inconsistent: Option<Vec<(usize, usize)>>,
 }
 
 impl ReindentEvidence {
@@ -1493,12 +1495,14 @@ impl ReindentEvidence {
         config: indentation::Config,
         refused: Vec<indentation::Refusal>,
         kept_dash_lines: Vec<(usize, usize)>,
+        inconsistent: Option<Vec<(usize, usize)>>,
     ) -> Self {
         Self {
             epoch: input.epoch(),
             config,
             refused,
             kept_dash_lines,
+            inconsistent,
         }
     }
 

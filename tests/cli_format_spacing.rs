@@ -248,3 +248,31 @@ fn a_comment_keeping_a_mapping_beside_its_dash_is_named() {
         "---\nseq:\n  - k: v  # note\n    j: x\n"
     );
 }
+
+#[test]
+fn refusal_notice_starts_at_the_marker_format_adds() {
+    let (code, _, stderr, formatted) = ryl_on(
+        Some("[format]\ndocument-start = 'add'\ndocument-end = 'add'\n"),
+        "a: 1\n...\n# note\nb: |\n  \tx\n---\nc: |\n  \ty\n",
+        &["format", "--no-cache"],
+    );
+    assert_eq!(
+        (code, formatted.as_str()),
+        (
+            0,
+            "---\na: 1\n...\n---\n# note\nb: |\n  \tx\n...\n---\nc: |\n  \ty\n...\n"
+        ),
+        "{stderr}"
+    );
+    let notices: Vec<_> = stderr
+        .lines()
+        .map(|line| line.split_once("a.yaml:").unwrap().1)
+        .collect();
+    assert_eq!(
+        notices,
+        [
+            "4:1 indentation not fixed: cannot re-indent this document safely",
+            "9:1 indentation not fixed: cannot re-indent this document safely",
+        ]
+    );
+}
