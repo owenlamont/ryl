@@ -65,6 +65,9 @@ pub(crate) struct Layout<'a> {
     pub(crate) shaped: bool,
     projection: Option<Vec<usize>>,
     pub(crate) kept_dash_lines: Vec<(usize, usize)>,
+    /// The spacing edits the dash shapes dropped or inserted, which a refused document
+    /// reverts.
+    pub(crate) reshaped: Vec<crate::rules::support::token_spacing::SpaceEdit>,
     consistent: Option<bool>,
     /// Whether `trailing-spaces` empties whitespace-only lines.
     pub(crate) trimmed: bool,
@@ -275,7 +278,15 @@ impl<'a> Layout<'a> {
         }
         let kept_dash_lines = if parsed && streaming {
             cfg.dash_on_own_line.map_or_else(Vec::new, |own_line| {
-                reshape_events(input, &mut lines, own_line)
+                // A one-column join inserts the space `hyphens` owns, unless the
+                // re-indent puts the mapping there anyway.
+                let spaced = |at: [usize; 2]| {
+                    cfg.spaces == super::SpacesSetting::Fixed(2)
+                        || !at
+                            .iter()
+                            .any(|&line| directives.is_disabled(hyphens::ID, line + 1))
+                };
+                reshape_events(input, &mut lines, own_line, &spaced)
             })
         } else if parsed {
             reshape(
@@ -300,6 +311,7 @@ impl<'a> Layout<'a> {
             shaped,
             projection: None,
             kept_dash_lines,
+            reshaped: Vec::new(),
             consistent: None,
             trimmed: false,
         };
@@ -478,13 +490,14 @@ impl<'a> Layout<'a> {
             });
         analyzer.lines = Some(&self.lines);
         analyzer.scalar_owners = folding.then(Vec::new);
+        let reshaped;
         {
-            let shapes = self
+            let mut shapes = self
                 .shaped
                 .then(|| self.shapes())
                 .filter(|shapes| !shapes.split.is_empty() || !shapes.joined.is_empty());
             let tokens = self.projected_tokens(
-                (edits, shapes.as_ref()),
+                (edits, shapes.as_mut()),
                 passes,
                 &facts,
                 &mut spacing,
@@ -505,6 +518,7 @@ impl<'a> Layout<'a> {
                     );
                 }
             });
+            reshaped = shapes.map_or_else(Vec::new, |shapes| shapes.reshaped);
         }
         let Analyzer {
             shifts,
@@ -517,6 +531,7 @@ impl<'a> Layout<'a> {
         facts.into_inner().finish().map(|facts| {
             input.seed_layout_facts(facts);
             self.consistent = consistent;
+            self.reshaped = reshaped;
             (
                 StreamTargets {
                     shifts,
@@ -548,6 +563,8 @@ impl<'a> Layout<'a> {
                 })
                 .map(|line| line.tail.as_ptr() as usize - source)
                 .collect(),
+            next: 0,
+            reshaped: Vec::new(),
         }
     }
 
@@ -567,7 +584,10 @@ impl<'a> Layout<'a> {
 
     fn projected_tokens<'b>(
         &'b self,
-        (edits, shapes): (&'b [crate::format::layout::PlanEdit], Option<&'b Shapes>),
+        (edits, mut shapes): (
+            &'b [crate::format::layout::PlanEdit],
+            Option<&'b mut Shapes>,
+        ),
         passes: &'b crate::fix::Passes<'_>,
         facts: &'b std::cell::RefCell<crate::format::layout::facts::Builder<'a>>,
         spacing: &'b mut Vec<crate::rules::support::token_spacing::SpaceSite>,
@@ -586,7 +606,6 @@ impl<'a> Layout<'a> {
             super::normalized_tokens_from(input.text(), &self.source_starts, scanner)
                 .peekable();
         let mut line = std::collections::VecDeque::new();
-        let mut joined = 0;
         std::iter::from_fn(move || {
             if line.is_empty() {
                 let first = tokens.next()?;
@@ -600,8 +619,8 @@ impl<'a> Layout<'a> {
                     passes.colons == Some(crate::rules::colons::Config::format()),
                     passes.hyphens == Some(crate::rules::hyphens::Config::format()),
                 );
-                if let Some(shapes) = shapes {
-                    next = shapes.respace(next, &line, &mut joined);
+                if let Some(shapes) = shapes.as_deref_mut() {
+                    next = shapes.respace(next, &line);
                 }
                 gaps.append(input, &next);
                 spacing.extend(next);
@@ -867,6 +886,8 @@ impl<'a> Layout<'a> {
 struct Shapes {
     split: Vec<usize>,
     joined: Vec<usize>,
+    next: usize,
+    reshaped: Vec<crate::rules::support::token_spacing::SpaceEdit>,
 }
 
 impl Shapes {
@@ -875,16 +896,22 @@ impl Shapes {
     #[cold]
     #[inline(never)]
     fn respace(
-        &self,
+        &mut self,
         mut sites: Vec<crate::rules::support::token_spacing::SpaceSite>,
         line: &std::collections::VecDeque<super::Token>,
-        joined: &mut usize,
     ) -> Vec<crate::rules::support::token_spacing::SpaceSite> {
-        sites.retain(|site| self.split.binary_search(&site.edit.1.get()).is_err());
+        sites.retain(|site| {
+            let kept = self.split.binary_search(&site.edit.1.get()).is_err();
+            if !kept {
+                self.reshaped.push(site.edit);
+            }
+            kept
+        });
         let last = line.back().map_or(0, |token| token.start);
-        if let Some(&at) = self.joined.get(*joined).filter(|&&at| at <= last) {
-            *joined += 1;
+        if let Some(&at) = self.joined.get(self.next).filter(|&&at| at <= last) {
+            self.next += 1;
             let at = crate::rules::support::span_utils::BytePos::new(at);
+            self.reshaped.push((at, at, 1));
             sites.insert(
                 0,
                 crate::rules::support::token_spacing::SpaceSite {
@@ -1062,6 +1089,7 @@ fn reshape_events<'a>(
     input: Analysis<'a>,
     lines: &mut Vec<VirtualLine<'a>>,
     own_line: bool,
+    spaced: &dyn Fn([usize; 2]) -> bool,
 ) -> Vec<(usize, usize)> {
     use ryl_yaml_parser::{Event, StructureStyle};
     let mut stack = Vec::new();
@@ -1089,14 +1117,30 @@ fn reshape_events<'a>(
             _ => {}
         }
     }
+    // A refused space refuses its document's re-indent, and so every join in it.
+    let document = |line| {
+        input
+            .parsed()
+            .document_starts
+            .partition_point(|&at| at <= line)
+    };
+    let refused: Vec<_> = shapes
+        .iter()
+        .filter(|&&(line, _, _, tight)| tight && !spaced([line, line + 1]))
+        .map(|&(line, ..)| document(line))
+        .collect();
     let mut kept = Vec::new();
-    shapes.retain(|&(line, split, dash)| {
-        let keep = split.is_some() && comments.contains(&line);
-        if keep {
-            kept.push((line + 1, dash + 1));
-        }
-        !keep
-    });
+    let shapes: Vec<_> = shapes
+        .into_iter()
+        .filter(|&(line, split, dash, tight)| {
+            let keep = split.is_some() && comments.contains(&line);
+            if keep {
+                kept.push((line + 1, dash + 1));
+            }
+            !(keep || tight && refused.contains(&document(line)))
+        })
+        .map(|(line, split, dash, _)| (line, split, dash))
+        .collect();
     if !shapes.is_empty() {
         apply_shapes(input.text(), lines, shapes);
     }
@@ -1107,7 +1151,7 @@ fn event_shape(
     input: Analysis<'_>,
     span: ryl_yaml_parser::Span,
     own_line: bool,
-) -> Option<(usize, Option<usize>, usize)> {
+) -> Option<(usize, Option<usize>, usize, bool)> {
     let line = span.start.line() - 1;
     let at = crate::rules::support::span_utils::marker_byte_offset(span.start).get();
     let prefix = &input.text()[input.byte_line_starts()[line]..at];
@@ -1124,9 +1168,9 @@ fn event_shape(
     });
     let (entry, dash) = entry?;
     if own_line && entry == line {
-        Some((entry, Some(span.start.col()), dash))
+        Some((entry, Some(span.start.col()), dash, false))
     } else if !own_line && entry + 1 == line && span.start.col() > dash {
-        Some((entry, None, dash))
+        Some((entry, None, dash, span.start.col() == dash + 1))
     } else {
         None
     }

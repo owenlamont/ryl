@@ -451,25 +451,64 @@ fn a_flow_key_keeps_its_quotes_where_colons_are_disabled() {
 
 #[test]
 fn a_mapping_one_column_after_its_dash_joins_it_in_one_pass() {
-    for (input, expected) in [
-        ("-\n foo: bar\n baz: 1\n", "- foo: bar\n  baz: 1\n"),
-        ("-\n \"foo\": bar\n", "- foo: bar\n"),
+    let width_4 = "indent-width = 4\n[format]\n";
+    for (input, config, expected) in [
+        (
+            "-\n foo: bar\n baz: 1\n",
+            "[format]\n",
+            "- foo: bar\n  baz: 1\n",
+        ),
+        ("-\n \"foo\": bar\n", "[format]\n", "- foo: bar\n"),
         (
             "-\n foo: bar  # yamllint disable-line rule:hyphens\n",
+            "[format]\n",
             "- foo: bar  # yamllint disable-line rule:hyphens\n",
         ),
+        (
+            "# yamllint disable rule:hyphens\n-\n a: x\n",
+            width_4,
+            "# yamllint disable rule:hyphens\n-\n    a: x\n",
+        ),
+        (
+            "-\n a: x\n# yamllint disable rule:hyphens\n-\n a: x\n",
+            width_4,
+            "-\n    a: x\n# yamllint disable rule:hyphens\n-\n    a: x\n",
+        ),
+        (
+            "# yamllint disable rule:indentation\n-\n a: x  \n",
+            "[format]\n",
+            "# yamllint disable rule:indentation\n-\n a: x\n",
+        ),
+        (
+            "-\n a: x\n---\n# yamllint disable rule:indentation\n-\n a: x  \n",
+            "[format]\n",
+            "- a: x\n---\n# yamllint disable rule:indentation\n-\n a: x\n",
+        ),
     ] {
-        assert_one_pass(input, "[format]\n", expected);
+        assert_one_pass(input, config, expected);
     }
 }
 
 #[test]
 fn a_mapping_split_from_its_dash_drops_the_gap_in_one_pass() {
-    assert_one_pass(
-        "-  a: x\n",
-        "indent-width = 4\n[format]\nindent-sequences = false\ndash-on-own-line = true\n",
-        "-\n    a: x\n",
-    );
+    let flush = "indent-width = 4\n[format]\nindent-sequences = false\ndash-on-own-line = true\n";
+    let own_line = "[format]\ndash-on-own-line = true\n";
+    for (input, config, expected) in [
+        ("-  a: x\n", flush, "-\n    a: x\n"),
+        ("-  a:  x\n", flush, "-\n    a: x\n"),
+        (
+            "# yamllint disable rule:indentation\n-  a: x\n",
+            own_line,
+            "# yamllint disable rule:indentation\n- a: x\n",
+        ),
+        (
+            "# yamllint disable rule:hyphens rule:indentation\n-  a: x\n",
+            own_line,
+            "# yamllint disable rule:hyphens rule:indentation\n-  a: x\n",
+        ),
+    ] {
+        assert_one_pass(input, config, expected);
+    }
 }
 
 #[test]
