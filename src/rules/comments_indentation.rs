@@ -239,8 +239,10 @@ pub(crate) fn classify_token(
     kind: &LexicalKind<'_>,
 ) {
     // A token after a quoted scalar's closing quote, such as a flow `]`, makes its
-    // line content again, as yamllint indents by each token's start line.
-    if let Some(line) = lines.get_mut(span.start.line() - 1)
+    // line content again, as yamllint indents by each token's start line. yamllint's
+    // tokens exclude comments, so a trailing comment leaves the line a scalar body.
+    if !matches!(kind, LexicalKind::Comment { .. })
+        && let Some(line) = lines.get_mut(span.start.line() - 1)
         && line.kind == LineKind::ScalarBody
     {
         line.kind = LineKind::Other;
@@ -248,10 +250,15 @@ pub(crate) fn classify_token(
     let LexicalKind::Scalar { style, .. } = kind else {
         return;
     };
-    // A block scalar's span starts on its first body line, and runs on to the
-    // indentation of the line after its body.
+    // A block scalar's span starts on its first body line, or at its indicator when it
+    // has no body, and runs on to the indentation of the line after its body.
     let first = span.start.line()
-        + usize::from(!matches!(style, ScalarStyle::Literal | ScalarStyle::Folded));
+        + usize::from(
+            !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+                || lines
+                    .get(span.start.line() - 1)
+                    .is_some_and(|line| span.start.col() > line.indent),
+        );
     let run_on = lines
         .get(span.end.line() - 1)
         .is_some_and(|line| span.end.col() <= line.indent);

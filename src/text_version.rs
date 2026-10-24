@@ -130,10 +130,6 @@ impl<'text> TextVersion<'text> {
         self.strict_valid = true;
     }
 
-    pub(crate) fn take_facts(&mut self) -> Option<ParsedFacts> {
-        self.parsed.take()
-    }
-
     pub(crate) fn release_tokens(&mut self) {
         self.tokens.take();
     }

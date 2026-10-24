@@ -197,15 +197,15 @@ pub(crate) fn content_blank_lines_with_analysis(input: Analysis<'_>) -> HashSet<
                 .line_contents_from(header.line)
                 .take(header.span.end.line() - 1 - header.line)
                 .all(|line| line.bytes().all(|ch| ch == b' '));
-        let value_indent =
-            if let Some(indent) = root_indents.get(&header.span.start.index()) {
-                *indent
-            } else if blank_only {
-                header_line.bytes().take_while(|ch| *ch == b' ').count()
-                    + indicator.map_or(1, |digit| digit as usize)
-            } else {
-                continue;
-            };
+        let value_indent = if let Some(indent) =
+            root_indents.get(&header.span.start.index())
+        {
+            *indent
+        } else if blank_only {
+            compact_indent(header_line) + indicator.map_or(1, |digit| digit as usize)
+        } else {
+            continue;
+        };
         for line in header.line + 1..=header.span.end.line() {
             if input.get_line(line - 1).is_some_and(|text| {
                 text.len() > value_indent && text.bytes().all(|ch| ch == b' ')
@@ -215,4 +215,21 @@ pub(crate) fn content_blank_lines_with_analysis(input: Analysis<'_>) -> HashSet<
         }
     }
     content
+}
+
+/// The indentation of the node `line` opens: past each `- ` when a compact mapping's key
+/// follows them, as in `-   key: |`.
+fn compact_indent(line: &str) -> usize {
+    let mut rest = line.trim_start_matches(' ');
+    while let Some(after) = rest
+        .strip_prefix('-')
+        .filter(|after| after.starts_with(' '))
+    {
+        rest = after.trim_start_matches(' ');
+    }
+    if rest.starts_with(['|', '>']) {
+        line.len() - line.trim_start_matches(' ').len()
+    } else {
+        line.len() - rest.len()
+    }
 }

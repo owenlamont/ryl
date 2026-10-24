@@ -5,11 +5,24 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Changed
+
+- `ryl format` parses each file once: it no longer parses its output again to compare
+  values or plans it again to confirm convergence, which rule order now guarantees.
+  ([#842](https://github.com/owenlamont/ryl/issues/842))
+
 ### Fixed
 
-- `ryl format` reports a document it does not re-indent because of a tab even when another
-  edit removes that tab, and no longer reports one it did re-indent where folding starts
-  a line with `-` and a tab.
+- The `comments-indentation` rule, and the formatter, no longer read a trailing comment
+  on a multi-line scalar's last line, or an empty block scalar's header line, as other
+  than content, matching yamllint; a folded scalar no longer moves the comments after it
+  on a second format.
+- `ryl format` settles in one run, where it took two, for `'---' : x` (now `---: x`), the
+  spaces-only lines of a blank keep-chomped body under `- key:`, and a dash it moves onto
+  its own line after an explicit `:` or in a file with a byte order mark.
+- `ryl format` re-indents a document whose only tab follows an indicator that it respaces,
+  and no longer reports one it did re-indent where folding starts a line with `-` and a
+  tab.
 - `ryl check --fix` keeps an indentation repair when `key-ordering` also reorders the
   file, instead of leaving the file unchanged and reporting the indentation as a syntax
   error.
@@ -23,8 +36,7 @@ summarize user-visible changes from the tagged commits and published release rec
   re-indenting empties that line, as at indent width 1, so the scalar keeps its final
   empty line.
 - Root strings resembling document markers and scalars containing a BOM keep their
-  quotes in formatting and lint fixes; formatting rolls back rewrites that change
-  document events.
+  quotes in formatting and lint fixes.
   ([#806](https://github.com/owenlamont/ryl/issues/806))
 - Migration warnings name the required ryl version, quote config paths, and remove
   legacy project YAML configs; `--migrate-configs` also converts TOML `yaml-files` to

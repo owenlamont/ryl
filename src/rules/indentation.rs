@@ -462,8 +462,13 @@ struct Analyzer<'a> {
     mode: Mode,
     shifts: Vec<Option<Shift>>,
     scalar_owners: Option<Vec<(usize, usize)>>,
+    block_tails: Vec<BlockTail>,
     gaps: Vec<Gap>,
 }
+
+/// The line after a block scalar whose body ends before it, with the body's shift and a
+/// lower bound on its content column.
+pub(crate) type BlockTail = (usize, isize, Option<usize>);
 
 /// The spaces after an indicator that `ryl format` closes to one, with the rule that owns
 /// them.
@@ -514,6 +519,7 @@ impl<'a> Analyzer<'a> {
                 Vec::new()
             },
             scalar_owners: None,
+            block_tails: Vec::new(),
             gaps: Vec::new(),
         }
     }
@@ -935,6 +941,22 @@ impl<'a> Analyzer<'a> {
             self.block_parent()
                 .map_or(0, |parent| parent.indent - self.source_column(parent.start))
         };
+        if token.end_column == 0
+            && matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+        {
+            // A valid body's content column is at least its first content line's, else at
+            // least its widest spaces-only line's.
+            let content = self
+                .body_indents(token)
+                .next()
+                .map(|(_, indent)| indent)
+                .or_else(|| {
+                    (token.line + 1..=last_line(token))
+                        .map(|line| count_spaces(self.text, self.line_starts[line]))
+                        .max()
+                });
+            self.block_tails.push((token.end_line, delta, content));
+        }
         for line in token.line + 1..=last_line(token) {
             self.shifts[line] = Some(Shift::Carried(delta));
         }

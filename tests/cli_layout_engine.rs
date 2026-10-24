@@ -91,7 +91,7 @@ fn format_with_workers(input: &str, config: &str, workers: usize) -> (String, Va
 }
 
 #[test]
-fn multiline_quotes_share_layout_and_a_dry_plan() {
+fn multiline_quotes_share_one_layout_plan() {
     let input = "é:\n    value: 'folded first\n      continuation café' #note\n    necessary: \"**Required unless you provide email**\n      to invite café.\" #note\n    after: x\n";
     let (output, statistics) = format_with_statistics(input, "[format]\n");
     assert_eq!(
@@ -100,17 +100,16 @@ fn multiline_quotes_share_layout_and_a_dry_plan() {
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     for (name, count) in [
-        ("analyses", 2),
+        ("analyses", 1),
         ("lexical_scans", 0),
-        ("streamed_dry_scans", 1),
-        ("planning_invocations", 2),
+        ("planning_invocations", 1),
         ("emissions", 1),
         ("strict_parses", 2),
-        ("verification_parses", 1),
+        ("verification_parses", 0),
         ("rollback", 0),
-        ("cached_lexical_tapes", 2),
-        ("line_table_builds", 2),
-        ("token_normalizations", 2),
+        ("cached_lexical_tapes", 1),
+        ("line_table_builds", 1),
+        ("token_normalizations", 1),
     ] {
         assert_eq!(statistics[name], count, "{name}: {statistics}");
     }
@@ -126,7 +125,7 @@ fn projected_unicode_endpoints_survive_nested_gaps_and_scalar_collapse() {
         "🦀: {é: [世, x]}\nnext: [first last, café, {tail: z}]\n"
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["line_table_builds"], 2, "{statistics}");
+    assert_eq!(statistics["line_table_builds"], 1, "{statistics}");
     assert!(statistics["projected_coordinate_queries"].as_u64().unwrap() > 0);
     assert_eq!(format_with_statistics(&output, "[format]\n").0, output);
 }
@@ -145,7 +144,7 @@ fn a_directive_keyword_inside_a_scalar_does_not_cache_tokens() {
         format_with_statistics("word: 'ryl message'\n", "[format]\n");
     assert_eq!(output, "word: ryl message\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["cached_lexical_tapes"], 2, "{statistics}");
+    assert_eq!(statistics["cached_lexical_tapes"], 1, "{statistics}");
 }
 
 #[test]
@@ -288,7 +287,7 @@ fn folding_keeps_other_rules_inline_directives_attached() {
 }
 
 #[test]
-fn sequence_conversion_keeps_verification_and_a_dry_plan() {
+fn sequence_conversion_keeps_its_verification() {
     let config = "[format]\nsequence-style = 'block'\n";
     let (output, statistics) = format_with_statistics("é: [ café,世 ]\n", config);
     assert_eq!(output, "é:\n  - café\n  - 世\n");
@@ -303,7 +302,6 @@ fn mapping_conversion_uses_layout_after_restyling() {
     let (output, statistics) = format_with_statistics("é: { café: '世' }\n", config);
     assert_eq!(output, "é:\n  café: 世\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["streamed_dry_scans"], 1, "{statistics}");
 }
 
 #[test]
@@ -426,8 +424,41 @@ fn assert_one_pass(input: &str, config: &str, expected: &str) {
     let (output, statistics) = format_with_statistics(input, config);
     assert_eq!(output, expected);
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["dry_dirty"], 0, "{statistics}");
     assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
+fn a_marker_key_before_a_colon_the_formatter_closes_unquotes_in_one_pass() {
+    assert_one_pass("'---' : x\n", "[format]\n", "---: x\n");
+}
+
+#[test]
+fn a_split_dash_trims_its_blank_keep_body_in_one_pass() {
+    assert_one_pass(
+        "-   a: |+\n     \n\n    b: x\n",
+        "[format]\ndash-on-own-line = true\n",
+        "-\n  a: |+\n\n\n  b: x\n",
+    );
+}
+
+#[test]
+fn a_split_dash_drops_its_gap_beside_a_byte_order_mark_in_one_pass() {
+    assert_one_pass(
+        "a:\n  -  a: d\n         e\n...\n\u{feff}\nb: 1\n",
+        "[format]\ndash-on-own-line = true\n",
+        "a:\n  -\n    a: d\n        e\n...\n\u{feff}\nb: 1\n",
+    );
+}
+
+#[test]
+fn an_explicit_value_split_from_its_dash_indents_from_its_target_in_one_pass() {
+    let config = "indent-width = 4\n[format]\nindent-sequences = false\ndash-on-own-line = true\n";
+    assert_one_pass("? d\n:  -   k:   c\n", config, "? d\n: -\n      k: c\n");
+    assert_one_pass(
+        "? d\n:  -   k:   c\n         p\n",
+        config,
+        "? d\n: -\n      k: c\n        p\n",
+    );
 }
 
 #[test]
@@ -599,12 +630,11 @@ fn root_quotes_complete_a_verified_layout_plan() {
 }
 
 #[test]
-fn block_scalar_reindentation_freezes_its_changed_document() {
-    let input = "a:\n -  b: |1\n   \n    # c\n";
-    let (output, statistics) = format_with_statistics(input, "[format]\n");
-    assert_eq!(output, input);
+fn a_comment_reindentation_would_carry_into_a_block_scalar_freezes_its_document() {
+    let (output, statistics) =
+        format_with_statistics("a:\n -  b: |1\n   \n    # c\n", "[format]\n");
+    assert_eq!(output, "a:\n -  b: |1\n\n    # c\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["rollback"], 1, "{statistics}");
 }
 
 #[test]
@@ -882,12 +912,11 @@ fn fold_after_indentation_closes_a_skipped_colon_gap() {
 }
 
 #[test]
-fn a_commented_mapping_keeps_its_dash_during_dry_planning() {
+fn a_commented_mapping_keeps_its_dash() {
     let (output, statistics) =
         format_with_statistics("- a : b # tail\n", "[format]\ndash-on-own-line=true\n");
     assert_eq!(output, "- a: b  # tail\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["streamed_dry_scans"], 1);
 }
 
 #[test]
@@ -930,9 +959,9 @@ fn assert_threshold(bytes: usize, scans: usize) {
         "only the colon gap changes"
     );
     assert_eq!(stats["fallback"], Value::Null);
-    assert_eq!(stats["cached_lexical_tapes"], 2);
+    assert_eq!(stats["cached_lexical_tapes"], 1);
     for (name, count) in [
-        ("analyses", 2),
+        ("analyses", 1),
         ("strict_parses", 2),
         (
             "lexical_scans",
@@ -942,7 +971,7 @@ fn assert_threshold(bytes: usize, scans: usize) {
                 0
             },
         ),
-        ("planning_invocations", 2),
+        ("planning_invocations", 1),
         ("emissions", 1),
     ] {
         assert_eq!(stats[name], count, "{name}: {stats}");
@@ -961,7 +990,7 @@ fn one_mib_epochs_capture_both_tapes() {
 
 #[test]
 fn large_epochs_keep_parallel_prefetch() {
-    assert_threshold(1_048_577, 2);
+    assert_threshold(1_048_577, 1);
 }
 
 #[test]
@@ -972,7 +1001,7 @@ fn one_worker_keeps_large_epochs_serial() {
         output == input.replace("é:  x", "é: x"),
         "only the colon gap changes"
     );
-    assert_eq!(stats["cached_lexical_tapes"], 2);
+    assert_eq!(stats["cached_lexical_tapes"], 1);
     assert_eq!(stats["lexical_scans"], 0);
 }
 
@@ -986,7 +1015,7 @@ fn large_bom_reuses_cached_tokens() {
     );
     assert_eq!(
         stats["lexical_scans"],
-        2 * usize::from(std::thread::available_parallelism().unwrap().get() > 1),
+        usize::from(std::thread::available_parallelism().unwrap().get() > 1),
         "{stats}"
     );
 }
@@ -1002,30 +1031,32 @@ fn late_parse_error_keeps_original_bytes_and_error() {
 }
 
 #[test]
-fn large_candidate_verification_failure_freezes_its_document() {
+fn a_large_input_freezes_the_document_a_comment_would_carry_into_a_block_scalar() {
     let input = threshold_input(
         1_048_620,
         "map: {a:,b: null}\na:\n -  b: |1\n   \n    # c\n",
     );
     let (output, stats) = format_with_statistics(&input, "[format]\n");
-    assert!(output == input.replace("{a:,b:", "{a:, b:"));
+    assert!(
+        output
+            == input
+                .replace("{a:,b:", "{a:, b:")
+                .replace("|1\n   \n", "|1\n\n")
+    );
     assert_eq!(stats["fallback"], Value::Null, "{stats}");
-    assert_eq!(stats["rollback"], 1);
 }
 
 #[test]
-fn dirty_dry_plans_settle_without_restarting_the_driver() {
-    // Folding moves the trailing comment onto a new content line after comments settle.
+fn a_large_fold_leaves_the_comment_after_its_scalar_in_place() {
     let body = "a:\n  b: xxxxxxxxx yyyyyyyyyy # c\n  # d\n";
     let input = threshold_input(1_048_620, body);
     let (output, stats) = format_with_statistics(
         &input,
         "line-length = 20\n[format]\nfold-long-lines = true\n",
     );
-    let folded = "a:\n  b: xxxxxxxxx\n    yyyyyyyyyy  # c\n    # d\n";
+    let folded = "a:\n  b: xxxxxxxxx\n    yyyyyyyyyy  # c\n  # d\n";
     assert!(output == input.replace(body, folded));
     assert_eq!(stats["fallback"], Value::Null, "{stats}");
-    assert_eq!(stats["dry_dirty"], 1);
 }
 
 #[test]
@@ -1039,35 +1070,20 @@ fn concurrent_previews_do_not_charge_another_files_recording() {
 }
 
 #[test]
-fn a_failed_fold_without_quote_edits_plans_once() {
-    let directory = tempfile::tempdir().unwrap();
-    let configuration = directory.path().join("ryl.toml");
-    let statistics = directory.path().join("statistics.jsonl");
-    fs::write(
-        &configuration,
-        "line-length = 12\n[format]\nfold-long-lines = true\nquote-style = 'single'\n",
-    )
-    .unwrap();
-    let input = directory.path().join("lun.yaml");
-    fs::write(&input, "spec:\n volumes:\n       lun: <ADD LUN ID Here>\n").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_ryl"))
-        .args(["format", "--check", "--no-cache", "-c"])
-        .arg(configuration)
-        .arg(input)
-        .env("RYL_LAYOUT_STATS", &statistics)
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    let failed: Vec<Value> = fs::read_to_string(statistics)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(line).unwrap())
-        .filter(|row| row["fallback"] == "Verification")
-        .collect();
-    assert_eq!(failed.len(), 1, "{failed:?}");
-    for counter in ["planning_invocations", "emissions", "verification_parses"] {
-        assert_eq!(failed[0][counter], 1, "{counter}: {}", failed[0]);
-    }
+fn a_fold_without_reindentation_continues_under_its_source_owner() {
+    let (code, _, diagnostics, _) = common::cli::ryl_on(
+        Some(
+            "line-length = 12\n[format]\nfold-long-lines = true\nquote-style = 'single'\n",
+        ),
+        "spec:\n volumes:\n       lun: <ADD LUN ID Here>\n",
+        &["format", "--check", "--output-format", "parsable"],
+    );
+    assert_eq!(code, 1, "{diagnostics}");
+    assert!(
+        diagnostics.contains(":3:13: [error] line too long"),
+        "{diagnostics}"
+    );
+    assert!(!diagnostics.contains("would reformat"), "{diagnostics}");
 }
 
 fn assert_independent_recordings(preview: bool) {
@@ -1114,16 +1130,16 @@ fn assert_independent_recordings(preview: bool) {
     }
     let rows: Vec<_> = rows
         .into_iter()
-        .filter(|row: &Value| row["seeded"] == true && row["planning_invocations"] == 2)
+        .filter(|row: &Value| row["seeded"] == true && row["planning_invocations"] == 1)
         .collect();
     assert_eq!(rows.len(), 3);
     for row in rows {
         assert_eq!(row["fallback"], Value::Null, "{row}");
-        assert_eq!(row["analyses"], 2, "{row}");
+        assert_eq!(row["analyses"], 1, "{row}");
         assert_eq!(row["strict_parses"], 2, "{row}");
         assert_eq!(
             row["lexical_scans"],
-            2 * usize::from(std::thread::available_parallelism().unwrap().get() > 1),
+            usize::from(std::thread::available_parallelism().unwrap().get() > 1),
             "{row}"
         );
     }
@@ -1141,7 +1157,7 @@ fn forced_collections_settle_multiline_quote_offsets_before_folding() {
         "é: The allowed models may change\n  over time and depend on the\n  user's settings. Supported values\n  include café and many more\n  options.\nlist:\n  - café\n  - 世\n"
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["verification_parses"], 2, "{statistics}");
+    assert_eq!(statistics["verification_parses"], 1, "{statistics}");
     assert_eq!(format_with_statistics(&output, config).0, output);
 }
 
@@ -1202,7 +1218,7 @@ fn folding_settles_multiline_quote_offsets_without_collection_targets() {
         format_with_statistics("é: 'one two three\n  user''s four five six'\n", config);
     assert_eq!(output, "é: one two three\n  user's four\n  five six\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["verification_parses"], 1, "{statistics}");
+    assert_eq!(statistics["verification_parses"], 0, "{statistics}");
     assert_eq!(format_with_statistics(&output, config).0, output);
 }
 
@@ -1260,14 +1276,13 @@ fn trailing_commas_drop_inside_padded_collections() {
 }
 
 #[test]
-fn lf_only_stream_uses_verified_plan_without_line_records() {
+fn lf_only_stream_uses_one_plan() {
     let (output, statistics) =
         format_with_statistics(&"\n".repeat(262_144), "[format]\n");
     assert_eq!(output, "");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["rollback"], 0, "{statistics}");
-    assert_eq!(statistics["verification_parses"], 1, "{statistics}");
-    assert_eq!(statistics["planning_invocations"], 2, "{statistics}");
+    assert_eq!(statistics["verification_parses"], 0, "{statistics}");
+    assert_eq!(statistics["planning_invocations"], 1, "{statistics}");
     assert_eq!(statistics["line_table_builds"], 1, "{statistics}");
     assert_eq!(statistics["emissions"], 1, "{statistics}");
 }
@@ -1319,7 +1334,7 @@ fn frozen_documents_fold_from_their_original_indentation() {
     );
     assert_eq!(
         output,
-        "file:\n  path: /tmp/{{\n      item\n      }}\nloop:\n -  café: |1\n   \n    # c\n"
+        "file:\n  path: /tmp/{{\n      item\n      }}\nloop:\n -  café: |1\n\n    # c\n"
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }
@@ -1490,7 +1505,7 @@ fn non_lf_whitespace_plans_line_records() {
     let (output, statistics) = format_with_statistics(" \n\t\n", "[format]\n");
     assert_eq!(output, "");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["line_table_builds"], 2, "{statistics}");
+    assert_eq!(statistics["line_table_builds"], 1, "{statistics}");
 }
 
 #[test]
@@ -1499,7 +1514,7 @@ fn lf_only_collection_conversion_plans_line_records() {
         format_with_statistics("\n\n", "[format]\nsequence-style = \"flow\"\n");
     assert_eq!(output, "");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["line_table_builds"], 2, "{statistics}");
+    assert_eq!(statistics["line_table_builds"], 1, "{statistics}");
 }
 
 #[test]

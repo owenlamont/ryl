@@ -70,7 +70,7 @@ pub(crate) fn prepare(
     Option<(TextVersion<'static>, Vec<&'static str>)>,
     crate::format::layout::Fallback,
 > {
-    let (mut edits, findings) = plan(input.text(), cfg, indent, Some(input));
+    let (mut edits, findings) = plan(input, cfg, indent);
     if edits.is_empty() {
         return Ok(None);
     }
@@ -103,40 +103,38 @@ pub(crate) fn prepare(
 
 #[must_use]
 pub fn findings(
-    buffer: &str,
+    input: Analysis<'_>,
     cfg: Config,
     indent: Option<&indentation::Config>,
 ) -> Vec<Finding> {
-    plan(buffer, cfg, indent, None).1
+    plan(input, cfg, indent).1
 }
 
 type Edit = (BytePos, BytePos, String);
 
 fn plan(
-    buffer: &str,
+    input: Analysis<'_>,
     cfg: Config,
     indent: Option<&indentation::Config>,
-    events: Option<crate::text_version::Analysis<'_>>,
 ) -> (Vec<Edit>, Vec<Finding>) {
+    let buffer = input.text();
     if cfg.sequences == CollectionStyleTarget::Preserve
         && cfg.mappings == CollectionStyleTarget::Preserve
     {
         return (Vec::new(), Vec::new());
     }
-    if let Some(input) = events
-        && !input.event_iter().any(|(event, _)| match event {
-            Event::SequenceStart(style, ..) => changes_style(cfg.sequences, style),
-            Event::MappingStart(style, ..) => changes_style(cfg.mappings, style),
-            _ => false,
-        })
-    {
+    if !input.event_iter().any(|(event, _)| match event {
+        Event::SequenceStart(style, ..) => changes_style(cfg.sequences, style),
+        Event::MappingStart(style, ..) => changes_style(cfg.mappings, style),
+        _ => false,
+    }) {
         return (Vec::new(), Vec::new());
     }
     let directives = Directives::parse(buffer);
     let style = |target, rule| {
         (!directives.disables_any(rule) && !disables_file(buffer)).then_some(target)
     };
-    let (nodes, comments) = tree(buffer, events);
+    let (nodes, comments) = tree_from_events(buffer, input.event_iter());
     let restyler = Restyler {
         buffer,
         nodes,
@@ -297,17 +295,6 @@ struct Node {
     parent: Option<usize>,
     position: usize,
     children: Vec<usize>,
-}
-
-fn tree(
-    buffer: &str,
-    events: Option<crate::text_version::Analysis<'_>>,
-) -> (Vec<Node>, Vec<(usize, usize)>) {
-    if let Some(events) = events {
-        tree_from_events(buffer, events.event_iter())
-    } else {
-        tree_from_events(buffer, Parser::new_from_str(buffer).map_while(Result::ok))
-    }
 }
 
 fn tree_from_events<'a>(

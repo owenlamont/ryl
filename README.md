@@ -154,8 +154,8 @@ The [benchmark script](scripts/benchmark_yaml_tools.py) also offers a generated 
 Result caches are cold; install artifacts are warm. The
 [benchmark script](scripts/benchmark_yaml_tools.py) records the commands and
 cache checks. On the real-world dataset, ryl format is faster than dprint and yamlfmt
-while still verifying value preservation and convergence
-([formatter guarantees](docs/formatter.md#guarantees)).
+with value preservation and idempotence guaranteed by rule order and tests rather
+than a second parse ([formatter guarantees](docs/formatter.md#guarantees)).
 
 Run the benchmark with `--warm` to also record second-run timings with each
 tool's result cache enabled. Its warm view is separate from the cold chart above.

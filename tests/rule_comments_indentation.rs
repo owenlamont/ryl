@@ -43,6 +43,17 @@ fn rejects_comment_after_inline_comment() {
 }
 
 #[test]
+fn a_trailing_comment_leaves_a_multiline_scalars_last_line_a_body_line() {
+    let input = "a:\n  b: x\n    y  # c\n  # d\n";
+    assert!(run(input).is_empty());
+}
+
+#[test]
+fn an_empty_block_scalar_leaves_its_header_line_content() {
+    assert!(run("- k: x\n  # d\n  z: >\n").is_empty());
+}
+
+#[test]
 fn blank_line_keeps_comment_alignment() {
     let input = "# top\n\n  # wrong\nvalue: 1\n";
     let hits = run(input);
