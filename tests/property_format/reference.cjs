@@ -18,6 +18,13 @@ Parser.prototype.chk = function (type, expr) {
   }, ahead.trace);
 };
 
+// Upstream floors a detected indentation of 0 at 1 but lets a negative one through when
+// the next line is a less-indented sibling, so `p:\n  a: |\nq: 1` swallows `q: 1`.
+const autoDetect = Parser.prototype.auto_detect;
+Parser.prototype.auto_detect = function (n) {
+  return Math.max(1, autoDetect.call(this, n));
+};
+
 // Memoised equivalents of upstream's hottest helpers, which keep the suites inside
 // their time budget: process.env reads, string stringify, and receiver lookup.
 global.ENV = { ...process.env };

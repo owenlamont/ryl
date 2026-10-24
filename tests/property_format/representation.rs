@@ -93,7 +93,7 @@ struct Recorder {
     /// the parser numbers anchors internally; ordinals of first definition are what the
     /// alias graph means.
     anchor_ordinals: BTreeMap<usize, usize>,
-    terminal_block_values: BTreeMap<usize, (String, Span, bool, bool)>,
+    terminal_block_values: BTreeMap<usize, (String, Span, bool)>,
     yaml_1_1: bool,
     assume_yaml_1_1: bool,
 }
@@ -232,14 +232,9 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
                         .then(|| span.end.byte_offset())
                         .flatten()
                         .and_then(|end| self.terminal_block_values.remove(&end))
-                        .and_then(|(content, span, followed, marker_followed)| {
+                        .and_then(|(content, span, followed)| {
                             reference_terminal_block_value(
-                                &content,
-                                &span,
-                                style,
-                                &value,
-                                followed,
-                                marker_followed,
+                                &content, &span, style, &value, followed,
                             )
                         });
                 let value = corrected.map_or(value, Cow::Owned);
@@ -274,7 +269,7 @@ fn record(
     content: &str,
     assume_yaml_1_1: bool,
     with_comments: bool,
-    terminal_block_values: BTreeMap<usize, (String, Span, bool, bool)>,
+    terminal_block_values: BTreeMap<usize, (String, Span, bool)>,
 ) -> Option<Recorder> {
     let mut dash_comments = BTreeSet::new();
     let mut dash_line = None;
@@ -420,10 +415,29 @@ fn value_representation(content: &str, assume_yaml_1_1: bool) -> Option<Vec<Node
         {
             continue;
         }
-        let marker_followed = tail.starts_with("...") || tail.starts_with("---");
-        values.insert(end, (prefix.to_owned(), span, followed, marker_followed));
+        values.insert(end, (prefix.to_owned(), span, followed));
     }
     record(content, assume_yaml_1_1, false, values).map(|recorder| recorder.nodes)
+}
+
+/// The column of the block collection holding the scalar whose header follows `prefix`:
+/// past each `-`, `?` or `:` that a compact node follows on the header line.
+fn block_parent_column(prefix: &str) -> usize {
+    let mut column = prefix.len() - prefix.trim_start_matches(' ').len();
+    let mut rest = &prefix[column..];
+    while let Some(tail) = rest.strip_prefix(['-', '?', ':']) {
+        let node = tail.trim_start_matches(' ');
+        if node.len() == tail.len()
+            || node
+                .split_whitespace()
+                .all(|word| word.starts_with(['!', '&']))
+        {
+            break;
+        }
+        column += 1 + tail.len() - node.len();
+        rest = node;
+    }
+    column
 }
 
 pub(super) fn reference_terminal_block_value(
@@ -432,7 +446,6 @@ pub(super) fn reference_terminal_block_value(
     style: ScalarStyle,
     loaded: &str,
     followed: bool,
-    marker_followed: bool,
 ) -> Option<String> {
     if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
         || span.end.byte_offset() != Some(content.len())
@@ -531,16 +544,8 @@ pub(super) fn reference_terminal_block_value(
             .all(|line| line.trim_matches([' ', '\r', '\n']).is_empty())
     {
         let marker = header.get(1)?;
-        let prefix = &header_line[..marker.start()];
-        let leading = prefix.bytes().take_while(|byte| *byte == b' ').count();
-        let compact_mapping = prefix.rfind(':') > prefix.rfind('-')
-            && prefix.split_whitespace().any(|token| token == "-");
         (
-            if marker_followed && compact_mapping {
-                0
-            } else {
-                leading + 1
-            },
+            block_parent_column(&header_line[..marker.start()]) + 1,
             false,
         )
     } else {

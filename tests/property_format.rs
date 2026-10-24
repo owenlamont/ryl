@@ -137,6 +137,27 @@ fn reference_events_ignore_presentation_but_not_content() {
 }
 
 #[test]
+fn reference_events_keep_the_sibling_after_an_empty_nested_block_scalar() {
+    assert_eq!(
+        reference::check_events("p:\n- |\nq: 1\n", "p:\n  - |\nq: 1\n"),
+        Ok(())
+    );
+}
+
+#[test]
+fn blank_scalar_body_moves_with_its_compact_collection() {
+    for input in [
+        "? !\n:  a:   |+\n     \n\n   b: x\n",
+        "-   a: |+\n     \n\n    b: x\n",
+        "- a: |+\n     \n\n  b: x\n",
+    ] {
+        for pass in passes::format_passes() {
+            check_pass(pass, input).unwrap();
+        }
+    }
+}
+
+#[test]
 fn reference_block_scalar_matrix_keeps_each_value() {
     #[derive(serde::Deserialize)]
     struct Case {
@@ -297,7 +318,7 @@ fn explicit_blank_scalar_before_document_end_uses_key_indent() {
 #[test]
 fn compact_mapping_blank_scalar_before_document_end_keeps_reference_value() {
     let input = "a:\n  - a: |\n      \n...\na: 1\n";
-    let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String("      \n".into()));
+    let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String(" \n".into()));
     assert!(representation(input).is_some_and(|nodes| {
         nodes.iter().any(
             |node| matches!(node, Node::Scalar { value, .. } if value == &expected),
@@ -1916,7 +1937,7 @@ fn terminal_spaces_after_a_block_scalar_are_outside_the_correction() {
     let terminal_value = |source, loaded| {
         let (span, style) = representation::scalar_tokens(source).pop().unwrap();
         representation::reference_terminal_block_value(
-            source, &span, style, loaded, false, false,
+            source, &span, style, loaded, false,
         )
     };
     for before in ["a: |\n  x\n#tail\n  ", "a: |\n  x\n...\n  "] {

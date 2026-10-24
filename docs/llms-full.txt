@@ -1065,6 +1065,9 @@ and [block scalar content](https://yaml.org/spec/1.2.2/#rule-c-l+literal)
 productions leave the spaces beyond the content indent in the value.
 For `a:\n  b: |-\n    \n\nc: x\n`, the reference parser reads
 `=VAL |    \n\nc: x`; ryl leaves the file containing this ambiguous nested scalar unchanged.
+That reading detects a negative indentation from the dedented `c`; ryl's value tests
+floor it at 1, as the reference parser already does for 0, so a sibling key never
+becomes scalar content.
 It also refuses a blank-only scalar followed by a sibling key at the same
 indent when moving the sequence dash would change the reference value.
 ryl also refuses to normalize `? a\n:   -   >\n    \n    - x\n`:
