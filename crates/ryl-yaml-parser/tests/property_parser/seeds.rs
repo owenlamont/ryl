@@ -35,6 +35,23 @@ pub const RAW_INPUTS: &[&str] = &[
     "clé:\r\n- é\r\n? suivant\r\n",
 ];
 
+/// One input per place strict indentation rejects what relaxed parsing accepts or rejects
+/// later.
+pub const STRICT_INDENTATION_INPUTS: &[&str] = &[
+    "a: [b,\nc]\n",
+    "a: [b\nc\nd]\n",
+    "a: [b\nc\n\tq]\n",
+    "a: [b\n\u{1}c]\n",
+    "a: [?]\n",
+    "k: [x, \"a\n\tb\"]\n",
+    "k: [a,\n\tb]\n",
+    "a: [\"b\nc\"]\n",
+    "a: \"b\n\"\n",
+    "a: \"b\\\nc\"\n",
+    "?\t&a\n\tkey\n: value\n",
+    "x:\n  ? &a\n \tkey\n",
+];
+
 /// Inputs reaching scanner and parser paths that no construction reaches, distilled from a
 /// sweep over yaml-test-suite prefixes and generated token sequences under every option set.
 pub const ERROR_PATH_INPUTS: &[&str] = &[

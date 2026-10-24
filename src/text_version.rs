@@ -547,6 +547,7 @@ pub(crate) struct ParsedFacts {
     pub(crate) document_starts: Vec<usize>,
     pub(crate) valid: bool,
     pub(crate) error: Option<ScanError>,
+    strict_indentation_error: Option<ScanError>,
     events: Vec<(StoredEvent, spans::StoredSpan)>,
     spans: spans::Spans,
     tables: events::Tables,
@@ -592,8 +593,11 @@ impl ParsedFacts {
         }
     }
 
-    fn parse(text: &str, event_capacity: usize) -> Self {
-        Self::parse_with_options(text, event_capacity, false)
+    pub(crate) fn parse(text: &str, event_capacity: usize) -> Self {
+        crate::format::layout::stats::count(
+            crate::format::layout::stats::Counter::Analysis,
+        );
+        Self::parse_unrecorded(text, event_capacity)
     }
 
     fn push(&mut self, text: &str, event: Event<'_>, span: &Span, depth: &mut usize) {
@@ -604,55 +608,38 @@ impl ParsedFacts {
         ));
     }
 
-    pub(crate) fn parse_with_options(
-        text: &str,
-        event_capacity: usize,
-        strict: bool,
-    ) -> Self {
-        crate::format::layout::stats::count(
-            crate::format::layout::stats::Counter::Analysis,
-        );
-        if strict {
-            crate::format::layout::stats::count(
-                crate::format::layout::stats::Counter::Strict,
-            );
-        }
-        Self::parse_unrecorded(text, event_capacity, strict)
+    /// The error a parse with strict indentation stops at.
+    pub(crate) fn strict_error(&self) -> Option<&ScanError> {
+        self.strict_indentation_error
+            .as_ref()
+            .or(self.error.as_ref())
     }
 
     pub(crate) fn parse_for_format(
         text: &str,
     ) -> (Self, Option<lexical::Tokens>, bool) {
         if prefetch_enabled(text) {
-            let (facts, tokens) = rayon::join(
-                || Self::parse_unrecorded(text, 0, true),
-                || lexical::scan(text),
-            );
+            let (facts, tokens) =
+                rayon::join(|| Self::parse_unrecorded(text, 0), || lexical::scan(text));
             (facts, Some(tokens), true)
         } else {
-            let (facts, tokens) = Self::parse_observed(text, 0, true);
+            let (facts, tokens) = Self::parse_observed(text, 0);
             (facts, tokens, false)
         }
     }
 
-    pub(crate) fn parse_unrecorded(
-        text: &str,
-        event_capacity: usize,
-        strict: bool,
-    ) -> Self {
-        Self::parse_using(text, event_capacity, strict, ())
+    pub(crate) fn parse_unrecorded(text: &str, event_capacity: usize) -> Self {
+        Self::parse_using(text, event_capacity, ())
     }
 
     pub(crate) fn parse_observed(
         text: &str,
         event_capacity: usize,
-        strict: bool,
     ) -> (Self, Option<lexical::Tokens>) {
         let mut tokens = lexical::Tokens::default();
         let facts = Self::parse_using(
             text,
             event_capacity,
-            strict,
             |span: &Span, kind: ryl_yaml_parser::TokenKind<'_>| tokens.push(span, kind),
         );
         let tokens = facts.valid.then_some(tokens);
@@ -662,7 +649,6 @@ impl ParsedFacts {
     fn parse_using(
         text: &str,
         event_capacity: usize,
-        strict: bool,
         observer: impl ryl_yaml_parser::TokenObserver,
     ) -> Self {
         let mut facts = Self {
@@ -670,12 +656,12 @@ impl ParsedFacts {
             ..Self::default()
         };
         let mut depth = 0;
-        let parser = Parser::with_options_and_observer(
+        let mut parser = Parser::with_options_and_observer(
             ryl_yaml_parser::StrInput::new(text),
-            ryl_yaml_parser::options! { strict_indentation: strict },
+            ryl_yaml_parser::Options::default(),
             observer,
         );
-        for item in parser {
+        for item in parser.by_ref() {
             let (event, span) = match item {
                 Ok(pair) => pair,
                 Err(error) => {
@@ -685,6 +671,7 @@ impl ParsedFacts {
             };
             facts.push(text, event, &span, &mut depth);
         }
+        facts.strict_indentation_error = parser.strict_indentation_error().cloned();
         facts.valid = facts.error.is_none();
         facts.compact();
         facts

@@ -92,6 +92,48 @@ pub fn scan_with_options(input: &str, options: Options) {
     );
 }
 
+/// A relaxed parse and scan must predict the strict ones: strict indentation stops at the
+/// first error the relaxed run records, else at the relaxed error, and emits the same trace
+/// when it succeeds.
+pub fn check_strict_indentation_prediction(input: &str) {
+    let strict = ryl_yaml_parser::options! { strict_indentation: true };
+    let strict_parse = trace(Parser::new_from_str_with_options(input, strict.clone()));
+    let mut parser = Parser::new_from_str(input);
+    let relaxed_parse = trace(&mut parser);
+    assert_eq!(
+        strict_parse.error,
+        parser
+            .strict_indentation_error()
+            .cloned()
+            .or(relaxed_parse.error),
+        "the relaxed parse mispredicted the strict parse error"
+    );
+    if strict_parse.error.is_none() {
+        assert_eq!(
+            strict_parse.items, relaxed_parse.items,
+            "strict parse events differ"
+        );
+    }
+
+    let strict_scan = trace(Scanner::with_options(StrInput::new(input), strict));
+    let mut scanner = Scanner::new(StrInput::new(input));
+    let relaxed_scan = trace(&mut scanner);
+    assert_eq!(
+        strict_scan.error,
+        scanner
+            .strict_indentation_error()
+            .cloned()
+            .or(relaxed_scan.error),
+        "the relaxed scan mispredicted the strict scan error"
+    );
+    if strict_scan.error.is_none() {
+        assert_eq!(
+            strict_scan.items, relaxed_scan.items,
+            "strict scan tokens differ"
+        );
+    }
+}
+
 /// Disabling comments must only remove comment events and tokens.
 pub fn check_comment_suppression(input: &str) {
     check_comment_suppression_with_options(input, Options::default());

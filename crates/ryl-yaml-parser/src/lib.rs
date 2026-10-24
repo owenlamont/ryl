@@ -59,8 +59,10 @@
 //!
 //! [`Options::strict_indentation`] enables strict YAML indentation for flow collections. It
 //! defaults to `false` for compatibility with `PyYAML` and ruamel.yaml, accepting under-indented
-//! flow entries and delimiters. [`Options`] also controls comment emission and limits on buffered
-//! comments, simple-key lookahead, directive retention, and flow- and block-collection nesting.
+//! flow entries and delimiters; with it off, [`Parser::strict_indentation_error`] still reports
+//! the error strict indentation would have stopped at. [`Options`] also controls comment
+//! emission and limits on buffered comments, simple-key lookahead, directive retention, and
+//! flow- and block-collection nesting.
 //! Comment tokens and events are emitted by default; setting `Options::emit_comments` to `false`
 //! recognizes and validates comments without capturing their text or emitting them. The defaults
 //! allow 96 buffered comment events, 1024 characters of simple-key lookahead, 1024 bytes of

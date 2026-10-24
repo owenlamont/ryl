@@ -25,7 +25,8 @@ pub struct Options {
     /// The default parsing is compatible with `PyYAML` and `ruamel.yaml`.
     /// `true` sets stricter indentation rules as required by the YAML specification,
     /// some non-compliant YAML that passes with the two libraries above will fail.
-    /// Default is false.
+    /// Default is false; [`crate::Parser::strict_indentation_error`] then reports where
+    /// `true` would have failed.
     pub strict_indentation: bool,
     /// Whether scanners emit comment tokens and parsers emit comment events.
     ///
