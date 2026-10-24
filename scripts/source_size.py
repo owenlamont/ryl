@@ -59,17 +59,14 @@ def resolve_roots(raw_roots: list[str] | None) -> list[str]:
 
 
 def iter_files(root: Path, extensions: set[str]) -> list[Path]:
-    """Return recursively discovered files under a root, optionally filtered.
+    """Return the files Git tracks under a root, optionally filtered.
 
-    A submodule checkout is skipped: the baseline worktree never initialises one.
+    A submodule is a single gitlink entry, so its checkout is never counted.
     """
-    submodules = [git.parent for git in root.rglob(".git") if git.parent != root]
-    files = [
-        path
-        for path in root.rglob("*")
-        if path.is_file()
-        and not any(path.is_relative_to(module) for module in submodules)
-    ]
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=root, capture_output=True, text=True, check=True
+    ).stdout
+    files = [root / name for name in tracked.split("\0") if (root / name).is_file()]
     if not extensions:
         return sorted(files)
     return sorted(path for path in files if path.suffix in extensions)

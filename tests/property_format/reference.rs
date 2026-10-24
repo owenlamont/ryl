@@ -2,14 +2,16 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::time::Duration;
 
 use super::representation::representation;
 
 struct ReferenceParser {
     child: Child,
     input: ChildStdin,
-    output: BufReader<ChildStdout>,
+    output: Receiver<String>,
     events: HashMap<String, Option<Vec<String>>>,
 }
 
@@ -32,13 +34,26 @@ impl ReferenceParser {
             .spawn()
             .expect("start the YAML reference parser with Node");
         let input = child.stdin.take().unwrap();
-        let output = BufReader::new(child.stdout.take().unwrap());
+        let stdout = BufReader::new(child.stdout.take().unwrap());
+        let (sender, output) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in stdout.lines().map_while(Result::ok) {
+                if sender.send(line).is_err() {
+                    break;
+                }
+            }
+        });
         Self {
             child,
             input,
             output,
             events: HashMap::new(),
         }
+    }
+
+    fn stop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 
     fn events(&mut self, content: &str) -> Option<Vec<String>> {
@@ -52,12 +67,14 @@ impl ReferenceParser {
             serde_json::to_string(&normalized).unwrap()
         )
         .unwrap();
-        let mut line = String::new();
-        assert_ne!(
-            self.output.read_line(&mut line).unwrap(),
-            0,
-            "reference parser exited"
-        );
+        let line = match self.output.recv_timeout(Duration::from_secs(60)) {
+            Ok(line) => line,
+            Err(RecvTimeoutError::Timeout) => {
+                self.stop();
+                panic!("reference parser took over 60 s on {normalized:?}");
+            }
+            Err(RecvTimeoutError::Disconnected) => panic!("reference parser exited"),
+        };
         let events = serde_json::from_str::<Option<String>>(&line)
             .expect("reference parser events")
             .map(|events| without_presentation(&events));
@@ -68,8 +85,7 @@ impl ReferenceParser {
 
 impl Drop for ReferenceParser {
     fn drop(&mut self) {
-        self.child.kill().expect("stop reference parser");
-        self.child.wait().expect("reap reference parser");
+        self.stop();
     }
 }
 
