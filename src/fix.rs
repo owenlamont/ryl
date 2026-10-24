@@ -737,9 +737,7 @@ fn rewrite_parse_notice(
     })
 }
 
-#[doc(hidden)]
-#[must_use]
-pub fn repair_events_match(original: &str, repaired: &str) -> bool {
+pub(crate) fn repair_events_match(original: &str, repaired: &str) -> bool {
     let before = TextVersion::new(original);
     let after = TextVersion::new(repaired);
     representation_matches(before.analysis(), after.analysis())
@@ -1268,7 +1266,6 @@ pub(crate) fn rewrite<'a>(
         tracking.edited.push(indentation::ID);
         source = repaired;
     }
-    let events = source.analysis().parsed().event_count();
     let mut current = source;
     for _ in 0..FIX_PIPELINE_MAX_PASSES {
         tracking.unprobed = true;
@@ -1302,18 +1299,6 @@ pub(crate) fn rewrite<'a>(
         if !truthy && !ordered {
             break;
         }
-    }
-    let text = current.analysis().text();
-    let output = current.analysis();
-    if text != input
-        && (output.parsed().event_count() != events
-            || (!output.strict_valid()
-                && crate::lint::strict_parse_error(text).is_some())
-            || (!strict
-                && (!repair_events_match(input, text)
-                    || (passes.preserve_events && !format_events_match(input, text)))))
-    {
-        return TextVersion::new(input.to_string());
     }
     current.into_owned()
 }

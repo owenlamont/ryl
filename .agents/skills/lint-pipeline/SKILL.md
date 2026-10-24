@@ -98,7 +98,8 @@ embedded YAML is linted CR-aware. User docs: `docs/markdown.md`.
 `--fix` requires a complete relaxed parse, including resolved aliases. Lint and LSP
 diagnostics report the error strict indentation stops at, which the one relaxed parse
 records (`ParsedFacts::strict_error`); rewrite paths may repair relaxed-only input when
-reindent preserves events and the final output parses strictly with the original events.
+the reindent alone parses strictly with the original events. Later fixes are checked
+against the repaired text, as for strictly valid input, so `key-ordering` may reorder it.
 Repairs produce a notice; a disabled or unsafe repair is refused.
 Lint repairs require the `ALL` fixable selector, honor indentation ignores and use
 formatter indentation targets; per-rule LSP fixes suppress the repair pass.

@@ -35,8 +35,7 @@ use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::{
-    FIX_PIPELINE_MAX_PASSES, RULE_FIX_MAX_ITERATIONS, apply_safe_fixes,
-    repair_events_match, safe_fix_start,
+    FIX_PIPELINE_MAX_PASSES, RULE_FIX_MAX_ITERATIONS, apply_safe_fixes, safe_fix_start,
 };
 use ryl::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
@@ -284,9 +283,8 @@ fn probe_pass(
 
 /// Re-runs the probe pass from production's starting text until it changes nothing,
 /// failing on a revisited state or on exceeding the production pass cap, then checks one
-/// `apply_safe_fixes` call lands on that fixed point (or, for a repaired input whose fixes
-/// changed its representation, on the input) and stays there. Returns the number of
-/// passes that changed the starting text.
+/// `apply_safe_fixes` call lands on that fixed point and stays there. Returns the number
+/// of passes that changed the starting text.
 fn assert_converges(
     input: &str,
     cfg: &YamlLintConfig,
@@ -305,14 +303,9 @@ fn assert_converges(
         let state = &seen[pass];
         let next = probe_pass(state, &rules, cfg, cfg_name)?;
         if &next == state {
-            let expected = if seen[0] == input || repair_events_match(input, state) {
-                state
-            } else {
-                input
-            };
             prop_assert_eq!(
                 &fixed,
-                expected,
+                state,
                 "rule-by-rule probe disagrees with apply_safe_fixes under config '{}'; input {:?}",
                 cfg_name,
                 input
@@ -430,14 +423,14 @@ fn trailing_comma_the_closing_rule_contradicts_drops_in_one_probe_pass() {
 }
 
 #[test]
-fn strict_invalid_input_is_fixed_only_where_its_repair_survives() {
+fn strict_invalid_input_is_fixed_only_where_it_can_be_repaired() {
     let cfg = named_config("yamllint-default");
     for (input, fixed) in [
         (
             "a: [b, # comment\n]\n",
             "---\na: ['b',  # comment\n ]\n...\n",
         ),
-        ("z: [b,\n]\na: c\n", "z: [b,\n]\na: c\n"),
+        ("z: [b,\n]\na: c\n", "---\na: 'c'\nz: ['b',\n ]\n...\n"),
         ("a: 'x\ny'\n", "a: 'x\ny'\n"),
     ] {
         assert_eq!(
