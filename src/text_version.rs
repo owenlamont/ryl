@@ -365,10 +365,10 @@ impl<'text> Analysis<'text> {
                     tokens.push(span, kind);
                 },
                 observe,
-            )?
+            )
         } else {
-            events::verify_strict::<COLLECTIONS>(expected, output.text(), (), observe)?
-        };
+            events::verify_strict::<COLLECTIONS>(expected, output.text(), (), observe)
+        }?;
 
         facts.valid = true;
         facts.compact();

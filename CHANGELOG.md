@@ -7,6 +7,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- `ryl format` re-indents a block sequence holding a bare `-` item, such as a sequence
+  flush with its key whose first item is empty, instead of refusing the document.
+  ([#836](https://github.com/owenlamont/ryl/issues/836))
 - `ryl format` keeps a keep-chomped block scalar's final spaces-only line when
   re-indenting empties that line, as at indent width 1, so the scalar keeps its final
   empty line.

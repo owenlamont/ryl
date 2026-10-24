@@ -175,6 +175,14 @@ fn arb_seq_item(depth: u32) -> impl Strategy<Value = SeqItem> {
             .prop_map(SeqBody::CompactMap),
         2 => prop::collection::vec((1u8..=3, arb_node()), 1..=3)
             .prop_map(SeqBody::CompactSeq),
+        // A tab after a bare `-` refuses the whole document's re-indent.
+        1 => prop::option::of(arb_inline_comment().prop_map(|comment| InlineComment {
+            whitespace_before_hash: comment.whitespace_before_hash.replace('\t', " "),
+            ..comment
+        }))
+        .prop_map(SeqBody::Empty),
+        1 => prop::collection::vec((1u8..=3, arb_node()), 1..=3)
+            .prop_map(SeqBody::BareSeq),
     ];
     (1u8..=3, prop_oneof![3 => Just(2u8), 1 => 1u8..=4], body).prop_map(
         |(dash_spaces, width, body)| SeqItem {
