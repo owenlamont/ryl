@@ -479,7 +479,16 @@ impl<'a> Layout<'a> {
         analyzer.lines = Some(&self.lines);
         analyzer.scalar_owners = folding.then(Vec::new);
         {
-            let tokens = self.projected_tokens(edits, passes, &facts, &mut spacing);
+            let shapes = self
+                .shaped
+                .then(|| self.shapes())
+                .filter(|shapes| !shapes.split.is_empty() || !shapes.joined.is_empty());
+            let tokens = self.projected_tokens(
+                (edits, shapes.as_ref()),
+                passes,
+                &facts,
+                &mut spacing,
+            );
             super::walk(tokens, |(raw, token), previous, next, after| {
                 analyzer.advance(
                     token,
@@ -520,6 +529,28 @@ impl<'a> Layout<'a> {
         })
     }
 
+    fn shapes(&self) -> Shapes {
+        let source = self.input.text().as_ptr() as usize;
+        Shapes {
+            split: self
+                .lines
+                .windows(2)
+                .filter(|pair| pair[0].origin == pair[1].origin)
+                .map(|pair| pair[1].body.as_ptr() as usize - source)
+                .collect(),
+            joined: self
+                .lines
+                .iter()
+                .filter(|line| {
+                    line.bridge.is_none()
+                        && !line.tail.is_empty()
+                        && !line.tail.starts_with(' ')
+                })
+                .map(|line| line.tail.as_ptr() as usize - source)
+                .collect(),
+        }
+    }
+
     fn line_starts(&self) -> Cow<'_, [usize]> {
         if self.projection.is_none() && self.source_starts.len() == self.lines.len() + 1
         {
@@ -536,7 +567,7 @@ impl<'a> Layout<'a> {
 
     fn projected_tokens<'b>(
         &'b self,
-        edits: &'b [crate::format::layout::PlanEdit],
+        (edits, shapes): (&'b [crate::format::layout::PlanEdit], Option<&'b Shapes>),
         passes: &'b crate::fix::Passes<'_>,
         facts: &'b std::cell::RefCell<crate::format::layout::facts::Builder<'a>>,
         spacing: &'b mut Vec<crate::rules::support::token_spacing::SpaceSite>,
@@ -555,6 +586,7 @@ impl<'a> Layout<'a> {
             super::normalized_tokens_from(input.text(), &self.source_starts, scanner)
                 .peekable();
         let mut line = std::collections::VecDeque::new();
+        let mut joined = 0;
         std::iter::from_fn(move || {
             if line.is_empty() {
                 let first = tokens.next()?;
@@ -563,11 +595,14 @@ impl<'a> Layout<'a> {
                 while tokens.peek().is_some_and(|token| token.line == original) {
                     line.push_back(tokens.next().expect("peeked token exists"));
                 }
-                let next = facts.borrow_mut().sites.edits_through(
+                let mut next = facts.borrow_mut().sites.edits_through(
                     original + 1,
                     passes.colons == Some(crate::rules::colons::Config::format()),
                     passes.hyphens == Some(crate::rules::hyphens::Config::format()),
                 );
+                if let Some(shapes) = shapes {
+                    next = shapes.respace(next, &line, &mut joined);
+                }
                 gaps.append(input, &next);
                 spacing.extend(next);
             }
@@ -827,6 +862,41 @@ impl<'a> Layout<'a> {
     }
 }
 
+/// The bytes where dash shapes start a line: each mapping a split moves onto its own line,
+/// and each joined straight after its `-`.
+struct Shapes {
+    split: Vec<usize>,
+    joined: Vec<usize>,
+}
+
+impl Shapes {
+    /// Drops the gap a split dash no longer has, and gives the next join through `last`
+    /// its space.
+    #[cold]
+    #[inline(never)]
+    fn respace(
+        &self,
+        mut sites: Vec<crate::rules::support::token_spacing::SpaceSite>,
+        line: &std::collections::VecDeque<super::Token>,
+        joined: &mut usize,
+    ) -> Vec<crate::rules::support::token_spacing::SpaceSite> {
+        sites.retain(|site| self.split.binary_search(&site.edit.1.get()).is_err());
+        let last = line.back().map_or(0, |token| token.start);
+        if let Some(&at) = self.joined.get(*joined).filter(|&&at| at <= last) {
+            *joined += 1;
+            let at = crate::rules::support::span_utils::BytePos::new(at);
+            sites.insert(
+                0,
+                crate::rules::support::token_spacing::SpaceSite {
+                    indicator: crate::rules::support::token_spacing::Indicator::Dash,
+                    edit: (at, at, 1),
+                },
+            );
+        }
+        sites
+    }
+}
+
 pub(crate) struct Targets {
     pub(crate) deltas: Vec<isize>,
     pub(crate) gaps: Vec<Gap>,
@@ -1055,7 +1125,7 @@ fn event_shape(
     let (entry, dash) = entry?;
     if own_line && entry == line {
         Some((entry, Some(span.start.col()), dash))
-    } else if !own_line && entry + 1 == line && span.start.col() > dash + 1 {
+    } else if !own_line && entry + 1 == line && span.start.col() > dash {
         Some((entry, None, dash))
     } else {
         None

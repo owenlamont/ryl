@@ -450,6 +450,29 @@ fn a_flow_key_keeps_its_quotes_where_colons_are_disabled() {
 }
 
 #[test]
+fn a_mapping_one_column_after_its_dash_joins_it_in_one_pass() {
+    for (input, expected) in [
+        ("-\n foo: bar\n baz: 1\n", "- foo: bar\n  baz: 1\n"),
+        ("-\n \"foo\": bar\n", "- foo: bar\n"),
+        (
+            "-\n foo: bar  # yamllint disable-line rule:hyphens\n",
+            "- foo: bar  # yamllint disable-line rule:hyphens\n",
+        ),
+    ] {
+        assert_one_pass(input, "[format]\n", expected);
+    }
+}
+
+#[test]
+fn a_mapping_split_from_its_dash_drops_the_gap_in_one_pass() {
+    assert_one_pass(
+        "-  a: x\n",
+        "indent-width = 4\n[format]\nindent-sequences = false\ndash-on-own-line = true\n",
+        "-\n    a: x\n",
+    );
+}
+
+#[test]
 fn trailing_comments_keep_what_comments_indentation_exempts() {
     for (input, config, expected) in [
         (

@@ -1068,10 +1068,13 @@ impl Presentation {
                         == crate::rules::support::token_spacing::Indicator::Dash;
                     let rule = if dash { hyphens::ID } else { colons::ID };
                     let (from, to, spaces) = site.edit;
-                    if presentation
-                        .guard
-                        .as_ref()
-                        .is_some_and(|guard| !guard.allows(rule, from, to))
+                    // A space inserted after a dash belongs to a join, which no directive
+                    // stops.
+                    if !(dash && from == to)
+                        && presentation
+                            .guard
+                            .as_ref()
+                            .is_some_and(|guard| !guard.allows(rule, from, to))
                     {
                         continue;
                     }
