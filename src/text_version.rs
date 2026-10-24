@@ -560,10 +560,6 @@ impl ParsedFacts {
         })
     }
 
-    pub(crate) fn event_count(&self) -> usize {
-        self.events.len()
-    }
-
     fn compact(&mut self) {
         self.events.shrink_to_fit();
         self.scalars.shrink_to_fit();

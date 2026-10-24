@@ -170,17 +170,12 @@ fn check_diff_previews_a_strictly_valid_repair() {
 }
 
 #[test]
-fn repair_refuses_disabled_indentation_or_changed_events() {
+fn repair_refuses_disabled_indentation_or_unparsable_output() {
     for (input, config, rewrite) in [
         (
             "# ryl disable rule:indentation\nflow: [a,\nb]\n",
             "[format]",
             Rewrite::Format,
-        ),
-        (
-            "z: [a,\nb]\na: 1\n",
-            "[lint.rules.key-ordering]",
-            Rewrite::Fix,
         ),
         ("flow: [a,\nb\n", "[format]", Rewrite::Format),
         (

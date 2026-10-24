@@ -7,6 +7,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- `ryl check --fix` keeps an indentation repair when `key-ordering` also reorders the
+  file, instead of leaving the file unchanged and reporting the indentation as a syntax
+  error.
 - `ryl format` re-indents a block sequence holding a bare `-` item, such as a sequence
   flush with its key whose first item is empty, instead of refusing the document.
   ([#836](https://github.com/owenlamont/ryl/issues/836))
