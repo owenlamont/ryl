@@ -132,38 +132,37 @@ YAML: single files from 1 KiB to 9.4 MiB, and 1 to 1,000 files of under 16 KiB
 (98% of the 76,000 YAML files in the 40 pinned repos are under 16 KiB). Both axes
 are logarithmic.
 
-![Lint and aligned-config format: wall time and peak memory](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark.svg)
+![Lint and max-common-work format: wall time and peak memory](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark.svg)
 
-Aligned configs (see below), median of 10 runs; peak RSS is the median of 3 more:
+The format panel uses **max common work**: every formatter configured for output
+as close as its options allow, plus the two rewrites all four offer, single quotes
+and folding long lines at 80 columns. It is the most work each tool can be asked to
+do in common. Median of 10 runs; peak RSS is the median of 3 more:
 
 | Input | ryl | yamlfmt | dprint + pretty_yaml | Prettier |
 | --- | ---: | ---: | ---: | ---: |
-| 1 KiB file | 2.2 ms, 9.0 MiB | 2.4 ms, 5.7 MiB | 6.0 ms, 16 MiB | 104 ms, 64 MiB |
-| 16 KiB file | 3.7 ms, 9.1 MiB | 3.8 ms, 6.4 MiB | 9.3 ms, 16 MiB | 147 ms, 78 MiB |
-| 0.9 MiB file | 129 ms, 24 MiB | 131 ms, 70 MiB | 328 ms, 37 MiB | 1.18 s, 366 MiB |
-| 9.4 MiB file | 1.13 s, 194 MiB | 1.27 s, 658 MiB | 3.15 s, 232 MiB | 9.63 s, 1.8 GiB |
-| 1,000 files | 41 ms, 19 MiB | 246 ms, 18 MiB | 130 ms, 22 MiB | 3.43 s, 249 MiB |
+| 1 KiB file | 2.5 ms, 8.4 MiB | 2.4 ms, 5.5 MiB | 6.6 ms, 16 MiB | 106 ms, 64 MiB |
+| 16 KiB file | 3.4 ms, 8.6 MiB | 3.8 ms, 6.5 MiB | 9.6 ms, 16 MiB | 147 ms, 79 MiB |
+| 0.9 MiB file | 71 ms, 25 MiB | 133 ms, 71 MiB | 509 ms, 38 MiB | 1.20 s, 368 MiB |
+| 9.4 MiB file | 0.84 s, 191 MiB | 1.22 s, 690 MiB | 4.83 s, 240 MiB | 9.75 s, 1.8 GiB |
+| 1,000 files | 28 ms, 16 MiB | 236 ms, 18 MiB | 127 ms, 23 MiB | 3.52 s, 246 MiB |
 
 | Lint, `extends: default` | 1 KiB | 9.4 MiB | 1,000 files |
 | --- | ---: | ---: | ---: |
-| ryl | 2.1 ms | 0.65 s | 28 ms |
-| yamllint | 69 ms | 31.0 s | 5.60 s |
+| ryl | 2.3 ms | 0.62 s | 24 ms |
+| yamllint | 70 ms | 29.8 s | 5.19 s |
 
-Where ryl does not win:
-
-- yamlfmt uses less memory up to 16 KiB (5.5–6.4 MiB against ryl's 9 MiB) and at
-  every file count, and less CPU time at 1,000 files (0.30 s against 0.40 s): ryl's
-  lead there comes from formatting files in parallel.
-- Under defaults, yamlfmt is up to 6% faster at 4 KiB, 16 KiB, 260 KiB and 0.9 MiB.
-  Under aligned configs, ryl is ahead by 1–9% at 1–16 KiB.
-- Under max common work (single quotes, folding at 80 columns), yamlfmt is faster
-  on every single file from 4 KiB, taking up to a third less time (0.9 MiB), and
-  dprint + pretty_yaml peaks at less memory on the 9.4 MiB file (240 MiB against
-  ryl's 286 MiB).
+ryl formats faster than the other three at every size and file count, except a
+single 1 KiB file, where it ties yamlfmt (within 1%, mostly process startup).
+yamlfmt uses less memory up to 16 KiB (5.5–6.5 MiB against ryl's 8.4–8.6 MiB).
+The same holds under the other two profiles, where a lone 1 KiB file is up to 5%
+slower than yamlfmt.
 
 Profiles and what they cannot equalise:
 
-- **Aligned configs** (charted): each formatter set up to produce output as close
+- **Max common work** (charted): aligned configs plus single quotes and folding at
+  80 columns; 91–96% identical lines, as each tool folds differently.
+- **Aligned configs**: each formatter set up to produce output as close
   to the others' as its options allow. ryl `quote-style = "double"`,
   `max-blank-lines = 1`, `comment-spacing = 1`, `comment-starting-space =
   "preserve"`, `brace-spacing = true`; yamlfmt `retain_line_breaks_single`, double quotes,
@@ -172,9 +171,6 @@ Profiles and what they cannot equalise:
   removes quotes no value needs, yamlfmt drops `---`, dprint keeps inline comment
   alignment, and dprint and Prettier wrap long strings at 80 columns.
 - **Defaults**: each tool with no configuration, so each does different work.
-- **Max common work**: aligned configs plus the extra rewrites all four offer,
-  single quotes and folding at 80 columns; 91–96% identical lines, as each
-  tool folds differently.
 - **Lint**: yamllint reads `extends: default` and ryl reads the TOML that
   `ryl --migrate-configs` writes from the same file. On the benchmark inputs they
   share 43,569 diagnostics; yamllint alone reports 36 (20 `braces` inside Jinja
@@ -191,7 +187,7 @@ Each size point is a different file, so content varies along that axis.
 
 | Tool | Version |
 | --- | --- |
-| ryl | 0.26.0 (main at 3482cb4) |
+| ryl | 0.26.1 |
 | yamllint | 1.38.0 |
 | yamlfmt | 0.21.0 |
 | Prettier | 3.9.10 |

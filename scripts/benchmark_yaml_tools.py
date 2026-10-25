@@ -637,12 +637,12 @@ COLORS: Final = {
 }
 PANEL_TOOLS: Final = {
     "lint": {"ryl": "o", "yamllint": "v"},
-    Profile.ALIGNED: {"ryl": "o", "yamlfmt": "s", "dprint": "^", "Prettier": "D"},
+    Profile.MAX_WORK: {"ryl": "o", "yamlfmt": "s", "dprint": "^", "Prettier": "D"},
 }
 LABELS: Final = {"dprint": "dprint + pretty_yaml"}
 PANEL_TITLES: Final = {
     "lint": "Lint, the same yamllint `extends: default` rules",
-    Profile.ALIGNED: "Format, configs aligned for similar output",
+    Profile.MAX_WORK: "Format, max common work",
 }
 X_LABELS: Final = {
     Sweep.SIZE: "Single file size",
