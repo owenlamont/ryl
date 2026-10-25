@@ -140,6 +140,16 @@ fn a_comment_ending_in_a_dash_cannot_join_the_mapping_below() {
 }
 
 #[test]
+fn a_dash_gap_does_not_shift_the_dash_end_when_its_mapping_cannot_move() {
+    let config = "[format]\ndash-on-own-line = true\n";
+    let (output, statistics) =
+        format_with_statistics("-   k: v  # r\n    b: v\n", config);
+    assert_eq!(output, "- k: v  # r\n  b: v\n");
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(format_with_statistics(&output, config).0, output);
+}
+
+#[test]
 fn a_directive_keyword_inside_a_scalar_does_not_cache_tokens() {
     let (output, statistics) =
         format_with_statistics("word: 'ryl message'\n", "[format]\n");
