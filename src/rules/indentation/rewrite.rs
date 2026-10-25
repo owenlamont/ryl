@@ -5,7 +5,6 @@ use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift};
 use crate::directives::Directives;
 use crate::format::layout::{VirtualLine, lines as virtual_lines};
 use crate::rules::hyphens;
-use crate::rules::support::event_compare;
 use crate::rules::support::line_syntax::buffer_newline;
 use crate::text_version::{Analysis, TextVersion};
 
@@ -71,6 +70,8 @@ pub(crate) struct Layout<'a> {
     consistent: Option<bool>,
     /// Whether `trailing-spaces` empties whitespace-only lines.
     pub(crate) trimmed: bool,
+    /// The start of each scalar the plan restyles out of double quotes.
+    pub(crate) restyled: Vec<usize>,
 }
 
 impl<'a> Layout<'a> {
@@ -329,6 +330,7 @@ impl<'a> Layout<'a> {
             reshaped: Vec::new(),
             consistent: None,
             trimmed: false,
+            restyled: Vec::new(),
         };
         layout.reindex();
         layout
@@ -394,13 +396,11 @@ impl<'a> Layout<'a> {
         };
         let mut output = TextVersion::new(render(&refused));
         output.inherit_event_capacity(input);
-        let rollback = self.verify_events(&mut output, &mut refused);
-        if rollback {
-            let plan = output.analysis().plan(render(&refused));
-            output
-                .apply(plan)
-                .expect("refusal plan belongs to the current epoch");
-        }
+        debug_assert!(
+            output.analysis().text() == buffer
+                || input.significant_events_match(output.analysis()),
+            "re-indentation changed a document's events"
+        );
         if cfg.require_consistent {
             let verified = if output.analysis().text() == buffer {
                 input
@@ -432,7 +432,12 @@ impl<'a> Layout<'a> {
         analyzer.lines = Some(&self.lines);
         analyzer.run(self.projected(edits));
         let deltas = settle(&self.lines, &analyzer.shifts);
-        let refused = self.refusals(&analyzer.gaps, &analyzer.diagnostics);
+        let refused = self.refusals(
+            &analyzer.gaps,
+            &analyzer.diagnostics,
+            (&analyzer.block_tails, &deltas),
+            edits,
+        );
         Targets {
             deltas,
             gaps: analyzer.gaps,
@@ -613,6 +618,7 @@ impl<'a> Layout<'a> {
             gaps,
             diagnostics,
             scalar_owners,
+            block_tails,
             ..
         } = analyzer;
         let consistent = consistency.map(|check| check.diagnostics.is_empty());
@@ -626,10 +632,16 @@ impl<'a> Layout<'a> {
                     gaps,
                     diagnostics,
                     scalar_owners: scalar_owners.unwrap_or_default(),
+                    block_tails,
                 },
                 spacing,
             )
         })
+    }
+
+    /// The byte each mapping a split moves onto its own line starts at.
+    pub(crate) fn split_starts(&self) -> Vec<usize> {
+        self.shapes().split
     }
 
     fn shapes(&self) -> Shapes {
@@ -743,62 +755,6 @@ impl<'a> Layout<'a> {
         })
     }
 
-    fn verify_events(
-        &self,
-        output: &mut TextVersion<'static>,
-        refused: &mut [Option<Cause>],
-    ) -> bool {
-        if output.analysis().text() == self.input.text() {
-            return false;
-        }
-        let strict = output.analysis().text().len() >= 1_000_000;
-        let single = refused.len() == 1;
-        if strict
-            && single
-            && let Ok(matches) = self.input.verify_strict(output.analysis())
-        {
-            let rollback = refused[0].is_none() && !matches;
-            refused[0] = refused[0].or((!matches).then_some(Cause::Changed));
-            if matches {
-                output.mark_strict_valid();
-            }
-            return rollback;
-        }
-        let mut rollback = false;
-        let mut compare = || {
-            if single {
-                let changed = !self.input.significant_events_match(output.analysis());
-                rollback = refused[0].is_none() && changed;
-                refused[0] = refused[0].or(changed.then_some(Cause::Changed));
-            } else {
-                let original = event_compare::documents(self.input.event_values());
-                let rewritten =
-                    event_compare::documents(output.analysis().event_values());
-                for (index, cause) in refused.iter_mut().enumerate() {
-                    let changed = rewritten.get(index) != Some(&original[index]);
-                    rollback |= cause.is_none() && changed;
-                    *cause = cause.or(changed.then_some(Cause::Changed));
-                }
-            }
-        };
-        let valid = if strict && !single {
-            std::thread::scope(|scope| {
-                let text = output.analysis().text();
-                let check = scope
-                    .spawn(move || crate::lint::strict_parse_error(text).is_none());
-                compare();
-                check.join().expect("strict parser thread finishes")
-            })
-        } else {
-            compare();
-            false
-        };
-        if valid && !rollback {
-            output.mark_strict_valid();
-        }
-        rollback
-    }
-
     fn result(
         &self,
         text: String,
@@ -896,35 +852,39 @@ impl<'a> Layout<'a> {
                 .unwrap_or_else(|| self.input.text()[bridge.end..byte].chars().count());
             return prefix + bridge.characters + tail;
         }
-        let column = projection.column(original, byte, column);
-        extra.map_or(column, |extra| extra.column(original, byte, column))
+        let project = |byte, column| {
+            let column = projection.column(original, byte, column);
+            extra.map_or(column, |extra| extra.column(original, byte, column))
+        };
+        // A line split off a source line starts afresh, so edits before the split do not
+        // move its tokens.
+        let split = index.checked_sub(1).is_some_and(|previous| {
+            self.lines
+                .get(index)
+                .is_some_and(|line| self.lines[previous].origin == line.origin)
+        });
+        let start = split.then(|| {
+            self.lines[index].body.as_ptr() as usize
+                - self.input.text().as_ptr() as usize
+        });
+        start
+            .filter(|&start| start <= byte)
+            .and_then(|start| {
+                let from = column
+                    .checked_sub(self.input.text()[start..byte].chars().count())?;
+                (project(byte, column) + from).checked_sub(project(start, from))
+            })
+            .unwrap_or_else(|| project(byte, column))
     }
 
-    /// The 0-based lines each scalar that trailing-spaces protects spans.
-    fn protected_scalar_lines(&self) -> Vec<std::ops::Range<usize>> {
-        self.input
-            .parsed()
-            .scalars()
-            .filter(|(style, _)| {
-                matches!(
-                    style,
-                    ryl_yaml_parser::ScalarStyle::Literal
-                        | ryl_yaml_parser::ScalarStyle::Folded
-                        | ryl_yaml_parser::ScalarStyle::DoubleQuoted
-                )
-            })
-            .map(|(_, span)| {
-                span.start.line() - 1
-                    ..span.end.line() - usize::from(span.end.col() == 0)
-            })
-            .collect()
-    }
-
-    /// Each document's first [`Cause`] other than [`Cause::Changed`].
+    /// Each document's first [`Cause`]; [`Cause::Changed`] only where a block scalar's
+    /// first trailing comment could move into its body.
     fn refusals(
         &self,
         gaps: &[Gap],
         diagnostics: &[super::Violation],
+        (block_tails, deltas): (&[super::BlockTail], &[isize]),
+        edits: &[crate::format::layout::PlanEdit],
     ) -> Vec<Option<Cause>> {
         if self.starts.is_empty() {
             return Vec::new();
@@ -946,24 +906,61 @@ impl<'a> Layout<'a> {
             }
         }
         let mut protected = None;
-        for (line, content, _) in self.input.lines() {
-            // Where trailing-spaces runs, a whitespace-only line outside the scalars it
-            // protects is blank.
-            if tab_in_indentation(content)
+        let source = self.input.text().as_ptr() as usize;
+        // An empty tail is a literal outside the input.
+        let emitted = |text: &str| {
+            if text.is_empty() {
+                String::new()
+            } else {
+                edited(text, text.as_ptr() as usize - source, edits)
+            }
+        };
+        for virtual_line in &self.lines {
+            // A tab counts only as the layout emits it, once the edits have run. The
+            // edits do not hold trailing-spaces yet: where it runs, a whitespace-only line
+            // outside the scalars it protects is blank.
+            if !virtual_line.body.contains('\t') && !virtual_line.tail.contains('\t') {
+                continue;
+            }
+            let line = virtual_line.origin;
+            // A joined mapping's tab stays indentation, as on its own line.
+            let tail = emitted(virtual_line.tail);
+            let content = emitted(virtual_line.body) + &tail;
+            if (tab_in_indentation(&content) || tab_in_indentation(&tail))
                 && (!content.trim_start_matches([' ', '\t']).is_empty()
                     || !self.trimmed
                     || directives
                         .is_disabled(crate::rules::trailing_spaces::ID, line + 1)
                     || protected
-                        .get_or_insert_with(|| self.protected_scalar_lines())
-                        .iter()
-                        .any(|lines: &std::ops::Range<usize>| lines.contains(&line)))
+                        .get_or_insert_with(|| {
+                            crate::rules::trailing_spaces::protected_lines(
+                                self.input,
+                                |start| self.restyled.contains(&start),
+                            )
+                            .map(|(lines, _)| lines)
+                            .unwrap_or_default()
+                        })
+                        .contains(&(line + 1)))
             {
                 refuse(line, Cause::Tab);
             }
         }
         for problem in diagnostics {
             refuse(self.lines[problem.line - 1].origin, Cause::Unfollowable);
+        }
+        for &(line, body, content) in block_tails {
+            let Some(&delta) = deltas.get(line) else {
+                continue;
+            };
+            let virtual_line = &self.lines[line];
+            let text = virtual_line.body.trim_start();
+            let column = super::to_isize(
+                virtual_line.prefix + virtual_line.body.len() - text.len(),
+            );
+            let content = content.map_or(column + 1, super::to_isize);
+            if text.starts_with('#') && column + delta >= content + body {
+                refuse(virtual_line.origin, Cause::Changed);
+            }
         }
         refused
     }
@@ -1026,14 +1023,24 @@ pub(crate) struct StreamTargets {
     gaps: Vec<Gap>,
     diagnostics: Vec<super::Violation>,
     scalar_owners: Vec<(usize, usize)>,
+    block_tails: Vec<super::BlockTail>,
 }
 
 impl StreamTargets {
-    pub(crate) fn finish(self, layout: &Layout<'_>) -> Targets {
+    pub(crate) fn finish(
+        self,
+        layout: &Layout<'_>,
+        edits: &[crate::format::layout::PlanEdit],
+    ) -> Targets {
         let deltas = settle(&layout.lines, &self.shifts);
         Targets {
+            refused: layout.refusals(
+                &self.gaps,
+                &self.diagnostics,
+                (&self.block_tails, &deltas),
+                edits,
+            ),
             deltas,
-            refused: layout.refusals(&self.gaps, &self.diagnostics),
             gaps: self.gaps,
             scalar_owners: self.scalar_owners,
             last_token: self.shifts.iter().rposition(Option::is_some),
@@ -1243,12 +1250,15 @@ fn event_shape(
     let line = span.start.line() - 1;
     let at = crate::rules::support::span_utils::marker_byte_offset(span.start).get();
     let prefix = &input.text()[input.byte_line_starts()[line]..at];
-    let inline = prefix.trim_end_matches(' ').strip_suffix('-').map(str::len);
+    let inline = prefix
+        .trim_end_matches([' ', '\t'])
+        .strip_suffix('-')
+        .map(str::len);
     let entry = inline.map(|column| (line, column)).or_else(|| {
         line.checked_sub(1).and_then(|above| {
             input
                 .line_content(above)
-                .trim_end_matches(' ')
+                .trim_end_matches([' ', '\t'])
                 .strip_suffix('-')
                 .filter(|prefix| !prefix.contains('#'))
                 .map(|prefix| (above, prefix.len()))
@@ -1269,6 +1279,31 @@ fn event_shape(
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     let text = reindent(buffer, cfg).text;
     (text != buffer).then_some(text)
+}
+
+/// `content`, which starts at byte `start`, with the `edits` that touch it applied; an
+/// edit that crosses the line's ends writes its whole replacement at that end.
+fn edited(
+    content: &str,
+    start: usize,
+    edits: &[crate::format::layout::PlanEdit],
+) -> String {
+    let end = start + content.len();
+    let mut text = String::new();
+    let mut at = start;
+    for (from, to, replacement) in
+        &edits[edits.partition_point(|(_, to, _)| to.get() < start)..]
+    {
+        let (from, to) = (from.get(), to.get());
+        if from > end {
+            break;
+        }
+        text.push_str(&content[at - start..from.max(at) - start]);
+        text.extend(replacement.piece().chars());
+        at = to.min(end);
+    }
+    text.push_str(&content[at - start..]);
+    text
 }
 
 fn tab_in_indentation(content: &str) -> bool {

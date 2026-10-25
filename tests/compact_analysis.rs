@@ -51,12 +51,14 @@ fn streaming_verification_keeps_exact_events_and_ignores_layout() {
     for &source in INPUTS {
         let expected = Parser::new_from_str(source).map(|item| item.unwrap().0);
         let mut observed = Vec::new();
-        assert!(
-            events::verify_strict::<false>(expected, source, (), |event, span| {
+        assert!(events::verify_strict::<false>(
+            expected,
+            source,
+            (),
+            |event, span| {
                 observed.push((event, span));
-            })
-            .unwrap()
-        );
+            }
+        ));
         assert_eq!(
             observed,
             Parser::new_from_str(source)
@@ -66,15 +68,12 @@ fn streaming_verification_keeps_exact_events_and_ignores_layout() {
     }
     let expected = Parser::new_from_str("é:\n    - &a café\n    - *a\n")
         .map(|item| item.unwrap().0);
-    assert!(
-        events::verify_strict::<false>(
-            expected,
-            "# heading\né:\n  - &a café # inline\n  - *a\n",
-            (),
-            |_, _| {}
-        )
-        .unwrap()
-    );
+    assert!(events::verify_strict::<false>(
+        expected,
+        "# heading\né:\n  - &a café # inline\n  - *a\n",
+        (),
+        |_, _| {}
+    ));
 }
 
 #[test]
@@ -99,7 +98,7 @@ fn streaming_verification_rejects_each_significant_event_difference() {
     ] {
         let expected = Parser::new_from_str(source).map(|item| item.unwrap().0);
         assert!(
-            !events::verify_strict::<false>(expected, output, (), |_, _| {}).unwrap(),
+            !events::verify_strict::<false>(expected, output, (), |_, _| {}),
             "{source:?}: {output:?}"
         );
     }
@@ -114,7 +113,7 @@ fn streaming_verification_parses_strictly_through_mismatches_and_suffixes() {
     ] {
         let expected = Parser::new_from_str("a: b\n").map(|item| item.unwrap().0);
         assert!(
-            events::verify_strict::<false>(expected, output, (), |_, _| {}).is_err(),
+            !events::verify_strict::<false>(expected, output, (), |_, _| {}),
             "{output:?}"
         );
     }
@@ -125,7 +124,12 @@ fn collection_verification_accepts_both_styles_with_identical_properties() {
     let source = "é: &m {clé: &s [!!str 世]}\ncopy: *s\n";
     let output = "é: &m\n  clé: &s\n    - !!str 世\ncopy: *s\n";
     let expected = Parser::new_from_str(source).map(|item| item.unwrap().0);
-    assert!(events::verify_strict::<true>(expected, output, (), |_, _| {}).unwrap());
+    assert!(events::verify_strict::<true>(
+        expected,
+        output,
+        (),
+        |_, _| {}
+    ));
 }
 
 #[test]
@@ -138,9 +142,12 @@ fn collection_verification_rejects_other_event_changes() {
         "é: &a {世: !!str 世}\n",
     ] {
         let expected = Parser::new_from_str(source).map(|item| item.unwrap().0);
-        assert!(
-            !events::verify_strict::<true>(expected, output, (), |_, _| {}).unwrap()
-        );
+        assert!(!events::verify_strict::<true>(
+            expected,
+            output,
+            (),
+            |_, _| {}
+        ));
     }
 }
 

@@ -1300,6 +1300,11 @@ pub(crate) fn rewrite<'a>(
             break;
         }
     }
+    debug_assert!(
+        current.analysis().text() == input
+            || crate::lint::strict_parse_error(current.analysis().text()).is_none(),
+        "a rewrite changed the input into YAML that does not parse strictly"
+    );
     current.into_owned()
 }
 
@@ -1472,6 +1477,8 @@ pub(crate) struct ReindentEvidence {
     pub(crate) kept_dash_lines: Vec<(usize, usize)>,
     /// The 1-based line and column of each consistent-width violation, when known.
     pub(crate) inconsistent: Option<Vec<(usize, usize)>>,
+    /// Whether the plan showed the text holds no ambiguous block scalar.
+    pub(crate) unambiguous: bool,
 }
 
 impl ReindentEvidence {
@@ -1481,6 +1488,7 @@ impl ReindentEvidence {
         refused: Vec<indentation::Refusal>,
         kept_dash_lines: Vec<(usize, usize)>,
         inconsistent: Option<Vec<(usize, usize)>>,
+        unambiguous: bool,
     ) -> Self {
         Self {
             epoch: input.epoch(),
@@ -1488,6 +1496,7 @@ impl ReindentEvidence {
             refused,
             kept_dash_lines,
             inconsistent,
+            unambiguous,
         }
     }
 

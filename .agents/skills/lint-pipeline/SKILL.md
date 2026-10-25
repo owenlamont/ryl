@@ -161,8 +161,10 @@ skipped (`fix::ends_in_bare_cr` — `similar` can't render it; use `--fix`).
 `ryl format` and `ryl check --fix` both run `fix::rewrite` over a resolved
 `fix::Passes` value. A file-wide disable skips the input. A strict-invalid input is
 first re-indented (`fix::repair`) when that alone makes it strictly valid with the same
-representation. `format::layout` then plans every rule in one candidate emission with
-strict event verification, the whole-format semantic guard and a mandatory dry plan.
+representation. `format::layout` then plans every rule in one candidate emission and
+writes it without parsing it again; debug builds `debug_assert!` that its events match
+and that it replans clean (`layout::settles`). `check --fix` lint passes instead replan
+their output until no edit remains, since lint options can contradict each other.
 `truthy` and `key-ordering` run after each settled layout as guarded text fixes; a
 change restarts the layout, bounded by `FIX_PIPELINE_MAX_PASSES`. An input with an
 ambiguous blank block-scalar body line gets key ordering only. A layout decline rolls
@@ -174,12 +176,15 @@ from the `[format]` table over `format::FORMAT_RULE_IDS` and reads none of those
 zero-config run formats. Inline directives are honoured by both. A YAML config gets the
 `[format]` defaults.
 
-Every changed formatter result must parse strictly and preserve the original significant
-events; a failed comparison rolls the rewrite back to the original input.
+Value preservation and idempotence hold by rule order: each target reads only preserved
+facts and earlier targets. A rule that breaks the order fails the debug check in tests
+and debug corpus runs. Plan-time refusals stand in for the old rollbacks: a block
+scalar's first trailing comment that would move further than its body freezes its
+document, and a `---` line followed by non-ASCII whitespace, or a root keep scalar
+whose final spaces-only line ryl's parser reads unlike the reference parser, falls back.
 
 Layout handles suppression and indentation refusals while retaining source bytes for
-refused documents; a candidate whose re-indentation changes a document's events
-freezes that document and replans. Collapses that cannot share a virtual line retry
+refused documents. Collapses that cannot share a virtual line retry
 after a separately verified quote epoch, and a folded-tail interaction retries with an
 unindented first epoch. The formatter drops a comma before a closing bracket. In
 `check --fix` the comma takes the bracket rule's spacing, and is dropped where the two
@@ -194,8 +199,8 @@ Column-zero document-marker checks run before the value-only cache lookup.
 Unguarded ladder replacements settle locally before indentation measures
 the resulting scalar lengths; a no-edit certificate avoids a whole-document quote
 probe. Multiline collapses change virtual lines; multiline style changes compose
-line-local edits. Quote and dirty dry-plan interactions settle through bounded,
-verified layout epochs; partially suppressed multiline quotes preserve rollback.
+line-local edits. Quote interactions settle through a separately verified quote
+stage; partially suppressed multiline quotes preserve rollback.
 Every quote replacement retains
 the existing schema and snippet checks;
 unchanged plain and block scalars need no quote decision.
@@ -206,10 +211,9 @@ events with only collection style relaxed, alongside the semantic comparison.
 All folding profiles settle quote edits in a separately verified epoch before
 measuring fold endpoints. Conversions with comments align comments before
 conversion, defer further comment alignment until after reindentation, then run
-the full layout and dry plan. A dry collection plan must also have no remaining
-edits. A remaining conversion plan becomes the next verified stage. Rejected
-conversions can retry after a changed layout stage, retaining the existing
-fixed-point bound. Dirty dry plans continue from the verified candidate.
+the full layout. A conversion remaining in the output becomes the next verified
+stage. Rejected conversions can retry after a changed layout stage, retaining the
+existing fixed-point bound.
 
 The layout planner retains source provenance through dash joins, scalar collapses,
 comment shifts, folding and boundary finishing. Set
@@ -219,14 +223,14 @@ traversal/emission counts and elapsed time during development.
 Both plans collect shared header, comment, sparse spacing and folding facts during
 lexical scanning. The input buffers the unresolved line, projects tokens against
 settled local gaps and quotes, and feeds the indentation analyzer directly.
-The dry pass invokes the same producers and layout planner on fresh candidate facts;
-remaining edits start another verified layout epoch. With `indent-width` unset, the
-plan checks a consistent width over its own target columns, refusing each document that
-breaks it until none does.
-Strict candidate verification compares expected events and semantic events in
+The debug replan invokes the same producers and layout planner on the output. With
+`indent-width` unset, the plan checks a consistent width over its own target columns,
+refusing each document that breaks it until none does.
+Debug candidate verification compares expected events and semantic events in
 the same parse. Refusal reporting stores the emit plan's refusals, kept dashes and
-width violations, mapped to output lines, as epoch-bound evidence.
-BOM dry inputs retain the
+width violations, mapped to output lines, as epoch-bound evidence, and whether a block
+scalar header could make the output ambiguous; only then do notices parse the output.
+BOM inputs retain the
 cached normalizer, whose marker columns distinguish prefix BOMs from scalar content.
 Physical lines borrow slices from the byte-start table; scalar protection ranges are
 cached per text epoch. Space replacements emit counts.
@@ -234,21 +238,17 @@ cached per text epoch. Space replacements emit counts.
 Serial formatter epochs observe settled scanner tokens during strict parsing and
 seed compact lexical tapes. Formatter epochs of at least 1 MiB retain overlapping
 parsing and lexical prefetch when CPU availability and the current Rayon
-pool permit multiple workers. Candidate tapes are accepted only after verification;
-each tape is released after emission or dry planning. Initial parse counts are
-seeded when formatter recording starts, so input parsing stays unrecorded.
+pool permit multiple workers. Each tape is released after emission. Initial parse
+counts are seeded when formatter recording starts, so input parsing stays unrecorded.
 Counters stay on the caller so stolen tasks cannot charge another file's recording.
 Check captures lexical evidence while parsing only when enabled rules need scanner
 tokens. Input that only strict indentation rejects keeps the facts and tokens of that
 same relaxed parse for the repair path.
 
-For fallback and indentation-only callers, changed single-document output of at
-least 1 MB uses one strict streaming parse to compare significant events against the
-input tape through EOF and cache compact
-output facts for the subsequent passes. A successful comparison certifies strict validity.
-Strict parse errors retain the cached relaxed comparison and final strict-output guard.
-Small files and multi-document streams retain their existing verification paths.
-Consistency checks, per-document rollback and the bounded fixed-point loop still run.
+Re-indentation for fallback, notice and repair callers shares the layout's refusals, so
+it keeps every document's events; debug builds assert so. `fix::repair` still parses
+its result strictly and compares representations, and collection conversion verifies
+its own output.
 
 - `--check`/`--diff` attach `format::problems` to `DiffOutcome`: the formatting rules'
   checkers on the original text, kept only for rules that actually edited and lines no

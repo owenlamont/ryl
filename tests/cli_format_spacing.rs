@@ -278,13 +278,14 @@ fn refusal_notice_starts_at_the_marker_format_adds() {
 }
 
 #[test]
-fn tab_refusal_notices_follow_the_plan_not_the_output() {
+fn tab_refusals_skip_tabs_that_spacing_replaces() {
     for (config, input, expected, notices) in [
+        ("[format]\n", "-\t-1\n", "- -1\n", ""),
         (
-            "[format]\n",
-            "-\t-1\n",
-            "- -1\n",
-            "1:1 indentation not fixed: cannot re-indent this document safely\n",
+            "line-length = 12\nindent-width = 4\n[format]\nfold-long-lines = true\n",
+            "a:\r\n  ?  a\r\n  :\t[]\r\n",
+            "a:\n    ? a\n    : []\n",
+            "",
         ),
         (
             "line-length = 8\n[format]\nfold-long-lines = true\n",

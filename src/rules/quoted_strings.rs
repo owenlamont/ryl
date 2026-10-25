@@ -380,11 +380,10 @@ impl<'cfg> QuotedStringsState<'cfg> {
         let node_label = if active_key { "key" } else { "value" };
         let facts = scalar_quote_facts(
             self.config,
-            self.buffer,
-            self.in_flow(),
+            (self.buffer, self.in_flow()),
             style,
             value,
-            span,
+            (span, colon_follows(self.buffer, span, None)),
             &mut self.plain_scalar_cache,
         );
 
@@ -593,11 +592,10 @@ fn should_skip_scalar(
 
 fn scalar_quote_facts(
     config: &Config,
-    buffer: &str,
-    in_flow: bool,
+    (buffer, in_flow): (&str, bool),
     style: ScalarStyle,
     value: &str,
-    span: Span,
+    (span, colon_follows): (Span, bool),
     plain_scalar_cache: &mut HashMap<String, Option<bool>>,
 ) -> ScalarQuoteFacts {
     ScalarQuoteFacts {
@@ -621,7 +619,7 @@ fn scalar_quote_facts(
                 && quotes_are_needed(
                     style,
                     value,
-                    in_flow,
+                    (in_flow, colon_follows),
                     buffer,
                     span,
                     plain_scalar_cache,
@@ -706,10 +704,25 @@ fn inner_quoted_content(buffer: &str, start: BytePos, end: BytePos) -> &str {
     &buffer[slice_start..slice_end]
 }
 
+/// Whether a `:` follows the scalar at `span`, directly or once the colons pass closes
+/// the spaces before it, which `spaced_colon` says it does at a byte.
+fn colon_follows(
+    buffer: &str,
+    span: Span,
+    spaced_colon: Option<&dyn Fn(usize) -> bool>,
+) -> bool {
+    span.end.byte_offset().is_some_and(|end| {
+        let rest = &buffer[end..];
+        let gap = rest.len() - rest.trim_start_matches(' ').len();
+        rest[gap..].starts_with(':')
+            && (gap == 0 || spaced_colon.is_some_and(|spaced| spaced(end + gap)))
+    })
+}
+
 fn quotes_are_needed(
     style: ScalarStyle,
     value: &str,
-    is_inside_flow: bool,
+    (is_inside_flow, colon_follows): (bool, bool),
     buffer: &str,
     span: Span,
     plain_scalar_cache: &mut HashMap<String, Option<bool>>,
@@ -717,11 +730,7 @@ fn quotes_are_needed(
     if value.contains('\u{feff}')
         || (span.start.col() == 0
             && starts_with_document_marker(value)
-            && (value.len() != 3
-                || !span
-                    .end
-                    .byte_offset()
-                    .is_some_and(|end| buffer[end..].starts_with(':'))))
+            && (value.len() != 3 || !colon_follows))
     {
         return true;
     }
@@ -1259,11 +1268,10 @@ impl<'cfg> FixState<'cfg> {
     ) -> Option<Replacement> {
         let mut facts = scalar_quote_facts(
             self.config,
-            self.buffer,
-            self.in_flow(),
+            (self.buffer, self.in_flow()),
             style,
             value,
-            span,
+            (span, colon_follows(self.buffer, span, self.spaced_colon)),
             &mut self.plain_scalar_cache,
         );
         let (start, end) = scalar_source_bounds(self.buffer, style, span);

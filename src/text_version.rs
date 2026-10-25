@@ -130,10 +130,6 @@ impl<'text> TextVersion<'text> {
         self.strict_valid = true;
     }
 
-    pub(crate) fn take_facts(&mut self) -> Option<ParsedFacts> {
-        self.parsed.take()
-    }
-
     pub(crate) fn release_tokens(&mut self) {
         self.tokens.take();
     }
@@ -261,65 +257,25 @@ impl<'text> Analysis<'text> {
             .map(move |(event, _)| event.borrow(self.text(), &facts.tables))
     }
 
-    pub(crate) fn verify_strict(self, output: Analysis<'_>) -> Result<bool, ScanError> {
-        self.verify_strict_events(output, self.event_values())
-    }
-
-    pub(crate) fn verify_strict_events(
-        self,
-        output: Analysis<'_>,
-        expected: impl Iterator<Item = Event<'text>>,
-    ) -> Result<bool, ScanError> {
-        self.verify_events::<false>(output, expected, false)
-    }
-
     pub(crate) fn verify_format_events(
         self,
         output: Analysis<'_>,
         expected: impl Iterator<Item = Event<'text>>,
-    ) -> Result<bool, ScanError> {
-        self.verify_events::<false>(output, expected, true)
+    ) -> bool {
+        self.verify_events::<false>(output, expected)
     }
 
-    pub(crate) fn verify_collection_events(
-        self,
-        output: Analysis<'_>,
-    ) -> Result<bool, ScanError> {
-        self.verify_events::<true>(output, self.event_values(), true)
+    pub(crate) fn verify_collection_events(self, output: Analysis<'_>) -> bool {
+        self.verify_events::<true>(output, self.event_values())
     }
 
+    /// Whether `output` parses strictly to `expected` and to this text's values; on
+    /// success its facts and tokens are cached from that one parse.
     fn verify_events<const COLLECTIONS: bool>(
         self,
         output: Analysis<'_>,
         expected: impl Iterator<Item = Event<'text>>,
-        semantic: bool,
-    ) -> Result<bool, ScanError> {
-        if semantic && prefetch_enabled(output.text()) {
-            let text = output.text();
-            let mut tokens = None;
-            let result = rayon::in_place_scope(|scope| {
-                scope.spawn(|_| tokens = Some(lexical::scan(text)));
-                self.verify_events_serial::<COLLECTIONS>(
-                    output, expected, semantic, false,
-                )
-            });
-            crate::format::layout::stats::prefetched();
-            if result.as_ref().is_ok_and(|matches| *matches) {
-                output
-                    .seed_tokens(tokens.expect("the scanner joined before scope exit"));
-            }
-            return result;
-        }
-        self.verify_events_serial::<COLLECTIONS>(output, expected, semantic, semantic)
-    }
-
-    fn verify_events_serial<const COLLECTIONS: bool>(
-        self,
-        output: Analysis<'_>,
-        expected: impl Iterator<Item = Event<'text>>,
-        semantic: bool,
-        capture: bool,
-    ) -> Result<bool, ScanError> {
+    ) -> bool {
         crate::format::layout::stats::count(
             crate::format::layout::stats::Counter::Analysis,
         );
@@ -342,42 +298,34 @@ impl<'text> Analysis<'text> {
             )
         });
         let mut comparison = crate::fix::EventComparison::default();
-        let mut semantic_matches =
-            !semantic || !crate::fix::non_ascii_marker(output.text());
-        let observe = |event, span| {
-            if semantic
-                && !matches!(
+        let mut semantic_matches = !crate::fix::non_ascii_marker(output.text());
+        let verified = events::verify_strict::<COLLECTIONS>(
+            expected,
+            output.text(),
+            |span: &Span, kind: ryl_yaml_parser::TokenKind<'_>| {
+                tokens.push(span, kind);
+            },
+            |event, span| {
+                if !matches!(
                     event,
                     Event::Comment(..) | Event::StreamStart | Event::StreamEnd
-                )
-            {
-                semantic_matches &= original
-                    .next()
-                    .is_some_and(|before| comparison.matches(&before, &event));
-            }
-            facts.push(output.text(), event, &span, &mut depth);
-        };
-        let matches = if capture {
-            events::verify_strict::<COLLECTIONS>(
-                expected,
-                output.text(),
-                |span: &Span, kind: ryl_yaml_parser::TokenKind<'_>| {
-                    tokens.push(span, kind);
-                },
-                observe,
-            )
-        } else {
-            events::verify_strict::<COLLECTIONS>(expected, output.text(), (), observe)
-        }?;
-
-        facts.valid = true;
-        facts.compact();
-        output.seed_facts(facts);
-        if capture {
+                ) {
+                    semantic_matches &= original
+                        .next()
+                        .is_some_and(|before| comparison.matches(&before, &event));
+                }
+                facts.push(output.text(), event, &span, &mut depth);
+            },
+        ) && semantic_matches
+            && original.next().is_none();
+        if verified {
+            facts.valid = true;
+            facts.compact();
+            output.seed_facts(facts);
             crate::format::layout::stats::captured();
             output.seed_tokens(tokens);
         }
-        Ok(matches && semantic_matches && (!semantic || original.next().is_none()))
+        verified
     }
 
     pub(crate) fn significant_events_match(self, other: Analysis<'_>) -> bool {

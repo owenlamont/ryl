@@ -180,6 +180,7 @@ enum Kind {
     Value,
     Property,
     Scalar { style: ScalarStyle, empty: bool },
+    Marker,
     Other,
 }
 
@@ -319,6 +320,7 @@ impl Normalizer<'_> {
                         .is_none_or(|ch| matches!(ch, ' ' | '\t') || is_break(ch)),
             },
             LexicalKind::Value => Kind::Value,
+            LexicalKind::DocumentStart | LexicalKind::DocumentEnd => Kind::Marker,
             LexicalKind::Anchor | LexicalKind::Tag => Kind::Property,
             LexicalKind::Scalar { style, empty } => {
                 if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
@@ -462,8 +464,13 @@ struct Analyzer<'a> {
     mode: Mode,
     shifts: Vec<Option<Shift>>,
     scalar_owners: Option<Vec<(usize, usize)>>,
+    block_tails: Vec<BlockTail>,
     gaps: Vec<Gap>,
 }
+
+/// The line after a block scalar whose body ends before it, with the body's shift and a
+/// lower bound on its content column.
+pub(crate) type BlockTail = (usize, isize, Option<usize>);
 
 /// The spaces after an indicator that `ryl format` closes to one, with the rule that owns
 /// them.
@@ -481,12 +488,17 @@ enum Shift {
     Token { found: isize, delta: isize },
     /// A line inside a multi-line scalar.
     Carried(isize),
+    /// A document marker's line, which no comment aligns with, since the markers pass
+    /// adds and removes them after comments settle.
+    Marker(isize),
 }
 
 impl Shift {
     const fn delta(self) -> isize {
         match self {
-            Self::Token { delta, .. } | Self::Carried(delta) => delta,
+            Self::Token { delta, .. } | Self::Carried(delta) | Self::Marker(delta) => {
+                delta
+            }
         }
     }
 }
@@ -514,6 +526,7 @@ impl<'a> Analyzer<'a> {
                 Vec::new()
             },
             scalar_owners: None,
+            block_tails: Vec::new(),
             gaps: Vec::new(),
         }
     }
@@ -631,9 +644,11 @@ impl<'a> Analyzer<'a> {
         let found = to_isize(token.column);
         if first_in_line && self.mode == Mode::Target {
             let expected = self.expected(token, found);
-            self.shifts[token.line] = Some(Shift::Token {
-                found,
-                delta: expected - found,
+            let delta = expected - found;
+            self.shifts[token.line] = Some(if token.kind == Kind::Marker {
+                Shift::Marker(delta)
+            } else {
+                Shift::Token { found, delta }
             });
         }
         if self.mode == Mode::Target {
@@ -906,7 +921,8 @@ impl<'a> Analyzer<'a> {
     /// it, or with the collection it is indented against where an indentation indicator
     /// fixes its column, and a continuation with the line it starts on.
     fn carry_scalar_lines(&mut self, token: &Token, style: ScalarStyle) {
-        let delta = if !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+        let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
+        let delta = if !block {
             let lines = self.lines.expect("target analysis has virtual lines");
             // A continuation follows its token, but one deeper than its collection stays so.
             (token.line + 1..=last_line(token))
@@ -935,6 +951,12 @@ impl<'a> Analyzer<'a> {
             self.block_parent()
                 .map_or(0, |parent| parent.indent - self.source_column(parent.start))
         };
+        if block && token.end_column == 0 {
+            // A blank-only body has no content column to bound; the refusal then treats
+            // any move right of the comment's own column as entering it.
+            let content = self.body_indents(token).next().map(|(_, indent)| indent);
+            self.block_tails.push((token.end_line, delta, content));
+        }
         for line in token.line + 1..=last_line(token) {
             self.shifts[line] = Some(Shift::Carried(delta));
         }

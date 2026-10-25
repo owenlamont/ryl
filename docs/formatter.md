@@ -46,9 +46,12 @@ Every edit `ryl format` makes is checked by property tests to be:
 - **Comment-safe.** Every comment stays beside the node it annotates.
 - **Idempotent.** Formatting formatted output changes nothing.
 
-Formatting also compares document events before and after rewriting, allowing quote
-and collection style changes; a changed value or document structure rolls back the
-whole rewrite. Root strings such as `'---'` and `'...'` retain their quotes because
+These hold by design: each rule's target reads only preserved facts and the targets of
+rules before it, so `ryl format` parses and plans each file once and writes the result
+without parsing it again. Debug builds still compare document events before and after
+rewriting and replan the output, failing on any difference, so the tests and corpus
+runs check every edit. `check --fix` replans its output until no edit remains, since
+lint rule options can contradict each other. Root strings such as `'---'` and `'...'` retain their quotes because
 the plain spellings are document markers. Marker prefixes followed by Unicode
 whitespace also keep quotes for
 [reference-parser compatibility](getting-started/migrating-from-yamllint.md#marker-like-root-strings-and-unicode-whitespace).

@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use ryl_yaml_parser::{Event, ScalarStyle};
 
 use crate::fix::{PassTracking, Passes};
+use crate::rules::support::collection_style;
 use crate::rules::support::span_utils::BytePos;
-use crate::rules::support::{collection_style, event_compare};
 use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, hyphens, indentation, new_lines, quoted_strings,
@@ -20,7 +20,7 @@ use guard::Guard;
 mod pieces;
 pub(crate) mod projection;
 pub(crate) use pieces::PlanEdit;
-use pieces::{Piece, plan_edit};
+use pieces::{Piece, Replacement, plan_edit};
 pub(crate) mod stats;
 
 #[derive(Debug, Clone, Copy)]
@@ -64,36 +64,6 @@ struct FoldBreak {
     line: usize,
     byte: usize,
     indent: usize,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Sink {
-    Emit,
-    Validate,
-}
-
-struct FormatStep {
-    output: Option<TextVersion<'static>>,
-    frozen: Vec<Option<indentation::Cause>>,
-    settled: bool,
-}
-
-impl FormatStep {
-    fn output(output: TextVersion<'static>, settled: bool) -> Self {
-        Self {
-            output: Some(output),
-            frozen: Vec::new(),
-            settled,
-        }
-    }
-
-    fn replan(frozen: Vec<Option<indentation::Cause>>) -> Self {
-        Self {
-            output: None,
-            frozen,
-            settled: false,
-        }
-    }
 }
 
 pub(crate) fn format(
@@ -280,28 +250,32 @@ fn format_document_staged(
     let staged = first.is_some() || held.is_some();
     let mut frozen = held;
     let mut current = None;
-    let mut result = Err(Fallback::Refusal);
-    for epoch in 0..crate::fix::FIX_PIPELINE_MAX_PASSES {
-        let input = current.as_mut().unwrap_or(source);
-        let active = if epoch == 0 {
-            first.unwrap_or(passes)
-        } else {
-            passes
-        };
-        let step = format_document_refused(input, active, tracking, frozen.as_deref())?;
-        if step.settled && (epoch > 0 || !staged) {
-            let output = step.output.expect("a settled layout has output");
-            result = Ok(output);
-            break;
-        }
-        if let Some(output) = step.output {
-            frozen = frozen.filter(|_| epoch > 0);
-            current = Some(output);
-        } else {
-            frozen = Some(step.frozen);
-        }
-    }
-    result
+    (0..crate::fix::FIX_PIPELINE_MAX_PASSES)
+        .find_map(|epoch| {
+            let input = current.as_mut().unwrap_or(&mut *source);
+            let active = if epoch == 0 {
+                first.unwrap_or(passes)
+            } else {
+                passes
+            };
+            let last = epoch > 0 || !staged;
+            let held = frozen.take();
+            match format_document_refused(
+                input,
+                active,
+                tracking,
+                held.as_deref(),
+                last,
+            ) {
+                Ok((output, true)) if last => Some(Ok(output)),
+                Ok((output, _)) => {
+                    current = Some(output);
+                    None
+                }
+                Err(reason) => Some(Err(reason)),
+            }
+        })
+        .unwrap_or(Err(Fallback::Refusal))
 }
 
 type Candidate = (
@@ -331,7 +305,7 @@ fn prepare_candidate(
         let candidate = (String::new(), Vec::new(), vec![empty_lines::ID], None);
         Ok((Some(candidate), Kept::default()))
     } else {
-        DocumentPlan::new(input, passes, quotes, Sink::Emit, frozen).and_then(|plan| {
+        DocumentPlan::new(input, passes, quotes, frozen).and_then(|plan| {
             probe(tracking, plan.input)?;
             let consistent = plan.dirty
                 || !passes.indentation.is_some_and(|cfg| {
@@ -355,71 +329,98 @@ fn prepare_candidate(
     }
 }
 
+/// The plan of `source` emitted, and whether it settled: a format plan always does, while
+/// a lint fix, whose rule options can contradict each other, settles once its output
+/// replans clean.
 fn format_document_refused(
     source: &mut TextVersion<'_>,
     passes: &Passes<'_>,
     tracking: &mut PassTracking<'_>,
     frozen: Option<&[Option<indentation::Cause>]>,
-) -> Result<FormatStep, Fallback> {
+    last: bool,
+) -> Result<(TextVersion<'static>, bool), Fallback> {
     let mut quotes = HashMap::new();
     let (prepared, kept) =
         prepare_candidate(source.analysis(), passes, tracking, &mut quotes, frozen)?;
     let Some((text, styles, rules, guard)) = prepared else {
-        remember(tracking, source, passes.indentation, kept);
+        remember(tracking, source, passes.indentation, kept, false);
         source.release_tokens();
         source.mark_strict_valid();
-        return Ok(FormatStep::output(
+        return Ok((
             std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
             true,
         ));
     };
+    // The reference parser reads such a line as a marker where ryl's parser does not, so no
+    // check of ours can vouch for the output.
+    if crate::fix::non_ascii_marker(&text) {
+        return Err(Fallback::Verification);
+    }
+    let unambiguous = !may_turn_ambiguous(source.analysis());
     source.release_layout();
-    let input = source.analysis();
     let mut output = TextVersion::new(text);
     stats::count(stats::Counter::Emit);
-    if let Some(frozen) = verify_layout(
-        input,
-        output.analysis(),
-        &styles,
-        passes,
-        guard.as_deref(),
-        frozen,
-    )? {
-        return Ok(FormatStep::replan(frozen));
-    }
+    debug_assert!(
+        settles(
+            source.analysis(),
+            output.analysis(),
+            (&styles, guard.as_deref()),
+            passes,
+            (last && passes.preserve_events, unambiguous),
+        ),
+        "formatted output changed a value or does not replan to itself"
+    );
     output.mark_strict_valid();
-    source.take_facts();
-    DocumentPlan::new(
-        output.analysis(),
-        passes,
-        &mut quotes,
-        Sink::Validate,
-        frozen,
-    )
-    .map(|dry| dry.dirty)
-    .and_then(|dirty| {
-        if dirty {
-            stats::count(stats::Counter::Rollback);
-            stats::count(stats::Counter::DryDirty);
-            (output.analysis().text() != source.analysis().text())
-                .then(|| {
-                    tracking.edited.extend(rules);
-                    FormatStep::output(output, false)
-                })
-                .ok_or(Fallback::DryEdits)
-        } else {
-            remember(tracking, &output, passes.indentation, kept);
-            output.release_tokens();
-            tracking.edited.extend(rules);
-            let plan = source.analysis().plan_version(output);
-            source
-                .apply(plan)
-                .expect("layout plan belongs to the input epoch");
-            Ok(FormatStep::output(
-                std::mem::replace(source, TextVersion::new(String::new())).into_owned(),
-                true,
-            ))
-        }
+    tracking.edited.extend(rules);
+    if !passes.preserve_events
+        && DocumentPlan::new(output.analysis(), passes, &mut quotes, None)
+            .is_ok_and(|replan| replan.dirty)
+    {
+        stats::count(stats::Counter::Rollback);
+        return (output.analysis().text() != source.analysis().text())
+            .then_some((output, false))
+            .ok_or(Fallback::DryEdits);
+    }
+    remember(tracking, &output, passes.indentation, kept, unambiguous);
+    output.release_tokens();
+    *source = TextVersion::new(String::new());
+    Ok((output, true))
+}
+
+/// Whether `output` keeps `input`'s values and, once `settled`, replans to itself; and
+/// whether an `unambiguous` output holds no ambiguous block scalar. Rule order guarantees
+/// these, so only debug builds check them, unrecorded.
+fn settles(
+    input: Analysis<'_>,
+    output: Analysis<'_>,
+    (styles, guard): (&[(usize, ScalarStyle)], Option<&Guard>),
+    passes: &Passes<'_>,
+    (settled, unambiguous): (bool, bool),
+) -> bool {
+    stats::unrecorded(|| {
+        verify_presentation(
+            input,
+            output,
+            styles,
+            passes.document_start.is_some(),
+            guard,
+        )
+        .is_ok()
+            && (!settled
+                || DocumentPlan::new(output, passes, &mut HashMap::new(), None)
+                    .is_ok_and(|replan| !replan.dirty))
+            && !(unambiguous && crate::fix::ambiguous(output))
+    })
+}
+
+/// Whether some block scalar's body opens with a blank line or keeps its trailing ones,
+/// the only shapes [`crate::fix::ambiguous`] can flag.
+fn may_turn_ambiguous(input: Analysis<'_>) -> bool {
+    input.headers().iter().any(|header| {
+        header.chomping == Some('+')
+            || input
+                .get_line(header.line)
+                .is_none_or(|line| line.trim().is_empty())
     })
 }
 
@@ -478,33 +479,6 @@ fn blank_stream(
         && text.bytes().all(|byte| byte == b'\n')
 }
 
-/// `Ok(None)` for a verified layout, or the documents to freeze before replanning one
-/// whose re-indentation changed them.
-fn verify_layout(
-    input: Analysis<'_>,
-    output: Analysis<'_>,
-    styles: &[(usize, ScalarStyle)],
-    passes: &Passes<'_>,
-    guard: Option<&Guard>,
-    frozen: Option<&[Option<indentation::Cause>]>,
-) -> Result<Option<Vec<Option<indentation::Cause>>>, Fallback> {
-    let document_start = passes.document_start.is_some();
-    match verify_presentation(input, output, styles, document_start, guard) {
-        Ok(()) => Ok(None),
-        Err(reason) => passes
-            .indentation
-            .and_then(|_| {
-                changed_documents(
-                    output,
-                    expected_events(input, styles, document_start, guard),
-                    frozen,
-                )
-            })
-            .map(Some)
-            .ok_or(reason),
-    }
-}
-
 fn verify_presentation(
     input: Analysis<'_>,
     output: Analysis<'_>,
@@ -513,9 +487,7 @@ fn verify_presentation(
     guard: Option<&Guard>,
 ) -> Result<(), Fallback> {
     let expected = expected_events(input, styles, document_start, guard);
-    if input
-        .verify_format_events(output, expected)
-        .unwrap_or(false)
+    if input.verify_format_events(output, expected)
         || (output.parsed().valid
             && crate::lint::strict_parse_error(output.text()).is_none()
             && crate::fix::format_events_match(input.text(), output.text()))
@@ -525,26 +497,6 @@ fn verify_presentation(
         stats::count(stats::Counter::Rollback);
         Err(Fallback::Verification)
     }
-}
-
-/// The documents a rejected layout changed, frozen alongside `frozen`, or `None` when
-/// freezing more documents cannot help.
-fn changed_documents<'a>(
-    output: Analysis<'_>,
-    expected: impl Iterator<Item = Event<'a>>,
-    frozen: Option<&[Option<indentation::Cause>]>,
-) -> Option<Vec<Option<indentation::Cause>>> {
-    let before = event_compare::documents(expected);
-    let after = event_compare::documents(output.event_values());
-    let mut rejected = frozen.map_or_else(|| vec![None; before.len()], <[_]>::to_vec);
-    let mut changed = false;
-    for (index, document) in before.iter().enumerate() {
-        if rejected[index].is_none() && after.get(index) != Some(document) {
-            rejected[index] = Some(indentation::Cause::Changed);
-            changed = true;
-        }
-    }
-    changed.then_some(rejected)
 }
 
 fn expected_events<'a>(
@@ -605,6 +557,7 @@ fn remember(
     text: &TextVersion<'_>,
     target: Option<indentation::Config>,
     (kept_dash_lines, refused, inconsistent): Kept,
+    unambiguous: bool,
 ) {
     if let (Some(slot), Some(target)) = (tracking.reindented.as_deref_mut(), target) {
         *slot = Some(crate::fix::ReindentEvidence::new(
@@ -613,6 +566,7 @@ fn remember(
             refused,
             kept_dash_lines,
             Some(inconsistent),
+            unambiguous,
         ));
     }
 }
@@ -636,6 +590,14 @@ impl Presentation {
             presentation.spacing(input, passes.colons, passes.hyphens);
             presentation.settle().map(|()| presentation)
         })
+    }
+
+    fn restyled(&self) -> Vec<usize> {
+        self.styles
+            .iter()
+            .filter(|(_, style)| *style != ScalarStyle::DoubleQuoted)
+            .map(|(start, _)| *start)
+            .collect()
     }
 
     fn lint_spacing(&mut self, input: Analysis<'_>, passes: &Passes<'_>) {
@@ -952,6 +914,9 @@ impl Presentation {
             targets.refused.clear();
         }
         merge_frozen(&mut targets.refused, frozen);
+        if passes.final_newline.is_some() && drops_final_break(input) {
+            return Err(Fallback::Verification);
+        }
         if !targets.refused.iter().any(Option::is_some) {
             return Ok((Vec::new(), Vec::new()));
         }
@@ -1041,7 +1006,9 @@ impl Presentation {
         facts::prepare_input(input, passes.line_length.is_some()).and_then(|()| {
             let mut layout = indentation::Layout::new(input, cfg);
             layout.trimmed = passes.trailing_spaces;
-            Self::new(input, passes, &mut layout, cache).and_then(|presentation| {
+            Self::new(input, passes, &mut layout, cache).and_then(|mut presentation| {
+                layout.restyled = presentation.restyled();
+                presentation.drop_split_gaps(input, &mut layout);
                 if !layout.collapse_scalars(&presentation.edits) {
                     return Err(Fallback::ScalarInteraction);
                 }
@@ -1070,6 +1037,7 @@ impl Presentation {
         let mut presentation = Self::pre_scan(input, passes, cache)?;
         let mut layout = indentation::Layout::format(input, cfg);
         layout.trimmed = passes.trailing_spaces;
+        layout.restyled = presentation.restyled();
         if !layout.collapse_scalars(&presentation.edits) {
             return Err(Fallback::ScalarInteraction);
         }
@@ -1102,9 +1070,10 @@ impl Presentation {
                     ));
                 }
                 presentation.lint_spacing(input, passes);
+                presentation.drop_split_gaps(input, &mut layout);
                 presentation.comments(input, passes, &mut layout);
                 presentation.settle().map(|()| {
-                    let mut targets = targets.finish(&layout);
+                    let mut targets = targets.finish(&layout, &presentation.edits);
                     presentation.align_trailing_comments(
                         input,
                         passes,
@@ -1114,6 +1083,30 @@ impl Presentation {
                     (layout, targets, presentation)
                 })
             })
+    }
+
+    /// Drops the gap after each dash whose mapping a split moves onto its own line, which
+    /// starts at its target column; a refused document gets the gap back.
+    fn drop_split_gaps(
+        &mut self,
+        input: Analysis<'_>,
+        layout: &mut indentation::Layout<'_>,
+    ) {
+        if !layout.shaped {
+            return;
+        }
+        let split = layout.split_starts();
+        self.edits.retain(|&(from, to, ref replacement)| {
+            let Replacement::Spaces(spaces) = *replacement else {
+                return true;
+            };
+            let kept = !input.text()[..from.get()].ends_with('-')
+                || split.binary_search(&to.get()).is_err();
+            if !kept {
+                layout.reshaped.push((from, to, spaces));
+            }
+            kept
+        });
     }
 
     fn quotes(
@@ -1191,7 +1184,6 @@ impl<'a> DocumentPlan<'a> {
         input: Analysis<'a>,
         passes: &Passes<'_>,
         quotes: &mut HashMap<String, Option<bool>>,
-        sink: Sink,
         frozen: Option<&[Option<indentation::Cause>]>,
     ) -> Result<Self, Fallback> {
         stats::count(stats::Counter::Plan);
@@ -1205,9 +1197,6 @@ impl<'a> DocumentPlan<'a> {
         let planned = if input.text().contains('\u{feff}') {
             Presentation::normalized(input, passes, quotes, &cfg)
         } else {
-            if sink == Sink::Validate {
-                stats::count(stats::Counter::DryScan);
-            }
             Presentation::stream(input, passes, quotes, &cfg)
         };
         planned.and_then(|(mut layout, mut targets, mut presentation)| {
@@ -1502,9 +1491,9 @@ impl<'a> DocumentPlan<'a> {
             .then_some(())
             .ok_or(Fallback::Overlap)
             .and_then(|()| {
-                passes
-                    .line_length
-                    .map_or(Ok(()), |cfg| self.plan_folds(cfg))
+                passes.line_length.map_or(Ok(()), |cfg| {
+                    self.plan_folds(cfg, passes.indentation.is_some())
+                })
             })
             .map(|()| {
                 if !self.folds.is_empty() {
@@ -1879,9 +1868,12 @@ impl<'a> DocumentPlan<'a> {
         position
     }
 
+    /// Folds each long scalar; one whose line keeps its source indentation continues under
+    /// its source owner rather than its target one.
     fn plan_folds(
         &mut self,
         cfg: crate::rules::line_length::Fold,
+        reindents: bool,
     ) -> Result<(), Fallback> {
         let projection = projection::Projection::new(self.input, &self.edits);
         crate::rules::line_length::fold::foldable_scalars(self.input)
@@ -1892,8 +1884,9 @@ impl<'a> DocumentPlan<'a> {
                     .byte_line_starts()
                     .partition_point(|&start| start <= scalar.content.start)
                     - 1;
-                let frozen_owner = (!self.targets.refused.is_empty()
-                    && self.layout.frozen(&self.targets.refused, line))
+                let frozen_owner = (!reindents
+                    || (!self.targets.refused.is_empty()
+                        && self.layout.frozen(&self.targets.refused, line)))
                 .then(|| scalar.owner.map_or(0, |(_, column)| column));
                 self.plan_scalar_fold(
                     scalar.content,
@@ -2099,6 +2092,46 @@ impl<'a> DocumentPlan<'a> {
             }));
         })
     }
+}
+
+/// Whether `input` ends in an unterminated whitespace-only line, no wider than its
+/// indentation indicator and not its first body line, of a keep-chomped root block
+/// scalar. ryl's parser takes a root node's indentation as 0 where the spec has -1, so it
+/// reads that line as empty and a final newline would change the value it reads.
+fn drops_final_break(input: Analysis<'_>) -> bool {
+    let Some(width) = input
+        .text()
+        .rsplit(['\n', '\r'])
+        .next()
+        .filter(|line| line.trim().is_empty())
+        .map(str::len)
+        .filter(|&width| width > 0)
+    else {
+        return false;
+    };
+    let rooted = input
+        .event_values()
+        .zip(input.event_values().skip(1))
+        .filter(|(_, event)| {
+            matches!(
+                event,
+                Event::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded, ..)
+            )
+        })
+        .last()
+        .is_some_and(|(before, _)| matches!(before, Event::DocumentStart(..)));
+    rooted
+        && input.headers().last().is_some_and(|header| {
+            let line = input.line_content(header.line - 1);
+            header.chomping == Some('+')
+                && header.line + 1 < input.line_count()
+                && line
+                    .chars()
+                    .skip(header.column)
+                    .find(|&ch| ch != '+')
+                    .and_then(|ch| ch.to_digit(10))
+                    .is_some_and(|indent| width <= indent as usize)
+        })
 }
 
 fn merge_frozen(

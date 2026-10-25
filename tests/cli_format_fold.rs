@@ -78,17 +78,16 @@ fn a_fold_only_another_pass_makes_necessary_is_still_reported() {
 }
 
 #[test]
-fn rules_already_clean_rerun_on_the_text_a_fold_produces() {
+fn a_fold_leaves_the_comment_after_its_scalar_in_place() {
     let input = "---\n- u: x\n  r: aaa bbb ccc ddd eee # c\n  # d\n";
     let (code, _, stderr, after) = ryl_on(Some(FOLD), input, &["format"]);
+    let expected = "---\n- u: x\n  r: aaa bbb ccc ddd\n    eee  # c\n  # d\n";
     assert_eq!(
         (code, after.as_str()),
-        (
-            0,
-            "---\n- u: x\n  r: aaa bbb ccc ddd\n    eee  # c\n    # d\n"
-        ),
-        "comments-indentation follows the fold's continuation: {stderr}"
+        (0, expected),
+        "a trailing comment does not make the continuation content: {stderr}"
     );
+    assert_eq!(ryl_on(Some(FOLD), expected, &["format"]).3, expected);
 }
 
 #[test]

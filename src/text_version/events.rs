@@ -1,16 +1,16 @@
 use std::borrow::Cow;
 
 use ryl_yaml_parser::{
-    Event, Parser, Placement, ScalarStyle, ScanError, Span, StructureStyle, Tag,
-    YamlVersion,
+    Event, Parser, Placement, ScalarStyle, Span, StructureStyle, Tag, YamlVersion,
 };
 
+/// Whether `output` parses strictly to `expected`, observing each event of the parse.
 pub(super) fn verify_strict<'a, 'b, const COLLECTIONS: bool>(
     expected: impl Iterator<Item = Event<'a>>,
     output: &'b str,
     lexical: impl ryl_yaml_parser::TokenObserver,
     mut observe: impl FnMut(Event<'b>, Span),
-) -> Result<bool, ScanError> {
+) -> bool {
     let significant = |event: &Event<'_>| {
         !matches!(
             event,
@@ -24,8 +24,11 @@ pub(super) fn verify_strict<'a, 'b, const COLLECTIONS: bool>(
         lexical,
     );
     let mut matches = true;
-    for item in parser {
-        let (event, span) = item?;
+    let mut failed = false;
+    for (event, span) in parser.map_while(|item| {
+        failed |= item.is_err();
+        item.ok()
+    }) {
         if significant(&event) {
             matches &= expected
                 .next()
@@ -41,7 +44,7 @@ pub(super) fn verify_strict<'a, 'b, const COLLECTIONS: bool>(
         }
         observe(event, span);
     }
-    Ok(matches && expected.next().is_none())
+    !failed && matches && expected.next().is_none()
 }
 
 #[derive(Default)]

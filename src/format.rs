@@ -175,19 +175,22 @@ pub fn refusals(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
 }
 
 fn refusals_at(content: &str, cfg: &YamlLintConfig, indent: u8) -> Vec<LintProblem> {
-    refusals_with_analysis(TextVersion::new(content).analysis(), cfg, indent)
+    refusals_with_analysis(TextVersion::new(content).analysis(), cfg, indent, true)
 }
 
 fn refusals_with_analysis(
     input: Analysis<'_>,
     cfg: &YamlLintConfig,
     indent: u8,
+    ambiguous: bool,
 ) -> Vec<LintProblem> {
-    let content = input.text();
-    if let Some(line) =
-        crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
-            input,
-        )
+    if let Some(line) = ambiguous
+        .then(|| {
+            crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
+                input,
+            )
+        })
+        .flatten()
     {
         return vec![LintProblem {
             line,
@@ -199,7 +202,7 @@ fn refusals_with_analysis(
         }];
     }
     collection_style::findings(
-        content,
+        input,
         collection_style_config(cfg, indent, &[]),
         Some(&indentation_target(cfg, indent)),
     )
@@ -550,6 +553,7 @@ pub(crate) fn unfixed(
             result.refused,
             result.kept_dash_lines,
             None,
+            false,
         );
         &computed
     };
@@ -605,7 +609,12 @@ pub(crate) fn unfixed(
         .chain(kept)
         .collect();
     problems.extend(refused_spacing(input, cfg, &reindented.refused));
-    problems.extend(refusals_with_analysis(input, cfg, indent));
+    problems.extend(refusals_with_analysis(
+        input,
+        cfg,
+        indent,
+        !reindented.unambiguous,
+    ));
     problems.sort_by_key(|problem| (problem.line, problem.column));
     problems.dedup();
     problems
@@ -709,7 +718,11 @@ fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
             .collection_style
             .iter()
             .flat_map(|cfg| {
-                collection_style::findings(content, *cfg, passes.indentation.as_ref())
+                collection_style::findings(
+                    TextVersion::new(content).analysis(),
+                    *cfg,
+                    passes.indentation.as_ref(),
+                )
             })
             .filter(|finding| finding.refused.is_none())
             .map(collection_style::Finding::into_problem),
