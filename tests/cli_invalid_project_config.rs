@@ -2,7 +2,7 @@ use std::fs;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{run, ryl};
 
 #[test]

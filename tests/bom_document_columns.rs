@@ -5,7 +5,7 @@ use ryl::rules::{
 };
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{run, ryl};
 
 fn indent_config() -> indentation::Config {

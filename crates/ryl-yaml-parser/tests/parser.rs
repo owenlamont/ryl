@@ -20,6 +20,5 @@ mod regressions;
 mod reserved_directive;
 #[path = "parser/strict.rs"]
 mod strict;
-mod support;
 #[path = "parser/zvu8.rs"]
 mod zvu8;

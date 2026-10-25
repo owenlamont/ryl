@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{command_output, run, ryl};
 
 fn run_lint(config: &str, file_name: &str, body: &str) -> (i32, String) {

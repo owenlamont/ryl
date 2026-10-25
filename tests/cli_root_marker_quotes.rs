@@ -1,4 +1,4 @@
-mod common;
+use crate::common;
 
 use common::cli::ryl_on;
 

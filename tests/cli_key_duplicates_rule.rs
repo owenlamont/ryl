@@ -3,7 +3,7 @@ use std::process::Command;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{command_output, run};
 
 /// Lint `yaml` with a TOML config whose `[lint.rules.key-duplicates]` body is

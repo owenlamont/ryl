@@ -3,8 +3,7 @@ use std::path::PathBuf;
 use ryl::config::{Overrides, discover_config_with};
 use ryl::config_schema::{LEGACY_YAML_SOURCES, LegacyYamlSource};
 
-#[path = "common/mod.rs"]
-mod common;
+use crate::common;
 use common::fake_env::FakeEnv;
 
 const RULES: &str = "rules: {anchors: enable}\n";

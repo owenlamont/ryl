@@ -8,7 +8,7 @@ use ryl::migrate::{
 };
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{run, ryl};
 
 fn migrate(dir: &Path, legacy: &str) -> YamlLintConfig {

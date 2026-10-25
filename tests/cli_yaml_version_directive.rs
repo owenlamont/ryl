@@ -3,7 +3,7 @@ use std::process::Command;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{command_output, run};
 
 fn run_with_config(config: &str, content: &str, extra: &[&str]) -> (i32, String) {

@@ -2,7 +2,7 @@ use std::fs;
 use std::process::Command;
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::run;
 
 #[test]

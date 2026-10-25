@@ -142,8 +142,9 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   with all features enabled; the minimal build also catches an `lsp`-only helper left
   unused when the feature is off.
 - Whenever source files are edited, run the tests the change touches
-  (`cargo nextest run --test <suite>`). CI runs the full suite on Linux and Windows
-  plus coverage, so leave those to CI; `coverage-missing.py` reproduces its gap list.
+  (`cargo test --test integration <suite>::`). CI runs the full suite on Linux
+  and Windows plus coverage, so leave those to CI; `coverage-missing.py` reproduces
+  its gap list.
 - After lint and tests are green, review code size changes with
   `uv run scripts/source_size.py --compare-to <branch-or-ref>` (the branch point or
   `HEAD`); it reports bytes/lines plus a per-root code/doc/comment split via `tokei`. If
@@ -180,6 +181,13 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 
 ## Automated Tests
 
+- Each package's `tests/integration.rs` registers its suites as modules; the parser's
+  custom `yaml-test-suite` harness stays separate. `test_layout::every_suite_is_registered`
+  guards registration. Run all property modules with
+  `cargo nextest run --workspace -E 'test(/^property_/)'`.
+- Property suites share generators and oracles through `tests/property.rs`.
+- For a full local run, use `cargo test --workspace --tests` to run each combined
+  binary once; CI uses nextest for isolation and coverage.
 - Deterministic tests own coverage: every covered region must have a named example test.
   CI disables random property cases; saved regression seeds replay separately from coverage.
   Local property runs keep their default counts (see below for new tests).
@@ -198,8 +206,8 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   property-test generator(s) so the new/updated syntax is actually exercised. Before
   committing, run every suite at its default count, plus a **20× run of each new
   `proptest!` function only** (`PROPTEST_CASES=<20 × its cases> cargo test --release
-  --test <suite> <name> -- --exact`), under 10 minutes. Release gates run every suite at
-  its default count. See the `property-tests` dev skill.
+  --test integration <suite>::<name> -- --exact`), under 10 minutes. Release gates run
+  every suite at its default count. See the `property-tests` dev skill.
 - The full corpus runs (output parity over every corpus repo and profile, and the
   preservation/idempotence check) take hours, so they are optional tools, never a PR or
   release gate. PRs and releases rely on the test and property suites plus

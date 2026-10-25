@@ -1,7 +1,4 @@
-#[path = "property_check/harness.rs"]
-mod harness;
-#[path = "property_check/strategy.rs"]
-mod strategy;
+use crate::property::{check_harness as harness, check_strategy as strategy};
 
 use std::path::Path;
 

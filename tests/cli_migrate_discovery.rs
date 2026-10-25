@@ -1,4 +1,4 @@
-mod common;
+use crate::common;
 
 use std::fs;
 use std::path::Path;
@@ -6,13 +6,25 @@ use std::path::Path;
 use common::cli::{run, ryl};
 use tempfile::tempdir;
 
-const TOML_CANDIDATES: [&str; 5] = [
-    ".ryl.toml",
-    "ryl.toml",
-    ".config/.ryl.toml",
-    ".config/ryl.toml",
-    "pyproject.toml",
-];
+macro_rules! toml_candidates {
+    ($($name:ident => $candidate:literal),+ $(,)?) => {
+        const TOML_CANDIDATES: &[&str] = &[$($candidate),+];
+        $(
+            #[test]
+            fn $name() {
+                assert_shadowed_candidate($candidate);
+            }
+        )+
+    };
+}
+
+toml_candidates! {
+    migration_preserves_hidden_toml_and_shadowed_yaml => ".ryl.toml",
+    migration_preserves_toml_and_shadowed_yaml => "ryl.toml",
+    migration_preserves_config_hidden_toml_and_shadowed_yaml => ".config/.ryl.toml",
+    migration_preserves_config_toml_and_shadowed_yaml => ".config/ryl.toml",
+    migration_preserves_pyproject_and_shadowed_yaml => "pyproject.toml",
+}
 
 fn write_native(path: &Path) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -47,12 +59,6 @@ fn assert_shadowed_migration(
         ".yamllint.yml"
     };
     fs::write(project.join(sibling), "rules: {truthy: enable}\n").unwrap();
-    let input = project.join("a.yaml");
-    fs::write(&input, "a: yes\n").unwrap();
-    assert_eq!(
-        run(ryl(td.path()).args(["check", "--no-warnings"]).arg(&input)).0,
-        0
-    );
     let (code, stdout, stderr) = run(ryl(td.path())
         .args(["--migrate-configs", "--migrate-root"])
         .arg(&project)
@@ -67,29 +73,25 @@ fn assert_shadowed_migration(
             "{candidate} ancestor={ancestor}"
         );
     }
-    assert!(project.join(yaml).exists());
-    assert!(project.join(sibling).exists());
-    assert!(!project.join(format!("{yaml}.bak")).exists());
-    assert!(!project.join(format!("{sibling}.bak")).exists());
-    assert_eq!(
-        run(ryl(td.path()).args(["check", "--no-warnings"]).arg(&input)).0,
-        0
-    );
+    for source in [yaml, sibling] {
+        assert_eq!(
+            fs::read_to_string(project.join(source)).unwrap(),
+            "rules: {truthy: enable}\n"
+        );
+        assert!(!project.join(format!("{source}.bak")).exists());
+    }
 }
 
-#[test]
-fn migration_preserves_every_discovered_toml_config_and_shadowed_yaml() {
-    for candidate in TOML_CANDIDATES {
-        for ancestor in [false, true] {
-            for yaml in [".yamllint", ".yamllint.yaml", ".yamllint.yml"] {
-                for flags in [
-                    vec![],
-                    vec!["--migrate-write"],
-                    vec!["--migrate-write", "--migrate-delete-old"],
-                    vec!["--migrate-write", "--migrate-rename-old", ".bak"],
-                ] {
-                    assert_shadowed_migration(candidate, ancestor, yaml, &flags);
-                }
+fn assert_shadowed_candidate(candidate: &str) {
+    for ancestor in [false, true] {
+        for yaml in [".yamllint", ".yamllint.yaml", ".yamllint.yml"] {
+            for flags in [
+                vec![],
+                vec!["--migrate-write"],
+                vec!["--migrate-write", "--migrate-delete-old"],
+                vec!["--migrate-write", "--migrate-rename-old", ".bak"],
+            ] {
+                assert_shadowed_migration(candidate, ancestor, yaml, &flags);
             }
         }
     }

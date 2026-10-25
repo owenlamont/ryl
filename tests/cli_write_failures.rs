@@ -3,7 +3,7 @@ use std::path::Path;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{run, ryl};
 
 fn make_read_only(path: &Path) -> Option<Permissions> {

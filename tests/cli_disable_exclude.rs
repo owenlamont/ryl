@@ -2,7 +2,7 @@ use std::fs;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{output_tuple, run, ryl, ryl_on, stdin_output};
 
 const RULES: &str = "[lint.rules]\ntruthy = 'enable'\ntrailing-spaces = 'enable'\n";

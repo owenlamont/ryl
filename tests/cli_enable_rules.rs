@@ -6,7 +6,7 @@ use ryl::config::YamlLintConfig;
 use ryl::rules::ALL_RULE_IDS;
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{command_output, run, ryl};
 
 const SAMPLE: &str = "on: yes\nb: 1\na: 2   \n";

@@ -18,11 +18,7 @@
 //!   char boundary, and is monotone in the column.
 //! - renaming an anchor rewrites every same-name occurrence in its document.
 
-#[path = "property_check/harness.rs"]
-#[allow(dead_code)] // shared harness; this suite uses only a few of its helpers
-mod harness;
-#[path = "property_check/strategy.rs"]
-mod strategy;
+use crate::property::{check_harness as harness, check_strategy as strategy};
 
 use std::path::Path;
 

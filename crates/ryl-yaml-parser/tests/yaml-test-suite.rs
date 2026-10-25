@@ -53,12 +53,25 @@ fn main() -> Result<ExitCode> {
     if arguments.test_threads.is_none() {
         arguments.test_threads = Some(1);
     }
-    let tests: Vec<Vec<_>> = fs::read_dir(YAML_TEST_SUITE_SRC)?
-        .map(|entry| -> Result<_> {
-            let entry = entry?;
-            let tests = load_tests_from_file(&entry)?;
-            Ok(tests)
-        })
+    let entries =
+        fs::read_dir(YAML_TEST_SUITE_SRC)?.collect::<std::io::Result<Vec<_>>>()?;
+    // Nextest starts a process per case, so exact filters must not parse the entire catalog.
+    if arguments.exact
+        && let Some(filter) = arguments.filter.as_deref()
+    {
+        let name = filter.strip_suffix("::strict").unwrap_or(filter);
+        let fixture = name.split_once('-').map_or(name, |(fixture, _)| fixture);
+        let filename = format!("{fixture}.yaml");
+        if let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.file_name() == filename.as_str())
+        {
+            return Ok(run(&arguments, load_tests_from_file(entry)?).exit_code());
+        }
+    }
+    let tests: Vec<Vec<_>> = entries
+        .iter()
+        .map(load_tests_from_file)
         .collect::<Result<_>>()?;
     let mut tests: Vec<_> = tests.into_iter().flatten().collect();
     if tests.is_empty() {

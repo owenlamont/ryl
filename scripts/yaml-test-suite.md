@@ -7,7 +7,7 @@ Normal tests and CI need no network or submodule. Fetch the suite separately:
 git clone --branch data https://github.com/yaml/yaml-test-suite /path/to/suite
 git -C /path/to/suite checkout 6ad3d2c62885d82fc349026c136ef560838fdf3d
 cargo build --release
-YAML_TEST_SUITE=/path/to/suite cargo test --release --test yaml_test_suite -- --ignored --nocapture
+YAML_TEST_SUITE=/path/to/suite cargo test --release --test integration yaml_test_suite:: -- --ignored --nocapture
 ```
 
 The gate requires a clean checkout at the pinned commit and exactly 402 cases.

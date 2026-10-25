@@ -17,8 +17,7 @@
 //! keeping it in its own file lets the thorough run use a server-spawn-appropriate
 //! case count.
 
-#[path = "property_check/strategy.rs"]
-mod strategy;
+use crate::property::check_strategy as strategy;
 
 use std::collections::HashMap;
 use std::path::Path;

@@ -7,7 +7,7 @@ use std::path::Path;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{run, ryl, ryl_on, stdin_output};
 
 /// Dirty for ten of the fourteen formatting rules (not `new-lines`, `comments-indentation`
@@ -23,6 +23,29 @@ fn format_file(
     args: &[&str],
 ) -> (i32, String, String, String) {
     ryl_on(config, input, &[&["format"], args].concat())
+}
+
+fn assert_format_batch(config: &str, cases: &[(String, String)], commands: &[&[&str]]) {
+    let directory = tempdir().unwrap();
+    let configuration = directory.path().join("config.toml");
+    fs::write(&configuration, config).unwrap();
+    for (index, (input, _)) in cases.iter().enumerate() {
+        fs::write(directory.path().join(format!("case-{index}.yaml")), input).unwrap();
+    }
+    for command in commands {
+        let (code, _, stderr) = run(ryl(directory.path())
+            .args(*command)
+            .args(["--no-cache", "-c"])
+            .arg(&configuration)
+            .arg(directory.path()));
+        assert_eq!(code, 0, "{command:?}: {stderr}");
+        for (index, (input, expected)) in cases.iter().enumerate() {
+            let formatted =
+                fs::read_to_string(directory.path().join(format!("case-{index}.yaml")))
+                    .unwrap();
+            assert_eq!(&formatted, expected, "{command:?}: {input:?}, {config}");
+        }
+    }
 }
 
 #[test]
@@ -118,20 +141,21 @@ fn nested_explicit_scalar_disposable_terminal_indent_formats_away() {
 
 #[test]
 fn empty_block_scalar_headers_are_trimmed_and_terminated() {
-    for header in ["|", ">", "|-", ">-", "|+", ">+", "|2", ">2-", "|+2"] {
-        for (prefix, suffix) in [
-            ("a: ", ""),
-            ("- ", " \t"),
-            ("--- ", "  # note \t"),
-            ("a: !!str &s ", "  # note \t"),
-        ] {
-            for newline in ["\n", "\r\n"] {
-                for add_end in [false, true] {
-                    let config = format!(
-                        "[format]\nline-ending = '{}'\ndocument-end = '{}'\n",
-                        if newline == "\n" { "lf" } else { "cr-lf" },
-                        if add_end { "add" } else { "preserve" },
-                    );
+    for newline in ["\n", "\r\n"] {
+        for add_end in [false, true] {
+            let config = format!(
+                "[format]\nline-ending = '{}'\ndocument-end = '{}'\n",
+                if newline == "\n" { "lf" } else { "cr-lf" },
+                if add_end { "add" } else { "preserve" },
+            );
+            let mut cases = Vec::new();
+            for header in ["|", ">", "|-", ">-", "|+", ">+", "|2", ">2-", "|+2"] {
+                for (prefix, suffix) in [
+                    ("a: ", ""),
+                    ("- ", " \t"),
+                    ("--- ", "  # note \t"),
+                    ("a: !!str &s ", "  # note \t"),
+                ] {
                     let input = format!("{prefix}{header}{suffix}");
                     let expected = format!(
                         "{prefix}{header}{}{newline}{}",
@@ -142,25 +166,26 @@ fn empty_block_scalar_headers_are_trimmed_and_terminated() {
                             String::new()
                         },
                     );
-                    let (code, _, stderr, formatted) =
-                        format_file(Some(&config), &input, &[]);
-                    assert_eq!(code, 0, "{stderr}");
-                    assert_eq!(formatted, expected, "{input:?}, {config}");
-                    let (code, _, stderr, _) =
-                        format_file(Some(&config), &formatted, &["--check"]);
-                    assert_eq!(code, 0, "{stderr}");
+                    cases.push((input, expected));
                 }
             }
+            assert_format_batch(
+                &config,
+                &cases,
+                &[&["format"], &["format", "--check"]],
+            );
         }
     }
 }
 
 #[test]
 fn unterminated_empty_block_scalar_indentation_keeps_its_value() {
+    let config =
+        "[format]\nline-ending = 'auto'\n[lint.rules]\ntrailing-spaces = 'enable'\n";
+    let mut cases = Vec::new();
     for header in ["|", ">", "|-", ">-", "|+", ">+", "|4", ">4-", "|+4"] {
         for newline in ["\n", "\r\n", "\r"] {
             for width in [1, 4] {
-                let config = "[format]\nline-ending = 'auto'\n[lint.rules]\ntrailing-spaces = 'enable'\n";
                 let input = format!("a: {header}{newline}{}", " ".repeat(width));
                 let ending = if newline == "\r" { "\n" } else { newline };
                 let expected = format!(
@@ -171,18 +196,15 @@ fn unterminated_empty_block_scalar_indentation_keeps_its_value() {
                         String::new()
                     }
                 );
-                let (code, _, stderr, formatted) =
-                    format_file(Some(config), &input, &[]);
-                assert_eq!(code, 0, "{stderr}");
-                assert_eq!(formatted, expected, "{input:?}");
-                let (code, _, stderr, again) =
-                    format_file(Some(config), &formatted, &["--check"]);
-                assert_eq!((code, again.as_str()), (0, expected.as_str()), "{stderr}");
-                let (code, _, stderr, _) = ryl_on(Some(config), &formatted, &["check"]);
-                assert_eq!(code, 0, "{stderr}");
+                cases.push((input, expected));
             }
         }
     }
+    assert_format_batch(
+        config,
+        &cases,
+        &[&["format"], &["format", "--check"], &["check"]],
+    );
 }
 
 #[test]

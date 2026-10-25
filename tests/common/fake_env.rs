@@ -14,7 +14,6 @@ pub struct FakeEnv {
     case_insensitive_paths: Option<bool>,
 }
 
-#[allow(dead_code)]
 impl FakeEnv {
     pub fn new() -> Self {
         Self {

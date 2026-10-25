@@ -458,8 +458,8 @@ def _markdown_regions(stems: list[Path], work: Path) -> Path:
             "test",
             "--release",
             "--test",
-            "property_markdown_format",
-            "corpus_markdown_regions",
+            "integration",
+            "property_markdown_format::corpus_markdown_regions",
             "--",
             "--ignored",
             "--exact",
@@ -683,8 +683,8 @@ def _rust_oracle(pairs: list[tuple[str, Path]], work: Path) -> dict[str, str]:
             "test",
             "--release",
             "--test",
-            "property_format",
-            "corpus_pairs_keep_the_guarantee",
+            "integration",
+            "property_format::corpus_pairs_keep_the_guarantee",
             "--",
             "--ignored",
             "--exact",
@@ -732,7 +732,7 @@ def _property_failures(cases: int) -> list[str]:
         suite
         for suite in suites
         if subprocess.run(
-            ["cargo", "test", "--release", "--test", suite],
+            ["cargo", "test", "--release", "--test", "integration", f"{suite}::"],
             cwd=_ROOT,
             env=os.environ | {"PROPTEST_CASES": str(cases)},
             check=False,

@@ -9,36 +9,16 @@
 //! G11 exempts value-bearing scalar whitespace: the repair (including a final block marker's newline) must change the independently loaded value.
 //! G11 exempts diagnostics matching an actual formatter refusal notice in position and concern.
 
-#[path = "property_safe_fix/ast.rs"]
-mod ast;
-#[path = "property_safe_fix/config.rs"]
-#[expect(
-    dead_code,
-    reason = "shared with the safe-fix suite, which uses every item"
-)]
-mod config;
+use crate::property::{
+    ast, config, passes, properties, reference, representation, settings, strategy,
+};
 #[path = "property_format/consistency.rs"]
 mod consistency;
-#[path = "common/encoding.rs"]
-mod encoding;
+use crate::common::encoding;
 #[path = "property_format/fold.rs"]
 mod fold;
 #[path = "common/indentation_render.rs"]
 mod indentation_render;
-#[path = "property_format/passes.rs"]
-mod passes;
-#[path = "property_format/properties.rs"]
-mod properties;
-#[path = "property_format/reference.rs"]
-mod reference;
-#[path = "property_format/representation.rs"]
-mod representation;
-#[path = "property_format/settings.rs"]
-mod settings;
-#[path = "property_fix_convergence/stack.rs"]
-mod stack;
-#[path = "property_safe_fix/strategy.rs"]
-mod strategy;
 
 use std::collections::BTreeSet;
 

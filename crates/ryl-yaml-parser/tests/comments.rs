@@ -6,4 +6,3 @@ mod events;
 mod intercepts_line;
 #[path = "comments/possible.rs"]
 mod possible;
-mod support;

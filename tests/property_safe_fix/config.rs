@@ -5,10 +5,9 @@ use std::fs;
 use std::path::Path;
 use std::sync::LazyLock;
 
+use crate::common::yaml_canonical;
 use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::lint::{LintProblem, lint_str};
-#[path = "../common/yaml_canonical.rs"]
-mod yaml_canonical;
 use tempfile::TempDir;
 
 use super::representation;
