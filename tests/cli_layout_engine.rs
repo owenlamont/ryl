@@ -845,6 +845,11 @@ fn a_bom_does_not_delay_joining_a_one_column_mapping() {
 #[test]
 fn a_refused_compact_collection_keeps_its_opening_gap() {
     assert_one_pass(":  - :\n   -", "[format]\n", ":  - :\n   -\n");
+    assert_one_pass(
+        "# ryl disable rule:indentation\n-  -  k: v\n",
+        "[format]\n",
+        "# ryl disable rule:indentation\n- - k: v\n",
+    );
 }
 
 #[test]

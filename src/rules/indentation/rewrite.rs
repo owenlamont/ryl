@@ -715,7 +715,9 @@ impl<'a> Layout<'a> {
                 let first = tokens.next()?;
                 let original = first.line;
                 line.push_back(first);
-                while tokens.peek().is_some_and(|token| token.line == original) {
+                while tokens.peek().is_some_and(|token| {
+                    token.line == original || token.kind == Kind::BlockEnd
+                }) {
                     line.push_back(tokens.next().expect("peeked token exists"));
                 }
                 let mut next = facts.borrow_mut().sites.edits_through(

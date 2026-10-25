@@ -1012,7 +1012,9 @@ impl Presentation {
                     presentation.edits.push((at, at, Replacement::Spaces(1)));
                     layout.reshaped.push((at, at, 1));
                 }
-                presentation.settle()?;
+                presentation
+                    .edits
+                    .sort_by_key(|(start, end, _)| (*start, *end));
                 layout.restyled = presentation.restyled();
                 presentation.drop_split_gaps(input, &mut layout);
                 if !layout.collapse_scalars(&presentation.edits) {
