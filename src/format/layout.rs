@@ -592,6 +592,14 @@ impl Presentation {
         })
     }
 
+    fn restyled(&self) -> Vec<usize> {
+        self.styles
+            .iter()
+            .filter(|(_, style)| *style != ScalarStyle::DoubleQuoted)
+            .map(|(start, _)| *start)
+            .collect()
+    }
+
     fn lint_spacing(&mut self, input: Analysis<'_>, passes: &Passes<'_>) {
         self.spacing(
             input,
@@ -999,6 +1007,7 @@ impl Presentation {
             let mut layout = indentation::Layout::new(input, cfg);
             layout.trimmed = passes.trailing_spaces;
             Self::new(input, passes, &mut layout, cache).and_then(|mut presentation| {
+                layout.restyled = presentation.restyled();
                 presentation.drop_split_gaps(input, &mut layout);
                 if !layout.collapse_scalars(&presentation.edits) {
                     return Err(Fallback::ScalarInteraction);
@@ -1028,6 +1037,7 @@ impl Presentation {
         let mut presentation = Self::pre_scan(input, passes, cache)?;
         let mut layout = indentation::Layout::format(input, cfg);
         layout.trimmed = passes.trailing_spaces;
+        layout.restyled = presentation.restyled();
         if !layout.collapse_scalars(&presentation.edits) {
             return Err(Fallback::ScalarInteraction);
         }

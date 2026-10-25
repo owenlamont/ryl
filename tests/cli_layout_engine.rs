@@ -509,6 +509,12 @@ fn a_tab_only_line_ending_a_kept_block_scalar_keeps_its_value() {
 #[test]
 fn a_tab_that_trimming_removes_does_not_refuse_reindenting_in_one_pass() {
     assert_one_pass("-  k: |1-\n    \n \t\n", "[format]\n", "- k: |1-\n");
+    for input in [
+        "r:\n k: \"a\n   \t\n   b\"\n",
+        "r:\r\n k: \"a\r\n   \t\r\n   b\"\r\n",
+    ] {
+        assert_one_pass(input, "[format]\n", "r:\n  k: 'a\n\n    b'\n");
+    }
 }
 
 #[test]

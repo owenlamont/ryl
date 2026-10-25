@@ -70,6 +70,8 @@ pub(crate) struct Layout<'a> {
     consistent: Option<bool>,
     /// Whether `trailing-spaces` empties whitespace-only lines.
     pub(crate) trimmed: bool,
+    /// The start of each scalar the plan restyles out of double quotes.
+    pub(crate) restyled: Vec<usize>,
 }
 
 impl<'a> Layout<'a> {
@@ -328,6 +330,7 @@ impl<'a> Layout<'a> {
             reshaped: Vec::new(),
             consistent: None,
             trimmed: false,
+            restyled: Vec::new(),
         };
         layout.reindex();
         layout
@@ -921,7 +924,7 @@ impl<'a> Layout<'a> {
                         .get_or_insert_with(|| {
                             crate::rules::trailing_spaces::protected_lines(
                                 self.input,
-                                |_| false,
+                                |start| self.restyled.contains(&start),
                             )
                             .map(|(lines, _)| lines)
                             .unwrap_or_default()
