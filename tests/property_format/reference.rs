@@ -69,11 +69,17 @@ impl ReferenceParser {
         .unwrap_or_else(|error| {
             panic!("reference parser exited ({error}) before {normalized:?}")
         });
-        let line = match self.output.recv_timeout(Duration::from_secs(60)) {
+        // The corpus gate sets a longer budget: the parser takes minutes on its largest
+        // files, which property cases never approach.
+        let seconds = std::env::var("RYL_REFERENCE_TIMEOUT_S")
+            .ok()
+            .and_then(|seconds| seconds.parse().ok())
+            .unwrap_or(60);
+        let line = match self.output.recv_timeout(Duration::from_secs(seconds)) {
             Ok(line) => line,
             Err(RecvTimeoutError::Timeout) => {
                 self.stop();
-                panic!("reference parser took over 60 s on {normalized:?}");
+                panic!("reference parser took over {seconds} s on {normalized:?}");
             }
             Err(RecvTimeoutError::Disconnected) => {
                 panic!("reference parser exited on {normalized:?}")
