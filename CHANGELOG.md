@@ -5,6 +5,16 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Fixed
+
+- Re-indentation preserves a block scalar's value when the final line contains spaces
+  without a line break.
+  ([#838](https://github.com/owenlamont/ryl/issues/838))
+- `ryl format` joins a one-column mapping onto its sequence dash in one run when the
+  file contains a byte order mark.
+- Formatting preserves a compact collection's opening gap when the collection's
+  indentation cannot be changed safely.
+
 ## v0.26.1
 
 ### Added

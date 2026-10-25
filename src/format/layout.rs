@@ -1004,9 +1004,17 @@ impl Presentation {
         cfg: &indentation::Config,
     ) -> Result<(indentation::Layout<'a>, indentation::Targets, Self), Fallback> {
         facts::prepare_input(input, passes.line_length.is_some()).and_then(|()| {
-            let mut layout = indentation::Layout::new(input, cfg);
+            let mut layout = indentation::Layout::format(input, cfg);
             layout.trimmed = passes.trailing_spaces;
             Self::new(input, passes, &mut layout, cache).and_then(|mut presentation| {
+                for start in layout.joined_starts() {
+                    let at = BytePos::new(start);
+                    presentation.edits.push((at, at, Replacement::Spaces(1)));
+                    layout.reshaped.push((at, at, 1));
+                }
+                presentation
+                    .edits
+                    .sort_by_key(|(start, end, _)| (*start, *end));
                 layout.restyled = presentation.restyled();
                 presentation.drop_split_gaps(input, &mut layout);
                 if !layout.collapse_scalars(&presentation.edits) {

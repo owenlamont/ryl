@@ -820,6 +820,39 @@ fn bom_flow_key_overlap_restarts_the_ordered_driver() {
 }
 
 #[test]
+fn a_bom_does_not_delay_joining_a_one_column_mapping() {
+    for (width, expected) in [(1, "-\n k:\n"), (2, "- k:\n"), (4, "- k:\n")] {
+        for (prefix, suffix) in [("", "...\n\u{feff}\n"), ("\u{feff}", "")] {
+            for newline in ["\n", "\r\n", "\r"] {
+                let input = format!("{prefix}-\n k:\n{suffix}")
+                    .trim_end_matches('\n')
+                    .replace('\n', newline);
+                assert_one_pass(
+                    &input,
+                    &format!("indent-width = {width}\n[format]\n"),
+                    &format!("{prefix}{expected}{suffix}"),
+                );
+            }
+        }
+    }
+    assert_one_pass(
+        "\u{feff}-  k: x\n",
+        "[format]\ndash-on-own-line = true\n",
+        "\u{feff}-\n  k: x\n",
+    );
+}
+
+#[test]
+fn a_refused_compact_collection_keeps_its_opening_gap() {
+    assert_one_pass(":  - :\n   -", "[format]\n", ":  - :\n   -\n");
+    assert_one_pass(
+        "# ryl disable rule:indentation\n-  -  k: v\n",
+        "[format]\n",
+        "# ryl disable rule:indentation\n- - k: v\n",
+    );
+}
+
+#[test]
 fn bom_unsettled_root_quote_restarts_the_ordered_driver() {
     let output = format_with_skipped_rules("\u{feff}---\n\"foo\"\n", "[format]\n", &[]);
     assert_eq!(output, "\u{feff}---\nfoo\n");
