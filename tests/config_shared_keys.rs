@@ -9,7 +9,7 @@ use ryl::rules::indentation::{self, IndentSequencesSetting, SpacesSetting};
 use ryl::rules::line_length;
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{command_output, run, ryl};
 
 fn toml(text: &str) -> YamlLintConfig {

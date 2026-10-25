@@ -11,25 +11,7 @@
 //! genuinely interact; a deterministic sibling pins a stacked input that several fixers
 //! rewrite, so the property cannot pass vacuously.
 
-#[path = "property_safe_fix/ast.rs"]
-#[allow(
-    dead_code,
-    reason = "shared with the safe-fix suite, which uses every item"
-)]
-mod ast;
-#[path = "property_safe_fix/config.rs"]
-#[allow(
-    dead_code,
-    reason = "shared with the safe-fix suite, which uses every item"
-)]
-mod config;
-#[path = "property_format/representation.rs"]
-#[allow(dead_code, reason = "shared formatter oracle also checks annotations")]
-mod representation;
-#[path = "property_fix_convergence/stack.rs"]
-mod stack;
-#[path = "property_safe_fix/strategy.rs"]
-mod strategy;
+use crate::property::{ast, config, stack};
 
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;

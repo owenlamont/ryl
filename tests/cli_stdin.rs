@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{run, run_with_stdin};
 
 #[test]

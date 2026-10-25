@@ -20,21 +20,8 @@
 
 // Shared with the safe-fix suite (which uses every item); this binary reuses only
 // the generator and a few helpers, so allow the rest to be unused.
-#[path = "property_safe_fix/ast.rs"]
-#[allow(dead_code)]
-mod ast;
-#[path = "property_safe_fix/config.rs"]
-#[allow(dead_code)]
-mod config;
-#[path = "common/encoding.rs"]
-mod encoding;
-#[path = "property_format/representation.rs"]
-#[allow(dead_code, reason = "shared formatter oracle also checks annotations")]
-mod representation;
-#[path = "property_safe_fix/strategy.rs"]
-mod strategy;
-#[path = "property_markdown_fix/wrap.rs"]
-mod wrap;
+use crate::common::encoding;
+use crate::property::{config, strategy, wrap};
 
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
@@ -187,7 +174,6 @@ fn arb_encoded_preview()
 #[test]
 fn encoded_preview_generator_seed_fits_default_stack() {
     let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
-        cases: 256,
         rng_seed: proptest::test_runner::RngSeed::Fixed(8),
         failure_persistence: None,
         ..ProptestConfig::default()

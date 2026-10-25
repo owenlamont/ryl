@@ -12,10 +12,9 @@ use std::process::Command;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
+use crate::common::encoding;
 use common::cli::{run, run_with_stdin};
-#[path = "common/encoding.rs"]
-mod encoding;
 
 const TRAILING: &str = "rules: {trailing-spaces: enable}";
 

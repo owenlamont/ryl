@@ -10,7 +10,7 @@ use std::process::Command;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{command_output, run, run_with_stdin, ryl};
 
 /// An inline TOML config (carried via `-d`, so config discovery is bypassed and the tests need

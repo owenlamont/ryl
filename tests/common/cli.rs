@@ -4,7 +4,6 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 /// Bound project-config discovery at `home`.
-#[allow(dead_code, reason = "not every test binary uses every helper")]
 pub fn ryl(home: &Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ryl"));
     cmd.env("HOME", home);
@@ -12,13 +11,11 @@ pub fn ryl(home: &Path) -> Command {
 }
 
 /// Run `cmd` to completion, returning `(exit code, stdout, stderr)`.
-#[allow(dead_code, reason = "not every test binary uses every helper")]
 pub fn run(cmd: &mut Command) -> (i32, String, String) {
     let out = cmd.output().expect("process");
     output_tuple(out)
 }
 
-#[allow(dead_code, reason = "not every test binary uses every helper")]
 pub fn output_tuple(out: Output) -> (i32, String, String) {
     let code = out.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy_owned(out.stdout);
@@ -28,12 +25,10 @@ pub fn output_tuple(out: Output) -> (i32, String, String) {
 
 /// Whichever stream carried the diagnostics: `stderr` when non-empty (ryl prints
 /// diagnostics there), otherwise `stdout`.
-#[allow(dead_code, reason = "not every test binary uses every helper")]
 pub fn command_output<'a>(stdout: &'a str, stderr: &'a str) -> &'a str {
     if stderr.is_empty() { stdout } else { stderr }
 }
 
-#[allow(dead_code, reason = "not every test binary uses every helper")]
 pub fn stdin_output(
     cmd: &mut Command,
     input: &[u8],
@@ -49,7 +44,6 @@ pub fn stdin_output(
     child.wait_with_output().expect("wait")
 }
 
-#[allow(dead_code, reason = "not every test binary uses every helper")]
 pub fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) {
     output_tuple(stdin_output(cmd, input, |result| {
         if let Err(error) = result {
@@ -62,7 +56,6 @@ pub fn run_with_stdin(cmd: &mut Command, input: &[u8]) -> (i32, String, String) 
     }))
 }
 
-#[allow(dead_code, reason = "not every test binary uses every helper")]
 pub fn ryl_on(
     config: Option<&str>,
     input: &str,

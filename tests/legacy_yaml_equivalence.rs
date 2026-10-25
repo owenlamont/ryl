@@ -6,7 +6,7 @@ use std::path::Path;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{run, ryl};
 
 const CORPUS: [(&str, &str); 8] = [

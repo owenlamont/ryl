@@ -5,7 +5,7 @@ use ryl::config::{
 };
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::fake_env::FakeEnv;
 
 fn cfg_rules_empty() -> String {

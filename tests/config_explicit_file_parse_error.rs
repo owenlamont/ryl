@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-mod common;
+use crate::common;
 use common::fake_env::FakeEnv;
 
 #[test]

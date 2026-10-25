@@ -7,7 +7,7 @@ use std::process::Command;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::run;
 
 fn lint(config: &str, bytes: &[u8]) -> (i32, String) {

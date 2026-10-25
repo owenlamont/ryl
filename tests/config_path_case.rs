@@ -1,8 +1,7 @@
 use ryl::config::{ConfigContext, Overrides, SourceKind, discover_config_with};
 use ryl::lint_str;
 
-#[path = "common/mod.rs"]
-mod common;
+use crate::common;
 use common::fake_env::FakeEnv;
 
 fn inline_config(env: &FakeEnv, data: &str) -> ConfigContext {

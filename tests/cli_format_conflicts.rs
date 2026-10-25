@@ -6,7 +6,7 @@ use std::process::Command;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{run, ryl};
 
 const LADDER: &str = "[lint.rules]\nbraces = 'enable'\nbrackets = 'enable'\n\

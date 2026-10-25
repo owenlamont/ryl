@@ -18,17 +18,8 @@
 //! preservation), including effectiveness (`safe_fix_rule_diagnostics` clears on
 //! concrete inputs the fixer fully cleans).
 
-#[path = "property_safe_fix/ast.rs"]
-mod ast;
-#[path = "property_safe_fix/config.rs"]
-mod config;
-#[path = "quote_cache.rs"]
-mod quote_cache;
-#[path = "property_format/representation.rs"]
-#[allow(dead_code, reason = "shared formatter oracle also checks annotations")]
-mod representation;
-#[path = "property_safe_fix/strategy.rs"]
-mod strategy;
+use crate::property::{ast, config, strategy};
+use crate::quote_cache;
 
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;

@@ -1,8 +1,7 @@
 use std::io::Write;
 use std::process::Stdio;
 
-#[path = "common/mod.rs"]
-mod common;
+use crate::common;
 
 #[test]
 fn cli_path_case_policy_applies_to_check_fix_format_and_stdin() {

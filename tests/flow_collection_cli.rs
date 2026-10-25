@@ -13,7 +13,7 @@ struct CliSuite {
     empty_message: &'static str,
 }
 
-mod common;
+use crate::common;
 use common::cli::run;
 
 fn assert_command_output(

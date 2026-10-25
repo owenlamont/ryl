@@ -3,7 +3,7 @@ use std::process::Command;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{command_output, run};
 
 /// `tags` is a ryl-only rule, so it is configured through TOML rather than the

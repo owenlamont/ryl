@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{command_output, run};
 
 const HOOK_KEYS: &str = r#"keys = ["alias", "name", "description", "args", "env"]"#;

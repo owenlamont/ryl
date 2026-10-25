@@ -2,8 +2,7 @@ use std::path::{Path, PathBuf};
 
 use ryl::config::{Overrides, discover_config_with};
 
-#[path = "common/mod.rs"]
-mod common;
+use crate::common;
 use common::fake_env::FakeEnv;
 
 #[test]

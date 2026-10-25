@@ -1,6 +1,6 @@
 use ryl::rules::{document_end, empty_lines, new_line_at_end_of_file, trailing_spaces};
 
-mod common;
+use crate::common;
 use common::cli::ryl_on;
 
 // The YAML 1.2 reference parser keeps the same value after a final LF for these bodies.

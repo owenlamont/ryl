@@ -26,7 +26,6 @@ mod options;
 mod parser_stack;
 #[path = "property_parser/seeds.rs"]
 mod seeds;
-mod support;
 
 use proptest::collection::vec;
 use proptest::prelude::*;

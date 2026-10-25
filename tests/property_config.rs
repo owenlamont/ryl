@@ -32,8 +32,7 @@
 #[path = "property_config/strategy.rs"]
 mod strategy;
 
-#[path = "common/mod.rs"]
-mod common;
+use crate::common;
 
 use std::path::Path;
 

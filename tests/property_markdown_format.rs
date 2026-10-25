@@ -1,27 +1,6 @@
-#[path = "property_safe_fix/ast.rs"]
-#[allow(dead_code, reason = "shared generator exposes unused render helpers")]
-mod ast;
-#[path = "property_safe_fix/config.rs"]
-#[allow(dead_code, reason = "shared with the safe-fix suite")]
-mod config;
-#[path = "property_format/passes.rs"]
-#[allow(dead_code, reason = "shared with the standalone formatter suite")]
-mod passes;
-#[path = "property_format/properties.rs"]
-mod properties;
-#[path = "property_format/reference.rs"]
-mod reference;
-#[path = "property_format/representation.rs"]
-mod representation;
-#[path = "property_format/settings.rs"]
-mod settings;
-#[path = "property_fix_convergence/stack.rs"]
-#[allow(dead_code, reason = "only the decorated document is embedded")]
-mod stack;
-#[path = "property_safe_fix/strategy.rs"]
-mod strategy;
-#[path = "property_markdown_fix/wrap.rs"]
-mod wrap;
+use crate::property::{
+    config, passes, properties, reference, representation, settings, wrap,
+};
 
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;

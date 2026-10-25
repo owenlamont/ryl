@@ -11,7 +11,7 @@ use ryl::config::YamlLintConfig;
 use ryl::format::{FORMAT_RULE_IDS, format_str, refusals};
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{run, ryl};
 
 const BOTH: &str = "[format]\nsequence-style = 'block'\nmapping-style = 'block'\n";

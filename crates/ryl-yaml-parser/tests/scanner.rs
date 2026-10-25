@@ -28,7 +28,6 @@ mod printable;
 mod quoted_scalar_chunks;
 #[path = "scanner/simple_key_bookkeeping.rs"]
 mod simple_key_bookkeeping;
-mod support;
 #[path = "scanner/surrogates.rs"]
 mod surrogates;
 #[path = "scanner/tags_and_flow.rs"]

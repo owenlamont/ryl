@@ -4,7 +4,7 @@ use tempfile::tempdir;
 
 use ryl::rules::document_end::{self, Config};
 
-mod common;
+use crate::common;
 use common::cli::{run, ryl, stdin_output};
 
 #[test]

@@ -3,10 +3,9 @@ use std::process::Output;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
+use crate::common::encoding;
 use common::cli::{ryl, stdin_output};
-#[path = "common/encoding.rs"]
-mod encoding;
 use encoding::encoded;
 
 #[test]

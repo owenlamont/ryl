@@ -3,8 +3,7 @@ use std::path::{Path, PathBuf};
 use ryl::config::{Overrides, RuleLevel, discover_config_with, discover_per_file};
 use tempfile::tempdir;
 
-#[path = "common/mod.rs"]
-mod common;
+use crate::common;
 use common::fake_env::FakeEnv;
 
 #[test]

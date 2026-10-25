@@ -83,7 +83,7 @@ jobs:
       - name: Replay saved property seeds
         env:
           PROPTEST_CASES: '0'
-        run: cargo nextest run --workspace --test 'property_*'
+        run: cargo nextest run --workspace -E 'test(/^property_/)'
 
       - name: Run doctests
         run: cargo test --workspace --doc

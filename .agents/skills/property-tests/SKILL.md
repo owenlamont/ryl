@@ -16,9 +16,13 @@ below lists exactly what to extend and the deterministic guard to add), then
 before committing run every suite at its default count. A **newly added `proptest!`
 function** also gets one 20× run on its own; new cases from an extended generator do not
 count. Multiply that function's own case count: 5120 for a default 256-case test, 10240
-for one pinned at 512, e.g. `PROPTEST_CASES=10240 cargo test --release --test
-property_check <test_name> -- --exact` (`--exact` stops the name matching as a
-substring). Existing suites never run at 20×.
+for one pinned at 512, e.g.:
+
+```sh
+PROPTEST_CASES=10240 cargo test --release --test integration property_check::<test_name> -- --exact
+```
+
+`--exact` stops substring matching. Existing suites never run at 20×.
 Local suites use proptest's default 256
 cases unless they pin `cases` themselves; `PROPTEST_CASES` still overrides a pinned
 `cases`. Keep the whole step **under 10 minutes**. Commit only once it is green, and keep
@@ -71,7 +75,7 @@ When you add a new `FixSafety::Safe` rule:
 2. Extend the AST / renderer in that file so generated documents exercise the
    syntax the new fixer targets. Skipping this leaves the property tests green
    for the wrong reason — the fixer has nothing to do.
-3. Run `cargo test --test property_safe_fix` and resolve any failures before
+3. Run `cargo test --test integration property_safe_fix::` and resolve any failures before
    landing the rule.
 4. Add a focused CLI-level regression test in `tests/cli_fix.rs` (or the
    rule-specific file) for any production bug discovered along the way, so the
@@ -116,7 +120,7 @@ in `fix::SAFE_FIX_RULE_IDS`; `probe_covers_every_safe_fix_rule` fails until you 
 and the byte-for-byte assertion fails on a misordering that changes the output.
 Failing inputs persist to the committed
 `tests/proptest-regressions/property_fix_convergence.txt`; run with
-`cargo test --test property_fix_convergence`.
+`cargo test --test integration property_fix_convergence::`.
 
 ## Property Tests For The Formatter Guarantee
 
@@ -164,7 +168,7 @@ before it ships; widen the generator if it rewrites syntax the stacked documents
 and `representation_tells_apart_what_value_preservation_forbids` pins the oracle's
 resolution; extend both when an invariant changes. Failing inputs persist to
 `tests/proptest-regressions/property_format.txt`; run with
-`cargo test --test property_format`.
+`cargo test --test integration property_format::`.
 
 ### Corpus tools (optional)
 
@@ -231,7 +235,7 @@ When you add a new rule, extend `collect_spans` in `harness.rs` to call its
 test asserts each rule fires on its crafted input, so the property assertions
 cannot silently pass vacuously if the generator drifts. Failing inputs persist
 to the committed `tests/proptest-regressions/property_check.txt`. Run with
-`cargo test --test property_check`.
+`cargo test --test integration property_check::`.
 
 ## Property Tests For Markdown `--fix`
 
@@ -247,7 +251,7 @@ fence-crossing-front-matter cases.
 Extend this suite only when the Markdown extractor/wrapper grows new region shapes:
 add a `wrap.rs` variant and a deterministic sibling. A failure creates
 `tests/proptest-regressions/property_markdown_fix.txt`; commit the seed and run
-`cargo test --test property_markdown_fix`.
+`cargo test --test integration property_markdown_fix::`.
 
 ## Property Tests For Markdown Formatting
 
@@ -259,7 +263,7 @@ must preserve its core and YAML 1.1 representation, comments and anchor names, w
 host bytes stay identical and formatting is idempotent. Deterministic dirty-region and
 oracle-mutation tests prevent vacuous passes. A failure creates
 `tests/proptest-regressions/property_markdown_format.txt`; commit the seed and run
-`cargo test --test property_markdown_format`.
+`cargo test --test integration property_markdown_format::`.
 
 ## Property Tests For Config Parsing
 

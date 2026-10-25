@@ -197,8 +197,7 @@ fn render(map: &Map) -> String {
     lines.join("\n") + "\n"
 }
 
-#[path = "common/yaml_canonical.rs"]
-mod yaml_canonical;
+use crate::common::yaml_canonical;
 use yaml_canonical::parse_for_compare;
 
 fn indent(line: &str) -> usize {

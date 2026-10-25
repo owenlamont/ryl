@@ -3,6 +3,7 @@ members = ["crates/ryl-yaml-parser"]
 
 [package]
 name = "ryl"
+autotests = false
 version = "0.26.1"
 edition = "2024"
 rust-version = "1.99.0"
@@ -40,6 +41,14 @@ codegen-units = 1
 [[bin]]
 name = "ryl"
 path = "src/main.rs"
+test = false
+
+[lib]
+test = false
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
 
 [features]
 default = ["lsp"]

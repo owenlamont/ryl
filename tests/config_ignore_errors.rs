@@ -6,8 +6,7 @@ use std::{
 use ryl::config::{Overrides, discover_config, discover_config_with};
 use tempfile::tempdir;
 
-#[path = "common/mod.rs"]
-mod common;
+use crate::common;
 use common::fake_env::FakeEnv;
 
 #[test]

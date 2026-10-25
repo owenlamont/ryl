@@ -6,7 +6,7 @@ use std::fs;
 
 use tempfile::tempdir;
 
-mod common;
+use crate::common;
 use common::cli::{run, ryl, ryl_on};
 
 const FOLD: &str = "line-length = 20\n[format]\nfold-long-lines = true\n";

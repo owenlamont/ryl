@@ -1,5 +1,6 @@
 [package]
 name = "ryl-yaml-parser"
+autotests = false
 readme = "README.md"
 authors = [
   # Provided versions up to saphyr-parser 0.0.6 inclusive
@@ -39,6 +40,13 @@ smallvec = { version = ">=1.6.1, < 2.0.0" }
 [dev-dependencies]
 libtest-mimic = "0.8.2"
 proptest = "1.11.0"
+
+[lib]
+test = false
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
 
 [[test]]
 name = "yaml-test-suite"

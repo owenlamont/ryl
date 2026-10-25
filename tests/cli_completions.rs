@@ -1,6 +1,6 @@
 use std::process::Command;
 
-mod common;
+use crate::common;
 use common::cli::run;
 
 /// `--generate-completions <SHELL>` emits a non-empty script (mentioning the

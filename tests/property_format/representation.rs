@@ -321,12 +321,12 @@ pub fn check_yaml_1_1_preserved(input: &str, output: &str) -> Result<(), String>
     Ok(())
 }
 
-pub(super) static BLOCK_HEADER: std::sync::LazyLock<regex::Regex> =
+pub(crate) static BLOCK_HEADER: std::sync::LazyLock<regex::Regex> =
     std::sync::LazyLock::new(|| {
         regex::Regex::new(r"([|>][1-9+-]{0,2})(?:[ \t]*(?:#.*)?)$").unwrap()
     });
 
-pub(super) fn scalar_tokens(output: &str) -> Vec<(ryl_yaml_parser::Span, ScalarStyle)> {
+pub(crate) fn scalar_tokens(output: &str) -> Vec<(ryl_yaml_parser::Span, ScalarStyle)> {
     Scanner::new(StrInput::new(output))
         .map_while(Result::ok)
         .filter_map(|token| match token.into_parts() {
@@ -336,7 +336,7 @@ pub(super) fn scalar_tokens(output: &str) -> Vec<(ryl_yaml_parser::Span, ScalarS
         .collect()
 }
 
-pub(super) fn first_content_line(output: &str, span: &ryl_yaml_parser::Span) -> usize {
+pub(crate) fn first_content_line(output: &str, span: &ryl_yaml_parser::Span) -> usize {
     let lines = yaml_lines(output);
     let mut first = span.start.line();
     if span.indent.is_none()
@@ -357,7 +357,7 @@ pub(super) fn first_content_line(output: &str, span: &ryl_yaml_parser::Span) -> 
     first
 }
 
-pub(super) fn yaml_lines(content: &str) -> Vec<&str> {
+pub(crate) fn yaml_lines(content: &str) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut remaining = content;
     while let Some(index) = remaining.find(['\r', '\n']) {
@@ -440,7 +440,7 @@ fn block_parent_column(prefix: &str) -> usize {
     column
 }
 
-pub(super) fn reference_terminal_block_value(
+pub(crate) fn reference_terminal_block_value(
     content: &str,
     span: &ryl_yaml_parser::Span,
     style: ScalarStyle,
