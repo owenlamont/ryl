@@ -471,6 +471,47 @@ fn a_comment_before_an_added_document_end_keeps_its_column_in_one_pass() {
 }
 
 #[test]
+fn a_comment_after_a_blank_only_block_scalar_stays_a_comment() {
+    for input in [
+        "a:\n -  b: |\n      \n    # c\n",
+        "a:\n -  b: |1\n      \n    # c\n",
+    ] {
+        let (output, statistics) = format_with_statistics(input, "[format]\n");
+        assert_eq!(output, input);
+        assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    }
+}
+
+#[test]
+fn a_zero_width_blank_body_line_does_not_freeze_its_document() {
+    assert_one_pass(
+        "a: >\n   # x\nb: >4\n\n# y\n",
+        "[format]\nmax-blank-lines = 0\n",
+        "a: >\n  # x\nb: >4\n# y\n",
+    );
+}
+
+#[test]
+fn a_tab_only_line_ending_a_kept_block_scalar_keeps_its_value() {
+    for (input, expected) in [
+        ("k: |+\n  x\n\t\n\n\n...\n", "k: |+\n  x\n\t\n\n\n...\n"),
+        (
+            "k: |+\n  x\n\t\n\n\n---\nj: |+\n  y\n\t\n\n",
+            "k: |+\n  x\n\t\n\n\n---\nj: |+\n  y\n\t\n",
+        ),
+    ] {
+        let (output, statistics) = format_with_statistics(input, "[format]\n");
+        assert_eq!(output, expected);
+        assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    }
+}
+
+#[test]
+fn a_tab_that_trimming_removes_does_not_refuse_reindenting_in_one_pass() {
+    assert_one_pass("-  k: |1-\n    \n \t\n", "[format]\n", "- k: |1-\n");
+}
+
+#[test]
 fn a_flow_key_before_a_colon_the_formatter_spaces_unquotes_in_one_pass() {
     assert_one_pass(
         "---\n{ \"foo\"\n  :bar }\n",

@@ -874,26 +874,6 @@ impl<'a> Layout<'a> {
             .unwrap_or_else(|| project(byte, column))
     }
 
-    /// The 0-based lines each scalar that trailing-spaces protects spans.
-    fn protected_scalar_lines(&self) -> Vec<std::ops::Range<usize>> {
-        self.input
-            .parsed()
-            .scalars()
-            .filter(|(style, _)| {
-                matches!(
-                    style,
-                    ryl_yaml_parser::ScalarStyle::Literal
-                        | ryl_yaml_parser::ScalarStyle::Folded
-                        | ryl_yaml_parser::ScalarStyle::DoubleQuoted
-                )
-            })
-            .map(|(_, span)| {
-                span.start.line() - 1
-                    ..span.end.line() - usize::from(span.end.col() == 0)
-            })
-            .collect()
-    }
-
     /// Each document's first [`Cause`]; [`Cause::Changed`] only where a block scalar's
     /// first trailing comment could move into its body.
     fn refusals(
@@ -938,9 +918,15 @@ impl<'a> Layout<'a> {
                     || directives
                         .is_disabled(crate::rules::trailing_spaces::ID, line + 1)
                     || protected
-                        .get_or_insert_with(|| self.protected_scalar_lines())
-                        .iter()
-                        .any(|lines: &std::ops::Range<usize>| lines.contains(&line)))
+                        .get_or_insert_with(|| {
+                            crate::rules::trailing_spaces::protected_lines(
+                                self.input,
+                                |_| false,
+                            )
+                            .map(|(lines, _)| lines)
+                            .unwrap_or_default()
+                        })
+                        .contains(&(line + 1)))
             {
                 refuse(line, Cause::Tab);
             }

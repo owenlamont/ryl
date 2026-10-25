@@ -952,17 +952,9 @@ impl<'a> Analyzer<'a> {
                 .map_or(0, |parent| parent.indent - self.source_column(parent.start))
         };
         if block && token.end_column == 0 {
-            // A valid body's content column is at least its first content line's, else at
-            // least its widest spaces-only line's.
-            let content = self
-                .body_indents(token)
-                .next()
-                .map(|(_, indent)| indent)
-                .or_else(|| {
-                    (token.line + 1..=last_line(token))
-                        .map(|line| count_spaces(self.text, self.line_starts[line]))
-                        .max()
-                });
+            // A blank-only body has no content column to bound; the refusal then treats
+            // any move right of the comment's own column as entering it.
+            let content = self.body_indents(token).next().map(|(_, indent)| indent);
             self.block_tails.push((token.end_line, delta, content));
         }
         for line in token.line + 1..=last_line(token) {
