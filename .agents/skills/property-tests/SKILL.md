@@ -5,7 +5,7 @@ description: >-
   editing any property-test suite (safe-fix / fix-convergence / formatter guarantee /
   rule-checker / markdown-fix / config), or adding a formatter pass. Covers what
   each generator must be extended with, the under-10-minute pre-commit run, the real-world
-  corpus gate, and which rules intentionally have no safe `--fix`.
+  corpus tools, and which rules intentionally have no safe `--fix`.
 ---
 
 # Property Tests
@@ -165,19 +165,19 @@ resolution; extend both when an invariant changes. Failing inputs persist to
 `tests/proptest-regressions/property_format.txt`; run with
 `cargo test --test property_format`.
 
-### Corpus gate
+### Corpus tools (optional)
 
-The full gate runs only at release time (see the `release` skill); on PRs,
-`--fixtures-only` is the routine check. Command:
+The full corpus runs take hours, so they are diagnostics, never a PR or release gate;
+`--fixtures-only` parity is the routine check. Full parity:
 `uv run --script scripts/formatter_output_parity.py <baseline-ryl> <candidate-ryl>`.
-Build both binaries before the run. The gate restores each pinned corpus file from its
+Build both binaries before the run. The script restores each pinned corpus file from its
 original bytes before both binaries, then compares output bytes, exit status, stdout
 and stderr. It covers the corpus's default/fold modes, formatter configuration profiles
 and named edge cases, including Markdown hosts. Use repeated `--repo` and `--profile`
 options to split a long run into bounded batches; `--markdown-only` runs just the pinned
 Markdown repos. A full run covers every repo and profile across the batches. Run
 `uv run scripts/formatter_corpus_check.py run` independently for preservation and
-idempotence. Any output difference a changelog entry does not explain blocks the release.
+idempotence.
 Set `RYL_CORPUS_BINARY` to pin an immutable candidate; the Rust oracle build can
 replace `target/release/ryl` during the run.
 The checker disables ryl's result cache so the second format actually checks idempotence.
@@ -195,14 +195,14 @@ before the final scalar, PyYAML's scanner marks the py-yaml12 verdict unavailabl
 the Rust oracle still judges the pair. An
 entry waives that oracle's value verdict only while the original and formatted bytes
 match its `before-sha256` and `after-sha256`, and one the run no longer hits fails the
-gate as stale. Any ryl error, panic or timeout fails it too.
+run as stale. Any ryl error, panic or timeout fails the run too.
 `uv run scripts/formatter_corpus_check.py refresh` moves every pin to the head of its
 `branch`, else the default branch (`refresh = false` holds one; `--repo` limits it;
 `--dry-run` only reports; a full run sets `tested-date`), and lists each known-error
 waiver whose file changed at the new commit, so the waiver would stop applying.
 `uv run --with pytest --with typer --with py-yaml12 --with pyyaml --with platformdirs
 pytest tests/test_formatter_corpus_check.py tests/test_formatter_output_parity.py` tests
-both gate scripts. Minimise a failing
+both corpus scripts. Minimise a failing
 file by deleting lines while it still fails, then land it as a deterministic test that
 runs `check_invariants` over every pass-table row, and widen the generator if it could
 not have produced the shape.
