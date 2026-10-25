@@ -278,7 +278,7 @@ impl<'a> Layout<'a> {
     fn with_shapes(input: Analysis<'a>, cfg: &Config, streaming: bool) -> Self {
         let mut starts = input.parsed().document_starts.clone();
         let directives = Directives::parse_with_analysis(input);
-        let source_starts = if streaming {
+        let source_starts = if streaming && !input.text().contains('\u{feff}') {
             Cow::Borrowed(input.byte_line_starts())
         } else {
             Cow::Owned(super::normalized_line_starts(input))
@@ -642,6 +642,10 @@ impl<'a> Layout<'a> {
     /// The byte each mapping a split moves onto its own line starts at.
     pub(crate) fn split_starts(&self) -> Vec<usize> {
         self.shapes().split
+    }
+
+    pub(crate) fn joined_starts(&self) -> Vec<usize> {
+        self.shapes().joined
     }
 
     fn shapes(&self) -> Shapes {
@@ -1250,6 +1254,7 @@ fn event_shape(
     let line = span.start.line() - 1;
     let at = crate::rules::support::span_utils::marker_byte_offset(span.start).get();
     let prefix = &input.text()[input.byte_line_starts()[line]..at];
+    let prefix = prefix.strip_prefix('\u{feff}').unwrap_or(prefix);
     let inline = prefix
         .trim_end_matches([' ', '\t'])
         .strip_suffix('-')
@@ -1258,6 +1263,7 @@ fn event_shape(
         line.checked_sub(1).and_then(|above| {
             input
                 .line_content(above)
+                .trim_start_matches('\u{feff}')
                 .trim_end_matches([' ', '\t'])
                 .strip_suffix('-')
                 .filter(|prefix| !prefix.contains('#'))

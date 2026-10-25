@@ -179,6 +179,8 @@ impl<'a> Sites<'a> {
                 };
             if multiline {
                 self.found[*index].fix = Fix::Reindents;
+            } else if *depth == 0 {
+                self.found[*index].fix = Fix::Safe;
             }
             *depth > 0 && !multiline
         });
@@ -189,6 +191,8 @@ impl<'a> Sites<'a> {
                 LexicalKind::BlockMappingStart | LexicalKind::BlockSequenceStart
             )
         {
+            // Streaming cannot emit the gap before the collection's extent is known.
+            self.found[index].fix = Fix::Reindents;
             self.open.push((index, line, 1));
         }
         let walk = &self.walk;

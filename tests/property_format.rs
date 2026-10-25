@@ -940,10 +940,13 @@ proptest! {
 
     #[test]
     fn reindent_places_each_line_or_leaves_its_document(
-        document in arb_document_with_properties(),
+        input in prop_oneof![
+            arb_document_with_properties().prop_map(|document| document.render()),
+            properties::arb_whitespace_block_scalar(),
+        ],
         width in 1usize..=4,
     ) {
-        check_reindent(&document.render(), width).map_err(TestCaseError::fail)?;
+        check_reindent(&input, width).map_err(TestCaseError::fail)?;
     }
 
     #[test]
@@ -1055,6 +1058,7 @@ fn check_reindent(input: &str, width: usize) -> Result<(), String> {
         ));
     }
     let (before, after) = (lines(input), lines(&out.text));
+    check_values(input, &out.text)?;
     let refused = |line: usize| out.refused.iter().any(|doc| doc.lines.contains(&line));
     if before.len() != after.len() {
         return Err(format!(
@@ -1141,6 +1145,38 @@ fn bare_dash_sequences_reindent_without_a_refusal() {
 #[test]
 fn continuation_after_closed_dash_gap_stays_deeper_than_the_dash() {
     check_reindent("a:\n  -  a\n   a\n", 3).unwrap();
+}
+
+#[test]
+fn terminal_block_scalar_spaces_move_with_the_body() {
+    for input in [
+        "a: |\n  a\n\n  ",
+        "a: >+\n  a\n\n  ",
+        "a: |+\n    a\n ",
+        "? a\n:  - |1\n  \n     ",
+        "a:\n  -  |1\n    a\n",
+        "a:\n  -  |1\n     ",
+        "a: |\n  a\n\n  \nb: x\n  ",
+    ] {
+        for pass in format_passes() {
+            check_pass(pass, input).unwrap();
+        }
+        for width in 1..=4 {
+            check_reindent(input, width).unwrap();
+            let cfg = indentation::Config::new(
+                SpacesSetting::Fixed(width),
+                IndentSequencesSetting::True,
+                false,
+            );
+            let output = indentation::reindent(input, &cfg);
+            assert!(output.refused.is_empty(), "{input:?}: {output:?}");
+            assert_eq!(
+                indentation::reindent(&output.text, &cfg).text,
+                output.text,
+                "width {width}, {input:?}"
+            );
+        }
+    }
 }
 
 #[test]

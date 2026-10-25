@@ -957,8 +957,21 @@ impl<'a> Analyzer<'a> {
             let content = self.body_indents(token).next().map(|(_, indent)| indent);
             self.block_tails.push((token.end_line, delta, content));
         }
-        for line in token.line + 1..=last_line(token) {
+        let lines = self.lines.expect("target analysis has virtual lines");
+        let last = last_line(token);
+        for line in token.line + 1..=last {
             self.shifts[line] = Some(Shift::Carried(delta));
+        }
+        if block
+            && lines.len() == last + 2
+            && let Some(tail) = lines.last()
+            && tail.ending.is_empty()
+            && tail.body.is_empty()
+            && !tail.bom
+        {
+            // Keep one space so a keep-chomped scalar retains its unterminated last line.
+            let delta = delta.max(1 - to_isize(tail.prefix));
+            self.shifts[last + 1] = Some(Shift::Carried(delta));
         }
     }
 

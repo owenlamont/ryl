@@ -302,9 +302,19 @@ pub fn arb_whitespace_block_scalar() -> impl Strategy<Value = String> {
             prop::collection::vec((0usize..=indent + 4, 0usize..=4), 1..=4),
             0usize..=4,
             prop::sample::select(vec!["\n", "\r\n", "\r"]),
+            any::<bool>(),
         )
             .prop_map(
-                move |(style, chomp, explicit, body, whitespace, trailing, ending)| {
+                move |(
+                    style,
+                    chomp,
+                    explicit,
+                    body,
+                    whitespace,
+                    trailing,
+                    ending,
+                    terminated,
+                )| {
                     let indicator = if explicit {
                         indent.to_string()
                     } else {
@@ -326,6 +336,9 @@ pub fn arb_whitespace_block_scalar() -> impl Strategy<Value = String> {
                         input.push('\n');
                     }
                     input.push_str(&"\n".repeat(trailing));
+                    if !terminated {
+                        input.pop();
+                    }
                     input.replace('\n', ending)
                 },
             )

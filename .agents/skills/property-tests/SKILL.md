@@ -145,8 +145,9 @@ TOML row for the ryl-only ladder options.
   Node process per test thread runs the `tests/yaml-reference-parser` submodule (npm-free
   through `node_shims/`, with an astral-character lookbehind fix in `reference.cjs`).
 - Whitespace-tail breadth lives in `arb_whitespace_block_scalar`, shared by YAML and
-  Markdown properties. Keep named regressions for the CRLF seed and multiple whitespace
-  content lines instead of fixture matrices.
+  Markdown properties and direct re-indentation, including tails without a final line
+  break. Keep named regressions for the CRLF seed and multiple whitespace content lines
+  instead of fixture matrices.
 - Comment fidelity keys each trimmed comment to the data events before it and whether it
   is inline; anchor and alias names must survive in order.
 - Re-indent (`reindent_places_each_line_or_leaves_its_document`) calls
