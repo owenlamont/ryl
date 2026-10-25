@@ -497,7 +497,7 @@ impl<'a> Layout<'a> {
                 [targets.gaps.partition_point(|gap| gap.line < line)..]
                 .iter()
                 .take_while(|gap| gap.line == line)
-                .filter(|gap| gap.column < column)
+                .filter(|gap| gap.column + 1 < column)
                 .map(|gap| gap.removed)
                 .sum();
             column.saturating_add_signed(targets.deltas[line]) - closed
