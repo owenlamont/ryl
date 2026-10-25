@@ -515,6 +515,9 @@ fn a_tab_that_trimming_removes_does_not_refuse_reindenting_in_one_pass() {
     ] {
         assert_one_pass(input, "[format]\n", "r:\n  k: 'a\n\n    b'\n");
     }
+    for input in ["r:\n k: \"a\n   \tb\"\n", "r:\r\n k: 'a\r\n   \tb'\r\n"] {
+        assert_one_pass(input, "[format]\n", "r:\n  k: a b\n");
+    }
 }
 
 #[test]

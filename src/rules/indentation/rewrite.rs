@@ -907,15 +907,19 @@ impl<'a> Layout<'a> {
         }
         let mut protected = None;
         for (line, content, _) in self.input.lines() {
-            // Where trailing-spaces runs, a whitespace-only line outside the scalars it
-            // protects is blank; a tab after an indicator that an edit respaces is gone.
-            let indicator = content.len() - content.trim_start_matches(' ').len();
-            let tab = self.input.byte_line_starts()[line] + indicator + 1;
-            if tab_in_indentation(content)
-                && (content[indicator..].starts_with('\t')
-                    || !edits
-                        .iter()
-                        .any(|(from, to, _)| from.get() <= tab && tab < to.get()))
+            // A tab counts only on a line the layout emits, once the edits have run. The
+            // edits do not hold trailing-spaces yet: where it runs, a whitespace-only line
+            // outside the scalars it protects is blank.
+            if !content.contains('\t')
+                || self
+                    .lines
+                    .binary_search_by_key(&line, |virtual_line| virtual_line.origin)
+                    .is_err()
+            {
+                continue;
+            }
+            let content = edited(content, self.input.byte_line_starts()[line], edits);
+            if tab_in_indentation(&content)
                 && (!content.trim_start_matches([' ', '\t']).is_empty()
                     || !self.trimmed
                     || directives
@@ -1265,6 +1269,31 @@ fn event_shape(
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     let text = reindent(buffer, cfg).text;
     (text != buffer).then_some(text)
+}
+
+/// `content`, which starts at byte `start`, with the `edits` that touch it applied; an
+/// edit that crosses the line's ends writes its whole replacement at that end.
+fn edited(
+    content: &str,
+    start: usize,
+    edits: &[crate::format::layout::PlanEdit],
+) -> String {
+    let end = start + content.len();
+    let mut text = String::new();
+    let mut at = start;
+    for (from, to, replacement) in
+        &edits[edits.partition_point(|(_, to, _)| to.get() < start)..]
+    {
+        let (from, to) = (from.get(), to.get());
+        if from > end {
+            break;
+        }
+        text.push_str(&content[at - start..from.max(at) - start]);
+        text.extend(replacement.piece().chars());
+        at = to.min(end);
+    }
+    text.push_str(&content[at - start..]);
+    text
 }
 
 fn tab_in_indentation(content: &str) -> bool {
