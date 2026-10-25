@@ -65,15 +65,8 @@ preview = true
 # rules and library-style docstring conventions that do not suit scripts.
 ".agents/skills/**/*.py" = ["D103", "D205", "DOC201", "DOC501", "E501", "S404", "S603", "S607"]
 ".agents/skills/**/test_*.py" = ["D103", "S101"]
-"scripts/benchmark_yaml_tools.py" = [
-    "B008",
-    "B904",
-    "B905",
-    "D103",
-    "E501",
-    "S404",
-    "S603",
-]
+"scripts/benchmark_yaml_tools.py" = ["B008", "D102", "D103", "DOC201", "DOC501", "S404", "S603", "S607"]
+"tests/test_benchmark_yaml_tools.py" = ["S404", "S603", "S607"]
 # Shells out to `tokei` for the comment-to-code metrics: relax the subprocess checks.
 "scripts/source_size.py" = ["S404", "S603", "S607"]
 "scripts/changelog.py" = ["S404", "S603", "S607"]

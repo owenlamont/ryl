@@ -44,42 +44,24 @@ description: >-
   - **Refresh the benchmark image** when the release changes timed code: any minor or
     major bump, or a patch that touches performance-relevant paths. Skip it for a
     docs/packaging/bugfix patch with no perf delta, leaving the committed
-    `img/benchmark-cold-5x5-5runs.svg` in place. Do this **in the version-bump PR, before
-    squash-merge** — not as a post-merge afterthought. Bump the tool pins deliberately
-    in `scripts/benchmark_tool_versions.toml`, then use the benchmark's
-    `--install-pinned-tools` option to install them with uv, pixi, and npm. The README
-    table reports these pins; it is not the source of truth. Run `cargo build --release`,
-    then run this complete pre-flight smoke test (its load override is for smoke tests
-    only):
+    `img/benchmark.svg` in place. Do this **in the version-bump PR, before
+    squash-merge**. Bump the pins in `scripts/benchmark_tool_versions.toml` (or pass
+    `--tool-versions latest`); the script installs every tool under its output
+    directory, never globally. Build with `cargo build --release`, smoke-test, then
+    take the full run while no build or other benchmark runs:
 
     ```sh
-    uv run scripts/benchmark_yaml_tools.py --ryl-bin target/release/ryl \
-      --install-pinned-tools --file-counts 1,10 --file-sizes-kib 1,9 \
-      --runs 2 --warmup 1 --warm --ignore-load
+    uv run scripts/benchmark_yaml_tools.py run --ryl-bin target/release/ryl \
+      --runs 2 --sizes-kib 1 --counts 1,10 --max-load 100
+    uv run scripts/benchmark_yaml_tools.py run --ryl-bin target/release/ryl
+    uv run scripts/benchmark_yaml_tools.py plot manual_outputs/benchmarks/<ts>
+    cp manual_outputs/benchmarks/<ts>/benchmark.svg img/benchmark.svg
     ```
 
-    Check its `summary.csv`, `warm-summary.csv`, `meta.json`, and both SVGs before
-    the full run. Then check
-    `uptime` and `nproc`. Wait in five-minute steps, up to one hour, while the
-    one-minute load exceeds half the CPU count. Once idle, run
-    `uv run scripts/benchmark_yaml_tools.py --ryl-bin target/release/ryl
-    --install-pinned-tools --warm`. The defaults reproduce the committed 5x5/5-run
-    matrix. The script checks load again after corpus validation; discard a run if
-    other builds push load over the threshold during timing. If the hour yields no
-    stable run, leave the old chart and name that limit in the PR. The README chart
-    shows the real-world dataset only. Re-plot the full run without
-    re-timing, then copy its SVG over the tracked image:
-
-    ```sh
-    uv run scripts/benchmark_yaml_tools.py --replot manual_outputs/benchmarks/<ts> --datasets real-world
-    cp manual_outputs/benchmarks/<ts>/benchmark.svg img/benchmark-cold-5x5-5runs.svg
-    cp manual_outputs/benchmarks/<ts>/benchmark-warm.svg img/benchmark-warm-5x5-5runs.svg
-    ```
-
-    The generated corpus stays in a temporary directory;
-    `manual_outputs/benchmarks/` is gitignored. Check `meta.json` for binary versions,
-    configs, corpus hash, seed, strategy, and rejection rate. Add or update the README
-    tool table from the deliberate pins; the chart itself has no version labels.
+    The full run takes about 35 minutes and retries a case whose load average passed
+    `--max-load`; `meta.json` records the load, versions, binaries, inputs, output
+    agreement and lint diagnostics. Update the README tables, agreement figures and
+    "where ryl does not win" list from `summary.csv` and `meta.json`.
   - **Review the dev skills** in `.agents/skills/` for any procedure that changed
     in this release (a moved command, renamed test, new wiring step), and update
     the affected `SKILL.md`. If any `.agents/skills/` file changed, refresh the

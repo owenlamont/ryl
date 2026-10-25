@@ -5,14 +5,30 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+## v0.26.1
+
+### Added
+
+- ryl builds on its own YAML parser, published as the `ryl-yaml-parser` crate.
+  ([#816](https://github.com/owenlamont/ryl/pull/816))
+
 ### Changed
 
+- `ryl format` is faster than yamlfmt, dprint and Prettier at every benchmarked size
+  and file count from 4 KiB, tying yamlfmt on a single 1 KiB file. ([#787](https://github.com/owenlamont/ryl/issues/787))
+- `ryl check` streams its output and writes formatted files as it goes, so memory no
+  longer grows with the number of files (218 MB to 22 MB at 20,000 files).
+  ([#831](https://github.com/owenlamont/ryl/pull/831))
 - `ryl format` parses each file once: it no longer parses its output again to compare
   values or plans it again to confirm convergence, which rule order now guarantees.
   ([#842](https://github.com/owenlamont/ryl/issues/842))
 
 ### Fixed
 
+- `ryl format` moves a blank-only block scalar body with its collection, so its value
+  no longer changes when the collection shifts, and formats such scalars with an
+  explicit indentation indicator instead of leaving the file unchanged.
+  ([#849](https://github.com/owenlamont/ryl/pull/849))
 - The `comments-indentation` rule, and the formatter, no longer read a trailing comment
   on a multi-line scalar's last line, or an empty block scalar's header line, as other
   than content, matching yamllint; a folded scalar no longer moves the comments after it

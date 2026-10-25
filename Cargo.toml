@@ -3,7 +3,7 @@ members = ["crates/ryl-yaml-parser"]
 
 [package]
 name = "ryl"
-version = "0.26.0"
+version = "0.26.1"
 edition = "2024"
 rust-version = "1.99.0"
 description = "Fast YAML linter and formatter"
@@ -41,14 +41,8 @@ codegen-units = 1
 name = "ryl"
 path = "src/main.rs"
 
-[[test]]
-name = "benchmark_corpus"
-path = "scripts/benchmark_corpus.rs"
-required-features = ["benchmark-corpus"]
-
 [features]
 default = ["lsp"]
-benchmark-corpus = []
 # The `ryl server` language server; build `--no-default-features` for a minimal
 # linter-only binary. crossbeam-channel is a direct dep because lsp-server exposes
 # its Sender/Receiver on the Connection.
