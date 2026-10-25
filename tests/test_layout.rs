@@ -10,6 +10,10 @@ fn every_suite_is_registered() {
         ("crates/ryl-yaml-parser/tests", "yaml-test-suite"),
     ] {
         let directory = root.join(directory);
+        // The packaged ryl crate omits the parser's test sources.
+        if !directory.is_dir() {
+            continue;
+        }
         let suites: BTreeSet<_> = fs::read_dir(&directory)
             .unwrap()
             .map(|entry| entry.unwrap().path())
