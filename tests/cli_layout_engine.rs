@@ -518,6 +518,20 @@ fn a_tab_that_trimming_removes_does_not_refuse_reindenting_in_one_pass() {
     for input in ["r:\n k: \"a\n   \tb\"\n", "r:\r\n k: 'a\r\n   \tb'\r\n"] {
         assert_one_pass(input, "[format]\n", "r:\n  k: a b\n");
     }
+    assert_one_pass("r:\n k: v\n \t# c\n", "[format]\n", "r:\n  k: v\n  # c\n");
+    assert_one_pass(
+        "r:\r\n \t# c\r\n k: v\r\n",
+        "[format]\n",
+        "r:\n  # c\n  k: v\n",
+    );
+    assert_one_pass("-\t\n  k: v\n", "[format]\n", "- k: v\n");
+    assert_one_pass("-\n  \tk: v\n", "[format]\n", "-\n  \tk: v\n");
+    for (input, expected) in [
+        ("-\tk: v\n", "-\n  k: v\n"),
+        ("- \tk:\n    j: v\n", "-\n  k:\n    j: v\n"),
+    ] {
+        assert_one_pass(input, "[format]\ndash-on-own-line = true\n", expected);
+    }
 }
 
 #[test]

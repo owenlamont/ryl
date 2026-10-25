@@ -906,20 +906,27 @@ impl<'a> Layout<'a> {
             }
         }
         let mut protected = None;
-        for (line, content, _) in self.input.lines() {
-            // A tab counts only on a line the layout emits, once the edits have run. The
+        let source = self.input.text().as_ptr() as usize;
+        // An empty tail is a literal outside the input.
+        let emitted = |text: &str| {
+            if text.is_empty() {
+                String::new()
+            } else {
+                edited(text, text.as_ptr() as usize - source, edits)
+            }
+        };
+        for virtual_line in &self.lines {
+            // A tab counts only as the layout emits it, once the edits have run. The
             // edits do not hold trailing-spaces yet: where it runs, a whitespace-only line
             // outside the scalars it protects is blank.
-            if !content.contains('\t')
-                || self
-                    .lines
-                    .binary_search_by_key(&line, |virtual_line| virtual_line.origin)
-                    .is_err()
-            {
+            if !virtual_line.body.contains('\t') && !virtual_line.tail.contains('\t') {
                 continue;
             }
-            let content = edited(content, self.input.byte_line_starts()[line], edits);
-            if tab_in_indentation(&content)
+            let line = virtual_line.origin;
+            // A joined mapping's tab stays indentation, as on its own line.
+            let tail = emitted(virtual_line.tail);
+            let content = emitted(virtual_line.body) + &tail;
+            if (tab_in_indentation(&content) || tab_in_indentation(&tail))
                 && (!content.trim_start_matches([' ', '\t']).is_empty()
                     || !self.trimmed
                     || directives
@@ -1243,12 +1250,15 @@ fn event_shape(
     let line = span.start.line() - 1;
     let at = crate::rules::support::span_utils::marker_byte_offset(span.start).get();
     let prefix = &input.text()[input.byte_line_starts()[line]..at];
-    let inline = prefix.trim_end_matches(' ').strip_suffix('-').map(str::len);
+    let inline = prefix
+        .trim_end_matches([' ', '\t'])
+        .strip_suffix('-')
+        .map(str::len);
     let entry = inline.map(|column| (line, column)).or_else(|| {
         line.checked_sub(1).and_then(|above| {
             input
                 .line_content(above)
-                .trim_end_matches(' ')
+                .trim_end_matches([' ', '\t'])
                 .strip_suffix('-')
                 .filter(|prefix| !prefix.contains('#'))
                 .map(|prefix| (above, prefix.len()))
