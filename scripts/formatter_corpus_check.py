@@ -694,6 +694,8 @@ def _rust_oracle(pairs: list[tuple[str, Path]], work: Path) -> dict[str, str]:
         | {
             "RYL_CORPUS_PAIRS": str(pairs_file),
             "RYL_CORPUS_VERDICTS": str(verdicts_file),
+            # The reference parser takes over 12 minutes on the 9.9 MB GitHub API spec.
+            "RYL_REFERENCE_TIMEOUT_S": "1800",
         },
         check=True,
     )
