@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 12f35bb2fc3e7a95c43f34ef2106b85c926621a80a1d387a2836cf47d3814f52 # shrinks to document = Document { words: ["café", "alpha", "alpha"], amount: 1 }, config = "indent-width = 1\nline-length = 16\n[format]\nquote-style = 'single'\nline-ending = 'lf'\nbrace-spacing = false\nindent-sequences = false\ndash-on-own-line = false\ncomment-spacing = 1\ncomment-starting-space = 'add'\ndocument-start = 'add'\ndocument-end = 'add'\nmax-blank-lines = 0\nfold-long-lines = true\nsequence-style = 'flow'\nmapping-style = 'block'\n", rule = "braces", combined = [false, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false]
+cc 85c9ac3993137748bcf00336818dfcf62051d419ccb6012428bad4ee06c5734e # shrinks to document = Document { words: ["alpha", "alpha", "alpha"], amount: 1 }, config = "indent-width = 4\nline-length = 32\n[format]\nquote-style = 'single'\nline-ending = 'lf'\nbrace-spacing = false\nindent-sequences = true\ndash-on-own-line = false\ncomment-spacing = 1\ncomment-starting-space = 'add'\ndocument-start = 'add'\ndocument-end = 'add'\nmax-blank-lines = 0\nfold-long-lines = true\nsequence-style = 'preserve'\nmapping-style = 'flow'\n", rule = "braces", combined = [false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false]

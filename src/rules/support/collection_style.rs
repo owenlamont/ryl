@@ -2,6 +2,8 @@
 //! rewritten in block style and leaf block ones in flow style, each entry's text copied
 //! as written.
 
+use std::cell::OnceCell;
+
 use ryl_yaml_parser::{Event, Parser, ScalarStyle, Span, StructureStyle};
 
 use crate::config_schema::CollectionStyleTarget;
@@ -134,6 +136,9 @@ fn plan(
     let (nodes, comments) = tree_from_events(buffer, input.event_iter());
     let restyler = Restyler {
         buffer,
+        input,
+        indentation: indent.copied(),
+        layout: OnceCell::new(),
         nodes,
         comments,
         sequences: style(cfg.sequences, brackets::ID),
@@ -334,6 +339,18 @@ fn tree_from_events<'a>(
         };
         let index = nodes.len();
         let parent = open.last().copied();
+        // An indentless sequence's event starts after its first dash.
+        let start = if kind == Kind::Sequence
+            && !flow
+            && parent.is_some_and(|parent| nodes[parent].kind == Kind::Mapping)
+        {
+            buffer[..start]
+                .trim_end_matches([' ', '\t'])
+                .strip_suffix('-')
+                .map_or(start, str::len)
+        } else {
+            start
+        };
         let position = parent.map_or(0, |parent| nodes[parent].children.len());
         if let Some(parent) = parent {
             nodes[parent].children.push(index);
@@ -345,7 +362,7 @@ fn tree_from_events<'a>(
             start,
             end,
             line: span.start.line(),
-            column: span.start.col(),
+            column: span.start.col() - (marker_byte_offset(span.start).get() - start),
             parent,
             position,
             children: Vec::new(),
@@ -371,6 +388,9 @@ fn widened_indicator(text: &str) -> bool {
 
 struct Restyler<'a> {
     buffer: &'a str,
+    input: Analysis<'a>,
+    indentation: Option<indentation::Config>,
+    layout: OnceCell<(indentation::Layout<'a>, indentation::Targets)>,
     nodes: Vec<Node>,
     comments: Vec<(usize, usize)>,
     sequences: Option<CollectionStyleTarget>,
@@ -465,6 +485,21 @@ impl Restyler<'_> {
             .map_or(0, |at| at + 1);
         let width =
             self.buffer[line_start..start].chars().count() + text.chars().count();
+        let width = self.indentation.map_or(width, |cfg| {
+            let (layout, targets) = self.layout.get_or_init(|| {
+                let mut layout = indentation::Layout::new(self.input, &cfg);
+                let mut targets = layout.targets(&cfg, &[], false);
+                layout.freeze_targets(&mut targets);
+                (layout, targets)
+            });
+            let origin = self
+                .input
+                .byte_line_starts()
+                .partition_point(|&at| at <= start)
+                - 1;
+            let line = layout.project_line(origin, start);
+            width.saturating_add_signed(targets.deltas[line])
+        });
         let owner = self.buffer[line_start..].split(['\n', '\r']).next();
         (width <= self.width && !owner.is_some_and(widened_indicator)).then_some((
             BytePos::new(start),

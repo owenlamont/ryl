@@ -170,6 +170,27 @@ resolution; extend both when an invariant changes. Failing inputs persist to
 `tests/proptest-regressions/property_format.txt`; run with
 `cargo test --test integration property_format::`.
 
+### Formatter confluence
+
+`tests/property_format_confluence.rs` checks
+`format(scramble(input)) == format(input)` on independently rendered nested fixtures.
+Each format rule has a presentation perturbation; the registry test compares the
+scramblers with `FORMAT_RULE_IDS`. Deterministic witnesses require every scrambler to
+change source bytes and converge. Random cases combine perturbations and formatter
+targets, checking reference events, resolved values, comments and anchor names first.
+The strict reference comparison rejects invalid inputs rather than treating them as
+lenient repairs.
+
+Confluence applies only to presentation the selected targets normalize. Marker targets
+add, blank lines are removed, comment spacing is normalized, and quote/line-ending
+targets are explicit. The folding perturbation splits quoted prose, which the quote
+stage collapses; existing plain-scalar line breaks are intentionally retained. Existing
+preservation and idempotence suites still exercise preserve and auto settings.
+
+When adding a format rule, add a scrambler and a deterministic witness. Run
+`cargo test --test integration property_format_confluence::`; the new property gets
+the usual 20× run.
+
 ### Corpus tools (optional)
 
 The full corpus runs take hours, so they are diagnostics, never a PR or release gate;

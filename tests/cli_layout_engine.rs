@@ -335,6 +335,15 @@ fn block_mapping_conversion_to_flow_uses_layout() {
 }
 
 #[test]
+fn a_flow_target_without_conversion_keeps_one_layout_traversal() {
+    let (output, statistics) =
+        format_with_statistics("a : b\n", "[format]\nmapping-style = 'flow'\n");
+    assert_eq!(output, "a: b\n");
+    assert_eq!(statistics["token_normalizations"], 1, "{statistics}");
+    assert_eq!(statistics["lexical_scans"], 0, "{statistics}");
+}
+
+#[test]
 fn unchanged_bom_and_endings_need_no_candidate_or_verification() {
     for input in ["café: 世\n", "\u{feff}café: 世\r\n"] {
         let (output, statistics) =
