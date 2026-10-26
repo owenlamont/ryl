@@ -1,7 +1,10 @@
 use std::borrow::Cow;
 use std::ops::RangeInclusive;
 
-use super::{Analyzer, Config, Gap, ID, Kind, Mode, Shift};
+use super::{
+    Analyzer, Config, Gap, ID, Kind, Mode, Shift,
+    input::{GapInitial, Initial},
+};
 use crate::directives::Directives;
 use crate::format::layout::{VirtualLine, lines as virtual_lines};
 use crate::rules::hyphens;
@@ -168,8 +171,7 @@ impl<'a> Layout<'a> {
             return consistent;
         }
         let mut analyzer = Analyzer::new(
-            self.input.text(),
-            &self.source_starts,
+            Initial::new(self.input.text(), &self.source_starts),
             &cfg.with_consistent_spaces(),
             Mode::Check,
         );
@@ -234,7 +236,7 @@ impl<'a> Layout<'a> {
         let refused = &targets.refused;
         targets
             .gaps
-            .retain(|gap| !self.frozen(refused, self.lines[gap.line].origin));
+            .retain(|gap| !self.frozen(refused, self.lines[gap.line()].origin));
         self.result(String::new(), &targets.refused, self.input.line_count())
             .refused
     }
@@ -387,8 +389,8 @@ impl<'a> Layout<'a> {
                         buffer,
                         &lines[line],
                         deltas[line],
-                        &gaps[gaps.partition_point(|gap| gap.line < line)
-                            ..gaps.partition_point(|gap| gap.line <= line)],
+                        &gaps[gaps.partition_point(|gap| gap.line() < line)
+                            ..gaps.partition_point(|gap| gap.line() <= line)],
                     );
                 }
             }
@@ -426,11 +428,20 @@ impl<'a> Layout<'a> {
         folding: bool,
     ) -> Targets {
         let line_starts = self.line_starts();
-        let mut analyzer =
-            Analyzer::new(self.input.text(), &line_starts, cfg, Mode::Target);
+        let mut analyzer = Analyzer::new(
+            Initial::new(self.input.text(), &line_starts).projected(&self.lines),
+            cfg,
+            Mode::Target,
+        );
         analyzer.scalar_owners = folding.then(Vec::new);
-        analyzer.lines = Some(&self.lines);
-        analyzer.run(self.projected(edits));
+        let initial = GapInitial::new(&self.lines);
+        super::walk(self.projected(edits), |token, previous, next, after| {
+            let gap = analyzer.gap_request(token, next).and_then(|request| {
+                let spaces = initial.after(request.line(), request.column());
+                request.resolve(spaces)
+            });
+            analyzer.advance(token, previous, next, after, gap);
+        });
         let deltas = settle(&self.lines, &analyzer.shifts);
         let refused = self.refusals(
             &analyzer.gaps,
@@ -499,11 +510,11 @@ impl<'a> Layout<'a> {
                 return column;
             }
             let closed: usize = targets.gaps
-                [targets.gaps.partition_point(|gap| gap.line < line)..]
+                [targets.gaps.partition_point(|gap| gap.line() < line)..]
                 .iter()
-                .take_while(|gap| gap.line == line)
-                .filter(|gap| gap.column + 1 < column)
-                .map(|gap| gap.removed)
+                .take_while(|gap| gap.line() == line)
+                .filter(|gap| gap.column() + 1 < column)
+                .map(|gap| gap.removed())
                 .sum();
             column.saturating_add_signed(targets.deltas[line]) - closed
         };
@@ -523,8 +534,7 @@ impl<'a> Layout<'a> {
     ) -> Vec<super::Violation> {
         let line_starts = self.line_starts();
         let mut check = Analyzer::new(
-            self.input.text(),
-            &line_starts,
+            Initial::new(self.input.text(), &line_starts),
             &cfg.with_consistent_spaces(),
             Mode::Check,
         );
@@ -570,18 +580,20 @@ impl<'a> Layout<'a> {
         let facts = std::cell::RefCell::new(Builder::new(input, folding));
         let mut spacing = Vec::new();
         let starts = self.line_starts();
-        let mut analyzer = Analyzer::new(input.text(), &starts, cfg, Mode::Target);
+        let mut analyzer = Analyzer::new(
+            Initial::new(input.text(), &starts).projected(&self.lines),
+            cfg,
+            Mode::Target,
+        );
         let consistent_cfg = cfg.with_consistent_spaces();
         let mut consistency =
             (edits.is_empty() && cfg.requires_consistency()).then(|| {
                 Analyzer::new(
-                    input.text(),
-                    &self.source_starts,
+                    Initial::new(input.text(), &self.source_starts),
                     &consistent_cfg,
                     Mode::Check,
                 )
             });
-        analyzer.lines = Some(&self.lines);
         analyzer.scalar_owners = folding.then(Vec::new);
         let reshaped;
         {
@@ -595,12 +607,20 @@ impl<'a> Layout<'a> {
                 &facts,
                 &mut spacing,
             );
+            let initial = GapInitial::new(&self.lines);
             super::walk(tokens, |(raw, token), previous, next, after| {
+                let gap = analyzer
+                    .gap_request(token, next.map(|pair| &pair.1))
+                    .and_then(|request| {
+                        let spaces = initial.after(request.line(), request.column());
+                        request.resolve(spaces)
+                    });
                 analyzer.advance(
                     token,
                     previous.map(|pair| &pair.1),
                     next.map(|pair| &pair.1),
                     after.map(|pair| &pair.1),
+                    gap,
                 );
                 if let Some(check) = &mut consistency {
                     check.advance(
@@ -608,6 +628,7 @@ impl<'a> Layout<'a> {
                         previous.map(|pair| &pair.0),
                         next.map(|pair| &pair.0),
                         after.map(|pair| &pair.0),
+                        None,
                     );
                 }
             });
@@ -907,8 +928,8 @@ impl<'a> Layout<'a> {
             }
         }
         for gap in gaps {
-            if directives.is_disabled(gap.rule, self.lines[gap.line].origin + 1) {
-                refuse(self.lines[gap.line].origin, Cause::Disabled);
+            if directives.is_disabled(gap.rule(), self.lines[gap.line()].origin + 1) {
+                refuse(self.lines[gap.line()].origin, Cause::Disabled);
             }
         }
         let mut protected = None;

@@ -23,6 +23,8 @@ use crate::rules::support::line_syntax::{
 use crate::rules::support::span_utils::marker_byte_offset;
 use crate::text_version::{Analysis, TextVersion};
 
+mod target;
+
 pub const ID: &str = "comments-indentation";
 pub const MESSAGE: &str = "comment not indented like content";
 
@@ -132,60 +134,28 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
 
     let lines = build_lines(input);
 
-    let prev_content_indents = compute_prev_content_indents(&lines);
-    let next_content_indents = compute_next_content_indents(&lines);
     let open_indents = if cfg.allow_any_open_indent {
         compute_open_indents(input, lines.len())
     } else {
         Vec::new()
     };
-
+    let mut planner = target::Planner::new(&lines, &open_indents);
     let mut edits = Vec::new();
-    let mut changed = false;
     let mut offset = 0;
-    let mut last_comment_indent: Option<usize> = None;
-
-    for ((line_idx, raw_line, ending), line) in input.lines().zip(lines.iter()) {
-        match line.kind {
-            LineKind::Comment => {
-                let prev_indent = prev_content_indents[line_idx].unwrap_or(0);
-                let next_indent = next_content_indents[line_idx].unwrap_or(0);
-                let reference_indent =
-                    last_comment_indent.unwrap_or_else(|| prev_indent.max(next_indent));
-                let target_indent = if comment_is_aligned(
-                    line.indent,
-                    reference_indent,
-                    next_indent,
-                    open_indents.get(line_idx).map_or(&[], Vec::as_slice),
-                ) {
-                    line.indent
-                } else {
-                    reference_indent
-                };
-                last_comment_indent = Some(target_indent);
-                let prefix =
-                    raw_line.len() - raw_line.trim_start_matches([' ', '\t']).len();
-                changed |= target_indent != line.indent;
-                if target_indent != line.indent || raw_line[..prefix].contains('\t') {
-                    edits.push((
-                        BytePos::new(offset),
-                        BytePos::new(offset + prefix),
-                        " ".repeat(target_indent),
-                    ));
-                }
-            }
-            LineKind::ScalarTrailingComment => {
-                last_comment_indent = Some(line.indent);
-            }
-            LineKind::Other | LineKind::DirectiveComment => {
-                last_comment_indent = None;
-            }
-            LineKind::Empty | LineKind::ScalarBody => {}
+    for (index, raw, ending) in input.lines() {
+        let prefix = lines[index].indent;
+        let tabs = matches!(lines[index].kind, LineKind::Comment)
+            && raw[..prefix].contains('\t');
+        if let Some(indent) = planner.line(index, tabs) {
+            edits.push((
+                BytePos::new(offset),
+                BytePos::new(offset + prefix),
+                " ".repeat(indent),
+            ));
         }
-        offset += raw_line.len() + ending.len();
+        offset += raw.len() + ending.len();
     }
-
-    if changed { edits } else { Vec::new() }
+    if planner.finish() { edits } else { Vec::new() }
 }
 
 fn comment_is_aligned(
