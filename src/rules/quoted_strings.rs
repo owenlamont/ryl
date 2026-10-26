@@ -610,14 +610,13 @@ fn scalar_initial(buffer: &str, style: ScalarStyle, span: Span) -> target::Initi
     if style == ScalarStyle::DoubleQuoted {
         let (start, end) = scalar_source_bounds(buffer, style, span);
         let content = inner_quoted_content(buffer, start, end);
-        for (at, _) in content.match_indices('\\') {
-            escapes = true;
-            let after = &content[at + 1..];
-            non_quote_escape |= !after.starts_with('"');
-            backslash_line_ending |=
-                after.starts_with('\n') || after.starts_with("\r\n");
-        }
-        multiline = content.contains(['\n', '\r']);
+        escapes = content.contains('\\');
+        non_quote_escape = content
+            .match_indices('\\')
+            .any(|(at, _)| !content[at + 1..].starts_with('"'));
+        multiline = content.contains('\n') || content.contains('\r');
+        backslash_line_ending =
+            multiline && (content.contains("\\\n") || content.contains("\\\r\n"));
     }
     target::Initial {
         style,
