@@ -5,37 +5,12 @@
 
 use std::collections::HashMap;
 
+mod spelling;
 mod target;
-pub(crate) struct Spelling(String);
-
-impl Spelling {
-    fn materialize(selected: target::Selected, retained: &str) -> Self {
-        let text = match selected.into_recipe() {
-            target::Recipe::Text(text) => text,
-            target::Recipe::SingleRetainedMultiline => {
-                quote_value(&retained.replace("\\\"", "\""), QuoteStyle::Single)
-            }
-        };
-        Self(text)
-    }
-
-    fn as_str(&self) -> &str {
-        &self.0
-    }
-    pub(crate) fn style(&self) -> ScalarStyle {
-        match self.0.as_bytes().first() {
-            Some(b'\'') => ScalarStyle::SingleQuoted,
-            Some(b'"') => ScalarStyle::DoubleQuoted,
-            _ => ScalarStyle::Plain,
-        }
-    }
-    pub(crate) fn into_text(self) -> String {
-        self.0
-    }
-}
 use crate::text_version::model::{
     Role, Scalar as ScalarModel, resolves_to_string_for_version,
 };
+pub(crate) use spelling::Spelling;
 
 use regex::Regex;
 use ryl_yaml_parser::{
