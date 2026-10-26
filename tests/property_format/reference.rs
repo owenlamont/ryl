@@ -178,13 +178,25 @@ pub fn check_values(input: &str, output: &str) -> Result<(), String> {
 /// Compares the YAML 1.2 reference parser's events for `input` and `output`; an input it
 /// rejects is a lenient repair, so only ryl's own checks apply.
 pub fn check_events(input: &str, output: &str) -> Result<(), String> {
+    compare_events(input, output, false)
+}
+
+pub fn check_strict_events(input: &str, output: &str) -> Result<(), String> {
+    compare_events(input, output, true)
+}
+
+fn compare_events(input: &str, output: &str, strict: bool) -> Result<(), String> {
     thread_local! {
         static PARSER: RefCell<ReferenceParser> = RefCell::new(ReferenceParser::new());
     }
     PARSER.with(|parser| {
         let mut parser = parser.borrow_mut();
         let Some(before) = parser.events(input) else {
-            return Ok(());
+            return if strict {
+                Err(format!("the reference parser rejects input {input:?}"))
+            } else {
+                Ok(())
+            };
         };
         match parser.events(output) {
             None => Err(format!(

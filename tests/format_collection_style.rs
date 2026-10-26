@@ -18,6 +18,30 @@ const BOTH: &str = "[format]\nsequence-style = 'block'\nmapping-style = 'block'\
 const SEQUENCES: &str = "[format]\nsequence-style = 'block'\n";
 const MAPPINGS: &str = "[format]\nmapping-style = 'block'\n";
 
+#[test]
+fn indentless_sequence_conversion_does_not_keep_its_first_dash() {
+    let cfg = config("[format]\nsequence-style = 'flow'\nindent-sequences = false\n");
+    let input = "items:\n- café\n- three\n";
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "items: [café, three]\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+}
+
+#[test]
+fn flow_conversion_measures_width_at_the_target_indent() {
+    let cfg = config(
+        "indent-width = 4\nline-length = 28\n[format]\nmapping-style = 'flow'\n",
+    );
+    for input in [
+        "records:\n  - name: alpha\n    other: ok\n",
+        "records:\n   - name: alpha\n     other: ok\n",
+    ] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, "records:\n    - name: alpha\n      other: ok\n");
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+    }
+}
+
 fn config(toml: &str) -> YamlLintConfig {
     YamlLintConfig::from_toml_str(toml).expect("collection-style config parses")
 }

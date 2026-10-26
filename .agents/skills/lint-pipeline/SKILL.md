@@ -208,6 +208,8 @@ unchanged plain and block scalars need no quote decision.
 Forced collection targets plan conversion before layout, retaining the existing
 comment, key, width and reindent refusals. A strict parse compares significant
 events with only collection style relaxed, alongside the semantic comparison.
+Block-to-flow width checks use target indentation columns, computed lazily when a
+candidate needs them and cached for the conversion stage.
 All folding profiles settle quote edits in a separately verified epoch before
 measuring fold endpoints. Conversions with comments align comments before
 conversion, defer further comment alignment until after reindentation, then run

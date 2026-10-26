@@ -179,6 +179,7 @@ mod property_diff;
 mod property_directives;
 mod property_fix_convergence;
 mod property_format;
+mod property_format_confluence;
 mod property_key_ordering_fix;
 mod property_lsp;
 mod property_lsp_protocol;

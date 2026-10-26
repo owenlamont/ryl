@@ -7,6 +7,10 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- Collection conversion handles sequences flush with their mapping key, so a spacing
+  change no longer prevents another collection in the document from being converted.
+- Flow conversion measures width at the target indentation, so changing source
+  indentation no longer changes which collections fit.
 - Re-indentation preserves a block scalar's value when the final line contains spaces
   without a line break.
   ([#838](https://github.com/owenlamont/ryl/issues/838))
