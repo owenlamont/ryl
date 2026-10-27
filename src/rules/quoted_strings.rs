@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+mod input;
 mod spelling;
 mod target;
 use crate::text_version::model::{
@@ -602,31 +603,14 @@ fn scalar_quote_facts(
     )
 }
 
-fn scalar_initial(buffer: &str, style: ScalarStyle, span: Span) -> target::Initial {
-    let mut escapes = false;
-    let mut non_quote_escape = false;
-    let mut backslash_line_ending = false;
-    let mut multiline = false;
-    if style == ScalarStyle::DoubleQuoted {
+fn scalar_initial(buffer: &str, style: ScalarStyle, span: Span) -> target::Initial<'_> {
+    let content = if style == ScalarStyle::DoubleQuoted {
         let (start, end) = scalar_source_bounds(buffer, style, span);
-        let content = inner_quoted_content(buffer, start, end);
-        escapes = content.contains('\\');
-        non_quote_escape = content
-            .match_indices('\\')
-            .any(|(at, _)| !content[at + 1..].starts_with('"'));
-        multiline = content.contains('\n') || content.contains('\r');
-        backslash_line_ending =
-            multiline && (content.contains("\\\n") || content.contains("\\\r\n"));
-    }
-    target::Initial {
-        style,
-        escapes: target::EscapeFacts {
-            any: escapes,
-            non_quote: non_quote_escape,
-            line_ending: backslash_line_ending,
-        },
-        multiline,
-    }
+        inner_quoted_content(buffer, start, end)
+    } else {
+        ""
+    };
+    target::Initial::new(style, content)
 }
 
 fn escaped_double_quote_exception(
@@ -1199,7 +1183,7 @@ impl<'cfg> FixState<'cfg> {
         }
         .plan(eligible, initial, placement, &mut self.plain_scalar_cache)
         .map(|selected| {
-            let retained = if initial.multiline {
+            let retained = if style == ScalarStyle::DoubleQuoted {
                 inner_quoted_content(self.buffer, start, end)
             } else {
                 ""

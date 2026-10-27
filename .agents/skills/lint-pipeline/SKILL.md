@@ -208,6 +208,8 @@ unchanged plain and block scalars need no quote decision.
 Keep scalar and comment selection in their `target` modules, using the semantic views
 in `text_version::model` and narrow observations. Quote eligibility precedes a selected
 spelling recipe; source copying materializes the recipe without choosing a style.
+Quote observations privately borrow that scalar's content and expose lazy predicates,
+without a text getter.
 Spacing resolves an observed `GapRequest` into a private `IndentationGap` before the
 indentation analyzer consumes it. Folding settles a scalar candidate and permits a line
 before choosing breaks. Line-ending targets resolve before emission. These decision

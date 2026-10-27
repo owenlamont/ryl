@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+pub(super) use super::input::Initial;
 use crate::rules::support::line_syntax::starts_with_document_marker;
 use crate::text_version::model::Scalar;
 use ryl_yaml_parser::ScalarStyle;
@@ -11,20 +12,6 @@ use super::{
     plain_scalar_equivalent, quote_style, quote_value,
     quoted_scalar_contains_opposite_quote, value_needs_double_quotes_for_content,
 };
-
-#[derive(Clone, Copy)]
-pub(super) struct Initial {
-    pub(super) style: ScalarStyle,
-    pub(super) escapes: EscapeFacts,
-    pub(super) multiline: bool,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct EscapeFacts {
-    pub(super) any: bool,
-    pub(super) non_quote: bool,
-    pub(super) line_ending: bool,
-}
 
 #[derive(Clone, Copy)]
 pub(super) struct Placement {
@@ -93,7 +80,7 @@ impl Planner<'_, '_> {
     pub(super) fn plan(
         &mut self,
         eligible: Eligible<'_>,
-        initial: Initial,
+        initial: Initial<'_>,
         placement: Placement,
         cache: &mut HashMap<String, Option<bool>>,
     ) -> Option<Selected> {
@@ -114,7 +101,7 @@ impl Planner<'_, '_> {
                 value,
                 model.plain_is_string(),
                 facts,
-                initial.multiline,
+                initial,
             ),
         };
         text.map(Selected)
@@ -171,7 +158,7 @@ impl Planner<'_, '_> {
         value: &str,
         resolves_to_string: bool,
         facts: ScalarQuoteFacts,
-        multiline: bool,
+        initial: Initial<'_>,
     ) -> Option<Recipe> {
         match facts.style {
             None => {
@@ -194,7 +181,7 @@ impl Planner<'_, '_> {
                     let target = ladder_target(preferred, style_kind, value, facts);
                     if target == QuoteStyle::Single
                         && style_kind == QuoteStyle::Double
-                        && multiline
+                        && initial.multiline()
                     {
                         return Some(Recipe::SingleRetainedMultiline);
                     }
@@ -275,7 +262,7 @@ fn replacement_for_target(value: &str, target: QuoteStyle) -> Option<String> {
 pub(super) fn facts(
     config: &Config,
     value: &str,
-    initial: Initial,
+    initial: Initial<'_>,
     placement: Placement,
     cache: &mut HashMap<String, Option<bool>>,
 ) -> ScalarQuoteFacts {
@@ -286,9 +273,9 @@ pub(super) fn facts(
             value,
         )),
         has_double_quote_escape: Flag::new(if config.avoid_escapes.is_some() {
-            initial.escapes.non_quote
+            initial.non_quote_escape()
         } else {
-            initial.escapes.any
+            initial.any_escape()
         }),
         extra_required: Flag::new(
             config.extra_required.iter().any(|re| re.is_match(value)),
@@ -307,7 +294,7 @@ pub(super) fn facts(
 
 fn quotes_are_needed(
     value: &str,
-    initial: Initial,
+    initial: Initial<'_>,
     placement: Placement,
     plain_scalar_cache: &mut HashMap<String, Option<bool>>,
 ) -> bool {
@@ -337,7 +324,7 @@ fn quotes_are_needed(
         if contains_non_printable(value) {
             return true;
         }
-        if initial.escapes.line_ending {
+        if initial.escaped_line_ending() {
             return true;
         }
     }
