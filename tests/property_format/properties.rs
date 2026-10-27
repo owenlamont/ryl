@@ -270,6 +270,7 @@ pub fn arb_quoted_document() -> impl Strategy<Value = String> {
             ("[", "]\n"),
             ("key: [a: ", "]\n"),
             ("items: [", ", 'one\n  two']\n"),
+            ("a: {b: ", "}\n"),
             ("", ": x\n"),
         ]),
         any::<bool>(),
@@ -305,6 +306,7 @@ pub fn arb_whitespace_block_scalar() -> impl Strategy<Value = String> {
             0usize..=4,
             prop::sample::select(vec!["\n", "\r\n", "\r"]),
             any::<bool>(),
+            any::<bool>(),
         )
             .prop_map(
                 move |(
@@ -316,15 +318,22 @@ pub fn arb_whitespace_block_scalar() -> impl Strategy<Value = String> {
                     trailing,
                     ending,
                     terminated,
+                    conversion,
                 )| {
                     let indicator = if explicit {
                         indent.to_string()
                     } else {
                         String::new()
                     };
+                    let text = if conversion {
+                        "one two three four five six seven eight nine ten"
+                    } else {
+                        "a"
+                    };
                     let mut input = format!(
-                        "a: {style}{indicator}{chomp}\n{}a\n",
-                        " ".repeat(indent)
+                        "{}a: {style}{indicator}{chomp}\n{}{text}\n",
+                        if conversion { "first: [a,b]\n" } else { "" },
+                        " ".repeat(indent),
                     );
                     for (extra, text) in body {
                         input.push_str(&format!(

@@ -1096,6 +1096,100 @@ fn converted_sibling_reconsiders_flow_width_after_splitting_a_dash() {
 }
 
 #[test]
+fn converted_sibling_folds_reindented_block_scalar_content() {
+    let input = "first: [a,b]\nother: >-\n    one two three four five six\n";
+    let cfg = config(
+        "line-length=16\n[format]\nsequence-style='block'\nfold-long-lines=true\n",
+    );
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(
+        output,
+        "first:\n  - a\n  - b\nother: >-\n  one two three\n  four five six\n"
+    );
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converted_values_preserve_folded_keys_and_empty_scalars() {
+    let input = "? >-\n  one two\n: [a,b]\nempty: >-\n";
+    let cfg = config(
+        "line-length=16\n[format]\nsequence-style='block'\nfold-long-lines=true\n",
+    );
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "? >-\n    one two\n:\n  - a\n  - b\nempty: >-\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn collapsed_quote_keeps_spacing_at_the_closing_brace() {
+    let input = "a: {b: \"one\n two\"}\n";
+    let cfg = config("[format]\nbrace-spacing=true\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "a: { b: one two }\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn reconsidered_mapping_preserves_source_geometry_until_gap_settlement() {
+    let cfg = config(MAPPINGS);
+    for gap in 1..=5 {
+        let input = format!(
+            "? a\n:{}- {{k: x}}\n{}- two\n",
+            " ".repeat(gap),
+            " ".repeat(gap + 1)
+        );
+        let output = format_str(&input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, "? a\n: - k: x\n  - two\n", "{input:?}");
+        crate::property::reference::check_strict_events(&input, &output).unwrap();
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
+        assert!(refusals(&output, &cfg).is_empty());
+    }
+}
+
+#[test]
+fn reconsidered_mapping_settles_explicit_value_and_dash_gap_combinations() {
+    for indent in 1..=3 {
+        let cfg = config(&format!("indent-width={indent}\n{MAPPINGS}"));
+        for colon in 1..=3 {
+            for dash in 1..=3 {
+                for sibling in ["", "first: {s: t}\n"] {
+                    let input = format!(
+                        "{sibling}? a\n:{}-{}{{k: x}}\n{}- two\n",
+                        " ".repeat(colon),
+                        " ".repeat(dash),
+                        " ".repeat(colon + 1)
+                    );
+                    let output = format_str(&input, &cfg, Path::new("case.yaml"), &[]);
+                    assert!(!output.contains('{'), "{input:?}: {output:?}");
+                    crate::property::reference::check_strict_events(&input, &output)
+                        .unwrap();
+                    assert_eq!(
+                        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+                        output
+                    );
+                    assert!(refusals(&output, &cfg).is_empty());
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn reconsidered_mapping_counts_the_explicit_value_gap_once() {
     let cfg = config(
         "[format]\nquote-style='double'\nsequence-style='flow'\nmapping-style='block'\nindent-sequences=false\ndash-on-own-line=false\ndocument-start='add'\n",

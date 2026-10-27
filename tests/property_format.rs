@@ -842,6 +842,10 @@ proptest! {
     fn every_format_pass_keeps_the_guarantee(input in prop_oneof![
         3 => arb_document_with_properties().prop_map(|document| document.render()),
         1 => properties::arb_quoted_document(),
+        1 => properties::arb_whitespace_block_scalar(),
+        1 => (1usize..=4, 1usize..=4).prop_map(|(colon, dash)| {
+            format!("first: {{s: t}}\n? a\n:{}-{}{{k: x}}\n{}- two\n", " ".repeat(colon), " ".repeat(dash), " ".repeat(colon + 1))
+        }),
         1 => prop_oneof![20 => 0usize..=512, 1 => 65_535usize..=65_537].prop_map(|lines| "\n".repeat(lines)),
     ]) {
         for pass in format_passes() {

@@ -2477,7 +2477,9 @@ fn visit_body<'a>(
                 if selected.is_none()
                     && piece != 1
                     && line.bridge.as_ref().is_some_and(|bridge| {
-                        bridge.start <= from.get() && to.get() <= bridge.end
+                        bridge.start <= from.get()
+                            && from.get() < bridge.end
+                            && to.get() <= bridge.end
                     })
                 {
                     return Ok(());

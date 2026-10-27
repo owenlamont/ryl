@@ -244,7 +244,6 @@ impl Plan {
             let position =
                 layout.collection_position(site.start, targets, &coordinates);
             site.line = position.line + 1;
-            site.column = position.column;
         }
         let positions = pending
             .iter()

@@ -1239,13 +1239,31 @@ impl<'a> Layout<'a> {
         &self,
     ) -> Option<Vec<crate::rules::line_length::fold::FoldableScalar>> {
         self.converted.as_ref()?;
+        let source = &self
+            .input
+            .layout_facts()
+            .expect("layout facts are seeded before fold planning")
+            .folds;
+        let folded_content = |token: &super::Token| {
+            let next =
+                source.partition_point(|scalar| scalar.content.start < token.start);
+            source
+                .get(next)
+                .filter(|scalar| scalar.content.start <= token.end)
+                .map(|scalar| scalar.content.clone())
+        };
         let mut foldables = crate::rules::line_length::fold::Foldables::default();
         let styles = crate::rules::quoted_strings::Styles::default();
         for token in self.projected(&[], &styles) {
             use crate::text_version::lexical::Kind as Lexical;
             let kind = match token.kind {
                 Kind::Scalar { style, .. } => {
-                    foldables.scalar(token.start..token.end, style);
+                    let content = if style.is_folded() {
+                        folded_content(&token)
+                    } else {
+                        None
+                    };
+                    foldables.scalar(content.unwrap_or(token.start..token.end), style);
                     continue;
                 }
                 Kind::StreamBoundary | Kind::Marker => Lexical::StreamStart,
