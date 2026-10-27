@@ -1081,6 +1081,7 @@ fn mixed_width_flow_conversion_keeps_consistent_indent_lint_clean() {
                      [lint.rules.indentation]\nindent-sequences = false\n"
                 ))
                 .unwrap();
+                assert!(ryl::format::refusals(&input, &cfg).is_empty(), "{input:?}");
                 let output =
                     ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
                 check_values(&input, &output).unwrap();

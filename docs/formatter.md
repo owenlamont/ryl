@@ -229,11 +229,6 @@ metadata:
   name: example
 ```
 
-When `indent-width` is unset, a conversion stays in flow style with a notice if the
-result would fail the `indentation` rule's consistent-width check. A compact sequence
-mapping with explicit keys can fix the lint rule's inferred step independently of the
-formatter's width-2 target.
-
 Empty `[]` and `{}` stay flow. A collection that holds a comment, a multi-line entry, a
 collection or empty key, or an entry some loaders would read differently in block style
 stays as written, and `ryl format` says why on stderr.

@@ -75,11 +75,11 @@ impl<'a> RetainedClosing<'a> {
     }
 
     pub(crate) fn kind(&self) -> Option<CollectionKind> {
-        match self.bytes.get(self.end?) {
+        self.end.and_then(|end| match self.bytes.get(end) {
             Some(b'}') => Some(CollectionKind::Mapping),
             Some(b']') => Some(CollectionKind::Sequence),
             _ => None,
-        }
+        })
     }
 
     pub(crate) fn follows(&self) -> bool {

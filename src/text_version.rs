@@ -177,7 +177,10 @@ impl<'text> Analysis<'text> {
 
     #[must_use]
     pub fn plan(self, output: String) -> EditPlan {
-        self.plan_version(TextVersion::new(output))
+        EditPlan {
+            epoch: Rc::clone(&self.source.epoch),
+            output: TextVersion::new(output),
+        }
     }
 
     /// Returns no plan for empty, overlapping or non-UTF-8-aligned byte edits.
@@ -213,16 +216,6 @@ impl<'text> Analysis<'text> {
         }
         output.push_str(&buffer[cursor..]);
         Some(self.plan(output))
-    }
-
-    pub(crate) fn plan_version(self, mut output: TextVersion<'static>) -> EditPlan {
-        if let Some(parsed) = self.source.parsed.get() {
-            output.event_capacity = parsed.events.len();
-        }
-        EditPlan {
-            epoch: Rc::clone(&self.source.epoch),
-            output,
-        }
     }
 
     pub(crate) fn parsed(self) -> &'text ParsedFacts {

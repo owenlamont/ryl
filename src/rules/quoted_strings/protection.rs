@@ -263,7 +263,8 @@ fn select_folded_tail(
     if !blank || blocks.trailing_blanks() != 2 {
         return None;
     }
-    let block = blocks.last()?;
-    (block.folded() && block.end_line() >= blocks.count())
-        .then(|| block.header_position())
+    blocks
+        .last()
+        .filter(|block| block.folded() && block.end_line() >= blocks.count())
+        .map(|block| block.header_position())
 }

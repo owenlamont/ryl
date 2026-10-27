@@ -80,13 +80,7 @@ pub(crate) struct Layout<'a> {
     protection: OnceCell<Option<crate::rules::trailing_spaces::Protection>>,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) enum CollectionStatus {
-    Refused,
-    Inconsistent,
-}
-
-pub(crate) struct CollectionFeasibility(Option<Vec<Option<CollectionStatus>>>);
+pub(crate) struct CollectionFeasibility(Option<Vec<Option<Cause>>>);
 
 impl CollectionFeasibility {
     pub(crate) fn observe(input: Analysis<'_>, cfg: &Config, consistent: bool) -> Self {
@@ -94,33 +88,19 @@ impl CollectionFeasibility {
         let candidates = layout.retained_candidates(cfg);
         Self(candidates.map(|mut candidates| {
             let styles = crate::rules::quoted_strings::Styles::default();
-            let violations = if cfg.require_consistent || consistent {
-                layout.target_violations(cfg, &candidates, &[], &styles)
-            } else {
-                Vec::new()
-            };
-            if cfg.require_consistent {
+            if cfg.require_consistent || consistent {
+                let violations =
+                    layout.target_violations(cfg, &candidates, &[], &styles);
                 layout.refuse_violated(&violations, &mut candidates.refused);
             }
-            let mut documents: Vec<_> = candidates
-                .refused
-                .iter()
-                .map(|cause| cause.map(|_| CollectionStatus::Refused))
-                .collect();
-            if consistent {
-                for violation in violations {
-                    let origin = layout.lines[violation.line - 1].origin;
-                    let document =
-                        layout.starts.partition_point(|&start| start <= origin) - 1;
-                    documents[document].get_or_insert(CollectionStatus::Inconsistent);
-                }
-            }
-            documents
+            candidates.refused
         }))
     }
 
-    pub(crate) fn document(&self, index: usize) -> Option<CollectionStatus> {
-        self.0.as_ref().and_then(|documents| documents[index])
+    pub(crate) fn refuses(&self, index: usize) -> bool {
+        self.0
+            .as_ref()
+            .is_some_and(|documents| documents[index].is_some())
     }
 }
 
@@ -1101,7 +1081,7 @@ impl<'a> Layout<'a> {
             let line = virtual_line.origin;
             // A joined mapping's tab stays indentation, as on its own line.
             let tail = emitted(virtual_line.tail);
-            let content = emitted(virtual_line.body).append(tail);
+            let content = emitted(virtual_line.body);
             if let Some(candidate) = content.tab_candidate(tail) {
                 let protection = refused
                     .needs_protection(line, candidate, self.trimmed)

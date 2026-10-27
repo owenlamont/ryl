@@ -41,8 +41,10 @@ impl<'a> Initial<'a> {
     pub(super) fn adjacent(self, end: usize) -> Option<(usize, char)> {
         let rest = &self.buffer[end..];
         let token = next_token(rest);
-        let next = token.strip_prefix(':')?.chars().next()?;
-        Some((end + rest.len() - token.len(), next))
+        token
+            .strip_prefix(':')
+            .and_then(|after| after.chars().next())
+            .map(|next| (end + rest.len() - token.len(), next))
     }
 }
 

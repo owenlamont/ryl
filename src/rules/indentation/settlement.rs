@@ -90,7 +90,6 @@ impl<'a> Refusals<'a> {
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct Content {
-    leading_spaces: bool,
     first: Option<char>,
     second: Option<char>,
     rest_nonblank: bool,
@@ -100,9 +99,7 @@ impl Content {
     pub(super) fn extend(&mut self, chars: impl Iterator<Item = char>) {
         for ch in chars {
             if self.first.is_none() {
-                if ch == ' ' {
-                    self.leading_spaces = true;
-                } else {
+                if ch != ' ' {
                     self.first = Some(ch);
                 }
             } else {
@@ -110,25 +107,6 @@ impl Content {
                 self.rest_nonblank |= !matches!(ch, ' ' | '\t');
             }
         }
-    }
-
-    pub(super) fn append(mut self, tail: Self) -> Self {
-        if self.first.is_none() {
-            self.first = tail.first;
-            self.second = tail.second;
-            self.rest_nonblank = tail.rest_nonblank;
-            self.leading_spaces |= tail.leading_spaces;
-        } else {
-            if self.second.is_none() {
-                self.second = if tail.leading_spaces {
-                    Some(' ')
-                } else {
-                    tail.first
-                };
-            }
-            self.rest_nonblank |= tail.nonblank();
-        }
-        self
     }
 
     fn nonblank(self) -> bool {
@@ -142,7 +120,8 @@ impl Content {
                 && self.rest_nonblank)
     }
 
-    pub(super) fn tab_candidate(self, tail: Self) -> Option<TabCandidate> {
+    pub(super) fn tab_candidate(mut self, tail: Self) -> Option<TabCandidate> {
+        self.rest_nonblank |= tail.nonblank();
         (self.tab_in_indentation() || tail.tab_in_indentation()).then_some(
             TabCandidate {
                 blank: !self.nonblank(),

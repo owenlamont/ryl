@@ -1136,10 +1136,10 @@ impl<'a> EmitPlan<'a> {
         quotes: &mut HashMap<String, Option<bool>>,
         frozen: Option<&[Option<indentation::Cause>]>,
     ) -> Result<Self, Fallback> {
-        LayoutCandidates::observe(input, passes, quotes)?
-            .settle(passes, frozen)?
-            .finish_lines(passes)?
-            .fold(passes)
+        LayoutCandidates::observe(input, passes, quotes)
+            .and_then(|candidates| candidates.settle(passes, frozen))
+            .and_then(|targets| targets.finish_lines(passes))
+            .and_then(|lines| lines.fold(passes))
     }
 }
 
@@ -2216,20 +2216,25 @@ impl<'a> LayoutTargets<'a> {
         boundaries.sort_by_key(|(start, _, _)| start.get());
         self.0.dirty = !rules.is_empty();
         self.0.finish_endings();
-        disjoint.then_some(()).ok_or(Fallback::Overlap)?;
-        Ok(LineTargets(self.0))
+        disjoint
+            .then_some(LineTargets(self.0))
+            .ok_or(Fallback::Overlap)
     }
 }
 
 impl<'a> LineTargets<'a> {
     fn fold(mut self, passes: &Passes<'_>) -> Result<EmitPlan<'a>, Fallback> {
-        if let Some(cfg) = passes.line_length {
-            self.0.plan_folds(cfg, passes.indentation.is_some())?;
-        }
-        if !self.0.folds.is_empty() {
-            self.0.rules.push(crate::rules::line_length::ID);
-            self.0.dirty = true;
-        }
-        Ok(EmitPlan(self.0))
+        passes
+            .line_length
+            .map_or(Ok(()), |cfg| {
+                self.0.plan_folds(cfg, passes.indentation.is_some())
+            })
+            .map(|()| {
+                if !self.0.folds.is_empty() {
+                    self.0.rules.push(crate::rules::line_length::ID);
+                    self.0.dirty = true;
+                }
+                EmitPlan(self.0)
+            })
     }
 }

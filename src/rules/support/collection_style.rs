@@ -225,11 +225,8 @@ fn skip_reindent_dependent(
         .filter_map(|(edit, finding)| {
             let line = source_lines.partition_point(|start| *start <= edit.0.get());
             let document = source_starts.partition_point(|start| *start <= line) - 1;
-            if let Some(reason) = feasibility
-                .document(document)
-                .filter(|_| !findings[finding].to_flow)
-            {
-                findings[finding].refused = Some(target::refusal(reason));
+            if !findings[finding].to_flow && feasibility.refuses(document) {
+                findings[finding].refused = Some(target::REINDENT_REFUSAL);
                 None
             } else {
                 Some(edit)

@@ -323,13 +323,4 @@ fn single(fragment: Fragment<'_>) -> Result<Fragment<'_>, &'static str> {
     }
 }
 
-pub(super) const fn refusal(status: indentation::CollectionStatus) -> &'static str {
-    match status {
-        indentation::CollectionStatus::Refused => {
-            "the document cannot be re-indented safely"
-        }
-        indentation::CollectionStatus::Inconsistent => {
-            "the result would fail consistent indentation"
-        }
-    }
-}
+pub(super) const REINDENT_REFUSAL: &str = "the document cannot be re-indented safely";

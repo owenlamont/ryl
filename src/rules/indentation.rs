@@ -21,9 +21,7 @@ pub(crate) use shape::SplitTargets;
 pub(crate) use rewrite::reindent_with_analysis;
 pub(crate) use rewrite::{Candidates, Layout, Targets};
 pub use rewrite::{Cause, Refusal, Reindented, fix, reindent};
-pub(crate) use rewrite::{
-    CollectionFeasibility, CollectionGeometry, CollectionStatus, LineGeometry,
-};
+pub(crate) use rewrite::{CollectionFeasibility, CollectionGeometry, LineGeometry};
 
 pub const ID: &str = "indentation";
 
