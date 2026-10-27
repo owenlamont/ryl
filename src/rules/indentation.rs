@@ -541,9 +541,6 @@ impl<'a> Analyzer<'a> {
     }
 
     fn gap_request(&self, token: &Token, next: Option<&Token>) -> Option<GapRequest> {
-        if self.mode != Mode::Target {
-            return None;
-        }
         let indicator = match token.kind {
             Kind::BlockEntry => Indicator::Dash,
             Kind::Key { explicit: true } => Indicator::Question,

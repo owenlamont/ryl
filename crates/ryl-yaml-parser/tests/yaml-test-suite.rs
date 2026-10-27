@@ -43,8 +43,8 @@ fn main() -> Result<ExitCode> {
 
     if !Path::new(YAML_TEST_SUITE_SRC).is_dir() {
         return Err(format!(
-            "{YAML_TEST_SUITE_SRC} is missing; run from the repository root after \
-             `git submodule update --init tests/yaml-test-suite`"
+            "{YAML_TEST_SUITE_SRC} is missing; run from the workspace root after \
+             `git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite`"
         )
         .into());
     }

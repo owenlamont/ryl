@@ -123,40 +123,42 @@ impl ScalarTarget {
             0
         };
         let end = if self.needs_end(geometry.index) {
-            line.scalar_end.ok_or(Fallback::ScalarInteraction)?
+            line.scalar_end.ok_or(Fallback::ScalarInteraction)
         } else {
-            length
+            Ok(length)
         };
-        // Byte length bounds character length, so short lines need no character walk.
-        let breaks = if length <= usize::from(self.width)
-            || (geometry.index == self.last
-                && !line.ends_in_break
-                && line.directive_tail)
-        {
-            Vec::new()
-        } else {
-            let chars = bom
-                .chars()
-                .chain(std::iter::repeat_n(' ', geometry.prefix))
-                .chain(line.parts.iter().flat_map(|part| part.chars()));
-            let mut byte = 0;
-            let chars = chars.map(|ch| {
-                let at = byte;
-                byte += ch.len_utf8();
-                (at, ch)
-            });
-            breaks_from_chars(
-                chars,
-                &(start..end),
-                self.style,
-                self.indent,
-                usize::from(self.width),
-            )
-        };
-        let line = geometry.index;
-        let indent = self.indent;
-        Ok(breaks
-            .into_iter()
-            .map(move |byte| FoldBreak { line, byte, indent }))
+        end.map(|end| {
+            // Byte length bounds character length, so short lines need no character walk.
+            let breaks = if length <= usize::from(self.width)
+                || (geometry.index == self.last
+                    && !line.ends_in_break
+                    && line.directive_tail)
+            {
+                Vec::new()
+            } else {
+                let chars = bom
+                    .chars()
+                    .chain(std::iter::repeat_n(' ', geometry.prefix))
+                    .chain(line.parts.iter().flat_map(|part| part.chars()));
+                let mut byte = 0;
+                let chars = chars.map(|ch| {
+                    let at = byte;
+                    byte += ch.len_utf8();
+                    (at, ch)
+                });
+                breaks_from_chars(
+                    chars,
+                    &(start..end),
+                    self.style,
+                    self.indent,
+                    usize::from(self.width),
+                )
+            };
+            let line = geometry.index;
+            let indent = self.indent;
+            breaks
+                .into_iter()
+                .map(move |byte| FoldBreak { line, byte, indent })
+        })
     }
 }

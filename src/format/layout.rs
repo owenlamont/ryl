@@ -2001,24 +2001,25 @@ impl<'a> DocumentPlan<'a> {
             return Ok(());
         };
         let mut parts = Vec::new();
-        self.visit_body(index, |part| parts.push(part))?;
-        let scalar_end = target
-            .needs_end(index)
-            .then(|| {
-                self.byte_on_line(index, site.full.end, projection)
-                    .map(|end| end - site.quotes)
-            })
-            .flatten();
-        let line = folding::Line {
-            geometry,
-            parts,
-            scalar_end,
-            ends_in_break: site.tail.ends_in_break,
-            directive_tail: site.tail.directive,
-        };
-        target
-            .plan_line(line)
-            .map(|breaks| self.folds.extend(breaks))
+        let result = self
+            .visit_body(index, |part| parts.push(part))
+            .and_then(|()| {
+                let scalar_end = target
+                    .needs_end(index)
+                    .then(|| {
+                        self.byte_on_line(index, site.full.end, projection)
+                            .map(|end| end - site.quotes)
+                    })
+                    .flatten();
+                target.plan_line(folding::Line {
+                    geometry,
+                    parts,
+                    scalar_end,
+                    ends_in_break: site.tail.ends_in_break,
+                    directive_tail: site.tail.directive,
+                })
+            });
+        result.map(|breaks| self.folds.extend(breaks))
     }
 }
 
