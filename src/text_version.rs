@@ -9,6 +9,7 @@ use ryl_yaml_parser::{Event, Parser, ScalarStyle, ScanError, Span};
 pub(crate) mod edits;
 mod events;
 pub(crate) mod lexical;
+pub(crate) mod model;
 mod spans;
 use events::StoredEvent;
 

@@ -205,6 +205,18 @@ Every quote replacement retains
 the existing schema and snippet checks;
 unchanged plain and block scalars need no quote decision.
 
+Keep scalar and comment selection in their `target` modules, using the semantic views
+in `text_version::model` and narrow observations. Quote eligibility precedes a selected
+spelling recipe; source copying materializes the recipe without choosing a style.
+Quote observations privately borrow that scalar's content and expose lazy predicates,
+without a text getter.
+Spacing resolves an observed `GapRequest` into a private `IndentationGap` before the
+indentation analyzer consumes it. Folding settles a scalar candidate and permits a line
+before choosing breaks. Line-ending targets resolve before emission. These decision
+interfaces must not accept `Analysis`, `TextVersion`, or whole-file text. Collection,
+marker, blank-line and refusal planning still have source-aware entry points; their
+candidate dependencies need migration before the whole pipeline has this boundary.
+
 Forced collection targets plan conversion before layout, retaining the existing
 comment, key, width and reindent refusals. A strict parse compares significant
 events with only collection style relaxed, alongside the semantic comparison.

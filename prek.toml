@@ -21,7 +21,6 @@ hooks = [
   { id = "check-merge-conflict" },
   {
     id = "no-commit-to-branch",
-    # Temporary: drop epic/374-formatter before the epic merges to main.
     args = ["--branch", "main", "--branch", "epic/374-formatter"]
   },
   {

@@ -12,6 +12,8 @@ use crate::rules::support::comments_scan::CommentInfo;
 use crate::rules::support::line_syntax::is_magic_first_line_comment;
 use crate::text_version::{Analysis, TextVersion};
 
+mod target;
+
 pub const ID: &str = "comments";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,46 +166,25 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
         let line = comment.span.start.line();
         let hash_column = comment.span.start.col() + 1;
 
-        if comment.placement == Placement::Right {
-            let spacing = spacing_before(buffer, byte_start);
-            let at = BytePos::new(byte_start);
-            match (cfg.min_spaces_from_content, cfg.max_spaces_from_content) {
-                (Some(min), _) if spacing < min => {
-                    edits.push((at, at, " ".repeat(min - spacing)));
-                }
-                (_, Some(max)) if spacing > max => {
-                    let run_start = BytePos::new(byte_start - spacing);
-                    edits.push((run_start, at, " ".repeat(max)));
-                }
-                _ => {}
+        let model = crate::text_version::model::Comment::new(
+            &comment.text,
+            line == 1 && hash_column == 1 && is_magic_first_line_comment(&comment.text),
+        );
+        let initial = target::Initial {
+            gap: (comment.placement == Placement::Right)
+                .then(|| spacing_before(buffer, byte_start)),
+        };
+        let target = target::Target::plan(model, initial, cfg);
+        let at = BytePos::new(byte_start);
+        match target.gap() {
+            target::Gap::Keep => {}
+            target::Gap::Insert(spaces) => edits.push((at, at, " ".repeat(spaces))),
+            target::Gap::Replace { old, target } => {
+                edits.push((BytePos::new(byte_start - old), at, " ".repeat(target)));
             }
         }
-
-        if !cfg.require_starting_space() {
-            continue;
-        }
-
-        let extra_hash_bytes: usize = comment
-            .text
-            .chars()
-            .take_while(|c| *c == '#')
-            .map(char::len_utf8)
-            .sum();
-        let after_hashes = &comment.text[extra_hash_bytes..];
-        let Some(next_char) = after_hashes.chars().next() else {
-            continue;
-        };
-
-        if cfg.ignore_shebangs()
-            && line == 1
-            && hash_column == 1
-            && is_magic_first_line_comment(&comment.text)
-        {
-            continue;
-        }
-
-        if next_char != ' ' {
-            let at = BytePos::new(byte_start + '#'.len_utf8() + extra_hash_bytes);
+        if let Some(hashes) = target.starting_space() {
+            let at = BytePos::new(byte_start + '#'.len_utf8() + hashes);
             edits.push((at, at, " ".to_string()));
         }
     }

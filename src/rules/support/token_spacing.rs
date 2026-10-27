@@ -20,6 +20,66 @@ pub(crate) struct SpaceSite {
     pub(crate) edit: SpaceEdit,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct IndentationGap {
+    line: usize,
+    column: usize,
+    removed: usize,
+    rule: &'static str,
+}
+
+impl IndentationGap {
+    pub(crate) const fn line(self) -> usize {
+        self.line
+    }
+    pub(crate) const fn column(self) -> usize {
+        self.column
+    }
+    pub(crate) const fn removed(self) -> usize {
+        self.removed
+    }
+    pub(crate) const fn rule(self) -> &'static str {
+        self.rule
+    }
+}
+
+pub(crate) struct GapRequest {
+    target: IndentationGap,
+}
+
+impl GapRequest {
+    pub(crate) fn new(
+        indicator: Indicator,
+        line: usize,
+        column: usize,
+        width: usize,
+    ) -> Option<Self> {
+        (width > 1).then(|| Self {
+            target: IndentationGap {
+                line,
+                column,
+                removed: width - 1,
+                rule: if indicator == Indicator::Dash {
+                    crate::rules::hyphens::ID
+                } else {
+                    crate::rules::colons::ID
+                },
+            },
+        })
+    }
+
+    pub(crate) const fn line(&self) -> usize {
+        self.target.line
+    }
+    pub(crate) const fn column(&self) -> usize {
+        self.target.column
+    }
+
+    pub(crate) fn resolve(self, spaces: usize) -> Option<IndentationGap> {
+        (spaces == self.target.removed + 1).then_some(self.target)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Indicator {
     Dash,
@@ -53,6 +113,7 @@ pub(crate) struct Site {
     pub(crate) column: usize,
     ws: Range<usize>,
     spaces: usize,
+    contains_tab: bool,
     min: usize,
 }
 
@@ -136,14 +197,7 @@ impl<'a> Sites<'a> {
                     colons
                 };
                 enabled
-                    .then(|| {
-                        space_site(
-                            self.walk.buffer,
-                            Mode::Format,
-                            site,
-                            i64::from(!site.before),
-                        )
-                    })
+                    .then(|| space_site(Mode::Format, site, i64::from(!site.before)))
                     .flatten()
                     .map(|edit| SpaceSite {
                         indicator: site.indicator,
@@ -236,7 +290,6 @@ pub(crate) fn edits(
     mode: Mode,
     tolerance: impl Fn(&Site) -> Option<i64>,
 ) -> Vec<Edit> {
-    let buffer = input.text();
     let sites = if mode == Mode::Format {
         input.format_sites()
     } else {
@@ -244,29 +297,23 @@ pub(crate) fn edits(
     };
     sites
         .iter()
-        .filter_map(|site| site_edit(buffer, mode, site, tolerance(site)?))
+        .filter_map(|site| site_edit(mode, site, tolerance(site)?))
         .collect()
 }
 
-fn site_edit(buffer: &str, mode: Mode, site: &Site, tolerance: i64) -> Option<Edit> {
-    space_site(buffer, mode, site, tolerance)
+fn site_edit(mode: Mode, site: &Site, tolerance: i64) -> Option<Edit> {
+    space_site(mode, site, tolerance)
         .map(|(from, to, spaces)| (from, to, " ".repeat(spaces)))
 }
 
-fn space_site(
-    buffer: &str,
-    mode: Mode,
-    site: &Site,
-    tolerance: i64,
-) -> Option<SpaceEdit> {
+fn space_site(mode: Mode, site: &Site, tolerance: i64) -> Option<SpaceEdit> {
     if site.fix != Fix::Safe {
         return None;
     }
     let target = usize::try_from(tolerance).ok()?.max(site.min);
-    let ws = &buffer[site.ws.clone()];
     let edit = match mode {
         Mode::Lint => site.spaces > target,
-        Mode::Format => ws.len() != target || ws.contains('\t'),
+        Mode::Format => site.ws.len() != target || site.contains_tab,
     };
     edit.then(|| {
         (
@@ -314,6 +361,7 @@ impl Walk<'_> {
             line,
             column: column.saturating_sub(1).max(1),
             spaces: ws.len(),
+            contains_tab: self.buffer[ws.clone()].contains('\t'),
             min,
             ws,
         })
