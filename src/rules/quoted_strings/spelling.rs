@@ -4,6 +4,47 @@ use super::{QuoteStyle, quote_value, target};
 
 pub(crate) struct Spelling(String);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
+pub(crate) struct LayoutStyle(ScalarStyle);
+
+impl LayoutStyle {
+    pub(super) const fn retained(style: ScalarStyle) -> Self {
+        Self(style)
+    }
+
+    pub(crate) const fn is_folded(self) -> bool {
+        matches!(self.0, ScalarStyle::Folded)
+    }
+    pub(crate) const fn is_plain(self) -> bool {
+        matches!(self.0, ScalarStyle::Plain)
+    }
+    pub(crate) const fn is_double(self) -> bool {
+        matches!(self.0, ScalarStyle::DoubleQuoted)
+    }
+    pub(crate) const fn foldable(self) -> bool {
+        !matches!(self.0, ScalarStyle::Literal)
+    }
+    pub(crate) const fn quote_width(self) -> usize {
+        match self.0 {
+            ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted => 1,
+            _ => 0,
+        }
+    }
+
+    pub(crate) const fn is_block(self) -> bool {
+        matches!(self.0, ScalarStyle::Literal | ScalarStyle::Folded)
+    }
+
+    pub(crate) const fn inline_content_offset(self) -> Option<usize> {
+        match self.0 {
+            ScalarStyle::Plain => Some(0),
+            ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted => Some(1),
+            ScalarStyle::Literal | ScalarStyle::Folded => None,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Styles(Vec<(usize, ScalarStyle)>);
 
@@ -23,6 +64,10 @@ impl Styles {
             .binary_search_by_key(&start, |(at, _)| *at)
             .ok()
             .map(|index| self.0[index].1)
+    }
+
+    pub(crate) fn layout_at(&self, start: usize) -> Option<LayoutStyle> {
+        self.at(start).map(LayoutStyle)
     }
 
     pub(crate) fn restyled(&self) -> Restyled {
@@ -74,6 +119,10 @@ impl<'a> Retained<'a> {
 
     pub(crate) fn is_plain(self) -> bool {
         self.style == ScalarStyle::Plain
+    }
+
+    pub(crate) fn empty(self) -> bool {
+        self.text.is_empty()
     }
 }
 

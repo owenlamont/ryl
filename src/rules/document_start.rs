@@ -6,10 +6,11 @@
 //! document boundaries, so it is not fixed.
 use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
-use ryl_yaml_parser::Event;
+mod input;
+mod target;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::line_syntax::{buffer_newline, is_magic_first_line};
+use crate::rules::support::line_syntax::buffer_newline;
 use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "document-start";
@@ -57,25 +58,7 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Viola
 }
 
 fn scan(input: Analysis<'_>, cfg: Config) -> Scan {
-    let mut result = Scan::default();
-    for (event, span) in input.event_iter() {
-        if let Event::DocumentStart(explicit, _) = event
-            && explicit != cfg.requires_marker()
-        {
-            let message = if explicit {
-                FORBIDDEN_MESSAGE
-            } else {
-                result.implicit_starts.push(span.start.line());
-                MISSING_MESSAGE
-            };
-            result.violations.push(Violation {
-                line: span.start.line(),
-                column: if explicit { span.start.col() + 1 } else { 1 },
-                message: message.to_string(),
-            });
-        }
-    }
-    result
+    target::scan(input::starts(input), cfg)
 }
 
 #[must_use]
@@ -106,14 +89,11 @@ pub(crate) fn edits_keeping_magic(
         .lines()
         .map(|(_, content, ending)| (content, ending))
         .collect();
-    let first_line = if keep_magic && is_magic_first_line(split_bom(lines[0].0).1) {
-        2
-    } else {
-        1
-    };
+    let initial = input::Lines::new(input);
+    let first_line = target::first_line(&initial, keep_magic);
     let mut marker_lines = content_lines
         .iter()
-        .map(|&content_line| marker_line(&lines, first_line, content_line))
+        .map(|&content_line| target::marker_line(&initial, first_line, content_line))
         .peekable();
     let newline = buffer_newline(buffer);
     let mut edits = Vec::new();
@@ -128,27 +108,6 @@ pub(crate) fn edits_keeping_magic(
     edits
 }
 
-/// The 1-based line that takes the `---` for the document whose content starts on
-/// `content_line`: below the nearest `...` above it, or after a document-prefix BOM, since
-/// a BOM inside a document is a syntax error.
-fn marker_line(
-    lines: &[(&str, &str)],
-    first_line: usize,
-    content_line: usize,
-) -> usize {
-    (first_line..=content_line)
-        .rev()
-        .find_map(|line| {
-            let (bom, text) = split_bom(lines[line - 1].0);
-            if text.split_whitespace().next() == Some("...") {
-                Some(line + 1)
-            } else {
-                (!bom.is_empty()).then_some(line)
-            }
-        })
-        .unwrap_or(first_line)
-}
-
 fn split_bom(line: &str) -> (&str, &str) {
     line.strip_prefix('\u{feff}')
         .map_or(("", line), |rest| ("\u{feff}", rest))
@@ -158,4 +117,11 @@ fn split_bom(line: &str) -> (&str, &str) {
 struct Scan {
     violations: Vec<Violation>,
     implicit_starts: Vec<usize>,
+}
+
+pub(crate) fn attaches_bom(
+    line: &crate::rules::indentation::LineGeometry<'_>,
+    relative: usize,
+) -> bool {
+    target::attaches_bom(line, relative)
 }

@@ -2,6 +2,26 @@ use super::{Config, input::Initial};
 use crate::format::layout::Permission;
 use crate::rules::support::span_utils::BytePos;
 
+pub(crate) struct RetainedKey(super::input::Key);
+
+impl RetainedKey {
+    pub(super) const fn new(initial: super::input::Key) -> Self {
+        Self(initial)
+    }
+    pub(crate) const fn present(&self) -> bool {
+        self.0.present
+    }
+    pub(crate) const fn separated(&self) -> bool {
+        self.0.separated
+    }
+    pub(crate) const fn at(&self) -> BytePos {
+        BytePos::new(self.0.at)
+    }
+    pub(crate) fn after(&self) -> BytePos {
+        BytePos::new(self.0.at + usize::from(self.0.present))
+    }
+}
+
 pub(crate) struct Guarantees<'a> {
     spaced: bool,
     permission: Permission<'a>,

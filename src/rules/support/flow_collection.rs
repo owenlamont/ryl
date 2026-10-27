@@ -1,5 +1,15 @@
 mod input;
 mod target;
+pub(crate) use input::{CollectionKind, RetainedClosing};
+pub(crate) use target::ClosingPolicy;
+
+pub(crate) const fn retained_closing(
+    bytes: &[u8],
+    comma: usize,
+    end: Option<usize>,
+) -> RetainedClosing<'_> {
+    RetainedClosing::new(bytes, comma, end)
+}
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
@@ -84,14 +94,24 @@ macro_rules! define_rule {
             )
         }
 
-        pub(crate) fn edit_sites<'a>(
+        pub(crate) fn format_sites<'a>(
             cfg: &'a Config,
-            buffer: &'a str,
-        ) -> Option<$crate::rules::support::flow_collection::Edits<'a>> {
-            $crate::rules::support::flow_collection::Edits::new(
-                buffer.as_bytes(),
+            source: $crate::text_version::Analysis<'a>,
+        ) -> Option<$crate::rules::support::flow_collection::Formatting<'a>> {
+            $crate::rules::support::flow_collection::Formatting::new(
+                source,
                 cfg.inner(),
                 &DESCRIPTOR,
+            )
+        }
+
+        pub(crate) fn closing_policy<'a>(
+            cfg: Option<&'a Config>,
+            permission: $crate::format::layout::Permission<'a>,
+        ) -> $crate::rules::support::flow_collection::ClosingPolicy<'a> {
+            $crate::rules::support::flow_collection::ClosingPolicy::new(
+                cfg.map(Config::inner),
+                permission,
             )
         }
 
@@ -659,4 +679,55 @@ fn next_significant_index(bytes: &[u8], open_idx: usize) -> Option<usize> {
         }
     }
     None
+}
+
+pub(crate) enum FormattedEdits {
+    Spaces(Vec<super::token_spacing::SpaceEdit>),
+    Text(Vec<crate::text_version::edits::Edit>),
+}
+
+pub(crate) struct Formatting<'a> {
+    source: crate::text_version::Analysis<'a>,
+    config: &'a Config,
+    descriptor: &'a FlowCollectionDescriptor,
+    traversal: target::Traversal,
+    streamed: Option<Edits<'a>>,
+}
+
+impl<'a> Formatting<'a> {
+    pub(crate) fn new(
+        source: crate::text_version::Analysis<'a>,
+        config: &'a Config,
+        descriptor: &'a FlowCollectionDescriptor,
+    ) -> Option<Self> {
+        let traversal = target::Traversal::select(
+            &input::Traversal::new(source.text(), descriptor),
+            config,
+        )?;
+        let streamed = matches!(traversal, target::Traversal::Flow)
+            .then(|| Edits::new(source.text().as_bytes(), config, descriptor))
+            .flatten();
+        Some(Self {
+            source,
+            config,
+            descriptor,
+            traversal,
+            streamed,
+        })
+    }
+    pub(crate) fn push(&mut self, at: usize, ch: u8) {
+        if let Some(edits) = &mut self.streamed {
+            edits.push(at, ch);
+        }
+    }
+    pub(crate) fn finish(self) -> FormattedEdits {
+        match self.traversal {
+            target::Traversal::Flow => FormattedEdits::Spaces(
+                self.streamed.map_or_else(Vec::new, Edits::finish),
+            ),
+            target::Traversal::Template => {
+                FormattedEdits::Text(edits(self.source, self.config, self.descriptor))
+            }
+        }
+    }
 }

@@ -6,10 +6,29 @@
 use std::collections::HashMap;
 
 mod input;
+pub(crate) use input::{RetainedRegions, RetainedShape};
+
+pub(crate) const fn retained_regions(
+    source: crate::text_version::Analysis<'_>,
+) -> RetainedRegions<'_> {
+    RetainedRegions::new(source)
+}
+pub(crate) mod protection;
 mod spelling;
 mod target;
 use crate::text_version::model::{Role, Scalar as ScalarModel};
-pub(crate) use spelling::{Restyled, Retained, Spelling, Styles};
+pub(crate) use spelling::{LayoutStyle, Restyled, Retained, Spelling, Styles};
+
+pub(crate) const fn retained_layout_style(style: ScalarStyle) -> LayoutStyle {
+    LayoutStyle::retained(style)
+}
+
+pub(crate) const fn retained_shape(
+    buffer: &str,
+    range: std::ops::Range<usize>,
+) -> RetainedShape<'_> {
+    RetainedShape::new(buffer, range)
+}
 
 use regex::Regex;
 use ryl_yaml_parser::{
@@ -776,16 +795,11 @@ pub(crate) fn selected_styles(replacements: &[Replacement]) -> Styles {
     )
 }
 
-pub(crate) fn retained(
-    input: crate::text_version::Analysis<'_>,
+pub(crate) const fn retained_spelling(
     style: ScalarStyle,
-    span: Span,
+    spelling: &str,
 ) -> Retained<'_> {
-    Retained::new(
-        style,
-        &input.text()
-            [marker_byte_offset(span.start).get()..marker_byte_offset(span.end).get()],
-    )
+    Retained::new(style, spelling)
 }
 
 #[must_use]
@@ -796,7 +810,6 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     fixer.finish()
 }
 
-/// Each scalar's settled replacement under the upstream colon guarantees.
 pub(crate) fn format_replacements<'a>(
     input: crate::text_version::Analysis<'a>,
     cfg: &'a Config,
@@ -1216,4 +1229,16 @@ fn quote_value(value: &str, style: QuoteStyle) -> String {
             result
         }
     }
+}
+
+pub(crate) use input::{ContentKind, LineContent};
+
+pub(crate) const fn line_content(text: &str) -> LineContent<'_> {
+    LineContent::new(text)
+}
+
+pub(crate) use input::RetainedTail;
+
+pub(crate) fn retained_tail(buffer: &str, end: BytePos) -> RetainedTail {
+    RetainedTail::observe(buffer, end.get())
 }

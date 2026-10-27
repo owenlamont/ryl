@@ -62,3 +62,51 @@ impl<'a> Planner<'a> {
         self.replacements
     }
 }
+
+pub(crate) struct ClosingPolicy<'a> {
+    config: Option<&'a Config>,
+    permission: crate::format::layout::Permission<'a>,
+}
+
+impl<'a> ClosingPolicy<'a> {
+    pub(crate) fn new(
+        config: Option<&'a Config>,
+        permission: crate::format::layout::Permission<'a>,
+    ) -> Self {
+        Self { config, permission }
+    }
+
+    pub(crate) fn select(
+        &self,
+        edit: crate::rules::support::token_spacing::SpaceEdit,
+    ) -> Option<usize> {
+        let config = self.config.filter(|cfg| cfg.forbid() == Forbid::None)?;
+        self.permission.allows(edit.0, edit.1).then(|| {
+            target_spacing(
+                edit.2,
+                config.min_spaces_inside(),
+                config.max_spaces_inside(),
+            )
+        })
+    }
+}
+
+pub(super) enum Traversal {
+    Flow,
+    Template,
+}
+
+impl Traversal {
+    pub(super) fn select(
+        initial: &input::Traversal<'_>,
+        config: &Config,
+    ) -> Option<Self> {
+        (config.forbid() == Forbid::None).then(|| {
+            if initial.templated() {
+                Self::Template
+            } else {
+                Self::Flow
+            }
+        })
+    }
+}

@@ -1,5 +1,27 @@
 use crate::rules::new_lines::{Config, LineKind, platform_newline};
 
+mod input;
+
+pub(crate) struct Inserted<'a>(&'a str);
+
+impl<'a> Inserted<'a> {
+    fn choose(initial: &input::Split<'a>) -> Self {
+        Self(if initial.retained().is_empty() {
+            initial.first_ending()
+        } else {
+            initial.retained()
+        })
+    }
+
+    pub(crate) const fn materialize(self) -> &'a str {
+        self.0
+    }
+}
+
+pub(crate) fn split<'a>(buffer: &'a str, retained: &'a str) -> Inserted<'a> {
+    Inserted::choose(&input::Split::new(buffer, retained))
+}
+
 pub(super) enum Candidate {
     Configured(Config),
     Retained(&'static str),

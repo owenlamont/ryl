@@ -3,6 +3,30 @@ pub(super) struct Initial<'a> {
     buffer: &'a str,
 }
 
+pub(super) struct Key {
+    pub(super) at: usize,
+    pub(super) present: bool,
+    pub(super) separated: bool,
+}
+
+impl Key {
+    pub(super) fn observe(buffer: &str, end: usize) -> Self {
+        let rest = &buffer[end..];
+        let at = end
+            + rest
+                .find(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r'))
+                .unwrap_or(rest.len());
+        let present = buffer[at..].starts_with(':');
+        let separated =
+            present && buffer[at + 1..].starts_with([' ', '\t', '\n', '\r']);
+        Self {
+            at,
+            present,
+            separated,
+        }
+    }
+}
+
 impl<'a> Initial<'a> {
     pub(super) const fn new(buffer: &'a str) -> Self {
         Self { buffer }

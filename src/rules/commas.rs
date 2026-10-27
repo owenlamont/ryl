@@ -302,3 +302,35 @@ pub fn coverage_skip_comment_crlf() -> (usize, usize) {
 
     (idx_crlf, idx_cr)
 }
+
+pub(crate) struct Closing<'a>(target::Closing<'a>);
+
+impl<'a> Closing<'a> {
+    pub(crate) const fn new(
+        config: Option<Config>,
+        preserve: bool,
+        mapping: crate::rules::support::flow_collection::ClosingPolicy<'a>,
+        sequence: crate::rules::support::flow_collection::ClosingPolicy<'a>,
+        permission: crate::format::layout::Permission<'a>,
+    ) -> Self {
+        Self(target::Closing::new(
+            config, preserve, mapping, sequence, permission,
+        ))
+    }
+
+    pub(crate) fn select(
+        &self,
+        buffer: &str,
+        at: usize,
+        edits: &mut [crate::rules::support::token_spacing::SpaceEdit],
+        closing: &mut Vec<(BytePos, BytePos)>,
+    ) -> bool {
+        let edit = edits.last_mut().filter(|edit| edit.0.get() == at + 1);
+        let initial = crate::rules::support::flow_collection::retained_closing(
+            buffer.as_bytes(),
+            at,
+            edit.as_ref().map(|edit| edit.1.get()),
+        );
+        self.0.select(&initial, edit, closing)
+    }
+}

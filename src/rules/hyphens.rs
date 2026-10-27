@@ -26,6 +26,33 @@ use crate::rules::support::span_utils::marker_byte_offset;
 use crate::rules::support::token_spacing::{self, Fix, Indicator, Mode};
 use crate::text_version::{Analysis, TextVersion};
 
+mod input;
+pub(crate) use input::{CollectionPrefix, DashGap, EntrySite, RetainedDash};
+
+pub(crate) fn collection_prefix(prefix: &str) -> CollectionPrefix {
+    CollectionPrefix::observe(prefix)
+}
+
+pub(crate) fn retained_before(
+    source: &str,
+    at: crate::rules::support::span_utils::BytePos,
+) -> RetainedDash {
+    RetainedDash::observe(source, at)
+}
+
+pub(crate) fn entry_site(
+    source: Analysis<'_>,
+    start: ryl_yaml_parser::Marker,
+) -> EntrySite {
+    EntrySite::observe(source, start)
+}
+
+pub(crate) fn dash_gap<'a>(
+    line: Option<&'a crate::format::layout::VirtualLine<'a>>,
+) -> DashGap<'a> {
+    DashGap::observe(line)
+}
+
 pub const ID: &str = "hyphens";
 pub const MESSAGE: &str = "too many spaces after hyphen";
 pub const MESSAGE_DASH_ON_OWN_LINE: &str =

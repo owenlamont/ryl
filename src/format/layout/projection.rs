@@ -1,6 +1,25 @@
 use super::PlanEdit;
 use crate::text_version::Analysis;
 
+pub(crate) struct RetainedFragment<'a> {
+    text: &'a str,
+}
+
+impl<'a> RetainedFragment<'a> {
+    pub(crate) const fn observe(text: &'a str) -> Self {
+        Self { text }
+    }
+    pub(crate) fn characters(&self) -> usize {
+        self.text.chars().count()
+    }
+    pub(crate) fn multiline(&self) -> bool {
+        self.text.contains(['\n', '\r'])
+    }
+    pub(crate) const fn empty(&self) -> bool {
+        self.text.is_empty()
+    }
+}
+
 pub(crate) struct Projection {
     starts: Vec<usize>,
     ends: Vec<usize>,

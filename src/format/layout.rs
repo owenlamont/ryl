@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ryl_yaml_parser::{Event, ScalarStyle};
+use ryl_yaml_parser::Event;
 
 use crate::fix::{PassTracking, Passes};
 use crate::rules::support::collection_style;
@@ -17,7 +17,7 @@ use crate::text_version::edits::Edit;
 pub(crate) mod facts;
 mod folding;
 mod guard;
-mod line_endings;
+pub(crate) mod line_endings;
 use folding::FoldBreak;
 use guard::Guard;
 pub(crate) use guard::Permission;
@@ -35,6 +35,18 @@ pub(crate) enum Fallback {
     Verification,
     DryEdits,
     Ambiguous,
+}
+
+struct LayoutTargets<'a>(DocumentPlan<'a>);
+struct LineTargets<'a>(DocumentPlan<'a>);
+struct EmitPlan<'a>(DocumentPlan<'a>);
+
+struct LayoutCandidates<'a> {
+    input: Analysis<'a>,
+    layout: indentation::Layout<'a>,
+    targets: indentation::Candidates,
+    presentation: Presentation,
+    config: indentation::Config,
 }
 
 struct DocumentPlan<'a> {
@@ -305,7 +317,7 @@ fn prepare_candidate(
         );
         Ok((Some(candidate), Kept::default()))
     } else {
-        DocumentPlan::new(input, passes, quotes, frozen).and_then(|plan| {
+        EmitPlan::new(input, passes, quotes, frozen).and_then(|EmitPlan(plan)| {
             probe(tracking, plan.input)?;
             let consistent = plan.dirty
                 || !passes.indentation.is_some_and(|cfg| {
@@ -356,7 +368,8 @@ fn format_document_refused(
     if crate::fix::non_ascii_marker(&text) {
         return Err(Fallback::Verification);
     }
-    let unambiguous = !may_turn_ambiguous(source.analysis());
+    let unambiguous =
+        !quoted_strings::protection::may_turn_ambiguous(source.analysis());
     source.release_layout();
     let mut output = TextVersion::new(text);
     stats::count(stats::Counter::Emit);
@@ -373,8 +386,8 @@ fn format_document_refused(
     output.mark_strict_valid();
     tracking.edited.extend(rules);
     if !passes.preserve_events
-        && DocumentPlan::new(output.analysis(), passes, &mut quotes, None)
-            .is_ok_and(|replan| replan.dirty)
+        && EmitPlan::new(output.analysis(), passes, &mut quotes, None)
+            .is_ok_and(|replan| replan.0.dirty)
     {
         stats::count(stats::Counter::Rollback);
         return (output.analysis().text() != source.analysis().text())
@@ -407,60 +420,14 @@ fn settles(
         )
         .is_ok()
             && (!settled
-                || DocumentPlan::new(output, passes, &mut HashMap::new(), None)
-                    .is_ok_and(|replan| !replan.dirty))
+                || EmitPlan::new(output, passes, &mut HashMap::new(), None)
+                    .is_ok_and(|replan| !replan.0.dirty))
             && !(unambiguous && crate::fix::ambiguous(output))
     })
 }
 
 /// Whether some block scalar's body opens with a blank line or keeps its trailing ones,
 /// the only shapes [`crate::fix::ambiguous`] can flag.
-fn may_turn_ambiguous(input: Analysis<'_>) -> bool {
-    input.headers().iter().any(|header| {
-        header.chomping == Some('+')
-            || input
-                .get_line(header.line)
-                .is_none_or(|line| line.trim().is_empty())
-    })
-}
-
-/// `edits` keeping the separation an explicit `?` key needs before what follows it.
-fn separate_keys(
-    text: &str,
-    edits: Vec<crate::rules::support::token_spacing::SpaceEdit>,
-) -> Vec<crate::rules::support::token_spacing::SpaceEdit> {
-    let bytes = text.as_bytes();
-    edits
-        .into_iter()
-        .filter_map(|(from, to, count)| {
-            let at = from.get();
-            let key = bytes[..at].ends_with(b"?")
-                && (at < 2 || b"[{, \t\r\n".contains(&bytes[at - 2]));
-            if key && count == 0 {
-                (to.get() - at != 1 || bytes[at] != b' ').then_some((from, to, 1))
-            } else {
-                Some((from, to, count))
-            }
-        })
-        .collect()
-}
-
-/// Whether only blanks and comments separate `from` from a closing `]` or `}`.
-fn closes_after(text: &[u8], mut from: usize) -> bool {
-    loop {
-        match text.get(from) {
-            Some(b' ' | b'\t' | b'\n' | b'\r') => from += 1,
-            Some(b'#') => {
-                from += text[from..]
-                    .iter()
-                    .position(|&byte| matches!(byte, b'\n' | b'\r'))
-                    .unwrap_or(text.len() - from);
-            }
-            next => return matches!(next, Some(b']' | b'}')),
-        }
-    }
-}
-
 /// Whether `text` is a stream of LF-only blank lines that the resolved passes empty, so its
 /// candidate needs no line records; verification and the dry plan still check it, and with
 /// no block scalar it cannot be ambiguous, so it skips the probe.
@@ -469,14 +436,12 @@ fn blank_stream(
     passes: &Passes<'_>,
     frozen: Option<&[Option<indentation::Cause>]>,
 ) -> bool {
-    text.starts_with('\n')
-        && frozen.is_none()
+    frozen.is_none()
         && passes.collection_style.is_none()
         && passes.per_line.is_empty()
         && passes
             .empty_lines
-            .is_some_and(|cfg| cfg.max_start() == 0 && cfg.max_end() == 0)
-        && text.bytes().all(|byte| byte == b'\n')
+            .is_some_and(|cfg| empty_lines::clears_stream(text, &cfg))
 }
 
 fn verify_presentation(
@@ -628,13 +593,11 @@ impl Presentation {
         let mut braces = passes
             .braces
             .as_ref()
-            .and_then(|cfg| braces::edit_sites(cfg, input.text()));
-        let templates = input.text().contains("{{");
+            .and_then(|cfg| braces::format_sites(cfg, input));
         let mut brackets = passes
             .brackets
             .as_ref()
-            .filter(|_| !templates)
-            .and_then(|cfg| brackets::edit_sites(cfg, input.text()));
+            .and_then(|cfg| brackets::format_sites(cfg, input));
         let mut comma_edits = Vec::new();
         let mut closing_edits = Vec::new();
         let mut depth = 0usize;
@@ -656,9 +619,27 @@ impl Presentation {
                         at,
                         &mut comma_edits,
                     );
-                    if presentation.drops_comma(
-                        input,
-                        passes,
+                    let closing = commas::Closing::new(
+                        passes.commas,
+                        passes.preserve_events,
+                        braces::closing_policy(
+                            passes.braces.as_ref(),
+                            Guard::permission(
+                                presentation.guard.as_deref(),
+                                braces::ID,
+                            ),
+                        ),
+                        brackets::closing_policy(
+                            passes.brackets.as_ref(),
+                            Guard::permission(
+                                presentation.guard.as_deref(),
+                                brackets::ID,
+                            ),
+                        ),
+                        Guard::permission(presentation.guard.as_deref(), commas::ID),
+                    );
+                    if closing.select(
+                        input.text(),
                         at,
                         &mut comma_edits,
                         &mut closing_edits,
@@ -670,10 +651,15 @@ impl Presentation {
                 _ => {}
             }
         }
-        presentation
-            .extend_spaces(commas::ID, separate_keys(input.text(), comma_edits));
+        presentation.extend_spaces(
+            commas::ID,
+            crate::rules::support::token_spacing::separate_keys(
+                input.text(),
+                comma_edits,
+            ),
+        );
         let close = |edits: Vec<crate::rules::support::token_spacing::SpaceEdit>| {
-            separate_keys(
+            crate::rules::support::token_spacing::separate_keys(
                 input.text(),
                 edits
                     .into_iter()
@@ -683,87 +669,19 @@ impl Presentation {
                     .collect(),
             )
         };
-        if let Some(edits) = braces {
-            presentation.extend_spaces(braces::ID, close(edits.finish()));
-        }
-        if let Some(edits) = brackets {
-            presentation.extend_spaces(brackets::ID, close(edits.finish()));
-        }
-        if templates && let Some(cfg) = &passes.brackets {
-            presentation.extend(brackets::ID, brackets::edits(input, cfg));
+        for (rule, edits) in [(braces::ID, braces), (brackets::ID, brackets)] {
+            if let Some(edits) = edits {
+                match edits.finish() {
+                    crate::rules::support::flow_collection::FormattedEdits::Spaces(
+                        edits,
+                    ) => presentation.extend_spaces(rule, close(edits)),
+                    crate::rules::support::flow_collection::FormattedEdits::Text(
+                        edits,
+                    ) => presentation.extend(rule, edits),
+                }
+            }
         }
         presentation.settle().map(|()| presentation)
-    }
-
-    /// Whether the comma at `at` goes: always before a closing bracket when formatting,
-    /// and in a lint fix where the closing rule contradicts the commas spacing; a gap the
-    /// closing rule owns otherwise joins `closing_edits`.
-    fn drops_comma(
-        &self,
-        input: Analysis<'_>,
-        passes: &Passes<'_>,
-        at: usize,
-        comma_edits: &mut [crate::rules::support::token_spacing::SpaceEdit],
-        closing_edits: &mut Vec<(BytePos, BytePos)>,
-    ) -> bool {
-        if passes.preserve_events && closes_after(input.text().as_bytes(), at + 1) {
-            return true;
-        }
-        let Some(edit) = comma_edits.last_mut().filter(|edit| edit.0.get() == at + 1)
-        else {
-            return false;
-        };
-        let contradicts = self.closing_comma(input, passes, edit);
-        if contradicts == Some(false) {
-            closing_edits.push((edit.0, edit.1));
-        }
-        contradicts == Some(true)
-    }
-
-    /// Whether the commas spacing contradicts the closing bracket's, or `None` when the
-    /// closing rule does not own the gap `edit` respaces to its own target.
-    fn closing_comma(
-        &self,
-        input: Analysis<'_>,
-        passes: &Passes<'_>,
-        edit: &mut crate::rules::support::token_spacing::SpaceEdit,
-    ) -> Option<bool> {
-        let (cfg, rule) = match input.text().as_bytes().get(edit.1.get()) {
-            Some(b'}') => (
-                passes
-                    .braces
-                    .as_ref()
-                    .filter(|cfg| cfg.forbid() == braces::Forbid::None)
-                    .map(|cfg| (cfg.min_spaces_inside(), cfg.max_spaces_inside())),
-                braces::ID,
-            ),
-            Some(b']') => (
-                passes
-                    .brackets
-                    .as_ref()
-                    .filter(|cfg| cfg.forbid() == brackets::Forbid::None)
-                    .map(|cfg| (cfg.min_spaces_inside(), cfg.max_spaces_inside())),
-                brackets::ID,
-            ),
-            _ => return None,
-        };
-        let (minimum, maximum) = cfg?;
-        if self.guard.as_ref().is_some_and(|guard| {
-            !guard.allows(rule, edit.0, edit.1)
-                || !guard.allows(commas::ID, edit.0, edit.1)
-        }) {
-            return None;
-        }
-        edit.2 = crate::rules::support::punctuation::target_spacing(
-            edit.2, minimum, maximum,
-        );
-        Some(passes.commas.is_some_and(|cfg| {
-            crate::rules::support::punctuation::target_spacing(
-                edit.2,
-                cfg.min_spaces_after(),
-                cfg.max_spaces_after(),
-            ) != edit.2
-        }))
     }
 
     fn extend(&mut self, rule: &'static str, mut edits: Vec<Edit>) {
@@ -875,7 +793,9 @@ impl Presentation {
             targets.refused.clear();
         }
         merge_frozen(&mut targets.refused, frozen);
-        if passes.final_newline.is_some() && drops_final_break(input) {
+        if passes.final_newline.is_some()
+            && quoted_strings::protection::drops_final_break(input)
+        {
             return Err(Fallback::Verification);
         }
         if !targets.refused.iter().any(Option::is_some) {
@@ -907,7 +827,12 @@ impl Presentation {
                 false
             });
             let kept = layout.keep_refused(&refused, &self.edits);
-            *targets = layout.targets(cfg, &self.edits, passes.line_length.is_some());
+            *targets = layout.targets(
+                cfg,
+                &self.edits,
+                &self.styles,
+                passes.line_length.is_some(),
+            );
             targets.refused.clone_from(&refused);
             if !kept
                 || (!cfg.requires_consistency()
@@ -917,7 +842,8 @@ impl Presentation {
             {
                 break kept;
             }
-            violations = layout.target_violations(cfg, targets, &self.edits);
+            violations =
+                layout.target_violations(cfg, targets, &self.edits, &self.styles);
             if !cfg.requires_consistency()
                 || !layout.refuse_violated(&violations, &mut refused)
             {
@@ -984,6 +910,7 @@ impl Presentation {
                 let mut targets = layout.targets(
                     cfg,
                     &presentation.edits,
+                    &presentation.styles,
                     passes.line_length.is_some(),
                 );
                 presentation.align_trailing_comments(
@@ -1012,7 +939,7 @@ impl Presentation {
             return Err(Fallback::ScalarInteraction);
         }
         layout
-            .stream_targets(cfg, &presentation.edits, passes)
+            .stream_targets(cfg, &presentation.edits, &presentation.styles, passes)
             .and_then(|(targets, spacing)| {
                 for site in spacing {
                     let dash = site.indicator
@@ -1065,13 +992,13 @@ impl Presentation {
         if !layout.shaped {
             return;
         }
-        let split = layout.split_starts();
+        let split = layout.split_targets();
         self.edits.retain(|&(from, to, ref replacement)| {
             let Replacement::Spaces(spaces) = *replacement else {
                 return true;
             };
-            let kept = !input.text()[..from.get()].ends_with('-')
-                || split.binary_search(&to.get()).is_err();
+            let kept =
+                split.keeps_gap(&hyphens::retained_before(input.text(), from), to);
             if !kept {
                 layout.reshaped.push((from, to, spaces));
             }
@@ -1142,12 +1069,11 @@ impl Presentation {
     }
 }
 
-impl<'a> DocumentPlan<'a> {
-    fn new(
+impl<'a> LayoutCandidates<'a> {
+    fn observe(
         input: Analysis<'a>,
         passes: &Passes<'_>,
         quotes: &mut HashMap<String, Option<bool>>,
-        frozen: Option<&[Option<indentation::Cause>]>,
     ) -> Result<Self, Fallback> {
         stats::count(stats::Counter::Plan);
         let cfg = passes.indentation.unwrap_or_else(|| {
@@ -1162,30 +1088,62 @@ impl<'a> DocumentPlan<'a> {
         } else {
             Presentation::stream(input, passes, quotes, &cfg)
         };
-        planned.and_then(|(mut layout, mut targets, mut presentation)| {
-            presentation
-                .retain_documents(
-                    input,
-                    passes,
-                    &mut layout,
-                    &mut targets,
-                    &cfg,
-                    frozen,
-                )
-                .and_then(|violations| {
-                    let (targets, refused) = targets.settle(&layout);
-                    Self::assemble(
-                        input,
-                        passes,
-                        layout,
-                        targets,
-                        presentation,
-                        (refused, violations),
-                    )
-                })
+        planned.map(|(layout, targets, presentation)| Self {
+            input,
+            layout,
+            targets,
+            presentation,
+            config: cfg,
         })
     }
 
+    fn settle(
+        self,
+        passes: &Passes<'_>,
+        frozen: Option<&[Option<indentation::Cause>]>,
+    ) -> Result<LayoutTargets<'a>, Fallback> {
+        let Self {
+            input,
+            mut layout,
+            mut targets,
+            mut presentation,
+            config,
+        } = self;
+        let violations = presentation.retain_documents(
+            input,
+            passes,
+            &mut layout,
+            &mut targets,
+            &config,
+            frozen,
+        )?;
+        let (targets, refused) = targets.settle(&layout);
+        DocumentPlan::assemble(
+            input,
+            passes,
+            layout,
+            targets,
+            presentation,
+            (refused, violations),
+        )
+    }
+}
+
+impl<'a> EmitPlan<'a> {
+    fn new(
+        input: Analysis<'a>,
+        passes: &Passes<'_>,
+        quotes: &mut HashMap<String, Option<bool>>,
+        frozen: Option<&[Option<indentation::Cause>]>,
+    ) -> Result<Self, Fallback> {
+        LayoutCandidates::observe(input, passes, quotes)?
+            .settle(passes, frozen)?
+            .finish_lines(passes)?
+            .fold(passes)
+    }
+}
+
+impl<'a> DocumentPlan<'a> {
     fn assemble(
         input: Analysis<'a>,
         passes: &Passes<'_>,
@@ -1196,7 +1154,7 @@ impl<'a> DocumentPlan<'a> {
             Vec<indentation::Refusal>,
             Vec<indentation::Violation>,
         ),
-    ) -> Result<Self, Fallback> {
+    ) -> Result<LayoutTargets<'a>, Fallback> {
         let Presentation {
             edits,
             styles,
@@ -1238,7 +1196,7 @@ impl<'a> DocumentPlan<'a> {
                 rules.push(new_lines::ID);
             }
         }
-        let mut plan = Self {
+        let plan = Self {
             input,
             layout,
             targets,
@@ -1255,7 +1213,7 @@ impl<'a> DocumentPlan<'a> {
             inconsistent,
             guard,
         };
-        plan.finish(passes).map(|()| plan)
+        Ok(LayoutTargets(plan))
     }
 
     fn trim(&mut self, passes: &Passes<'_>) {
@@ -1304,7 +1262,7 @@ impl<'a> DocumentPlan<'a> {
                     boundaries.push(edit);
                     continue;
                 }
-                if !blank_whitespace_line(input, layout, edit.0) {
+                if !blank_whitespace_line(input, layout, &self.targets, edit.0) {
                     edits.push(plan_edit(edit));
                 }
             }
@@ -1313,8 +1271,10 @@ impl<'a> DocumentPlan<'a> {
 
     fn markers(&mut self, passes: &Passes<'_>) {
         let final_newline = self.final_newline_enabled(passes)
-            || (self.layout.lines.len() > 1
-                && self.layout.lines.last().is_some_and(VirtualLine::is_empty));
+            || empty_lines::retains_final_blank(
+                (0..self.layout.lines.len())
+                    .map(|index| self.layout.geometry(index, &self.targets)),
+            );
         let keep_magic = !self.magic.changed();
         let input = self.input;
 
@@ -1342,26 +1302,24 @@ impl<'a> DocumentPlan<'a> {
             }
             for mut edit in next {
                 if edit.0 != edit.1 {
-                    blank_whitespace_line(input, &mut self.layout, edit.0);
+                    blank_whitespace_line(
+                        input,
+                        &mut self.layout,
+                        &self.targets,
+                        edit.0,
+                    );
                     continue;
                 }
                 if rule == document_start::ID {
-                    attach_marker_bom(input, &mut self.layout, edit.0);
+                    attach_marker_bom(input, &mut self.layout, &self.targets, edit.0);
                 }
                 if rule == document_start::ID
                     && let Some(guard) = &mut self.guard
                 {
                     guard.add_start(input, edit.0);
                 }
-                if rule == document_end::ID
-                    && final_newline
-                    && edit.0.get() == input.text().len()
-                    && !input.text().ends_with(['\n', '\r'])
-                {
-                    let ending = crate::rules::support::line_syntax::buffer_newline(
-                        input.text(),
-                    );
-                    edit.2 = edit.2.strip_prefix(ending).unwrap_or(&edit.2).to_string();
+                if rule == document_end::ID {
+                    edit = document_end::finalize_boundary(input, edit, final_newline);
                 }
                 boundaries.push(edit);
             }
@@ -1369,88 +1327,15 @@ impl<'a> DocumentPlan<'a> {
     }
 
     fn final_newline_enabled(&self, passes: &Passes<'_>) -> bool {
-        passes.final_newline.is_some()
-            && self.guard.as_ref().is_none_or(|guard| {
-                let eof = crate::rules::support::span_utils::BytePos::new(
-                    self.input.text().len(),
-                );
-                guard.allows(crate::rules::new_line_at_end_of_file::ID, eof, eof)
-            })
-    }
-
-    fn finish(&mut self, passes: &Passes<'_>) -> Result<(), Fallback> {
-        let final_newline = self.final_newline_enabled(passes)
-            && self
-                .layout
-                .lines
-                .iter()
-                .enumerate()
-                .rev()
-                .find(|(index, line)| {
-                    !line.ending.is_empty()
-                        || !line.body.is_empty()
-                        || !line.tail.is_empty()
-                        || line.bom
-                        || line
-                            .prefix
-                            .saturating_add_signed(self.targets.deltas()[*index])
-                            > 0
-                })
-                .is_some_and(|(_, line)| line.ending.is_empty());
-        if final_newline {
-            let last = self
-                .layout
-                .lines
-                .last_mut()
-                .expect("nonempty input has a line");
-            last.ending = match passes
-                .final_newline
-                .as_ref()
-                .expect("the final-newline policy is enabled")
-                .newline(self.input.text())
-            {
-                "\r\n" => "\r\n",
-                "\r" => "\r",
-                _ => "\n",
-            };
-            let allowed = self
-                .guard
-                .as_ref()
-                .is_none_or(|guard| guard.line(new_lines::ID, last.origin));
-            last.ending = self.endings.line(last.ending, allowed);
-            self.rules.push(crate::rules::new_line_at_end_of_file::ID);
-        }
-        self.trim(passes);
-        self.markers(passes);
-        self.boundaries.sort_by_key(|(start, _, _)| start.get());
-        if let Some(cfg) = passes.empty_lines {
-            self.empty_lines(&cfg);
-        }
-        let edits = &mut self.edits;
-        let boundaries = &mut self.boundaries;
-        let rules = &mut self.rules;
-        edits.sort_by_key(|(start, end, _)| (start.get(), end.get()));
-        edits.dedup();
-        let disjoint = !edits.windows(2).any(|pair| {
-            pair[0].1 > pair[1].0 || (pair[0].0 == pair[1].0 && pair[1].0 == pair[1].1)
-        });
-        boundaries.sort_by_key(|(start, _, _)| start.get());
-        self.dirty = !rules.is_empty();
-        self.finish_endings();
-        disjoint
-            .then_some(())
-            .ok_or(Fallback::Overlap)
-            .and_then(|()| {
-                passes.line_length.map_or(Ok(()), |cfg| {
-                    self.plan_folds(cfg, passes.indentation.is_some())
-                })
-            })
-            .map(|()| {
-                if !self.folds.is_empty() {
-                    self.rules.push(crate::rules::line_length::ID);
-                    self.dirty = true;
-                }
-            })
+        crate::rules::new_line_at_end_of_file::requirement(
+            self.input.text(),
+            passes.final_newline.as_ref(),
+            Guard::permission(
+                self.guard.as_deref(),
+                crate::rules::new_line_at_end_of_file::ID,
+            ),
+        )
+        .enabled()
     }
 
     fn empty_lines(&mut self, cfg: &empty_lines::Config) {
@@ -1462,14 +1347,12 @@ impl<'a> DocumentPlan<'a> {
         for line in &self.layout.lines {
             empty[line.origin] = line.is_empty();
         }
-        let protected =
-            empty_lines::preserved_scalar_lines_with_empty(self.input, |line| {
-                empty[line]
-            })
-            .expect("layout input has a complete parse");
-        let maximum = |seen| if seen { cfg.max() } else { cfg.max_start() };
-        let mut run = Vec::new();
-        let mut seen = false;
+        let protected = empty_lines::preserved_scalar_lines_with_empty(
+            self.input,
+            &empty_lines::BlankLines::selected(&empty),
+        )
+        .expect("layout input has a complete parse");
+        let mut runs = empty_lines::Runs::new(*cfg, &protected);
         let mut boundary = 0;
         for (index, line) in self.layout.lines.iter().enumerate() {
             let at =
@@ -1483,11 +1366,9 @@ impl<'a> DocumentPlan<'a> {
                     self.input,
                     &self.layout.lines,
                     &mut self.removed,
-                    &mut run,
-                    maximum(seen),
+                    runs.marker(),
                     self.guard.as_deref(),
                 );
-                seen = true;
                 while self
                     .boundaries
                     .get(boundary)
@@ -1496,44 +1377,32 @@ impl<'a> DocumentPlan<'a> {
                     boundary += 1;
                 }
             }
-            // A marker on a BOM-only line leaves the rest of that line blank.
-            let blank = line.is_empty()
-                || (marker && line.bom && line.prefix == 0 && line.body.is_empty());
-            if blank && !protected[line.origin] {
-                if line.ending.is_empty() {
-                    continue;
-                }
-                run.push(index);
-                continue;
-            }
+            let initial = empty_lines::projected(
+                &self.layout.geometry(index, &self.targets),
+                marker,
+            );
             remove_blanks(
                 self.input,
                 &self.layout.lines,
                 &mut self.removed,
-                &mut run,
-                maximum(seen),
+                runs.line(index, initial),
                 self.guard.as_deref(),
             );
-            seen |= !line.is_empty();
         }
-        let maximum = if boundary < self.boundaries.len() {
-            maximum(seen)
-        } else {
-            cfg.max_end()
-        };
         remove_blanks(
             self.input,
             &self.layout.lines,
             &mut self.removed,
-            &mut run,
-            maximum,
+            runs.finish(boundary < self.boundaries.len()),
             self.guard.as_deref(),
         );
         if !self.removed.is_empty() {
             self.rules.push(empty_lines::ID);
         }
     }
+}
 
+impl DocumentPlan<'_> {
     fn removed(&self, line_start: usize) -> bool {
         self.removed
             .get(
@@ -1542,7 +1411,9 @@ impl<'a> DocumentPlan<'a> {
             )
             .is_some_and(|range| range.start <= line_start)
     }
+}
 
+impl DocumentPlan<'_> {
     fn kept(&self) -> Kept {
         let refused = &self.targets.refused();
         if self.layout.kept_dash_lines.is_empty()
@@ -1617,7 +1488,7 @@ impl<'a> DocumentPlan<'a> {
         let place = |(line, column): (usize, usize)| (lines[line - 1] + 1, column);
         (
             self.layout
-                .kept_dash_targets(&self.targets, &self.edits)
+                .kept_dash_targets(&self.targets, &self.edits, &self.styles)
                 .into_iter()
                 .map(place)
                 .collect(),
@@ -1628,7 +1499,9 @@ impl<'a> DocumentPlan<'a> {
                 .collect(),
         )
     }
+}
 
+impl DocumentPlan<'_> {
     fn finish_endings(&mut self) {
         if !self.endings.normalizes() {
             return;
@@ -1641,7 +1514,9 @@ impl<'a> DocumentPlan<'a> {
             *text = self.endings.boundary(std::mem::take(text), allowed);
         }
     }
+}
 
+impl DocumentPlan<'_> {
     fn emit(&self) -> Result<String, Fallback> {
         let mut output = String::with_capacity(self.input.text().len());
         let fold_newline = self.endings.folding();
@@ -1704,7 +1579,9 @@ impl<'a> DocumentPlan<'a> {
             output
         })
     }
+}
 
+impl DocumentPlan<'_> {
     fn visit_body<'s>(
         &'s self,
         index: usize,
@@ -1728,10 +1605,7 @@ impl<'a> DocumentPlan<'a> {
     }
 
     fn prefix(&self, index: usize) -> usize {
-        let line = &self.layout.lines[index];
-        line.prefix
-            .saturating_add_signed(self.targets.deltas()[index])
-            * usize::from(!line.is_empty())
+        self.layout.geometry(index, &self.targets).prefix()
     }
 
     fn byte_on_line(
@@ -1793,7 +1667,9 @@ impl<'a> DocumentPlan<'a> {
         }
         position
     }
+}
 
+impl DocumentPlan<'_> {
     /// Folds each long scalar; one whose line keeps its source indentation continues under
     /// its source owner rather than its target one.
     fn plan_folds(
@@ -1828,7 +1704,7 @@ impl<'a> DocumentPlan<'a> {
     fn plan_scalar_fold(
         &mut self,
         range: std::ops::Range<usize>,
-        style: ScalarStyle,
+        style: quoted_strings::LayoutStyle,
         frozen_owner: Option<usize>,
         cfg: crate::rules::line_length::Fold,
         projection: &projection::Projection,
@@ -1839,18 +1715,12 @@ impl<'a> DocumentPlan<'a> {
                 .partition_point(|&start| start <= byte)
                 .saturating_sub(1)
         };
-        let quote_width = |style| {
-            usize::from(matches!(
-                style,
-                ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
-            ))
-        };
-        let full = range.start - quote_width(style)..range.end + quote_width(style);
+        let full = range.start - style.quote_width()..range.end + style.quote_width();
         if full.is_empty() {
             return Ok(());
         }
-        let style = self.styles.at(full.start).unwrap_or(style);
-        let quotes = quote_width(style);
+        let style = self.styles.layout_at(full.start).unwrap_or(style);
+        let quotes = style.quote_width();
         let first = self.layout.project_line(line_of(full.start), full.start);
         let last = self
             .layout
@@ -1867,7 +1737,13 @@ impl<'a> DocumentPlan<'a> {
                         .map_or(0, |index| self.targets.scalar_owners()[index].1)
                 });
                 let existing = (first + 1..=last)
-                    .find(|&line| !self.layout.lines[line].body.trim().is_empty())
+                    .find(|&line| {
+                        !self
+                            .layout
+                            .geometry(line, &self.targets)
+                            .scalar_content()
+                            .blank()
+                    })
                     .map(|line| self.prefix(line))
                     .filter(|&prefix| prefix > 0);
                 let candidate = folding::ScalarCandidate {
@@ -1881,41 +1757,24 @@ impl<'a> DocumentPlan<'a> {
                 let Some(target) = candidate.settle(cfg) else {
                     return Ok(());
                 };
-                let source = self.input.text();
+                let directive =
+                    comments::directive_tail(self.input, BytePos::new(full.end));
                 let site = FoldSite {
                     quotes,
                     tail: folding::Tail {
-                        ends_in_break: source[..full.end].ends_with(['\n', '\r']),
-                        directive: source[full.end..]
-                            .split(['\r', '\n'])
-                            .next()
-                            .and_then(|rest| rest.split_once('#'))
-                            .is_some_and(|(_, comment)| {
-                                crate::directives::directive_scope(comment).is_some()
-                            }),
-                        guarded_directive: self.guard.is_some()
-                            && self.has_directive_tail(&full),
+                        ends_in_break: quoted_strings::retained_tail(
+                            self.input.text(),
+                            BytePos::new(full.end),
+                        )
+                        .ends_in_break(),
+                        directive: directive.inline(),
+                        guarded_directive: self.guard.is_some() && directive.guarded(),
                     },
                     full,
                 };
                 (first..=last).try_for_each(|index| {
                     self.plan_fold_line(index, &site, &target, projection)
                 })
-            })
-    }
-
-    fn has_directive_tail(&self, full: &std::ops::Range<usize>) -> bool {
-        let origin = self
-            .input
-            .byte_line_starts()
-            .partition_point(|&at| at < full.end)
-            .saturating_sub(1);
-        self.input
-            .line_content(origin)
-            .get(full.end - self.input.byte_line_starts()[origin]..)
-            .and_then(|text| text.split_once('#'))
-            .is_some_and(|(_, comment)| {
-                crate::directives::directive_scope(comment).is_some()
             })
     }
 
@@ -1926,20 +1785,14 @@ impl<'a> DocumentPlan<'a> {
         target: &folding::ScalarTarget,
         projection: &projection::Projection,
     ) -> Result<(), Fallback> {
-        let line = &self.layout.lines[index];
+        let line = self.layout.geometry(index, &self.targets);
         let geometry = folding::Geometry {
             index,
-            prefix: self.prefix(index),
-            bom: line.bom,
-            content: if line.body.is_empty() {
-                folding::Content::Empty
-            } else if line.body.starts_with([' ', '\t']) {
-                folding::Content::Whitespace
-            } else {
-                folding::Content::Text
-            },
+            prefix: line.prefix(),
+            bom: line.bom(),
+            content: line.scalar_content().kind(),
             allowed: self.guard.as_ref().is_none_or(|guard| {
-                guard.line(crate::rules::line_length::ID, line.origin)
+                guard.line(crate::rules::line_length::ID, line.origin())
             }),
             guarded_directive_tail: site.tail.guarded_directive,
         };
@@ -1957,9 +1810,10 @@ impl<'a> DocumentPlan<'a> {
                             .map(|end| end - site.quotes)
                     })
                     .flatten();
+                let content = folding::selected_line(&geometry, parts);
                 target.plan_line(folding::Line {
                     geometry,
-                    parts,
+                    content,
                     scalar_end,
                     ends_in_break: site.tail.ends_in_break,
                     directive_tail: site.tail.directive,
@@ -1967,46 +1821,6 @@ impl<'a> DocumentPlan<'a> {
             });
         result.map(|breaks| self.folds.extend(breaks))
     }
-}
-
-/// Whether `input` ends in an unterminated whitespace-only line, no wider than its
-/// indentation indicator and not its first body line, of a keep-chomped root block
-/// scalar. ryl's parser takes a root node's indentation as 0 where the spec has -1, so it
-/// reads that line as empty and a final newline would change the value it reads.
-fn drops_final_break(input: Analysis<'_>) -> bool {
-    let Some(width) = input
-        .text()
-        .rsplit(['\n', '\r'])
-        .next()
-        .filter(|line| line.trim().is_empty())
-        .map(str::len)
-        .filter(|&width| width > 0)
-    else {
-        return false;
-    };
-    let rooted = input
-        .event_values()
-        .zip(input.event_values().skip(1))
-        .filter(|(_, event)| {
-            matches!(
-                event,
-                Event::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded, ..)
-            )
-        })
-        .last()
-        .is_some_and(|(before, _)| matches!(before, Event::DocumentStart(..)));
-    rooted
-        && input.headers().last().is_some_and(|header| {
-            let line = input.line_content(header.line - 1);
-            header.chomping == Some('+')
-                && header.line + 1 < input.line_count()
-                && line
-                    .chars()
-                    .skip(header.column)
-                    .find(|&ch| ch != '+')
-                    .and_then(|ch| ch.to_digit(10))
-                    .is_some_and(|indent| width <= indent as usize)
-        })
 }
 
 fn merge_frozen(
@@ -2022,6 +1836,7 @@ fn merge_frozen(
 fn blank_whitespace_line(
     input: Analysis<'_>,
     layout: &mut indentation::Layout<'_>,
+    targets: &indentation::Targets,
     at: crate::rules::support::span_utils::BytePos,
 ) -> bool {
     let original = input
@@ -2029,9 +1844,8 @@ fn blank_whitespace_line(
         .partition_point(|&start| start <= at.get())
         - 1;
     let index = layout.project_line(original, at.get());
+    let blank = trailing_spaces::clears_line(&layout.geometry(index, targets));
     let line = &mut layout.lines[index];
-    let blank = line.tail.is_empty()
-        && line.body.bytes().all(|byte| matches!(byte, b' ' | b'\t'));
     if blank {
         line.prefix = 0;
         line.body = &line.body[..0];
@@ -2042,6 +1856,7 @@ fn blank_whitespace_line(
 fn attach_marker_bom(
     input: Analysis<'_>,
     layout: &mut indentation::Layout<'_>,
+    targets: &indentation::Targets,
     at: crate::rules::support::span_utils::BytePos,
 ) {
     let original = input
@@ -2049,8 +1864,12 @@ fn attach_marker_bom(
         .partition_point(|&byte| byte <= at.get())
         - 1;
     let index = layout.project_line(original, at.get());
+    let attach = document_start::attaches_bom(
+        &layout.geometry(index, targets),
+        at.get() - input.byte_line_starts()[original],
+    );
     let line = &mut layout.lines[index];
-    if !line.bom && at.get() == input.byte_line_starts()[original] + 3 {
+    if attach {
         line.body = line
             .body
             .strip_prefix('\u{feff}')
@@ -2064,26 +1883,13 @@ fn folded_tail_interacts(
     layout: &indentation::Layout<'_>,
     targets: &indentation::Targets,
 ) -> bool {
-    if input.text().ends_with(['\n', '\r']) {
-        return false;
-    }
-    input
-        .get_line(input.line_count().saturating_sub(1))
-        .is_some_and(|line| line.bytes().all(|byte| byte == b' '))
-        && input
-            .line_contents_from(0)
-            .rev()
-            .take_while(|line| line.trim_matches([' ', '\t']).is_empty())
-            .take(2)
-            .count()
-            == 2
-        && input.headers().last().is_some_and(|header| {
-            let line = header.line - 1;
-            input.line_content(line).chars().nth(header.column - 1) == Some('>')
-                && targets.deltas()
-                    [layout.project_line(line, input.byte_line_starts()[line])]
-                    < 0
-        })
+    quoted_strings::protection::folded_tail(input).is_some_and(|header| {
+        let line = input
+            .byte_line_starts()
+            .partition_point(|&start| start <= header.get())
+            - 1;
+        targets.dedents_line(layout.project_line(line, header.get()))
+    })
 }
 
 fn multiline_edits(
@@ -2133,13 +1939,11 @@ fn remove_blanks(
     input: Analysis<'_>,
     lines: &[VirtualLine<'_>],
     removed: &mut Vec<std::ops::Range<usize>>,
-    run: &mut Vec<usize>,
-    maximum: i64,
+    run: &[usize],
     guard: Option<&Guard>,
 ) {
-    let keep = usize::try_from(maximum).unwrap_or(0);
     if let Some(guard) = guard {
-        for &index in run.iter().skip(keep) {
+        for &index in run {
             let origin = lines[index].origin;
             if !guard.line(empty_lines::ID, origin) {
                 continue;
@@ -2158,7 +1962,7 @@ fn remove_blanks(
                 removed.push(start..end);
             }
         }
-    } else if let Some(&first) = run.get(keep) {
+    } else if let Some(&first) = run.first() {
         let first = lines[first].origin;
         let last = lines[*run.last().expect("a removed blank run is nonempty")].origin;
         let start = input.byte_line_starts()[first];
@@ -2169,7 +1973,6 @@ fn remove_blanks(
             .unwrap_or(input.text().len());
         removed.push(start..end);
     }
-    run.clear();
 }
 
 pub(crate) struct Bridge {
@@ -2249,23 +2052,6 @@ pub(crate) fn lines<'a>(input: Analysis<'a>, starts: &[usize]) -> Vec<VirtualLin
         .collect()
 }
 
-fn discarded_dash_spacing(
-    source: &str,
-    line: &VirtualLine<'_>,
-    from: usize,
-    to: usize,
-) -> bool {
-    line.bridge.is_none()
-        && line.body.ends_with('-')
-        && from
-            == line.body.as_ptr() as usize - source.as_ptr() as usize + line.body.len()
-        && (line.tail.is_empty()
-            || to <= line.tail.as_ptr() as usize - source.as_ptr() as usize)
-        && source[from..to]
-            .bytes()
-            .all(|byte| byte.is_ascii_whitespace())
-}
-
 fn visit_body<'a>(
     source: &'a str,
     line: &VirtualLine<'a>,
@@ -2343,7 +2129,7 @@ fn visit_body<'a>(
                             return Ok(());
                         }
                         if from.get() < start || to.get() > end {
-                            return discarded_dash_spacing(
+                            return indentation::discards_gap(
                                 source,
                                 line,
                                 from.get(),
@@ -2378,4 +2164,72 @@ pub(crate) fn emit_line(
     visit_body(source, line, gaps, &[], |part| part.append(text))
         .expect("indentation gaps belong to their virtual line");
     text.push_str(line.ending);
+}
+
+impl<'a> LayoutTargets<'a> {
+    fn finish_lines(
+        mut self,
+        passes: &Passes<'_>,
+    ) -> Result<LineTargets<'a>, Fallback> {
+        let final_newline = crate::rules::new_line_at_end_of_file::requirement(
+            self.0.input.text(),
+            passes.final_newline.as_ref(),
+            Guard::permission(
+                self.0.guard.as_deref(),
+                crate::rules::new_line_at_end_of_file::ID,
+            ),
+        )
+        .select(
+            (0..self.0.layout.lines.len())
+                .map(|index| self.0.layout.geometry(index, &self.0.targets)),
+        );
+        if let Some(final_newline) = final_newline {
+            let last = self
+                .0
+                .layout
+                .lines
+                .last_mut()
+                .expect("nonempty input has a line");
+            last.ending = final_newline.materialize();
+            let allowed = self
+                .0
+                .guard
+                .as_ref()
+                .is_none_or(|guard| guard.line(new_lines::ID, last.origin));
+            last.ending = self.0.endings.line(last.ending, allowed);
+            self.0.rules.push(crate::rules::new_line_at_end_of_file::ID);
+        }
+        self.0.trim(passes);
+        self.0.markers(passes);
+        self.0.boundaries.sort_by_key(|(start, _, _)| start.get());
+        if let Some(cfg) = passes.empty_lines {
+            self.0.empty_lines(&cfg);
+        }
+        let edits = &mut self.0.edits;
+        let boundaries = &mut self.0.boundaries;
+        let rules = &mut self.0.rules;
+        edits.sort_by_key(|(start, end, _)| (start.get(), end.get()));
+        edits.dedup();
+        let disjoint = !edits.windows(2).any(|pair| {
+            pair[0].1 > pair[1].0 || (pair[0].0 == pair[1].0 && pair[1].0 == pair[1].1)
+        });
+        boundaries.sort_by_key(|(start, _, _)| start.get());
+        self.0.dirty = !rules.is_empty();
+        self.0.finish_endings();
+        disjoint.then_some(()).ok_or(Fallback::Overlap)?;
+        Ok(LineTargets(self.0))
+    }
+}
+
+impl<'a> LineTargets<'a> {
+    fn fold(mut self, passes: &Passes<'_>) -> Result<EmitPlan<'a>, Fallback> {
+        if let Some(cfg) = passes.line_length {
+            self.0.plan_folds(cfg, passes.indentation.is_some())?;
+        }
+        if !self.0.folds.is_empty() {
+            self.0.rules.push(crate::rules::line_length::ID);
+            self.0.dirty = true;
+        }
+        Ok(EmitPlan(self.0))
+    }
 }

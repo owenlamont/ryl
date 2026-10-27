@@ -4,13 +4,13 @@ use std::ops::RangeInclusive;
 
 use super::{
     Analyzer, Config, Gap, Kind, Mode, Shift,
-    input::{GapInitial, Initial},
+    input::{GapInitial, Initial, MappingSite},
     settlement::{Content, Refusals},
+    shape,
 };
 use crate::directives::Directives;
 use crate::format::layout::{VirtualLine, lines as virtual_lines};
 use crate::rules::hyphens;
-use crate::rules::support::line_syntax::buffer_newline;
 use crate::text_version::{Analysis, TextVersion};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +80,106 @@ pub(crate) struct Layout<'a> {
     protection: OnceCell<Option<crate::rules::trailing_spaces::Protection>>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum CollectionStatus {
+    Refused,
+    Inconsistent,
+}
+
+pub(crate) struct CollectionFeasibility(Option<Vec<Option<CollectionStatus>>>);
+
+impl CollectionFeasibility {
+    pub(crate) fn observe(input: Analysis<'_>, cfg: &Config, consistent: bool) -> Self {
+        let mut layout = Layout::new(input, cfg);
+        let candidates = layout.retained_candidates(cfg);
+        Self(candidates.map(|mut candidates| {
+            let styles = crate::rules::quoted_strings::Styles::default();
+            let violations = if cfg.require_consistent || consistent {
+                layout.target_violations(cfg, &candidates, &[], &styles)
+            } else {
+                Vec::new()
+            };
+            if cfg.require_consistent {
+                layout.refuse_violated(&violations, &mut candidates.refused);
+            }
+            let mut documents: Vec<_> = candidates
+                .refused
+                .iter()
+                .map(|cause| cause.map(|_| CollectionStatus::Refused))
+                .collect();
+            if consistent {
+                for violation in violations {
+                    let origin = layout.lines[violation.line - 1].origin;
+                    let document =
+                        layout.starts.partition_point(|&start| start <= origin) - 1;
+                    documents[document].get_or_insert(CollectionStatus::Inconsistent);
+                }
+            }
+            documents
+        }))
+    }
+
+    pub(crate) fn document(&self, index: usize) -> Option<CollectionStatus> {
+        self.0.as_ref().and_then(|documents| documents[index])
+    }
+}
+
+pub(crate) struct Width(usize);
+
+impl Width {
+    pub(crate) const fn characters(&self) -> usize {
+        self.0
+    }
+}
+
+pub(crate) struct CollectionGeometry<'a> {
+    source: Analysis<'a>,
+    config: Option<Config>,
+    layout: OnceCell<(Layout<'a>, Targets)>,
+}
+
+impl<'a> CollectionGeometry<'a> {
+    pub(crate) const fn new(source: Analysis<'a>, config: Option<Config>) -> Self {
+        Self {
+            source,
+            config,
+            layout: OnceCell::new(),
+        }
+    }
+
+    pub(crate) fn width(
+        &self,
+        at: crate::rules::support::span_utils::BytePos,
+        characters: usize,
+    ) -> Width {
+        let source = self.source.text();
+        let start = source[..at.get()]
+            .rfind(['\n', '\r'])
+            .map_or(0, |byte| byte + 1);
+        let width = source[start..at.get()].chars().count() + characters;
+        Width(self.config.map_or(width, |config| {
+            let (layout, targets) = self.layout.get_or_init(|| {
+                let mut layout = Layout::new(self.source, &config);
+                let candidates = layout.targets(
+                    &config,
+                    &[],
+                    &crate::rules::quoted_strings::Styles::default(),
+                    false,
+                );
+                let (targets, _) = candidates.settle(&layout);
+                (layout, targets)
+            });
+            let origin = self
+                .source
+                .byte_line_starts()
+                .partition_point(|&byte| byte <= at.get())
+                - 1;
+            let line = layout.project_line(origin, at.get());
+            width.saturating_add_signed(targets.deltas()[line])
+        }))
+    }
+}
+
 impl<'a> Layout<'a> {
     pub(crate) fn restyle(&mut self, styles: crate::rules::quoted_strings::Restyled) {
         self.restyled = styles;
@@ -115,7 +215,7 @@ impl<'a> Layout<'a> {
         let source = self.input.text();
         let starts = self.input.byte_line_starts();
         let mut collapses = Vec::new();
-        let mut compatible = true;
+        let mut selection = shape::Collapses::new();
         for (start, end, text) in edits {
             if !source[start.get()..end.get()].contains(['\n', '\r']) {
                 continue;
@@ -154,18 +254,21 @@ impl<'a> Layout<'a> {
                     ),
                 }),
             ));
-            compatible &= !text.piece().chars().any(|ch| matches!(ch, '\n' | '\r'))
-                && first <= last
-                && self.lines[first].tail.is_empty()
-                && self.lines[last].tail.is_empty()
-                && body_start <= start.get()
-                && start.get() <= body_start + self.lines[first].body.len()
-                && end.get() <= body_end;
+            selection.add(&super::input::Collapse {
+                first,
+                last,
+                body: body_start..body_end,
+                replacement: start.get()..end.get(),
+                first_body_end: body_start + self.lines[first].body.len(),
+                tails_empty: self.lines[first].tail.is_empty()
+                    && self.lines[last].tail.is_empty(),
+                flat: !text.piece().chars().any(|ch| matches!(ch, '\n' | '\r')),
+            });
         }
         if collapses.is_empty() {
             return true;
         }
-        if !compatible || collapses.windows(2).any(|pair| pair[0].1 >= pair[1].0) {
+        if !selection.accepts() {
             return false;
         }
         let original = std::mem::take(&mut self.lines);
@@ -294,13 +397,17 @@ impl<'a> Layout<'a> {
         if refused.is_empty() {
             return self.consistent(cfg);
         }
-        super::check_with_analysis(self.input, &cfg.with_consistent_spaces())
-            .iter()
-            .all(|problem| {
-                refused
-                    .iter()
-                    .any(|item| item.lines.contains(&problem.line))
-            })
+        let mut analyzer = Analyzer::new(
+            Initial::new(self.input.text(), &self.source_starts),
+            &cfg.with_consistent_spaces(),
+            Mode::Check,
+        );
+        analyzer.run(super::normalized_tokens(self.input, &self.source_starts));
+        analyzer.diagnostics.iter().all(|problem| {
+            refused
+                .iter()
+                .any(|item| item.lines.contains(&problem.line))
+        })
     }
 
     pub(crate) fn format(input: Analysis<'a>, cfg: &Config) -> Self {
@@ -324,17 +431,8 @@ impl<'a> Layout<'a> {
         }
         let kept_dash_lines = if parsed && streaming {
             cfg.dash_on_own_line.map_or_else(Vec::new, |own_line| {
-                // A one-column join stands in for the join after the re-indent moves
-                // the mapping `spaces` from its dash: none at width 1, and past width 2
-                // only where `hyphens` may trim the gap that leaves.
-                let spaced = |at: [usize; 2]| match cfg.spaces {
-                    super::SpacesSetting::Fixed(1) => false,
-                    super::SpacesSetting::Fixed(2) => true,
-                    _ => !at
-                        .iter()
-                        .any(|&line| directives.is_disabled(hyphens::ID, line + 1)),
-                };
-                reshape_events(input, &mut lines, own_line, &spaced)
+                let joins = shape::TightJoins::new(cfg.spaces, &directives);
+                reshape_events(input, &mut lines, own_line, &joins)
             })
         } else if parsed {
             reshape(
@@ -342,6 +440,7 @@ impl<'a> Layout<'a> {
                 &source_starts,
                 &mut lines,
                 cfg.dash_on_own_line,
+                cfg.spaces,
                 &directives,
             )
         } else {
@@ -369,13 +468,24 @@ impl<'a> Layout<'a> {
         layout
     }
 
+    fn retained_candidates(&mut self, cfg: &Config) -> Option<Candidates> {
+        self.parsed.then(|| {
+            self.targets(
+                cfg,
+                &[],
+                &crate::rules::quoted_strings::Styles::default(),
+                false,
+            )
+        })
+    }
+
     fn reindent_snapshot(
         &mut self,
         cfg: &Config,
     ) -> (Reindented, TextVersion<'static>) {
         let input = self.input;
         let buffer = input.text();
-        if !self.parsed {
+        let Some(mut candidates) = self.retained_candidates(cfg) else {
             return (
                 Reindented {
                     text: buffer.to_string(),
@@ -384,14 +494,18 @@ impl<'a> Layout<'a> {
                 },
                 TextVersion::new(buffer.to_string()),
             );
-        }
+        };
         let original_line_count = input.line_count();
+        let styles = crate::rules::quoted_strings::Styles::default();
+        if cfg.require_consistent {
+            self.settle_consistency(cfg, &mut candidates, &styles);
+        }
         let Candidates {
             deltas,
             gaps,
-            mut refused,
+            refused,
             ..
-        } = self.targets(cfg, &[], false);
+        } = candidates;
         let lines = &self.lines;
         let starts = &self.starts;
         let end_of = |index: usize| {
@@ -434,28 +548,27 @@ impl<'a> Layout<'a> {
                 || input.significant_events_match(output.analysis()),
             "re-indentation changed a document's events"
         );
-        if cfg.require_consistent {
-            let verified = if output.analysis().text() == buffer {
-                input
-            } else {
-                output.analysis()
-            };
-            refuse_inconsistent(verified, cfg, &mut refused);
-            let plan = output.analysis().plan(render(&refused));
-            output
-                .apply(plan)
-                .expect("consistency plan belongs to the current epoch");
-        }
         (
             self.result(output.to_string(), &refused, original_line_count),
             output,
         )
     }
 
+    fn settle_consistency(
+        &self,
+        cfg: &Config,
+        candidates: &mut Candidates,
+        styles: &crate::rules::quoted_strings::Styles,
+    ) {
+        let violations = self.target_violations(cfg, candidates, &[], styles);
+        self.refuse_violated(&violations, &mut candidates.refused);
+    }
+
     pub(crate) fn targets(
         &mut self,
         cfg: &Config,
         edits: &[crate::format::layout::PlanEdit],
+        styles: &crate::rules::quoted_strings::Styles,
         folding: bool,
     ) -> Candidates {
         let line_starts = self.line_starts();
@@ -466,13 +579,16 @@ impl<'a> Layout<'a> {
         );
         analyzer.scalar_owners = folding.then(Vec::new);
         let initial = GapInitial::new(&self.lines);
-        super::walk(self.projected(edits), |token, previous, next, after| {
-            let gap = analyzer.gap_request(token, next).and_then(|request| {
-                let spaces = initial.after(request.line(), request.column());
-                request.resolve(spaces)
-            });
-            analyzer.advance(token, previous, next, after, gap);
-        });
+        super::walk(
+            self.projected(edits, styles),
+            |token, previous, next, after| {
+                let gap = analyzer.gap_request(token, next).and_then(|request| {
+                    let spaces = initial.after(request.line(), request.column());
+                    request.resolve(spaces)
+                });
+                analyzer.advance(token, previous, next, after, gap);
+            },
+        );
         let deltas = settle(&self.lines, &analyzer.shifts);
         let refused = self.refusals(
             &analyzer.gaps,
@@ -493,12 +609,14 @@ impl<'a> Layout<'a> {
     fn projected<'b>(
         &'b self,
         edits: &'b [crate::format::layout::PlanEdit],
+        styles: &'b crate::rules::quoted_strings::Styles,
     ) -> impl Iterator<Item = super::Token> + 'b {
         let line_count = self.input.line_count();
         let projection =
             crate::format::layout::projection::Projection::new(self.input, edits);
         super::normalized_tokens(self.input, &self.source_starts).map(
             move |mut token| {
+                token.restyle(styles);
                 let line = self.project_line(token.line, token.start);
                 let end_line = if token.end_line >= line_count {
                     self.lines.len()
@@ -533,6 +651,7 @@ impl<'a> Layout<'a> {
         &'b self,
         targets: &'b Candidates,
         edits: &'b [crate::format::layout::PlanEdit],
+        styles: &'b crate::rules::quoted_strings::Styles,
     ) -> impl Iterator<Item = super::Token> + 'b {
         let column = move |line: usize, column: usize| {
             if self.lines.get(line).is_none_or(|virtual_line| {
@@ -549,7 +668,7 @@ impl<'a> Layout<'a> {
                 .sum();
             column.saturating_add_signed(targets.deltas[line]) - closed
         };
-        self.projected(edits).map(move |mut token| {
+        self.projected(edits, styles).map(move |mut token| {
             token.column = column(token.line, token.column);
             token.end_column = column(token.end_line, token.end_column);
             token
@@ -562,6 +681,7 @@ impl<'a> Layout<'a> {
         cfg: &Config,
         targets: &Candidates,
         edits: &[crate::format::layout::PlanEdit],
+        styles: &crate::rules::quoted_strings::Styles,
     ) -> Vec<super::Violation> {
         let line_starts = self.line_starts();
         let mut check = Analyzer::new(
@@ -569,7 +689,7 @@ impl<'a> Layout<'a> {
             &cfg.with_consistent_spaces(),
             Mode::Check,
         );
-        check.run(self.targeted(targets, edits));
+        check.run(self.targeted(targets, edits, styles));
         check.diagnostics
     }
 
@@ -578,6 +698,7 @@ impl<'a> Layout<'a> {
         &self,
         targets: &Targets,
         edits: &[crate::format::layout::PlanEdit],
+        styles: &crate::rules::quoted_strings::Styles,
     ) -> Vec<(usize, usize)> {
         let starts = self.input.byte_line_starts();
         let dashes: Vec<usize> = self
@@ -585,7 +706,7 @@ impl<'a> Layout<'a> {
             .iter()
             .map(|&(line, column)| starts[line - 1] + column - 1)
             .collect();
-        self.targeted(&targets.0, edits)
+        self.targeted(&targets.0, edits, styles)
             .filter(|token| {
                 token.kind == Kind::BlockEntry && dashes.contains(&token.start)
             })
@@ -597,6 +718,7 @@ impl<'a> Layout<'a> {
         &mut self,
         cfg: &Config,
         edits: &[crate::format::layout::PlanEdit],
+        styles: &crate::rules::quoted_strings::Styles,
         passes: &crate::fix::Passes<'_>,
     ) -> Result<
         (
@@ -634,6 +756,7 @@ impl<'a> Layout<'a> {
                 .filter(|shapes| !shapes.split.is_empty() || !shapes.joined.is_empty());
             let tokens = self.projected_tokens(
                 (edits, shapes.as_mut()),
+                styles,
                 passes,
                 &facts,
                 &mut spacing,
@@ -692,8 +815,8 @@ impl<'a> Layout<'a> {
     }
 
     /// The byte each mapping a split moves onto its own line starts at.
-    pub(crate) fn split_starts(&self) -> Vec<usize> {
-        self.shapes().split
+    pub(crate) fn split_targets(&self) -> super::SplitTargets {
+        super::SplitTargets::new(self.shapes().split)
     }
 
     pub(crate) fn joined_starts(&self) -> Vec<usize> {
@@ -744,6 +867,7 @@ impl<'a> Layout<'a> {
             &'b [crate::format::layout::PlanEdit],
             Option<&'b mut Shapes>,
         ),
+        styles: &'b crate::rules::quoted_strings::Styles,
         passes: &'b crate::fix::Passes<'_>,
         facts: &'b std::cell::RefCell<crate::format::layout::facts::Builder<'a>>,
         spacing: &'b mut Vec<crate::rules::support::token_spacing::SpaceSite>,
@@ -785,6 +909,7 @@ impl<'a> Layout<'a> {
             }
             let original = line.pop_front().expect("a source line has a token");
             let mut token = original;
+            token.restyle(styles);
             let projected = self.project_line(token.line, token.start);
             let end = if token.end_line >= input.line_count() {
                 self.lines.len()
@@ -1069,6 +1194,10 @@ impl Candidates {
 }
 
 impl Targets {
+    pub(crate) fn dedents_line(&self, line: usize) -> bool {
+        self.0.deltas[line] < 0
+    }
+
     pub(crate) fn deltas(&self) -> &[isize] {
         &self.0.deltas
     }
@@ -1116,43 +1245,6 @@ impl StreamTargets {
     }
 }
 
-fn shape(
-    entry: &super::Token,
-    start: &super::Token,
-    own_line: bool,
-    lines: &[VirtualLine<'_>],
-) -> Option<(usize, Option<usize>, usize)> {
-    (entry.kind == Kind::BlockEntry && start.kind == Kind::BlockMappingStart)
-        .then(|| {
-            if own_line && start.line == entry.line {
-                Some((entry.line, Some(start.column), entry.column))
-            } else if !own_line
-                && start.line == entry.line + 1
-                && start.column > entry.column + 1
-                && lines[entry.line].prefix + lines[entry.line].body.trim_end().len()
-                    == entry.column + 1
-            {
-                Some((entry.line, None, entry.column))
-            } else {
-                None
-            }
-        })
-        .flatten()
-}
-
-fn refuse_inconsistent(
-    input: Analysis<'_>,
-    cfg: &Config,
-    refused: &mut [Option<Cause>],
-) {
-    let mut starts = input.parsed().document_starts.clone();
-    starts[0] = 0;
-    for violation in super::check_with_analysis(input, &cfg.with_consistent_spaces()) {
-        let document = starts.partition_point(|&start| start < violation.line) - 1;
-        refused[document].get_or_insert(Cause::Inconsistent);
-    }
-}
-
 /// `buffer` with each block mapping in a block sequence joined onto its `-` line, or
 /// broken onto the next, as `dash_on_own_line` asks, keeping every token's column; and the
 /// line of `lines` each output line starts on. A dash line carrying a node property or a
@@ -1162,60 +1254,57 @@ fn reshape<'a>(
     source_starts: &[usize],
     lines: &mut Vec<VirtualLine<'a>>,
     dash_on_own_line: Option<bool>,
+    spaces: super::SpacesSetting,
     directives: &Directives,
 ) -> Vec<(usize, usize)> {
-    let buffer = input.text();
-    let mut shapes = Vec::new();
-    let mut kept = Vec::new();
-    if let Some(own_line) = dash_on_own_line {
-        let commented: std::collections::HashSet<_> = input
-            .tokens()
-            .iter(input.text())
-            .filter_map(|(span, kind)| {
-                matches!(kind, crate::text_version::lexical::Kind::Comment { .. })
-                    .then_some(span.start.line() - 1)
-            })
-            .collect();
-        let mut tokens = super::normalized_tokens(input, source_starts).peekable();
-        while let Some(entry) = tokens.next() {
-            let Some(&start) = tokens.peek() else {
-                break;
-            };
-            if entry.kind != Kind::BlockEntry
-                || start.kind != Kind::BlockMappingStart
-                || directives.is_disabled(hyphens::ID, entry.line + 1)
-                || directives.is_disabled(hyphens::ID, start.line + 1)
-            {
-                continue;
-            }
-            if let Some((line, split, dash)) = shape(&entry, &start, own_line, lines) {
-                if split.is_some() && commented.contains(&line) {
-                    kept.push((line + 1, dash + 1));
-                } else {
-                    shapes.push((line, split, dash));
-                }
-            }
+    let Some(own_line) = dash_on_own_line else {
+        return Vec::new();
+    };
+    let mut comments = crate::rules::comments::RetainedComments::default();
+    for (span, kind) in input.tokens().iter(input.text()) {
+        if matches!(kind, crate::text_version::lexical::Kind::Comment { .. }) {
+            comments.record(span);
         }
     }
-    if shapes.is_empty() {
-        return kept;
+    let mut candidates = Vec::new();
+    let mut tokens = super::normalized_tokens(input, source_starts).peekable();
+    while let Some(entry) = tokens.next() {
+        let Some(start) = tokens.peek() else {
+            break;
+        };
+        candidates.extend(shape::from_tokens(
+            &entry,
+            start,
+            &hyphens::dash_gap(lines.get(entry.line)),
+            own_line,
+            directives,
+        ));
     }
-    apply_shapes(buffer, lines, shapes);
+    let (recipes, kept) = shape::settle(
+        candidates,
+        &comments,
+        &shape::TightJoins::new(spaces, directives),
+        &input.parsed().document_starts,
+    );
+    if !recipes.is_empty() {
+        apply_shapes(input.text(), lines, recipes);
+    }
     kept
 }
 
 fn apply_shapes<'a>(
     buffer: &'a str,
     lines: &mut Vec<VirtualLine<'a>>,
-    shapes: Vec<(usize, Option<usize>, usize)>,
+    shapes: Vec<shape::Recipe>,
 ) {
     let original = std::mem::take(lines);
     lines.reserve(original.len() + shapes.len());
     let mut physical = original.into_iter().enumerate();
     let mut shapes = shapes.into_iter().peekable();
     while let Some((index, mut current)) = physical.next() {
-        let shape = shapes.next_if(|(line, _, _)| *line == index);
-        if let Some((_, split, dash)) = shape {
+        let shape = shapes.next_if(|recipe| recipe.line() == index);
+        if let Some(recipe) = shape {
+            let (_, split, dash) = recipe.into_parts();
             if let Some(at) = split {
                 let next = VirtualLine {
                     origin: current.origin,
@@ -1227,9 +1316,9 @@ fn apply_shapes<'a>(
                     bridge: None,
                 };
                 current.body = &current.body[..=dash - current.prefix];
-                if current.ending.is_empty() {
-                    current.ending = buffer_newline(buffer);
-                }
+                current.ending =
+                    crate::format::layout::line_endings::split(buffer, current.ending)
+                        .materialize();
                 lines.push(current);
                 lines.push(next);
                 continue;
@@ -1252,96 +1341,49 @@ fn reshape_events<'a>(
     input: Analysis<'a>,
     lines: &mut Vec<VirtualLine<'a>>,
     own_line: bool,
-    spaced: &dyn Fn([usize; 2]) -> bool,
+    joins: &shape::TightJoins<'_>,
 ) -> Vec<(usize, usize)> {
-    use ryl_yaml_parser::{Event, StructureStyle};
+    use crate::rules::support::collection_style::RetainedContext;
+    use crate::text_version::model::{Container, Mapping};
+    use ryl_yaml_parser::Event;
     let mut stack = Vec::new();
-    let mut shapes = Vec::new();
-    let mut comments = std::collections::HashSet::new();
+    let mut candidates = Vec::new();
+    let mut comments = crate::rules::comments::RetainedComments::default();
     for (event, span) in input.event_iter() {
         match event {
-            Event::Comment(..) => {
-                comments.insert(span.start.line() - 1);
-            }
+            Event::Comment(..) => comments.record(span),
             Event::MappingStart(style, anchor, tag) => {
-                if stack.last() == Some(&true)
-                    && style == StructureStyle::Block
-                    && anchor == 0
-                    && tag.is_none()
-                {
-                    shapes.extend(event_shape(input, span, own_line));
+                let model = Mapping::new(stack.last().copied(), anchor, tag.is_some());
+                if let Some(admission) = shape::MappingAdmission::new(
+                    &model,
+                    RetainedContext::from_style(style),
+                ) {
+                    candidates.extend(shape::from_event(
+                        admission,
+                        MappingSite::observe(span.start),
+                        &hyphens::entry_site(input, span.start),
+                        own_line,
+                    ));
                 }
-                stack.push(false);
+                stack.push(Container::Mapping);
             }
-            Event::SequenceStart(..) => stack.push(true),
+            Event::SequenceStart(..) => stack.push(Container::Sequence),
             Event::MappingEnd | Event::SequenceEnd => {
                 stack.pop();
             }
             _ => {}
         }
     }
-    // A join `spaced` refuses refuses its document's re-indent, and so every join in it.
-    let document = |line| {
-        input
-            .parsed()
-            .document_starts
-            .partition_point(|&at| at <= line)
-    };
-    let refused: Vec<_> = shapes
-        .iter()
-        .filter(|&&(line, _, _, tight)| tight && !spaced([line, line + 1]))
-        .map(|&(line, ..)| document(line))
-        .collect();
-    let mut kept = Vec::new();
-    let shapes: Vec<_> = shapes
-        .into_iter()
-        .filter(|&(line, split, dash, tight)| {
-            let keep = split.is_some() && comments.contains(&line);
-            if keep {
-                kept.push((line + 1, dash + 1));
-            }
-            !(keep || tight && refused.contains(&document(line)))
-        })
-        .map(|(line, split, dash, _)| (line, split, dash))
-        .collect();
-    if !shapes.is_empty() {
-        apply_shapes(input.text(), lines, shapes);
+    let (recipes, kept) = shape::settle(
+        candidates,
+        &comments,
+        joins,
+        &input.parsed().document_starts,
+    );
+    if !recipes.is_empty() {
+        apply_shapes(input.text(), lines, recipes);
     }
     kept
-}
-
-fn event_shape(
-    input: Analysis<'_>,
-    span: ryl_yaml_parser::Span,
-    own_line: bool,
-) -> Option<(usize, Option<usize>, usize, bool)> {
-    let line = span.start.line() - 1;
-    let at = crate::rules::support::span_utils::marker_byte_offset(span.start).get();
-    let prefix = &input.text()[input.byte_line_starts()[line]..at];
-    let prefix = prefix.strip_prefix('\u{feff}').unwrap_or(prefix);
-    let inline = prefix
-        .trim_end_matches([' ', '\t'])
-        .strip_suffix('-')
-        .map(str::len);
-    let entry = inline.map(|column| (line, column)).or_else(|| {
-        line.checked_sub(1).and_then(|above| {
-            input
-                .line_content(above)
-                .trim_start_matches('\u{feff}')
-                .trim_end_matches([' ', '\t'])
-                .strip_suffix('-')
-                .filter(|prefix| !prefix.contains('#'))
-                .map(|prefix| (above, prefix.len()))
-        })
-    });
-    let (entry, dash) = entry?;
-    if own_line && entry == line {
-        Some((entry, Some(span.start.col()), dash, false))
-    } else if !own_line && entry + 1 == line && span.start.col() > dash {
-        Some((entry, None, dash, span.start.col() == dash + 1))
-    } else {
-        None
-    }
 }
 
 /// The re-indent `ryl format` applies, or `None` where nothing moves.
@@ -1413,4 +1455,53 @@ fn settle(lines: &[VirtualLine<'_>], shifts: &[Option<Shift>]) -> Vec<isize> {
         previous = token(line).or(previous);
     }
     deltas
+}
+
+pub(crate) struct LineGeometry<'a> {
+    line: &'a VirtualLine<'a>,
+    delta: isize,
+}
+
+impl LineGeometry<'_> {
+    pub(crate) fn empty(&self) -> bool {
+        self.line.is_empty()
+    }
+    pub(crate) fn prefix(&self) -> usize {
+        self.line.prefix.saturating_add_signed(self.delta) * usize::from(!self.empty())
+    }
+    pub(crate) const fn retained_prefix(&self) -> usize {
+        self.line.prefix
+    }
+    pub(crate) const fn projected_prefix(&self) -> usize {
+        self.line.prefix.saturating_add_signed(self.delta)
+    }
+    pub(crate) const fn origin(&self) -> usize {
+        self.line.origin
+    }
+    pub(crate) const fn bom(&self) -> bool {
+        self.line.bom
+    }
+    pub(crate) const fn has_body(&self) -> bool {
+        !self.line.body.is_empty()
+    }
+    pub(crate) const fn has_tail(&self) -> bool {
+        !self.line.tail.is_empty()
+    }
+    pub(crate) const fn has_break(&self) -> bool {
+        !self.line.ending.is_empty()
+    }
+    pub(crate) fn scalar_content(
+        &self,
+    ) -> crate::rules::quoted_strings::LineContent<'_> {
+        crate::rules::quoted_strings::line_content(self.line.body)
+    }
+}
+
+impl Layout<'_> {
+    pub(crate) fn geometry(&self, index: usize, targets: &Targets) -> LineGeometry<'_> {
+        LineGeometry {
+            line: &self.lines[index],
+            delta: targets.deltas()[index],
+        }
+    }
 }

@@ -503,6 +503,19 @@ pub(crate) struct ParsedFacts {
 }
 
 impl ParsedFacts {
+    pub(crate) fn scalar_contains(&self, at: usize) -> bool {
+        use crate::rules::support::span_utils::marker_byte_offset;
+        let after = self.scalars.partition_point(|&(_, event)| {
+            marker_byte_offset(self.spans.get(self.events[event as usize].1).start)
+                .get()
+                <= at
+        });
+        after.checked_sub(1).is_some_and(|index| {
+            let event = self.scalars[index].1 as usize;
+            at < marker_byte_offset(self.spans.get(self.events[event].1).end).get()
+        })
+    }
+
     pub(crate) fn scalars(&self) -> impl Iterator<Item = (ScalarStyle, Span)> {
         self.scalars.iter().map(|&(style, index)| {
             (style, self.spans.get(self.events[index as usize].1))

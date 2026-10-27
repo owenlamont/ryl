@@ -1,8 +1,8 @@
 use std::ops::Range;
 
+use crate::rules::quoted_strings::{self, LayoutStyle};
 use crate::text_version::Analysis;
 use crate::text_version::lexical::Kind;
-use ryl_yaml_parser::ScalarStyle;
 
 use super::Config;
 use crate::rules::support::span_utils::marker_byte_offset;
@@ -17,7 +17,7 @@ pub struct Fold {
 pub(crate) struct FoldableScalar {
     pub(crate) content: Range<usize>,
     pub(crate) owner: Option<(usize, usize)>,
-    pub(crate) style: ScalarStyle,
+    pub(crate) style: LayoutStyle,
 }
 
 impl Fold {
@@ -91,12 +91,10 @@ impl Foldables {
                 None
             }
             Kind::Scalar { style, .. } if self.flow == 0 => {
-                let quotes = usize::from(matches!(
-                    style,
-                    ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
-                ));
+                let style = quoted_strings::retained_layout_style(*style);
+                let quotes = style.quote_width();
                 if let Some(owner) = self.owner
-                    && *style != ScalarStyle::Literal
+                    && style.foldable()
                 {
                     self.scalars.push(FoldableScalar {
                         content: marker_byte_offset(span.start).get() + quotes
@@ -105,7 +103,7 @@ impl Foldables {
                             Owner::Root => None,
                             Owner::Collection(line, column) => Some((line, column)),
                         },
-                        style: *style,
+                        style,
                     });
                 }
                 None
@@ -118,7 +116,7 @@ impl Foldables {
 pub(crate) fn breaks_from_chars(
     chars: impl Iterator<Item = (usize, char)>,
     scalar: &Range<usize>,
-    style: ScalarStyle,
+    style: LayoutStyle,
     indent: usize,
     width: usize,
 ) -> Vec<usize> {
@@ -132,10 +130,10 @@ pub(crate) fn breaks_from_chars(
                 && !left.is_whitespace()
                 && !right.is_whitespace()
                 // `comments-indentation` re-indents a `#`-led line in a quoted scalar, never in `>` (#525).
-                && (right != '#' || style == ScalarStyle::Folded)
+                && (right != '#' || style.is_folded())
                 && scalar.contains(&before)
                 && scalar.contains(&after)
-                && !(style == ScalarStyle::DoubleQuoted
+                && !(style.is_double()
                     && chars[..index + 1].iter()
                         .rev()
                         .take_while(|(_, ch)| *ch == '\\')

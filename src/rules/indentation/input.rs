@@ -1,5 +1,27 @@
 use crate::format::layout::VirtualLine;
-use std::ops::Range;
+
+#[derive(Clone, Copy)]
+pub(super) struct MappingSite {
+    line: usize,
+    column: usize,
+}
+
+impl MappingSite {
+    pub(super) fn observe(start: ryl_yaml_parser::Marker) -> Self {
+        Self {
+            line: start.line() - 1,
+            column: start.col(),
+        }
+    }
+
+    pub(super) const fn line(self) -> usize {
+        self.line
+    }
+
+    pub(super) const fn column(self) -> usize {
+        self.column
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct Initial<'a> {
@@ -24,6 +46,12 @@ impl<'a> GapInitial<'a> {
 }
 
 impl<'a> Initial<'a> {
+    pub(super) fn scalar(
+        self,
+        token: &super::Token,
+    ) -> crate::rules::quoted_strings::RetainedShape<'a> {
+        crate::rules::quoted_strings::retained_shape(self.text, token.start..token.end)
+    }
     pub(super) fn new(text: &'a str, starts: &'a [usize]) -> Self {
         Self {
             text,
@@ -77,33 +105,50 @@ impl<'a> Initial<'a> {
         )
     }
 
-    pub(super) fn indentation_indicator(self, start: usize) -> bool {
-        self.text[start + 1..]
-            .chars()
-            .take_while(|&ch| ch.is_ascii_digit() || matches!(ch, '+' | '-'))
-            .any(|ch| ch.is_ascii_digit())
-    }
-
-    pub(super) fn trailing_breaks(self, range: Range<usize>) -> usize {
-        let from = self.text[..range.start]
-            .char_indices()
-            .next_back()
-            .map_or(0, |(at, _)| at);
-        self.text[from..range.end]
-            .char_indices()
-            .rev()
-            .take_while(|(_, ch)| {
-                matches!(ch, ' ' | '\t' | '\n' | '\r' | '\x0b' | '\x0c')
-            })
-            .filter(|(at, ch)| {
-                *ch == '\n'
-                    || (*ch == '\r'
-                        && super::char_at(self.text, from + at + 1) != Some('\n'))
-            })
-            .count()
-    }
-
     pub(super) fn prefix(self, index: usize) -> usize {
         self.lines.expect("target input has projected lines")[index].prefix
+    }
+}
+
+pub(super) struct Collapse {
+    pub(super) first: usize,
+    pub(super) last: usize,
+    pub(super) body: std::ops::Range<usize>,
+    pub(super) replacement: std::ops::Range<usize>,
+    pub(super) first_body_end: usize,
+    pub(super) tails_empty: bool,
+    pub(super) flat: bool,
+}
+
+pub(crate) struct DiscardedGap<'a> {
+    source: &'a str,
+    range: std::ops::Range<usize>,
+    pub(super) bridged: bool,
+    pub(super) at_body_end: bool,
+    pub(super) before_tail: bool,
+}
+
+impl<'a> DiscardedGap<'a> {
+    pub(super) fn whitespace(&self) -> bool {
+        self.source[self.range.clone()]
+            .bytes()
+            .all(|byte| byte.is_ascii_whitespace())
+    }
+    pub(super) fn observe(
+        source: &'a str,
+        line: &VirtualLine<'_>,
+        from: usize,
+        to: usize,
+    ) -> Self {
+        Self {
+            bridged: line.bridge.is_some(),
+            at_body_end: from
+                == line.body.as_ptr() as usize - source.as_ptr() as usize
+                    + line.body.len(),
+            before_tail: line.tail.is_empty()
+                || to <= line.tail.as_ptr() as usize - source.as_ptr() as usize,
+            source,
+            range: from..to,
+        }
     }
 }
