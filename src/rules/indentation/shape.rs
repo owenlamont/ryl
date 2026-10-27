@@ -26,6 +26,7 @@ pub(super) struct Candidate {
     tight: bool,
 }
 
+#[derive(Clone)]
 pub(super) struct Recipe {
     line: usize,
     split: Option<usize>,
@@ -119,6 +120,7 @@ pub(super) fn from_tokens(
     gap: &hyphens::DashGap<'_>,
     own_line: bool,
     permissions: &Directives,
+    tight_joins: bool,
 ) -> Option<Candidate> {
     if entry.kind != Kind::BlockEntry
         || start.kind != Kind::BlockMappingStart
@@ -138,7 +140,8 @@ pub(super) fn from_tokens(
         })
     } else if !own_line
         && start.line == entry.line + 1
-        && start.column > entry.column + 1
+        && (start.column > entry.column + 1
+            || (tight_joins && start.column == entry.column + 1))
         && gap.ends_at(entry.column + 1)
     {
         Some(Candidate {
@@ -147,7 +150,7 @@ pub(super) fn from_tokens(
                 split: None,
                 dash: entry.column,
             },
-            tight: false,
+            tight: start.column == entry.column + 1,
         })
     } else {
         None
@@ -184,33 +187,6 @@ pub(super) fn settle(
     (recipes, kept)
 }
 
-pub(super) struct Collapses {
-    last: Option<usize>,
-    compatible: bool,
-}
-
-impl Collapses {
-    pub(super) const fn new() -> Self {
-        Self {
-            last: None,
-            compatible: true,
-        }
-    }
-    pub(super) fn add(&mut self, site: &super::input::Collapse) {
-        self.compatible &= site.flat
-            && site.first <= site.last
-            && site.tails_empty
-            && site.body.start <= site.replacement.start
-            && site.replacement.start <= site.first_body_end
-            && site.replacement.end <= site.body.end
-            && self.last.is_none_or(|last| last < site.first);
-        self.last = Some(site.last);
-    }
-    pub(super) const fn accepts(&self) -> bool {
-        self.compatible
-    }
-}
-
 pub(crate) fn discards_gap(
     site: &super::input::DiscardedGap<'_>,
     dash: &hyphens::RetainedDash,
@@ -220,4 +196,89 @@ pub(crate) fn discards_gap(
         && site.at_body_end
         && site.before_tail
         && site.whitespace()
+}
+
+pub(super) struct Rows(Vec<Row>);
+
+struct Row {
+    line: usize,
+    delta: isize,
+    split: Option<usize>,
+}
+
+impl Rows {
+    pub(super) fn position(
+        &self,
+        mut position: crate::format::layout::frame::Position,
+    ) -> crate::format::layout::frame::Position {
+        let row = &self.0[position.line.min(self.0.len() - 1)];
+        position.line = row.line
+            + usize::from(row.split.is_some_and(|column| position.column >= column));
+        position.column = position.column.saturating_add_signed(row.delta);
+        position.byte_column = position.byte_column.saturating_add_signed(row.delta);
+        position
+    }
+}
+
+pub(super) fn apply_projected<'a>(
+    source: &'a str,
+    lines: &mut Vec<crate::format::layout::VirtualLine<'a>>,
+    recipes: impl Iterator<Item = Recipe>,
+) -> Rows {
+    let original = std::mem::take(lines);
+    let mut rows = Vec::with_capacity(original.len() + 1);
+    let mut physical = original.into_iter().enumerate();
+    let mut recipes = recipes.peekable();
+    while let Some((index, mut current)) = physical.next() {
+        let output = lines.len();
+        let recipe = recipes.next_if(|recipe| recipe.line == index);
+        if let Some(recipe) = recipe {
+            if let Some(column) = recipe.split {
+                rows.push(Row {
+                    line: output,
+                    delta: 0,
+                    split: Some(column),
+                });
+                let mut below = current.split_at(source, column);
+                below.prefix = column;
+                current.truncate_at(source, recipe.dash + 1);
+                current.ending =
+                    crate::format::layout::line_endings::split(source, current.ending)
+                        .materialize();
+                lines.push(current);
+                lines.push(below);
+            } else {
+                rows.push(Row {
+                    line: output,
+                    delta: 0,
+                    split: None,
+                });
+                let (_, below) = physical
+                    .next()
+                    .expect("a join has a following mapping line");
+                rows.push(Row {
+                    line: output,
+                    delta: super::to_isize(recipe.dash + 2)
+                        - super::to_isize(below.prefix),
+                    split: None,
+                });
+                current.truncate_at(source, recipe.dash + 1);
+                current.append_parts(source, &below);
+                lines.push(current);
+            }
+        } else {
+            rows.push(Row {
+                line: output,
+                delta: 0,
+                split: None,
+            });
+            lines.push(current);
+        }
+    }
+    rows.push(Row {
+        line: lines.len(),
+        delta: 0,
+        split: None,
+    });
+    Rows(rows)
 }

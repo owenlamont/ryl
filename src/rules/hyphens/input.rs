@@ -107,7 +107,6 @@ impl<'a> DashGap<'a> {
     }
 
     pub(crate) fn ends_at(&self, column: usize) -> bool {
-        self.line
-            .is_some_and(|line| line.prefix + line.body.trim_end().len() == column)
+        self.line.is_some_and(|line| line.end_column() == column)
     }
 }

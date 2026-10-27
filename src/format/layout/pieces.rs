@@ -3,6 +3,37 @@ use crate::text_version::edits::Edit;
 
 pub(crate) type PlanEdit = (BytePos, BytePos, Replacement);
 
+#[derive(Clone, Copy)]
+pub(crate) enum RetainedPart<'a> {
+    Source(&'a str),
+    Text(&'a str),
+    Spaces(usize),
+}
+
+impl<'a> RetainedPart<'a> {
+    pub(crate) fn split_at(self, characters: usize) -> (Self, Self) {
+        let (text, wrap): (&str, fn(&'a str) -> Self) = match self {
+            Self::Source(text) => (text, Self::Source),
+            Self::Text(text) => (text, Self::Text),
+            Self::Spaces(count) => {
+                return (Self::Spaces(characters), Self::Spaces(count - characters));
+            }
+        };
+        let byte = text
+            .char_indices()
+            .nth(characters)
+            .map_or(text.len(), |(byte, _)| byte);
+        (wrap(&text[..byte]), wrap(&text[byte..]))
+    }
+
+    pub(crate) fn piece(&self) -> Piece<'a> {
+        match self {
+            Self::Source(text) | Self::Text(text) => Piece::Text(text),
+            Self::Spaces(count) => Piece::Spaces(*count),
+        }
+    }
+}
+
 #[derive(PartialEq, Eq)]
 pub(crate) enum Replacement {
     Text { text: String, chars: usize },

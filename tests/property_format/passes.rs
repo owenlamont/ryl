@@ -187,6 +187,11 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
                 format,
             ),
             toml_pass(
+                "format/mixed-collections",
+                "[format]\nsequence-style = 'block'\nmapping-style = 'flow'\n",
+                format,
+            ),
+            toml_pass(
                 "format/both-flow",
                 "line-length = 30\n[format]\nsequence-style = 'flow'\nmapping-style = 'flow'\n",
                 format,

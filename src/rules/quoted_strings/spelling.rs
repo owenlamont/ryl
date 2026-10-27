@@ -119,6 +119,19 @@ impl<'a> Retained<'a> {
         Self { style, text }
     }
 
+    pub(crate) fn block_key_compatible(
+        self,
+        column: impl FnOnce() -> crate::rules::indentation::RetainedColumn,
+    ) -> bool {
+        !self.is_plain()
+            || !target::marker_needs_column(self.text)
+            || !target::marker_needs_quotes(
+                self.text,
+                column(),
+                crate::rules::colons::generated_key_context(),
+            )
+    }
+
     pub(crate) fn flow_compatible(self) -> bool {
         match self.style {
             ScalarStyle::Plain => {

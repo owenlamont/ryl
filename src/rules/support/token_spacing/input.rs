@@ -16,7 +16,9 @@ impl<'a> Indicators<'a> {
         }
     }
 
-    pub(super) fn spacing_prefixes(&self) -> impl Iterator<Item = usize> + '_ {
+    pub(super) fn spacing_prefixes(
+        &self,
+    ) -> impl Iterator<Item = (std::ops::Range<usize>, usize)> + '_ {
         self.text
             .match_indices(['-', '?', ':'])
             .filter(|(at, _)| {
@@ -24,11 +26,11 @@ impl<'a> Indicators<'a> {
                     && !self.scalars.contains(self.start + at)
             })
             .map(|(at, _)| {
-                self.text[at + 1..]
+                let spaces = self.text[at + 1..]
                     .bytes()
-                    .take(2)
                     .take_while(|&byte| byte == b' ')
-                    .count()
+                    .count();
+                (self.start + at + 1..self.start + at + 1 + spaces, spaces)
             })
     }
 }

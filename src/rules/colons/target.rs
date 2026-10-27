@@ -8,6 +8,14 @@ impl RetainedKey {
     pub(super) const fn new(initial: super::input::Key) -> Self {
         Self(initial)
     }
+    pub(crate) fn selected(
+        mut self,
+        projection: &crate::format::layout::projection::Projection,
+    ) -> Self {
+        self.0.separated |=
+            self.0.present && projection.delta_at(self.after().get()) > 0;
+        self
+    }
     pub(crate) const fn present(&self) -> bool {
         self.0.present
     }

@@ -1,7 +1,6 @@
 use ryl_yaml_parser::{Event, ScalarStyle, StructureStyle};
 
 use super::spelling::{EditSite, Fragment};
-use crate::format::layout::projection::RetainedFragment;
 use crate::rules::comments::Attachments;
 use crate::rules::support::span_utils::BytePos;
 use crate::rules::support::span_utils::marker_byte_offset;
@@ -68,8 +67,8 @@ impl FlowSite<'_> {
 pub(super) struct Outer<'a> {
     prefix: hyphens::CollectionPrefix,
     comment: comments::Trailing,
-    fragment: Option<Fragment<'a>>,
-    extent: RetainedFragment<'a>,
+    fragment: Option<Fragment>,
+    extent: Fragment,
     indicators: token_spacing::RetainedIndicators<'a>,
 }
 
@@ -80,10 +79,10 @@ impl<'a> Outer<'a> {
     pub(super) const fn comment(&self) -> &comments::Trailing {
         &self.comment
     }
-    pub(super) fn take_comment(&mut self) -> Option<Fragment<'a>> {
+    pub(super) fn take_comment(&mut self) -> Option<Fragment> {
         self.fragment.take()
     }
-    pub(super) const fn extent(&self) -> &RetainedFragment<'a> {
+    pub(super) const fn extent(&self) -> &Fragment {
         &self.extent
     }
     pub(super) const fn indicators(&self) -> &token_spacing::RetainedIndicators<'a> {
@@ -95,6 +94,11 @@ pub(super) struct Initial<'a> {
     source: Analysis<'a>,
     sites: &'a [Site],
     comments: &'a Attachments,
+    selected: Option<(
+        &'a [crate::format::layout::PlanEdit],
+        &'a quoted_strings::Styles,
+        &'a crate::format::layout::projection::Projection,
+    )>,
 }
 
 impl<'a> Initial<'a> {
@@ -107,7 +111,18 @@ impl<'a> Initial<'a> {
             source,
             sites,
             comments,
+            selected: None,
         }
+    }
+
+    pub(super) fn selected(
+        mut self,
+        edits: &'a [crate::format::layout::PlanEdit],
+        styles: &'a quoted_strings::Styles,
+        projection: &'a crate::format::layout::projection::Projection,
+    ) -> Self {
+        self.selected = Some((edits, styles, projection));
+        self
     }
 
     pub(super) fn collection(&self, node: usize) -> Collection {
@@ -121,10 +136,30 @@ impl<'a> Initial<'a> {
     pub(super) fn scalar(&self, node: usize) -> Option<quoted_strings::Retained<'a>> {
         let site = &self.sites[node];
         site.scalar.map(|style| {
-            quoted_strings::retained_spelling(
-                style,
-                &self.source.text()[site.start..site.end],
-            )
+            let (style, text) = self
+                .selected
+                .and_then(|(edits, styles, _)| {
+                    let index = edits
+                        .binary_search_by_key(&site.start, |(from, _, _)| from.get())
+                        .ok()?;
+                    match (&edits[index], styles.at(site.start)) {
+                        (
+                            (
+                                from,
+                                end,
+                                crate::format::layout::Replacement::Text {
+                                    text, ..
+                                },
+                            ),
+                            Some(style),
+                        ) if from.get() == site.start && end.get() == site.end => {
+                            Some((style, text.as_str()))
+                        }
+                        _ => None,
+                    }
+                })
+                .unwrap_or((style, &self.source.text()[site.start..site.end]));
+            quoted_strings::retained_spelling(style, text)
         })
     }
 
@@ -162,15 +197,19 @@ impl<'a> Initial<'a> {
         self.after(self.sites[node].end.max(gap.block_start().0))
     }
     pub(super) fn key_gap(&self, node: usize) -> KeyGap {
+        let own = colons::retained_key(
+            self.source.text(),
+            BytePos::new(self.sites[node].end),
+        );
         KeyGap {
-            own: colons::retained_key(
-                self.source.text(),
-                BytePos::new(self.sites[node].end),
-            ),
+            own: match self.selected {
+                Some((_, _, projection)) => own.selected(projection),
+                None => own,
+            },
         }
     }
 
-    fn fragment(&self, from: Boundary, to: usize) -> Fragment<'a> {
+    fn fragment(&self, from: Boundary, to: usize) -> Fragment {
         let buffer = self.source.text();
         let written = buffer[from.0..to.max(from.0)].trim_matches(super::is_space);
         let text = written
@@ -178,13 +217,21 @@ impl<'a> Initial<'a> {
             .filter(|rest| rest.starts_with(super::is_space))
             .map_or(written, |rest| rest.trim_start_matches(super::is_space));
         let start = text.as_ptr() as usize - buffer.as_ptr() as usize;
-        Fragment::observe(buffer, start, start + text.len())
+        let fragment = Fragment::observe(buffer, start, start + text.len());
+        self.selected.map_or(fragment, |(edits, _, _)| {
+            Fragment::observe(buffer, start, start + text.len()).selected(buffer, edits)
+        })
     }
 
-    pub(super) fn entry(&self, from: Boundary, node: usize) -> Fragment<'a> {
-        self.fragment(from, self.sites[node].end)
+    pub(super) fn entry(&self, from: Boundary, node: usize) -> Fragment {
+        self.fragment(from, self.sites[node].end).for_node(node)
     }
-    pub(super) fn properties(&self, from: Boundary, node: usize) -> Fragment<'a> {
+    pub(super) fn property_width(&self, from: Boundary, node: usize) -> usize {
+        let properties = self.properties(from, node);
+        properties.characters() + usize::from(!properties.empty())
+    }
+
+    pub(super) fn properties(&self, from: Boundary, node: usize) -> Fragment {
         self.fragment(from, self.sites[node].start)
     }
     pub(super) fn has_comment(&self, node: usize) -> bool {
@@ -210,15 +257,21 @@ impl<'a> Initial<'a> {
             .trim_end_matches(super::is_space)
             .len();
         let line_start = self.line_start(start);
+        let indicators = token_spacing::retained_indicators(
+            self.source,
+            line_start..self.line_end(line_start),
+        );
+        let indicators = if let Some((_, _, projection)) = self.selected {
+            indicators.selected(projection)
+        } else {
+            indicators
+        };
         FlowSite {
             start,
             end,
             comments: self.comments.between(start, self.line_end(end))
                 || self.comments.touches(start),
-            indicators: token_spacing::retained_indicators(
-                self.source,
-                line_start..self.line_end(line_start),
-            ),
+            indicators,
         }
     }
 
@@ -236,11 +289,16 @@ impl<'a> Initial<'a> {
             self.source,
             line_start..line_start + prefix.outer(),
         );
+        let indicators = if let Some((_, _, projection)) = self.selected {
+            indicators.selected(projection)
+        } else {
+            indicators
+        };
         Outer {
             prefix,
             comment,
             fragment,
-            extent: RetainedFragment::observe(&buffer[site.start..site.end]),
+            extent: self.fragment(Boundary(site.start), site.end),
             indicators,
         }
     }
@@ -272,6 +330,7 @@ impl<'a> Initial<'a> {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct Site {
     pub(super) scalar: Option<ScalarStyle>,
     pub(super) flow: bool,

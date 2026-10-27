@@ -11,6 +11,43 @@ fn format_with_statistics(input: &str, config: &str) -> (String, Value) {
 }
 
 #[test]
+fn converted_rows_keep_comment_blocked_dash_coordinates() {
+    let input = "first: [a, b, c]\nrecords:\n  - key: value # keep\n";
+    let (code, _, diagnostics, output) = common::cli::ryl_on(
+        Some("[format]\nsequence-style='block'\ndash-on-own-line=true\n"),
+        input,
+        &["format", "--no-cache", "--output-format", "parsable"],
+    );
+    assert_eq!(code, 0, "{diagnostics}");
+    assert_eq!(
+        output,
+        "first:\n  - a\n  - b\n  - c\nrecords:\n  - key: value  # keep\n"
+    );
+    assert!(
+        diagnostics.contains(":6:3 hyphens not fixed: cannot move this mapping"),
+        "{diagnostics}"
+    );
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+}
+
+#[test]
+fn clean_incompatible_collection_candidates_reuse_their_input() {
+    let input = "key:\n  - a,b\n";
+    let (output, statistics) =
+        format_with_statistics(input, "[format]\nsequence-style='flow'\n");
+    assert_eq!(output, input);
+    for (name, count) in [
+        ("planning_invocations", 1),
+        ("emissions", 0),
+        ("verification_parses", 0),
+        ("rollback", 0),
+    ] {
+        assert_eq!(statistics[name], count, "{name}: {statistics}");
+    }
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
 fn comment_only_documents_use_layout_without_document_nodes() {
     let (output, statistics) =
         format_with_statistics("#note  \r\n\r\n\r\n", "[format]\n");
@@ -114,6 +151,36 @@ fn multiline_quotes_share_one_layout_plan() {
         ("token_normalizations", 1),
     ] {
         assert_eq!(statistics[name], count, "{name}: {statistics}");
+    }
+}
+
+#[test]
+fn touching_quote_collapses_share_the_original_epoch() {
+    for (input, expected) in [
+        ("items: [\"a\n b\", \"c\n d\"]\n", "items: [a b, c d]\n"),
+        (
+            "\u{feff}é: [\"café\r\n  fin\", \"déjà\r\n  vu\"]\r\n",
+            "\u{feff}é: [café fin, déjà vu]\n",
+        ),
+        ("\"café\n fin\"\n", "café fin\n"),
+    ] {
+        let (output, statistics) = format_with_statistics(input, "[format]\n");
+        assert_eq!(output, expected);
+        crate::property::reference::check_strict_events(
+            input.strip_prefix('\u{feff}').unwrap_or(input),
+            output.strip_prefix('\u{feff}').unwrap_or(&output),
+        )
+        .unwrap();
+        for (name, count) in [
+            ("analyses", 1),
+            ("planning_invocations", 1),
+            ("strict_parses", STRICT_PARSES),
+            ("verification_parses", 0),
+            ("rollback", 0),
+        ] {
+            assert_eq!(statistics[name], count, "{name}: {statistics}");
+        }
+        assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     }
 }
 
@@ -304,7 +371,15 @@ fn sequence_conversion_keeps_its_verification() {
     let (output, statistics) = format_with_statistics("é: [ café,世 ]\n", config);
     assert_eq!(output, "é:\n  - café\n  - 世\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert!(statistics["verification_parses"].as_u64().unwrap() >= 1);
+    for (name, count) in [
+        ("analyses", 2),
+        ("verification_parses", 1),
+        ("planning_invocations", 1),
+        ("emissions", 1),
+        ("rollback", 0),
+    ] {
+        assert_eq!(statistics[name], count, "{name}: {statistics}");
+    }
     assert_eq!(format_with_statistics(&output, config).0, output);
 }
 
@@ -418,6 +493,8 @@ fn folded_unterminated_blank_tail_folds_before_reindenting() {
     );
     assert_eq!(output, ">\n abc def\n ghi jkl\n   more\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["planning_invocations"], 1, "{statistics}");
+    assert_eq!(statistics["emissions"], 1, "{statistics}");
 }
 
 #[test]
@@ -1289,7 +1366,7 @@ fn forced_collections_settle_multiline_quote_offsets_before_folding() {
 }
 
 #[test]
-fn non_ascii_marker_rolls_back_the_collection_stage() {
+fn non_ascii_marker_rolls_back_the_collection_rewrite() {
     let input = "---\u{a0}x\n---\nitems: [a,b]\n";
     let (output, statistics) =
         format_with_statistics(input, "[format]\nsequence-style = 'block'\n");
@@ -1351,7 +1428,7 @@ fn a_large_conversion_beside_a_non_ascii_marker_keeps_its_input() {
 }
 
 #[test]
-fn non_ascii_marker_rolls_back_the_quote_stage() {
+fn non_ascii_marker_rolls_back_the_quoted_rewrite() {
     let input = "---\u{a0}x\n---\nkey: 'value'\n";
     let (output, statistics) = format_with_statistics(
         input,
@@ -1382,7 +1459,7 @@ fn forced_style_settles_root_quotes_in_layout() {
 }
 
 #[test]
-fn indentless_sequences_retry_conversion_after_verified_layout() {
+fn indentless_sequences_use_selected_layout_for_conversion() {
     let input = "café:\n- é\n- 世\n";
     let config = "[format]\nsequence-style = 'flow'\n";
     let (output, statistics) = format_with_statistics(input, config);
@@ -1589,7 +1666,7 @@ fn suppression_guards_comment_alignment() {
 }
 
 #[test]
-fn refused_documents_collapse_quotes_in_a_separate_stage() {
+fn refused_documents_keep_quote_collapses_in_one_emission() {
     let (output, statistics) = format_with_statistics(
         "# ryl disable rule:indentation\ncafé: ['first\n  second', 'third\n  fourth']\n",
         "[format]\n",
@@ -1599,6 +1676,8 @@ fn refused_documents_collapse_quotes_in_a_separate_stage() {
         "# ryl disable rule:indentation\ncafé: [first second, third fourth]\n"
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+    assert_eq!(statistics["planning_invocations"], 1, "{statistics}");
+    assert_eq!(statistics["emissions"], 1, "{statistics}");
 }
 
 #[test]
@@ -1641,7 +1720,7 @@ fn indicator_bodies_follow_their_collection_past_a_spaced_value() {
 }
 
 #[test]
-fn consistency_restarts_after_a_staged_epoch_keep_every_document() {
+fn consistent_widths_keep_every_document_while_folding() {
     let input = "a:\n    body: |\n      \tinside\n    list: [ a,b ] #note\n\n---\ncafé:\n    body: >\n      alpha beta gamma delta\n\n ";
     let (output, statistics) = format_with_statistics(
         input,
@@ -1741,4 +1820,17 @@ fn an_unseparated_flow_key_is_reported_then_repaired() {
     assert_eq!(output, "k: [? , ? ]\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(format_with_statistics(&output, "[format]\n").0, output);
+}
+
+#[test]
+fn tight_joined_quotes_keep_the_folded_plain_width() {
+    let (output, statistics) = format_with_statistics(
+        "-\n a: 'one two three four\n  five six seven'\n",
+        "indent-width=2\nline-length=14\n[format]\nfold-long-lines=true\n",
+    );
+    assert_eq!(
+        output,
+        "- a: one two\n    three four\n    five six\n    seven\n"
+    );
+    assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
 }

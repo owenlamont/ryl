@@ -1,3 +1,4 @@
+use super::frame::{LineMap, View};
 use crate::directives::Directives;
 use crate::fix::Passes;
 use crate::rules::support::span_utils::BytePos;
@@ -8,6 +9,7 @@ pub(super) struct Guard {
     starts: Vec<usize>,
     last: usize,
     added_starts: Vec<usize>,
+    projected: Option<LineMap>,
 }
 
 #[derive(Clone, Copy)]
@@ -17,10 +19,6 @@ pub(crate) struct Permission<'a> {
 }
 
 impl Permission<'_> {
-    pub(crate) fn line(self, line: usize) -> bool {
-        self.guard.is_none_or(|guard| guard.line(self.rule, line))
-    }
-
     pub(crate) fn allows(self, start: BytePos, end: BytePos) -> bool {
         self.guard
             .is_none_or(|guard| guard.allows(self.rule, start, end))
@@ -54,7 +52,21 @@ impl Guard {
             starts: input.byte_line_starts().to_vec(),
             last: input.line_count().saturating_sub(1),
             added_starts: Vec::new(),
+            projected: None,
         }))
+    }
+
+    pub(super) fn projected(
+        input: Analysis<'_>,
+        passes: &Passes<'_>,
+        view: &View<'_, '_>,
+    ) -> Option<Box<Self>> {
+        let mut guard = Self::new(input, passes)?;
+        let (frame, lines) = view.lines();
+        guard.directives = Directives::parse_projected(input, frame, lines);
+        guard.projected = Some(frame.line_map());
+        guard.last = lines.len().saturating_sub(1);
+        Some(guard)
     }
 
     pub(super) fn allows(&self, rule: &str, start: BytePos, end: BytePos) -> bool {
@@ -66,6 +78,15 @@ impl Guard {
     }
 
     fn range(&self, start: BytePos, end: BytePos) -> std::ops::RangeInclusive<usize> {
+        if let Some(projected) = &self.projected {
+            let first = projected
+                .source_line(&self.starts, start.get())
+                .min(self.last);
+            let last = projected
+                .source_line(&self.starts, end.get().saturating_sub(1).max(start.get()))
+                .min(self.last);
+            return first..=last;
+        }
         let first = self
             .starts
             .partition_point(|&at| at <= start.get())
