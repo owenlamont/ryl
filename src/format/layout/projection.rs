@@ -1,25 +1,6 @@
 use super::PlanEdit;
 use crate::text_version::Analysis;
 
-pub(crate) struct RetainedFragment<'a> {
-    text: &'a str,
-}
-
-impl<'a> RetainedFragment<'a> {
-    pub(crate) const fn observe(text: &'a str) -> Self {
-        Self { text }
-    }
-    pub(crate) fn characters(&self) -> usize {
-        self.text.chars().count()
-    }
-    pub(crate) fn multiline(&self) -> bool {
-        self.text.contains(['\n', '\r'])
-    }
-    pub(crate) const fn empty(&self) -> bool {
-        self.text.is_empty()
-    }
-}
-
 pub(crate) struct Projection {
     starts: Vec<usize>,
     ends: Vec<usize>,
@@ -69,7 +50,30 @@ impl Projection {
     }
 
     pub(crate) fn new(input: Analysis<'_>, edits: &[PlanEdit]) -> Self {
-        if edits.is_empty() {
+        Self::from_iter(input, edits.iter())
+    }
+
+    pub(crate) fn selected(
+        input: Analysis<'_>,
+        initial: &[PlanEdit],
+        later: &[PlanEdit],
+    ) -> Self {
+        let mut edits: Vec<_> = initial
+            .iter()
+            .chain(later.iter().filter(|(from, to, _)| {
+                let index = initial.partition_point(|(_, end, _)| end <= from);
+                initial.get(index).is_none_or(|(start, _, _)| to <= start)
+            }))
+            .collect();
+        edits.sort_unstable_by_key(|(from, to, _)| (*from, *to));
+        Self::from_iter(input, edits.into_iter())
+    }
+
+    fn from_iter<'a>(
+        input: Analysis<'_>,
+        edits: impl ExactSizeIterator<Item = &'a PlanEdit> + Clone,
+    ) -> Self {
+        if edits.len() == 0 {
             return Self {
                 starts: Vec::new(),
                 ends: Vec::new(),
@@ -79,8 +83,8 @@ impl Projection {
                 queries: std::cell::Cell::new(0),
             };
         }
-        let edit_starts = edits.iter().map(|(start, _, _)| start.get()).collect();
-        let ends: Vec<_> = edits.iter().map(|(_, end, _)| end.get()).collect();
+        let edit_starts = edits.clone().map(|(start, _, _)| start.get()).collect();
+        let ends: Vec<_> = edits.clone().map(|(_, end, _)| end.get()).collect();
         let mut deltas = Vec::with_capacity(edits.len() + 1);
         let mut bytes = Vec::with_capacity(edits.len() + 1);
         deltas.push(0);
@@ -130,9 +134,32 @@ impl Projection {
         column.saturating_add_signed(self.deltas[stop] - self.deltas[first])
     }
 
+    pub(crate) fn characters(
+        &self,
+        start: usize,
+        end: usize,
+        retained: usize,
+    ) -> usize {
+        self.queries.set(self.queries.get() + 1);
+        if self.ends.is_empty() {
+            return retained;
+        }
+        let first = self.ends.partition_point(|&at| at <= start);
+        let last = self.ends.partition_point(|&at| at <= end);
+        retained.saturating_add_signed(self.deltas[last] - self.deltas[first])
+    }
+
+    pub(crate) fn delta_at(&self, byte: usize) -> isize {
+        if self.ends.is_empty() {
+            return 0;
+        }
+        let first = self.ends.partition_point(|&at| at < byte);
+        let last = self.ends.partition_point(|&at| at <= byte);
+        self.deltas[last] - self.deltas[first]
+    }
+
     pub(crate) fn byte_position(
         &self,
-        input: Analysis<'_>,
         start: usize,
         stop: usize,
         position: usize,
@@ -142,10 +169,8 @@ impl Projection {
         if self.lines.is_empty() {
             return position;
         }
-        let line = input.byte_line_starts().partition_point(|&at| at <= start) - 1;
-        let (first, last) = self.lines[line];
-        let from = first + self.starts[first..last].partition_point(|&at| at < start);
-        let to = first + self.ends[first..last].partition_point(|&at| at <= stop);
+        let from = self.starts.partition_point(|&at| at < start);
+        let to = self.ends.partition_point(|&at| at <= stop);
         position.saturating_add_signed(self.bytes[to] - self.bytes[from.min(to)])
     }
 }

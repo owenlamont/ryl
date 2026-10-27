@@ -63,6 +63,10 @@ impl Attachments {
 }
 
 impl RetainedComments {
+    pub(crate) fn record_line(&mut self, line: usize) {
+        self.0.insert(line);
+    }
+
     pub(crate) fn record(&mut self, span: ryl_yaml_parser::Span) {
         self.0.insert(span.start.line() - 1);
     }
@@ -259,6 +263,27 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
     }
 
     edits
+}
+
+pub(crate) fn attachment_gap(
+    cfg: Option<&Config>,
+    initial: usize,
+    at: BytePos,
+    permission: crate::format::layout::Permission<'_>,
+) -> usize {
+    let Some(cfg) = cfg.filter(|_| permission.allows(at, at)) else {
+        return initial;
+    };
+    let target = target::Target::plan(
+        crate::text_version::model::Comment::new("", false),
+        target::Initial { gap: Some(initial) },
+        cfg,
+    );
+    match target.gap() {
+        target::Gap::Keep => initial,
+        target::Gap::Insert(extra) => initial + extra,
+        target::Gap::Replace { target, .. } => target,
+    }
 }
 
 pub(crate) fn edits_with_magic(

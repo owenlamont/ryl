@@ -67,6 +67,10 @@ impl Selected {
 }
 
 impl<'text> Eligible<'text> {
+    pub(super) fn requires_column(&self) -> bool {
+        marker_needs_column(self.0.value())
+    }
+
     pub(super) fn new(
         config: &Config,
         model: Scalar<'text>,
@@ -313,6 +317,20 @@ pub(super) fn facts(
     }
 }
 
+pub(super) fn marker_needs_column(value: &str) -> bool {
+    starts_with_document_marker(value)
+}
+
+pub(super) fn marker_needs_quotes(
+    value: &str,
+    column: crate::rules::indentation::RetainedColumn,
+    colon: crate::rules::colons::Context,
+) -> bool {
+    column.at_zero()
+        && marker_needs_column(value)
+        && (value.len() != 3 || !colon.follows())
+}
+
 fn quotes_are_needed(
     value: &str,
     initial: Initial<'_>,
@@ -320,9 +338,7 @@ fn quotes_are_needed(
     plain_scalar_cache: &mut HashMap<String, Option<bool>>,
 ) -> bool {
     if value.contains('\u{feff}')
-        || (placement.column.at_zero()
-            && starts_with_document_marker(value)
-            && (value.len() != 3 || !placement.colon.follows()))
+        || marker_needs_quotes(value, placement.column, placement.colon)
     {
         return true;
     }

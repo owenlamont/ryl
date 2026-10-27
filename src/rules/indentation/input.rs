@@ -110,16 +110,6 @@ impl<'a> Initial<'a> {
     }
 }
 
-pub(super) struct Collapse {
-    pub(super) first: usize,
-    pub(super) last: usize,
-    pub(super) body: std::ops::Range<usize>,
-    pub(super) replacement: std::ops::Range<usize>,
-    pub(super) first_body_end: usize,
-    pub(super) tails_empty: bool,
-    pub(super) flat: bool,
-}
-
 pub(crate) struct DiscardedGap<'a> {
     source: &'a str,
     range: std::ops::Range<usize>,

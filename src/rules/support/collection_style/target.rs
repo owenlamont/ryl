@@ -1,9 +1,9 @@
 use crate::config_schema::CollectionStyleTarget;
 use crate::rules::{indentation, quoted_strings};
-use crate::text_version::model::{Node, NodeKind as Kind};
+use crate::text_version::model::{Container, Node, NodeKind as Kind};
 
 use super::input::{Boundary, Initial};
-use super::spelling::{Fragment, Recipe, Selected};
+use super::spelling::{Form, Fragment, Recipe, Selected, Structure};
 
 pub(super) struct Planner<'a, 'text> {
     nodes: &'a [Node],
@@ -58,6 +58,22 @@ impl<'a, 'text> Planner<'a, 'text> {
                 .is_some_and(|parent| self.initial.collection(parent).flow())
     }
 
+    pub(super) fn pending(&self, index: usize) -> bool {
+        let node = &self.nodes[index];
+        if self.is_key(index) {
+            return false;
+        }
+        self.outermost_candidate(index)
+            || (matches!(node.kind(), Kind::Sequence | Kind::Mapping)
+                && !self.initial.collection(index).flow()
+                && node.parent().is_some()
+                && self.target(node.kind()) == Some(CollectionStyleTarget::Flow)
+                && !node.children().is_empty()
+                && node.children().iter().all(|&child| {
+                    matches!(self.nodes[child].kind(), Kind::Scalar | Kind::Alias)
+                }))
+    }
+
     fn is_key(&self, index: usize) -> bool {
         self.nodes[index].parent().is_some_and(|parent| {
             self.nodes[parent].kind() == Kind::Mapping
@@ -78,11 +94,43 @@ impl<'a, 'text> Planner<'a, 'text> {
         if !site.clear() {
             return None;
         }
+        let (body, characters) = self.flow_body(index)?;
+        let mut recipe = Recipe::new();
+        recipe.text(" ");
+        recipe.append(body);
+        {
+            let width = self
+                .geometry
+                .width(site.position(), characters + 1)
+                .characters();
+            width <= self.width && !site.indicators().widened()
+        }
+        .then(|| site.edit().select(recipe))
+    }
+
+    pub(super) fn implicit_body(&self, index: usize, column: usize) -> Option<Recipe> {
+        let (body, characters) = self.flow_body(index)?;
+        (column + characters <= self.width).then_some(body)
+    }
+
+    fn flow_body(&self, index: usize) -> Option<(Recipe, usize)> {
+        let node = &self.nodes[index];
         let mut pos = self.initial.start(index);
         let mut recipe = Recipe::new();
-        let mut characters = 3;
+        let mut characters = 2;
+        let container = if node.kind() == Kind::Sequence {
+            Container::Sequence
+        } else {
+            Container::Mapping
+        };
+        recipe.structure(Structure::Start {
+            node: index,
+            kind: container,
+            form: Form::Flow,
+        });
         if node.kind() == Kind::Sequence {
-            recipe.text(" [");
+            recipe.text("[");
+            recipe.flow_gap(index, container);
             for (entry, &child) in node.children().iter().enumerate() {
                 let fragment = self.flow_entry(child, pos)?;
                 characters += fragment.characters();
@@ -94,9 +142,16 @@ impl<'a, 'text> Planner<'a, 'text> {
                 }
                 pos = self.initial.end(child);
             }
+            recipe.flow_gap(index, container);
+            recipe.structure(Structure::End {
+                node: index,
+                kind: container,
+                form: Form::Flow,
+            });
             recipe.text("]");
         } else {
-            recipe.text(" {");
+            recipe.text("{");
+            recipe.flow_gap(index, container);
             for (entry, &[key, value]) in
                 node.children().as_chunks::<2>().0.iter().enumerate()
             {
@@ -108,27 +163,32 @@ impl<'a, 'text> Planner<'a, 'text> {
                     + value_text.characters()
                     + 2
                     + usize::from(alias);
-                if entry == 0 {
-                    recipe.copy(key_text);
-                } else {
+                if entry != 0 {
                     characters += 2;
-                    recipe.comma_copy(key_text);
+                    recipe.text(", ");
                 }
-                recipe.colon_copy(value_text, alias);
+                recipe.structure(Structure::Key(key));
+                recipe.copy(key_text);
+                if alias {
+                    recipe.text(" ");
+                }
+                recipe.structure(Structure::Value(value));
+                recipe.text(": ");
+                recipe.copy(value_text);
                 pos = self.initial.end(value);
             }
+            recipe.flow_gap(index, container);
+            recipe.structure(Structure::End {
+                node: index,
+                kind: container,
+                form: Form::Flow,
+            });
             recipe.text("}");
         }
-        (self
-            .geometry
-            .width(site.position(), characters)
-            .characters()
-            <= self.width
-            && !site.indicators().widened())
-        .then(|| site.edit().select(recipe))
+        Some((recipe, characters))
     }
 
-    fn flow_entry(&self, index: usize, pos: Boundary) -> Option<Fragment<'a>> {
+    fn flow_entry(&self, index: usize, pos: Boundary) -> Option<Fragment> {
         let fits = match self.nodes[index].kind() {
             Kind::Scalar => self
                 .initial
@@ -181,7 +241,7 @@ impl<'a, 'text> Planner<'a, 'text> {
         let body = self.block(index, self.initial.open(index), col)?;
         let mut recipe = Recipe::new();
         if let Some(comment) = outer.take_comment() {
-            recipe.text("  ");
+            recipe.comment_gap(&comment);
             recipe.copy(comment);
         }
         recipe.line(col);
@@ -200,11 +260,22 @@ impl<'a, 'text> Planner<'a, 'text> {
             return Err("it holds a comment");
         }
         let mut recipe = Recipe::new();
+        let container = if node.kind() == Kind::Sequence {
+            Container::Sequence
+        } else {
+            Container::Mapping
+        };
+        recipe.structure(Structure::Start {
+            node: index,
+            kind: container,
+            form: Form::Block,
+        });
         if node.kind() == Kind::Sequence {
             for (entry, &child) in node.children().iter().enumerate() {
                 if entry != 0 {
                     recipe.line(col);
                 }
+                recipe.structure(Structure::Entry(child));
                 recipe.text("- ");
                 recipe.append(self.item(child, pos, col + 2)?);
                 pos = self.initial.after_entry(child);
@@ -229,6 +300,18 @@ impl<'a, 'text> Planner<'a, 'text> {
                     return Err("a key is longer than 1024 characters");
                 }
                 let gap = self.initial.key_gap(key);
+                let key_column = || {
+                    indentation::RetainedColumn::from_position(
+                        col + self.initial.property_width(pos, key),
+                    )
+                };
+                if self
+                    .initial
+                    .scalar(key)
+                    .is_some_and(|scalar| !scalar.block_key_compatible(key_column))
+                {
+                    return Err("a plain key would become a document marker");
+                }
                 if self
                     .initial
                     .scalar(key)
@@ -242,12 +325,22 @@ impl<'a, 'text> Planner<'a, 'text> {
                 if entry != 0 {
                     recipe.line(col);
                 }
+                recipe.structure(Structure::Key(key));
                 recipe.copy(key_text);
-                recipe.text(if kind == Kind::Alias { " :" } else { ":" });
+                if kind == Kind::Alias {
+                    recipe.text(" ");
+                }
+                recipe.structure(Structure::Value(value));
+                recipe.text(":");
                 recipe.append(value_text);
                 pos = self.initial.after_value(value, &gap);
             }
         }
+        recipe.structure(Structure::End {
+            node: index,
+            kind: container,
+            form: Form::Block,
+        });
         Ok(recipe)
     }
 
@@ -287,7 +380,9 @@ impl<'a, 'text> Planner<'a, 'text> {
         let mut recipe = Recipe::new();
         if !self.to_block(index) {
             let fragment = self.copy(index, pos)?;
-            if !fragment.empty() {
+            if fragment.empty() {
+                recipe.copy(fragment);
+            } else {
                 recipe.space_copy(fragment);
             }
             return Ok(recipe);
@@ -303,7 +398,7 @@ impl<'a, 'text> Planner<'a, 'text> {
         Ok(recipe)
     }
 
-    fn copy(&self, index: usize, pos: Boundary) -> Result<Fragment<'a>, &'static str> {
+    fn copy(&self, index: usize, pos: Boundary) -> Result<Fragment, &'static str> {
         if self
             .initial
             .scalar(index)
@@ -315,7 +410,7 @@ impl<'a, 'text> Planner<'a, 'text> {
     }
 }
 
-fn single(fragment: Fragment<'_>) -> Result<Fragment<'_>, &'static str> {
+fn single(fragment: Fragment) -> Result<Fragment, &'static str> {
     if fragment.multiline() {
         Err("an entry spans lines")
     } else {

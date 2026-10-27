@@ -593,7 +593,7 @@ fn scalar_quote_facts(
     target::facts(
         config,
         value,
-        scalar_initial(buffer, style, span),
+        scalar_initial(buffer, style, &span),
         target::Placement {
             context,
             column: indentation::RetainedColumn::from_marker(span.start),
@@ -603,7 +603,11 @@ fn scalar_quote_facts(
     )
 }
 
-fn scalar_initial(buffer: &str, style: ScalarStyle, span: Span) -> target::Initial<'_> {
+fn scalar_initial<'text>(
+    buffer: &'text str,
+    style: ScalarStyle,
+    span: &Span,
+) -> target::Initial<'text> {
     let content = if style == ScalarStyle::DoubleQuoted {
         let (start, end) = scalar_source_bounds(buffer, style, span);
         inner_quoted_content(buffer, start, end)
@@ -732,7 +736,7 @@ fn contains_non_printable(value: &str) -> bool {
 fn scalar_source_bounds(
     buffer: &str,
     style: ScalarStyle,
-    span: Span,
+    span: &Span,
 ) -> (BytePos, BytePos) {
     let start = marker_byte_offset(span.start).get().min(buffer.len());
     let span_end = marker_byte_offset(span.end).get().min(buffer.len());
@@ -812,12 +816,19 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     fixer.finish()
 }
 
+pub(crate) trait ConvertedLayout {
+    fn forms(&self) -> &crate::rules::support::collection_style::Forms;
+    fn generated_key(&self, end: usize) -> bool;
+    fn column(&self, start: usize) -> usize;
+}
+
 pub(crate) fn format_replacements<'a>(
     input: crate::text_version::Analysis<'a>,
     cfg: &'a Config,
     cache: &mut HashMap<String, Option<bool>>,
     format: bool,
     spaced_colon: &'a colons::Guarantees<'a>,
+    frame: Option<&'a dyn ConvertedLayout>,
 ) -> Vec<Replacement> {
     let mut finder = ConsistentQuoteStyleFinder::new(cfg, input.text());
     if matches!(cfg.quote_type, QuoteType::Consistent) {
@@ -828,11 +839,18 @@ pub(crate) fn format_replacements<'a>(
     let mut fixer =
         QuotedStringsFixer::with_consistent_style(cfg, input.text(), finder.finish());
     fixer.state.spaced_colon = Some(spaced_colon);
+    fixer.state.projected = frame;
     std::mem::swap(&mut fixer.state.plain_scalar_cache, cache);
     fixer.format = format;
     fixer.settle = true;
-    for (event, span) in input.event_iter() {
-        fixer.on_event(event, span);
+    if let Some(frame) = frame {
+        for (event, span) in frame.forms().events(input) {
+            fixer.on_event(event, span);
+        }
+    } else {
+        for (event, span) in input.event_iter() {
+            fixer.on_event(event, span);
+        }
     }
     std::mem::swap(&mut fixer.state.plain_scalar_cache, cache);
     fixer.replacements
@@ -871,7 +889,7 @@ impl<'cfg> ConsistentQuoteStyleFinder<'cfg> {
 impl SpannedEventReceiver<'_> for ConsistentQuoteStyleFinder<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         self.state
-            .visit_event(event, span, |state, style, value, tag, span| {
+            .visit_event(event, &span, |state, style, value, tag, span| {
                 state.collect_consistent_quote_style(style, value, tag, span);
             });
     }
@@ -925,7 +943,7 @@ impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
         let replacements = &mut self.replacements;
         let (format, settle) = (self.format, self.settle);
         self.state
-            .visit_event(event, span, |state, style, value, tag, span| {
+            .visit_event(event, &span, |state, style, value, tag, span| {
                 if let Some(replacement) =
                     state.fix_scalar(style, value, tag, span, format, settle)
                 {
@@ -944,6 +962,7 @@ struct FixState<'cfg> {
     current_version: Option<Version>,
     plain_scalar_cache: HashMap<String, Option<bool>>,
     spaced_colon: Option<&'cfg colons::Guarantees<'cfg>>,
+    projected: Option<&'cfg dyn ConvertedLayout>,
 }
 
 impl<'cfg> FixState<'cfg> {
@@ -954,15 +973,15 @@ impl<'cfg> FixState<'cfg> {
         replacement: Replacement,
     ) -> Replacement {
         let (start, end, spelling) = replacement;
+        let style = spelling.style();
+        if style == ScalarStyle::Plain {
+            return (start, end, spelling);
+        }
         let suffix = if active_key && self.adjacent_colon(end) {
             ":x"
         } else {
             ""
         };
-        let style = spelling.style();
-        if style == ScalarStyle::Plain {
-            return (start, end, spelling);
-        }
         let text = spelling.as_str();
         let buffer = format!("{text}{suffix}");
         let chars = text.chars().count();
@@ -988,7 +1007,7 @@ impl<'cfg> FixState<'cfg> {
         let next = local.compute_fix(
             scalar_model(value, None, active_key, self.current_version),
             style,
-            span,
+            &span,
             target::Mode::Fix,
         );
         std::mem::swap(&mut local.plain_scalar_cache, &mut self.plain_scalar_cache);
@@ -996,6 +1015,12 @@ impl<'cfg> FixState<'cfg> {
     }
 
     fn adjacent_colon(&self, end: BytePos) -> bool {
+        if self
+            .projected
+            .is_some_and(|frame| frame.generated_key(end.get()))
+        {
+            return colons::generated_key_context().adjacent();
+        }
         colons::context(self.buffer, None, Some(end.get()), self.spaced_colon)
             .adjacent()
     }
@@ -1003,8 +1028,8 @@ impl<'cfg> FixState<'cfg> {
     fn visit_event(
         &mut self,
         event: Event<'_>,
-        span: Span,
-        visit_scalar: impl FnOnce(&mut Self, ScalarStyle, &str, Option<&Tag>, Span),
+        span: &Span,
+        visit_scalar: impl FnOnce(&mut Self, ScalarStyle, &str, Option<&Tag>, &Span),
     ) {
         match event {
             Event::StreamStart => self.reset_stream(),
@@ -1049,6 +1074,7 @@ impl<'cfg> FixState<'cfg> {
             current_version: None,
             plain_scalar_cache: HashMap::new(),
             spaced_colon: None,
+            projected: None,
         }
     }
 
@@ -1094,7 +1120,7 @@ impl<'cfg> FixState<'cfg> {
         style: ScalarStyle,
         value: &str,
         tag: Option<&Tag>,
-        span: Span,
+        span: &Span,
         format: bool,
         settle: bool,
     ) -> Option<Replacement> {
@@ -1122,7 +1148,7 @@ impl<'cfg> FixState<'cfg> {
         style: ScalarStyle,
         value: &str,
         tag: Option<&Tag>,
-        span: Span,
+        span: &Span,
     ) {
         let context = self.walker.begin_node();
         let active_key = context.active();
@@ -1138,22 +1164,35 @@ impl<'cfg> FixState<'cfg> {
         &mut self,
         model: ScalarModel<'_>,
         style: ScalarStyle,
-        span: Span,
+        span: &Span,
         mode: target::Mode,
     ) -> Option<Replacement> {
         let active_key = model.is_key();
         let eligible = target::Eligible::new(self.config, model, style, mode)?;
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
         let initial = scalar_initial(self.buffer, style, span);
-        let placement = target::Placement {
-            context: self.context(),
-            column: indentation::RetainedColumn::from_marker(span.start),
-            colon: colons::context(
+        let column = self
+            .projected
+            .filter(|_| eligible.requires_column())
+            .map_or(span.start.col(), |frame| frame.column(start.get()));
+        let colon = if active_key
+            && self
+                .projected
+                .is_some_and(|frame| frame.generated_key(end.get()))
+        {
+            colons::generated_key_context()
+        } else {
+            colons::context(
                 self.buffer,
                 span.end.byte_offset(),
                 active_key.then_some(end.get()),
                 self.spaced_colon,
-            ),
+            )
+        };
+        let placement = target::Placement {
+            context: self.context(),
+            column: indentation::RetainedColumn::from_position(column),
+            colon,
         };
         target::Planner::new(self.config, &mut self.consistent_quote_style)
             .plan(eligible, initial, placement, &mut self.plain_scalar_cache)

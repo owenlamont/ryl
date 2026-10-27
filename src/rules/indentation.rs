@@ -13,6 +13,7 @@ pub(crate) use crate::rules::support::token_spacing::IndentationGap as Gap;
 use crate::rules::support::token_spacing::{GapRequest, Indicator};
 
 mod input;
+mod projected;
 mod rewrite;
 mod settlement;
 mod shape;
@@ -41,11 +42,18 @@ impl RetainedLine {
 
 pub(crate) struct Column {
     origin: usize,
+    anchor: crate::rules::support::span_utils::BytePos,
     retained: isize,
     current: isize,
 }
 
 impl Column {
+    pub(crate) const fn source_anchor(
+        &self,
+    ) -> crate::rules::support::span_utils::BytePos {
+        self.anchor
+    }
+
     pub(crate) const fn origin(&self) -> usize {
         self.origin
     }

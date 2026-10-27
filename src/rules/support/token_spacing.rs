@@ -15,11 +15,26 @@ use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 mod input;
 mod target;
 
-pub(crate) struct RetainedIndicators<'a>(input::Indicators<'a>);
+pub(crate) struct RetainedIndicators<'a>(
+    input::Indicators<'a>,
+    Option<&'a crate::format::layout::projection::Projection>,
+);
 
-impl RetainedIndicators<'_> {
+impl<'a> RetainedIndicators<'a> {
+    pub(crate) fn selected(
+        mut self,
+        projection: &'a crate::format::layout::projection::Projection,
+    ) -> Self {
+        self.1 = Some(projection);
+        self
+    }
+
     pub(crate) fn widened(&self) -> bool {
-        self.0.spacing_prefixes().any(|spaces| spaces == 2)
+        self.0.spacing_prefixes().any(|(range, spaces)| {
+            self.1.map_or(spaces, |projection| {
+                projection.characters(range.start, range.end, spaces)
+            }) >= 2
+        })
     }
 }
 
@@ -27,7 +42,7 @@ pub(crate) fn retained_indicators(
     input: Analysis<'_>,
     range: Range<usize>,
 ) -> RetainedIndicators<'_> {
-    RetainedIndicators(input::Indicators::new(input, range))
+    RetainedIndicators(input::Indicators::new(input, range), None)
 }
 
 pub(crate) type SpaceEdit = (BytePos, BytePos, usize);

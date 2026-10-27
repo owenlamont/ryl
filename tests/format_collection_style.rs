@@ -19,6 +19,155 @@ const SEQUENCES: &str = "[format]\nsequence-style = 'block'\n";
 const MAPPINGS: &str = "[format]\nmapping-style = 'block'\n";
 
 #[test]
+fn converted_children_keep_the_original_trailing_comment_alignment() {
+    let input = "a: {b: c}\n # d\n";
+    let cfg = config(MAPPINGS);
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "a:\n  b: c\n# d\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn flow_reconsideration_uses_split_dash_spacing() {
+    let input = "root:\n  records:\n    -    name: 'alpha'\n         other: ok\n";
+    let cfg = config(
+        "indent-width=1\nline-length=27\n[format]\nmapping-style='flow'\nindent-sequences=false\ndash-on-own-line=true\n",
+    );
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "root:\n records:\n - {name: alpha, other: ok}\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn plain_marker_keys_keep_the_safe_collection_context() {
+    let cfg = config(MAPPINGS);
+    for (input, expected) in [
+        ("{\"--- x\": \"a\n b\"}\n", "{--- x: a b}\n"),
+        ("{\"... x\": \"a\n b\"}\n", "{... x: a b}\n"),
+        ("{--- x: a}\n", "{--- x: a}\n"),
+        ("{\"--- x\": \"a\"}\n", "'--- x': a\n"),
+        ("{\"---\": \"a\n b\"}\n", "---: a b\n"),
+        ("{\"---x\": \"a\n b\"}\n", "---x: a b\n"),
+        ("outer: {\"--- x\": \"a\n b\"}\n", "outer:\n  --- x: a b\n"),
+        ("{&k \"--- x\": \"a\n b\"}\n", "&k --- x: a b\n"),
+        ("{\"key\": \"--- x\"}\n", "key: --- x\n"),
+    ] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, expected, "{input:?}");
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
+    }
+}
+
+#[test]
+fn flow_conversion_reconsiders_quote_selected_widths() {
+    let cfg = config("line-length = 17\n[format]\nsequence-style = 'flow'\n");
+    let input = "key:\n  - \"aaaa\"\n  - \"bbbb\"\n";
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "key: [aaaa, bbbb]\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn flow_conversion_keeps_context_dependent_quote_eligibility() {
+    let input = "key:\n  - \"a,b\"\n  - \"c,d\"\n";
+    for (width, expected) in [
+        (19, "key: ['a,b', 'c,d']\n"),
+        (18, "key:\n  - a,b\n  - c,d\n"),
+    ] {
+        let cfg = config(&format!(
+            "line-length = {width}\n[format]\nsequence-style = 'flow'\n"
+        ));
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, expected);
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
+    }
+}
+
+#[test]
+fn converted_children_follow_the_moved_quote_directive() {
+    let cfg = config(SEQUENCES);
+    let input = "key: [\"aaaa\", \"bbbb\"]  # ryl disable-line rule:quoted-strings\n";
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(
+        output,
+        "key:  # ryl disable-line rule:quoted-strings\n  - aaaa\n  - bbbb\n"
+    );
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converting_a_child_keeps_the_parent_nonleaf() {
+    let cfg = config("[format]\nsequence-style = 'flow'\n");
+    let input = "key:\n  - - a\n    - b\n";
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "key:\n  - [a, b]\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn implicit_mappings_settle_block_quotes_before_flow_eligibility() {
+    for (input, mapping, expected) in [
+        ("key: [a: \"b\n  c\"]\n", "flow", "key:\n  - {a: b c}\n"),
+        ("key: [a: \"b\n  c\"]\n", "preserve", "key:\n  - a: b c\n"),
+        ("key: [a: \"b,c\"]\n", "flow", "key:\n  - a: b,c\n"),
+        (
+            "key: [a: \"b\n  c\"]\nother: [d]\n",
+            "flow",
+            "key:\n  - {a: b c}\nother:\n  - d\n",
+        ),
+        (
+            "key: [a: \"b,\n  c\"]\nother: [d]\n",
+            "flow",
+            "key: [a: 'b,\n  c']\nother:\n  - d\n",
+        ),
+        (
+            "key:   [a: \"b,c\"]\nother: [d]\n",
+            "flow",
+            "key:\n  - a: b,c\nother:\n  - d\n",
+        ),
+    ] {
+        let cfg = config(&format!(
+            "[format]\nsequence-style = 'block'\nmapping-style = '{mapping}'\n"
+        ));
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, expected);
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
+    }
+}
+
+#[test]
 fn indentless_sequence_conversion_does_not_keep_its_first_dash() {
     let cfg = config("[format]\nsequence-style = 'flow'\nindent-sequences = false\n");
     let input = "items:\n- café\n- three\n";
@@ -690,4 +839,284 @@ fn comma_edit_refreshes_collection_and_quote_events() {
         format_str(input, &config(SEQUENCES), Path::new("items.yaml"), &[]),
         "items:\n  - one\n  - two\n"
     );
+}
+
+#[test]
+fn bom_converted_children() {
+    let input = "﻿root: [one, two]\n";
+    let cfg = config("[format]\nsequence-style=\"block\"\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "﻿root:\n  - one\n  - two\n");
+    crate::property::reference::check_strict_events(
+        input.trim_start_matches('\u{feff}'),
+        output.trim_start_matches('\u{feff}'),
+    )
+    .unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converted_sibling_preserves_join() {
+    let input = "first: [a,b]\nrecords:\n  -\n    key: value\n";
+    let cfg = config("[format]\nsequence-style=\"block\"\ndash-on-own-line=false\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "first:\n  - a\n  - b\nrecords:\n  - key: value\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converted_sibling_retains_flow_tokens() {
+    let input = "first: [a,b]\nother: {key: [x,y]}\n";
+    let cfg = config("[format]\nsequence-style=\"block\"\nfold-long-lines=true\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "first:\n  - a\n  - b\nother: {key: [x, y]}\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converted_empty_entries() {
+    let input = "key: {a: , b: }\n";
+    let cfg = config("[format]\nmapping-style=\"block\"\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "key:\n  a:\n  b:\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converted_sibling_joins_touching_quotes() {
+    let input = "first: [a,b]\nother: [\"one\n two\", \"three\n four\"]\n";
+    let cfg = config("[format]\nsequence-style=\"block\"\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(
+        output,
+        "first:\n  - a\n  - b\nother:\n  - one two\n  - three four\n"
+    );
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn reconsideration_keeps_disabled_trailing_spaces() {
+    let input = "key:\n - \"aaaa\"  \n - \"bbbb\"\n# ryl disable rule:trailing-spaces\nother: value  \n";
+    let cfg = config("line-length=17\n[format]\nsequence-style=\"flow\"\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(
+        output,
+        "key: [aaaa, bbbb]\n# ryl disable rule:trailing-spaces\nother: value  \n"
+    );
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converted_sibling_keeps_above_line_quote_directives() {
+    let input = "first: [a,b]\n# ryl disable rule:quoted-strings\nother: \"value\"\n";
+    let cfg = config(SEQUENCES);
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(
+        output,
+        "first:\n  - a\n  - b\n# ryl disable rule:quoted-strings\nother: \"value\"\n"
+    );
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converted_mapping_joins_its_explicit_value_dash() {
+    let input = "? a\n:  -   { é :  [ \"é\tvalue\" ,y ] }\n";
+    let cfg = config(
+        "[format]\nquote-style='preserve'\nsequence-style='block'\nmapping-style='block'\n",
+    );
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "? a\n: - é:\n      - \"é\tvalue\"\n      - y\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn moved_comment_uses_the_wider_selected_attachment_gap() {
+    let input = "first: [a,b] #keep\n";
+    let cfg = config("[format]\nsequence-style='block'\ncomment-spacing=3\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "first:   # keep\n  - a\n  - b\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn tight_join_quotes_feed_collection_widths() {
+    let input = "-\n a: 'one\n  two'\n b:\n - \"aaaa\"\n - \"bbbb\"\n";
+    let cfg = config("line-length=20\n[format]\nsequence-style='flow'\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "- a: one two\n  b: [aaaa, bbbb]\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converted_sibling_keeps_the_other_documents_refused_dash_shape() {
+    let input = "first: [a,b]\n---\n# ryl disable rule:indentation\nrecords:\n -   key: value\n";
+    let cfg = config("[format]\nsequence-style='block'\ndash-on-own-line=true\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(
+        output,
+        "first:\n  - a\n  - b\n---\n# ryl disable rule:indentation\nrecords:\n - key: value\n"
+    );
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn joined_explicit_key_closes_its_gap_when_colons_are_skipped() {
+    let input = "-\n  ?   a\n  : b\n";
+    let cfg = config("[format]\nmapping-style='flow'\ndash-on-own-line=false\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &["colons"]);
+    assert_eq!(output, "- {a: b}\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &["colons"]),
+        output
+    );
+}
+
+#[test]
+fn tagged_empty_key_uses_the_selected_colon_gap() {
+    let input = "!local :  {\"a\":\"value\"} \t#note\n";
+    let cfg = config(MAPPINGS);
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "!local :  # note\n  a: value\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn split_mapping_reconsideration_merges_its_selected_gap() {
+    let input = "-    a: b\n";
+    let cfg = config(
+        "line-length=8\n[format]\nmapping-style='flow'\ndash-on-own-line=true\n",
+    );
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "- {a: b}\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converted_sibling_maps_a_kept_dash_after_an_accepted_split() {
+    let input = "first: [a,b]\nrecords:\n  - key: value\n  - kept: value # keep\n";
+    let cfg = config("[format]\nsequence-style='block'\ndash-on-own-line=true\n");
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(
+        output,
+        "first:\n  - a\n  - b\nrecords:\n  -\n    key: value\n  - kept: value  # keep\n"
+    );
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converted_sibling_folds_after_splitting_a_mapping_dash() {
+    let input = "first: [a,b]\nrecords:\n  - key: one two three four five six seven eight nine ten\n";
+    let cfg = config(
+        "line-length=24\n[format]\nsequence-style='block'\ndash-on-own-line=true\nfold-long-lines=true\n",
+    );
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(
+        output,
+        "first:\n  - a\n  - b\nrecords:\n  -\n    key: one two three\n      four five six\n      seven eight nine\n      ten\n"
+    );
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn converted_sibling_reconsiders_flow_width_after_splitting_a_dash() {
+    let input = "first: [a,b]\nrecords:\n  - key: one two three four five six seven eight nine ten\nother:\n  longkey: \"one\"\n  nextkey: \"two\"\n";
+    let cfg = config(
+        "line-length=36\n[format]\nsequence-style='block'\nmapping-style='flow'\ndash-on-own-line=true\nfold-long-lines=true\n",
+    );
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(
+        output,
+        "first:\n  - a\n  - b\nrecords:\n  -\n    key: one two three four five six\n      seven eight nine ten\nother: {longkey: one, nextkey: two}\n"
+    );
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn reconsidered_mapping_counts_the_explicit_value_gap_once() {
+    let cfg = config(
+        "[format]\nquote-style='double'\nsequence-style='flow'\nmapping-style='block'\nindent-sequences=false\ndash-on-own-line=false\ndocument-start='add'\n",
+    );
+    for (input, expected) in [
+        (
+            "? a\n:  -   {k: [x]}\n   - two\n",
+            "---\n? a\n: - k: [x]\n  - two\n",
+        ),
+        (
+            "? a\n:  -   {k: [x]}\n   - \"one\n        two\"\n",
+            "---\n? a\n: - k: [x]\n  - one two\n",
+        ),
+    ] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, expected);
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
+        assert!(ryl::format::conflicts(&cfg).is_empty());
+    }
 }

@@ -43,11 +43,11 @@ impl RetainedLine {
 pub(crate) fn retained_line(
     line: &crate::format::layout::VirtualLine<'_>,
 ) -> RetainedLine {
-    let text = line.body.trim_start();
+    let text = line.content().trim_start();
     RetainedLine {
         column: text
             .starts_with('#')
-            .then_some(line.prefix + line.body.len() - text.len()),
+            .then_some(line.prefix + line.content().len() - text.len()),
     }
 }
 
@@ -201,6 +201,50 @@ impl RetainedLines<'_> {
     }
 }
 
+pub(crate) fn align_projected(
+    source: Analysis<'_>,
+    config: Option<Config>,
+    layout: &crate::rules::indentation::Layout<'_>,
+    candidates: &mut crate::rules::indentation::Candidates,
+    permission: crate::format::layout::Permission<'_>,
+) {
+    if config != Some(Config::default()) {
+        return;
+    }
+    let retained = build_lines(source);
+    let lines: Vec<_> = layout
+        .lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            let original = retained[line.origin];
+            let kind = if matches!(
+                original.kind,
+                LineKind::ScalarBody | LineKind::ScalarTrailingComment
+            ) {
+                original.kind
+            } else {
+                classify_line_kind(line.content())
+            };
+            LineInfo {
+                kind,
+                indent: line.prefix.saturating_add_signed(candidates.deltas[index]),
+            }
+        })
+        .collect();
+    let mut planner = target::Planner::new(&lines, &[]);
+    for (index, line) in layout.lines.iter().enumerate() {
+        let anchor = line.source_anchor(source.text());
+        if let Some(indent) = planner.line(index, false)
+            && permission.allows(anchor, anchor)
+        {
+            candidates.deltas[index] = isize::try_from(indent)
+                .expect("text fits isize")
+                - isize::try_from(line.prefix).expect("text fits isize");
+        }
+    }
+}
+
 pub(crate) fn align_trailing(
     source: Analysis<'_>,
     config: Option<Config>,
@@ -221,9 +265,9 @@ pub(crate) fn align_trailing(
         target::Trailing::new(admission, RetainedLines(build_lines(source)), columns);
     for line in planner.first()..layout.lines.len() {
         let column = layout.column(line, candidates.deltas[line]);
-        let origin = column.origin();
+        let anchor = column.source_anchor();
         if let Some(delta) = planner.line(line, column)
-            && permission.line(origin)
+            && permission.allows(anchor, anchor)
         {
             candidates.deltas[line] = delta;
         }

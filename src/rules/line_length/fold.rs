@@ -62,6 +62,41 @@ impl Foldables {
     }
 
     pub(crate) fn push(&mut self, span: ryl_yaml_parser::Span, kind: &Kind) {
+        self.push_site(
+            kind,
+            span.start.line() - 1,
+            span.start.col(),
+            marker_byte_offset(span.start).get()..marker_byte_offset(span.end).get(),
+        );
+    }
+
+    pub(crate) fn scalar(&mut self, range: Range<usize>, style: LayoutStyle) {
+        let owner = self.owner.take();
+        if self.flow != 0 {
+            return;
+        }
+        if let Some(owner) = owner
+            && style.foldable()
+        {
+            let quotes = style.quote_width();
+            self.scalars.push(FoldableScalar {
+                content: range.start + quotes..range.end - quotes,
+                owner: match owner {
+                    Owner::Root => None,
+                    Owner::Collection(line, column) => Some((line, column)),
+                },
+                style,
+            });
+        }
+    }
+
+    pub(crate) fn push_site(
+        &mut self,
+        kind: &Kind<'_>,
+        line: usize,
+        column: usize,
+        range: Range<usize>,
+    ) {
         self.owner = match kind {
             Kind::Anchor | Kind::Tag | Kind::Comment { .. } => {
                 return;
@@ -75,7 +110,7 @@ impl Foldables {
                 }))
             }
             Kind::BlockMappingStart | Kind::BlockSequenceStart => {
-                self.blocks.push((span.start.line() - 1, span.start.col()));
+                self.blocks.push((line, column));
                 None
             }
             Kind::BlockEnd => {
@@ -90,22 +125,8 @@ impl Foldables {
                 self.flow = self.flow.saturating_sub(1);
                 None
             }
-            Kind::Scalar { style, .. } if self.flow == 0 => {
-                let style = quoted_strings::retained_layout_style(*style);
-                let quotes = style.quote_width();
-                if let Some(owner) = self.owner
-                    && style.foldable()
-                {
-                    self.scalars.push(FoldableScalar {
-                        content: marker_byte_offset(span.start).get() + quotes
-                            ..marker_byte_offset(span.end).get() - quotes,
-                        owner: match owner {
-                            Owner::Root => None,
-                            Owner::Collection(line, column) => Some((line, column)),
-                        },
-                        style,
-                    });
-                }
+            Kind::Scalar { style, .. } => {
+                self.scalar(range, quoted_strings::retained_layout_style(*style));
                 None
             }
             _ => None,

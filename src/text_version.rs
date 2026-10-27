@@ -256,16 +256,12 @@ impl<'text> Analysis<'text> {
         output: Analysis<'_>,
         expected: impl Iterator<Item = Event<'text>>,
     ) -> bool {
-        self.verify_events::<false>(output, expected)
-    }
-
-    pub(crate) fn verify_collection_events(self, output: Analysis<'_>) -> bool {
-        self.verify_events::<true>(output, self.event_values())
+        self.verify_events(output, expected)
     }
 
     /// Whether `output` parses strictly to `expected` and to this text's values; on
     /// success its facts and tokens are cached from that one parse.
-    fn verify_events<const COLLECTIONS: bool>(
+    fn verify_events(
         self,
         output: Analysis<'_>,
         expected: impl Iterator<Item = Event<'text>>,
@@ -293,7 +289,7 @@ impl<'text> Analysis<'text> {
         });
         let mut comparison = crate::fix::EventComparison::default();
         let mut semantic_matches = !crate::fix::non_ascii_marker(output.text());
-        let verified = events::verify_strict::<COLLECTIONS>(
+        let verified = events::verify_strict::<false>(
             expected,
             output.text(),
             |span: &Span, kind: ryl_yaml_parser::TokenKind<'_>| {
@@ -396,10 +392,6 @@ impl<'text> Analysis<'text> {
     ) -> impl DoubleEndedIterator<Item = &'text str> + ExactSizeIterator + Clone {
         // Skipping mapped lines still decodes them, so bound the range before mapping.
         range.map(move |line| self.line_content(line))
-    }
-
-    pub(crate) fn line_contents(self) -> Vec<&'text str> {
-        self.lines().map(|(_, line, _)| line).collect()
     }
 
     pub(crate) fn line_is_empty(self, line: usize) -> bool {

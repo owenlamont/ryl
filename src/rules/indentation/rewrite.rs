@@ -68,6 +68,10 @@ pub(crate) struct Layout<'a> {
     pub(crate) lines: Vec<VirtualLine<'a>>,
     pub(crate) shaped: bool,
     projection: Option<Vec<usize>>,
+    converted: Option<Box<crate::format::layout::frame::Frame>>,
+    baseline: Option<Vec<VirtualLine<'a>>>,
+    converted_shapes: Vec<shape::Recipe>,
+    shape_rows: Option<shape::Rows>,
     pub(crate) kept_dash_lines: Vec<(usize, usize)>,
     /// The spacing edits the dash shapes dropped or inserted, which a refused document
     /// reverts.
@@ -83,10 +87,22 @@ pub(crate) struct Layout<'a> {
 pub(crate) struct CollectionFeasibility(Option<Vec<Option<Cause>>>);
 
 impl CollectionFeasibility {
-    pub(crate) fn observe(input: Analysis<'_>, cfg: &Config, consistent: bool) -> Self {
-        let mut layout = Layout::new(input, cfg);
+    pub(crate) fn observe<'a>(
+        input: Analysis<'a>,
+        cfg: &Config,
+        consistent: bool,
+        plan: &crate::rules::support::collection_style::Plan,
+    ) -> (Self, crate::format::layout::frame::FrameRows<'a>) {
+        let mut unshaped = *cfg;
+        unshaped.dash_on_own_line = None;
+        let (converted, lines) = crate::format::layout::frame::Frame::new(
+            input,
+            input.byte_line_starts(),
+            plan,
+        );
+        let mut layout = Layout::converted(input, &unshaped, converted, lines);
         let candidates = layout.retained_candidates(cfg);
-        Self(candidates.map(|mut candidates| {
+        let feasibility = Self(candidates.map(|mut candidates| {
             let styles = crate::rules::quoted_strings::Styles::default();
             if cfg.require_consistent || consistent {
                 let violations =
@@ -94,7 +110,16 @@ impl CollectionFeasibility {
                 layout.refuse_violated(&violations, &mut candidates.refused);
             }
             candidates.refused
-        }))
+        }));
+        (
+            feasibility,
+            (
+                *layout
+                    .converted
+                    .expect("the feasibility frame was installed"),
+                layout.lines,
+            ),
+        )
     }
 
     pub(crate) fn refuses(&self, index: usize) -> bool {
@@ -116,6 +141,7 @@ pub(crate) struct CollectionGeometry<'a> {
     source: Analysis<'a>,
     config: Option<Config>,
     layout: OnceCell<(Layout<'a>, Targets)>,
+    positions: Option<Vec<(usize, usize)>>,
 }
 
 impl<'a> CollectionGeometry<'a> {
@@ -124,6 +150,20 @@ impl<'a> CollectionGeometry<'a> {
             source,
             config,
             layout: OnceCell::new(),
+            positions: None,
+        }
+    }
+
+    pub(crate) fn selected(
+        source: Analysis<'a>,
+        mut positions: Vec<(usize, usize)>,
+    ) -> Self {
+        positions.sort_unstable_by_key(|&(at, _)| at);
+        Self {
+            source,
+            config: None,
+            layout: OnceCell::new(),
+            positions: Some(positions),
         }
     }
 
@@ -132,6 +172,12 @@ impl<'a> CollectionGeometry<'a> {
         at: crate::rules::support::span_utils::BytePos,
         characters: usize,
     ) -> Width {
+        if let Some(positions) = &self.positions {
+            let index = positions
+                .binary_search_by_key(&at.get(), |&(at, _)| at)
+                .expect("selected geometry covers each collection site");
+            return Width(positions[index].1 + characters);
+        }
         let source = self.source.text();
         let start = source[..at.get()]
             .rfind(['\n', '\r'])
@@ -139,7 +185,7 @@ impl<'a> CollectionGeometry<'a> {
         let width = source[start..at.get()].chars().count() + characters;
         Width(self.config.map_or(width, |config| {
             let (layout, targets) = self.layout.get_or_init(|| {
-                let mut layout = Layout::new(self.source, &config);
+                let layout = Layout::new(self.source, &config);
                 let candidates = layout.targets(
                     &config,
                     &[],
@@ -161,6 +207,29 @@ impl<'a> CollectionGeometry<'a> {
 }
 
 impl<'a> Layout<'a> {
+    pub(crate) fn collection_form(
+        &self,
+        node: usize,
+    ) -> Option<crate::rules::support::collection_style::Form> {
+        self.converted
+            .as_ref()
+            .and_then(|frame| frame.collection_form(node))
+    }
+
+    pub(crate) fn keeps_source_edit(
+        &self,
+        start: crate::rules::support::span_utils::BytePos,
+        end: crate::rules::support::span_utils::BytePos,
+    ) -> bool {
+        self.converted
+            .as_ref()
+            .is_none_or(|frame| frame.retains_edit(start, end))
+    }
+
+    pub(crate) fn is_converted(&self) -> bool {
+        self.converted.is_some()
+    }
+
     pub(crate) fn restyle(&mut self, styles: crate::rules::quoted_strings::Restyled) {
         self.restyled = styles;
         self.protection.take();
@@ -183,6 +252,7 @@ impl<'a> Layout<'a> {
         );
         super::Column {
             origin: line.origin,
+            anchor: line.source_anchor(self.input.text()),
             retained,
             current: retained + delta,
         }
@@ -191,12 +261,12 @@ impl<'a> Layout<'a> {
     pub(crate) fn collapse_scalars<'b>(
         &mut self,
         edits: impl IntoIterator<Item = &'b crate::format::layout::PlanEdit>,
-    ) -> bool {
+    ) {
         let source = self.input.text();
         let starts = self.input.byte_line_starts();
-        let mut collapses = Vec::new();
-        let mut selection = shape::Collapses::new();
-        for (start, end, text) in edits {
+        let mut collapses: Vec<(usize, usize, Box<crate::format::layout::Bridge<'a>>)> =
+            Vec::new();
+        for (start, end, _) in edits {
             if !source[start.get()..end.get()].contains(['\n', '\r']) {
                 continue;
             }
@@ -208,49 +278,66 @@ impl<'a> Layout<'a> {
                 starts.partition_point(|&at| at < end.get()) - 1,
                 end.get(),
             );
-            let body_start =
-                self.lines[first].body.as_ptr() as usize - source.as_ptr() as usize;
-            let body_end = self.lines[last].body.as_ptr() as usize
-                - source.as_ptr() as usize
-                + self.lines[last].body.len();
+            let line = &self.lines[first];
+            let joined = !line.tail.is_empty()
+                && line.tail.as_ptr() as usize - source.as_ptr() as usize
+                    <= start.get();
+            let prefix = self.source_starts[line.origin];
+            let bridge_start = if joined {
+                line.tail.as_ptr() as usize - source.as_ptr() as usize
+            } else {
+                start.get()
+            };
             let end_line = starts.partition_point(|&at| at <= end.get()) - 1;
-            let prefix = self.source_starts[self.lines[first].origin];
-            collapses.push((
-                first,
-                last,
-                Box::new(crate::format::layout::Bridge {
-                    start: start.get(),
-                    end: end.get(),
-                    characters: text.char_count(),
-                    prefix_column: source[prefix..start.get()].chars().count(),
-                    // BOM-normalized columns retain the byte-derived tail width.
-                    end_position: matches!(self.source_starts, Cow::Borrowed(_)).then(
-                        || {
-                            (
-                                end_line,
-                                source[starts[end_line]..end.get()].chars().count(),
-                            )
+            let end_position =
+                matches!(self.source_starts, Cow::Borrowed(_)).then(|| {
+                    (
+                        end_line,
+                        source[starts[end_line]..end.get()].chars().count(),
+                    )
+                });
+            if let Some((_, previous, bridge)) = collapses.last_mut()
+                && *previous == first
+            {
+                *previous = last;
+                bridge.retained_characters +=
+                    source[bridge.end..end.get()].chars().count();
+                bridge.end = end.get();
+                bridge.end_position = end_position;
+            } else {
+                collapses.push((
+                    first,
+                    last,
+                    Box::new(crate::format::layout::Bridge {
+                        start: bridge_start,
+                        end: end.get(),
+                        retained_characters: source[bridge_start..end.get()]
+                            .chars()
+                            .count(),
+                        prefix_column: if joined {
+                            line.prefix + line.body.chars().count()
+                        } else {
+                            source[prefix..start.get()].chars().count()
                         },
-                    ),
-                }),
-            ));
-            selection.add(&super::input::Collapse {
-                first,
-                last,
-                body: body_start..body_end,
-                replacement: start.get()..end.get(),
-                first_body_end: body_start + self.lines[first].body.len(),
-                tails_empty: self.lines[first].tail.is_empty()
-                    && self.lines[last].tail.is_empty(),
-                flat: !text.piece().chars().any(|ch| matches!(ch, '\n' | '\r')),
-            });
+                        end_position,
+                        joined,
+                        tight_join: joined && !line.tail.starts_with(' '),
+                        parts: None,
+                    }),
+                ));
+            }
         }
         if collapses.is_empty() {
-            return true;
+            return;
         }
-        if !selection.accepts() {
-            return false;
-        }
+        self.apply_collapses(collapses);
+    }
+
+    fn apply_collapses(
+        &mut self,
+        collapses: Vec<(usize, usize, Box<crate::format::layout::Bridge<'a>>)>,
+    ) {
+        let source = self.input.text();
         let original = std::mem::take(&mut self.lines);
         self.lines.reserve(original.len());
         let mut physical = original.into_iter().enumerate();
@@ -268,7 +355,9 @@ impl<'a> Layout<'a> {
                     body_end = later.body.as_ptr() as usize - source.as_ptr() as usize
                         + later.body.len();
                 }
-                line.body = &source[body_start..start];
+                if !bridge.joined {
+                    line.body = &source[body_start..start];
+                }
                 line.tail = &source[end..body_end];
                 line.ending = ending;
                 line.bridge = Some(bridge);
@@ -276,7 +365,6 @@ impl<'a> Layout<'a> {
             self.lines.push(line);
         }
         self.reindex();
-        true
     }
 
     pub(crate) fn consistent(&self, cfg: &Config) -> bool {
@@ -292,17 +380,104 @@ impl<'a> Layout<'a> {
         analyzer.diagnostics.is_empty()
     }
     pub(crate) fn new(input: Analysis<'a>, cfg: &Config) -> Self {
-        Self::with_shapes(input, cfg, false)
+        Self::with_shapes(input, cfg, false, None)
+    }
+
+    pub(crate) fn converted(
+        input: Analysis<'a>,
+        cfg: &Config,
+        frame: crate::format::layout::frame::Frame,
+        lines: Vec<VirtualLine<'a>>,
+    ) -> Self {
+        let mut unshaped = *cfg;
+        unshaped.dash_on_own_line = None;
+        let mut layout = Self::with_shapes(input, &unshaped, true, Some(lines));
+        layout.converted = Some(Box::new(frame));
+        layout.shaped = true;
+        if let Some(own_line) = cfg.dash_on_own_line {
+            let tokens = super::projected::tokens(
+                layout.converted.as_ref().expect("the frame was installed"),
+                input,
+                super::normalized_tokens(input, &layout.source_starts),
+            );
+            let mut tokens = tokens.peekable();
+            let mut candidates = Vec::new();
+            while let Some(entry) = tokens.next() {
+                let Some(start) = tokens.peek() else { break };
+                candidates.extend(shape::from_tokens(
+                    &entry,
+                    start,
+                    &hyphens::dash_gap(layout.lines.get(entry.line)),
+                    own_line,
+                    &layout.directives,
+                    true,
+                ));
+            }
+            let mut comments = crate::rules::comments::RetainedComments::default();
+            for (event, span) in input.event_iter() {
+                if matches!(event, ryl_yaml_parser::Event::Comment(..)) {
+                    let position = layout
+                        .converted
+                        .as_ref()
+                        .expect("the frame was installed")
+                        .source_position(
+                            input,
+                            crate::rules::support::span_utils::marker_byte_offset(
+                                span.start,
+                            )
+                            .get(),
+                            false,
+                        );
+                    comments.record_line(position.line);
+                }
+            }
+            let (recipes, kept) = shape::settle(
+                candidates,
+                &comments,
+                &shape::TightJoins::new(cfg.spaces, &layout.directives),
+                &layout.starts,
+            );
+            layout.converted_shapes = recipes;
+            layout.kept_dash_lines = kept;
+        }
+        if !layout.converted_shapes.is_empty() {
+            layout.baseline = Some(layout.lines.clone());
+            layout.shape_rows = Some(shape::apply_projected(
+                input.text(),
+                &mut layout.lines,
+                layout.converted_shapes.iter().cloned(),
+            ));
+            layout.reindex();
+        }
+        layout
     }
 
     pub(crate) fn keep_refused(
         &mut self,
         refused: &[Option<Cause>],
         edits: &[crate::format::layout::PlanEdit],
-    ) -> bool {
+    ) {
+        if self.converted.is_some() && self.baseline.is_none() {
+            return;
+        }
         let starts = self.starts.clone();
         let frozen =
             |line| refused[starts.partition_point(|&at| at <= line) - 1].is_some();
+        if let Some(baseline) = &self.baseline {
+            self.lines.clone_from(baseline);
+            let recipes = self
+                .converted_shapes
+                .iter()
+                .filter(|recipe| !frozen(baseline[recipe.line()].origin))
+                .cloned();
+            self.shape_rows = Some(shape::apply_projected(
+                self.input.text(),
+                &mut self.lines,
+                recipes,
+            ));
+            self.reindex();
+            return;
+        }
         let mut previous = std::mem::take(&mut self.lines).into_iter().peekable();
         for (origin, content, ending) in self.input.lines() {
             if frozen(origin) {
@@ -333,7 +508,7 @@ impl<'a> Layout<'a> {
                     .partition_point(|&at| at <= start.get())
                     - 1,
             )
-        }))
+        }));
     }
 
     pub(crate) fn frozen(&self, refused: &[Option<Cause>], line: usize) -> bool {
@@ -391,10 +566,15 @@ impl<'a> Layout<'a> {
     }
 
     pub(crate) fn format(input: Analysis<'a>, cfg: &Config) -> Self {
-        Self::with_shapes(input, cfg, true)
+        Self::with_shapes(input, cfg, true, None)
     }
 
-    fn with_shapes(input: Analysis<'a>, cfg: &Config, streaming: bool) -> Self {
+    fn with_shapes(
+        input: Analysis<'a>,
+        cfg: &Config,
+        streaming: bool,
+        supplied: Option<Vec<VirtualLine<'a>>>,
+    ) -> Self {
         let mut starts = input.parsed().document_starts.clone();
         let directives = Directives::parse_with_analysis(input);
         let source_starts = if streaming && !input.text().contains('\u{feff}') {
@@ -402,7 +582,8 @@ impl<'a> Layout<'a> {
         } else {
             Cow::Owned(super::normalized_line_starts(input))
         };
-        let mut lines = virtual_lines(input, &source_starts);
+        let mut lines =
+            supplied.unwrap_or_else(|| virtual_lines(input, &source_starts));
         let parsed = input.parsed().valid && !starts.is_empty();
         if parsed {
             starts[0] = 0;
@@ -437,6 +618,10 @@ impl<'a> Layout<'a> {
             lines,
             shaped,
             projection: None,
+            converted: None,
+            baseline: None,
+            converted_shapes: Vec::new(),
+            shape_rows: None,
             kept_dash_lines,
             reshaped: Vec::new(),
             consistent: None,
@@ -545,11 +730,53 @@ impl<'a> Layout<'a> {
     }
 
     pub(crate) fn targets(
-        &mut self,
+        &self,
         cfg: &Config,
         edits: &[crate::format::layout::PlanEdit],
         styles: &crate::rules::quoted_strings::Styles,
         folding: bool,
+    ) -> Candidates {
+        let tokens = super::normalized_tokens(self.input, &self.source_starts);
+        self.targets_from(cfg, edits, styles, folding, tokens)
+    }
+
+    pub(crate) fn prepared_targets(
+        &self,
+        cfg: &Config,
+        edits: &[crate::format::layout::PlanEdit],
+        styles: &crate::rules::quoted_strings::Styles,
+        folding: bool,
+    ) -> Result<Candidates, crate::format::layout::Fallback> {
+        if self.input.layout_facts().is_some() {
+            return Ok(self.targets(cfg, edits, styles, folding));
+        }
+        let facts = std::cell::RefCell::new(
+            crate::format::layout::facts::Builder::new(self.input, folding),
+        );
+        let scanner = self
+            .input
+            .tokens()
+            .iter(self.input.text())
+            .inspect(|(span, kind)| facts.borrow_mut().push(*span, kind));
+        let tokens = super::normalized_tokens_from(
+            self.input.text(),
+            &self.source_starts,
+            scanner,
+        );
+        let targets = self.targets_from(cfg, edits, styles, folding, tokens);
+        facts.into_inner().finish().map(|facts| {
+            self.input.seed_layout_facts(facts);
+            targets
+        })
+    }
+
+    fn targets_from(
+        &self,
+        cfg: &Config,
+        edits: &[crate::format::layout::PlanEdit],
+        styles: &crate::rules::quoted_strings::Styles,
+        folding: bool,
+        tokens: impl Iterator<Item = super::Token>,
     ) -> Candidates {
         let line_starts = self.line_starts();
         let mut analyzer = Analyzer::new(
@@ -560,7 +787,7 @@ impl<'a> Layout<'a> {
         analyzer.scalar_owners = folding.then(Vec::new);
         let initial = GapInitial::new(&self.lines);
         super::walk(
-            self.projected(edits, styles),
+            self.projected_from(tokens, edits, styles),
             |token, previous, next, after| {
                 let gap = analyzer.gap_request(token, next).and_then(|request| {
                     let spaces = initial.after(request.line(), request.column());
@@ -591,40 +818,75 @@ impl<'a> Layout<'a> {
         edits: &'b [crate::format::layout::PlanEdit],
         styles: &'b crate::rules::quoted_strings::Styles,
     ) -> impl Iterator<Item = super::Token> + 'b {
+        let tokens = super::normalized_tokens(self.input, &self.source_starts);
+        self.projected_from(tokens, edits, styles)
+    }
+
+    fn projected_from<'b>(
+        &'b self,
+        tokens: impl Iterator<Item = super::Token> + 'b,
+        edits: &'b [crate::format::layout::PlanEdit],
+        styles: &'b crate::rules::quoted_strings::Styles,
+    ) -> impl Iterator<Item = super::Token> + 'b {
         let line_count = self.input.line_count();
         let projection =
             crate::format::layout::projection::Projection::new(self.input, edits);
         let mut styles = styles.cursor();
-        super::normalized_tokens(self.input, &self.source_starts).map(
-            move |mut token| {
-                token.restyle(&mut styles);
-                let line = self.project_line(token.line, token.start);
-                let end_line = if token.end_line >= line_count {
-                    self.lines.len()
-                } else {
-                    self.project_line(token.end_line, token.end)
-                };
-                if !edits.is_empty() {
-                    token.column = self.project_column(
-                        (&projection, None),
-                        line,
-                        token.line,
-                        token.start,
-                        token.column,
-                    );
-                    token.end_column = self.project_column(
-                        (&projection, None),
-                        end_line,
-                        token.end_line,
-                        token.end,
-                        token.end_column,
-                    );
-                }
-                token.line = line;
-                token.end_line = end_line;
-                token
-            },
-        )
+        let tokens = if let Some(converted) = &self.converted {
+            rayon::iter::Either::Right(super::projected::tokens(
+                converted, self.input, tokens,
+            ))
+        } else {
+            rayon::iter::Either::Left(tokens)
+        };
+        tokens.map(move |mut token| {
+            token.restyle(&mut styles);
+            if let Some(rows) = &self.shape_rows {
+                let first = rows.position(crate::format::layout::frame::Position {
+                    line: token.line,
+                    column: token.column,
+                    byte_column: token.column,
+                });
+                let last = rows.position(crate::format::layout::frame::Position {
+                    line: token.end_line,
+                    column: token.end_column,
+                    byte_column: token.end_column,
+                });
+                token.line = first.line;
+                token.column = first.column;
+                token.end_line = last.line;
+                token.end_column = last.column;
+                return token;
+            }
+            if self.converted.is_some() {
+                return token;
+            }
+            let line = self.source_line(token.line, token.start);
+            let end_line = if token.end_line >= line_count {
+                self.lines.len()
+            } else {
+                self.source_line(token.end_line, token.end)
+            };
+            if !edits.is_empty() {
+                token.column = self.project_column(
+                    (&projection, None),
+                    line,
+                    token.line,
+                    token.start,
+                    token.column,
+                );
+                token.end_column = self.project_column(
+                    (&projection, None),
+                    end_line,
+                    token.end_line,
+                    token.end,
+                    token.end_column,
+                );
+            }
+            token.line = line;
+            token.end_line = end_line;
+            token
+        })
     }
 
     /// Each token on its virtual line, at the column the layout `targets` emits it at.
@@ -634,26 +896,28 @@ impl<'a> Layout<'a> {
         edits: &'b [crate::format::layout::PlanEdit],
         styles: &'b crate::rules::quoted_strings::Styles,
     ) -> impl Iterator<Item = super::Token> + 'b {
-        let column = move |line: usize, column: usize| {
-            if self.lines.get(line).is_none_or(|virtual_line| {
-                self.frozen(&targets.refused, virtual_line.origin)
-            }) {
-                return column;
-            }
-            let closed: usize = targets.gaps
-                [targets.gaps.partition_point(|gap| gap.line() < line)..]
-                .iter()
-                .take_while(|gap| gap.line() == line)
-                .filter(|gap| gap.column() + 1 < column)
-                .map(|gap| gap.removed())
-                .sum();
-            column.saturating_add_signed(targets.deltas[line]) - closed
-        };
         self.projected(edits, styles).map(move |mut token| {
-            token.column = column(token.line, token.column);
-            token.end_column = column(token.end_line, token.end_column);
+            token.column = self.target_column(targets, token.line, token.column);
+            token.end_column =
+                self.target_column(targets, token.end_line, token.end_column);
             token
         })
+    }
+
+    fn target_column(&self, targets: &Candidates, line: usize, column: usize) -> usize {
+        if self.lines.get(line).is_none_or(|virtual_line| {
+            self.frozen(&targets.refused, virtual_line.origin)
+        }) {
+            return column;
+        }
+        let closed: usize = targets.gaps
+            [targets.gaps.partition_point(|gap| gap.line() < line)..]
+            .iter()
+            .take_while(|gap| gap.line() == line)
+            .filter(|gap| gap.column() + 1 < column)
+            .map(|gap| gap.removed())
+            .sum();
+        column.saturating_add_signed(targets.deltas[line]) - closed
     }
 
     /// The consistent-width violations of the layout `targets` emits, on virtual lines.
@@ -681,6 +945,28 @@ impl<'a> Layout<'a> {
         edits: &[crate::format::layout::PlanEdit],
         styles: &crate::rules::quoted_strings::Styles,
     ) -> Vec<(usize, usize)> {
+        if self.converted.is_some() {
+            return self
+                .kept_dash_lines
+                .iter()
+                .map(|&(line, column)| {
+                    let position = crate::format::layout::frame::Position {
+                        line: line - 1,
+                        column: column - 1,
+                        byte_column: column - 1,
+                    };
+                    let position = self
+                        .shape_rows
+                        .as_ref()
+                        .map_or(position, |rows| rows.position(position));
+                    (
+                        position.line + 1,
+                        self.target_column(&targets.0, position.line, position.column)
+                            + 1,
+                    )
+                })
+                .collect();
+        }
         let starts = self.input.byte_line_starts();
         let dashes: Vec<usize> = self
             .kept_dash_lines
@@ -816,12 +1102,14 @@ impl<'a> Layout<'a> {
             joined: self
                 .lines
                 .iter()
-                .filter(|line| {
-                    line.bridge.is_none()
-                        && !line.tail.is_empty()
-                        && !line.tail.starts_with(' ')
+                .filter_map(|line| {
+                    if let Some(bridge) = &line.bridge {
+                        bridge.tight_join.then_some(bridge.start)
+                    } else {
+                        (!line.tail.is_empty() && !line.tail.starts_with(' '))
+                            .then(|| line.tail.as_ptr() as usize - source)
+                    }
                 })
-                .map(|line| line.tail.as_ptr() as usize - source)
                 .collect(),
             next: 0,
             reshaped: Vec::new(),
@@ -892,11 +1180,11 @@ impl<'a> Layout<'a> {
             let original = line.pop_front().expect("a source line has a token");
             let mut token = original;
             token.restyle(&mut styles);
-            let projected = self.project_line(token.line, token.start);
+            let projected = self.source_line(token.line, token.start);
             let end = if token.end_line >= input.line_count() {
                 self.lines.len()
             } else {
-                self.project_line(token.end_line, token.end)
+                self.source_line(token.end_line, token.end)
             };
             if !edits.is_empty() || !spacing.is_empty() {
                 token.column = self.project_column(
@@ -947,7 +1235,172 @@ impl<'a> Layout<'a> {
         }
     }
 
+    pub(crate) fn converted_foldables(
+        &self,
+    ) -> Option<Vec<crate::rules::line_length::fold::FoldableScalar>> {
+        self.converted.as_ref()?;
+        let mut foldables = crate::rules::line_length::fold::Foldables::default();
+        let styles = crate::rules::quoted_strings::Styles::default();
+        for token in self.projected(&[], &styles) {
+            use crate::text_version::lexical::Kind as Lexical;
+            let kind = match token.kind {
+                Kind::Scalar { style, .. } => {
+                    foldables.scalar(token.start..token.end, style);
+                    continue;
+                }
+                Kind::StreamBoundary | Kind::Marker => Lexical::StreamStart,
+                Kind::BlockSequenceStart => Lexical::BlockSequenceStart,
+                Kind::BlockMappingStart => Lexical::BlockMappingStart,
+                Kind::BlockEnd => Lexical::BlockEnd,
+                Kind::FlowSequenceStart => Lexical::FlowSequenceStart,
+                Kind::FlowSequenceEnd => Lexical::FlowSequenceEnd,
+                Kind::FlowMappingStart => Lexical::FlowMappingStart,
+                Kind::FlowMappingEnd => Lexical::FlowMappingEnd,
+                Kind::BlockEntry => Lexical::BlockEntry,
+                Kind::Value => Lexical::Value,
+                Kind::Property => Lexical::Anchor,
+                _ => Lexical::Other,
+            };
+            foldables.push_site(
+                &kind,
+                token.line,
+                token.column,
+                token.start..token.end,
+            );
+        }
+        Some(foldables.finish())
+    }
+
+    pub(crate) fn converted_position(
+        &self,
+        byte: usize,
+        end: bool,
+    ) -> Option<crate::format::layout::frame::Position> {
+        let position = self
+            .converted
+            .as_ref()?
+            .source_position(self.input, byte, end);
+        Some(
+            self.shape_rows
+                .as_ref()
+                .map_or(position, |rows| rows.position(position)),
+        )
+    }
+
+    pub(crate) fn closed_source_gaps(
+        &self,
+        targets: &Targets,
+    ) -> Vec<crate::format::layout::PlanEdit> {
+        let mut edits: Vec<_> = targets
+            .gaps()
+            .iter()
+            .filter_map(|gap| {
+                let from = gap.column() + 2;
+                self.lines[gap.line()]
+                    .source_span(self.input.text(), from..from + gap.removed())
+                    .map(|(start, end)| {
+                        (start, end, crate::format::layout::Replacement::Spaces(0))
+                    })
+            })
+            .collect();
+        edits.extend(self.reshaped.iter().filter(|(from, to, _)| from < to).map(
+            |&(from, to, spaces)| {
+                (from, to, crate::format::layout::Replacement::Spaces(spaces))
+            },
+        ));
+        if let Some(baseline) = &self.baseline {
+            for recipe in &self.converted_shapes {
+                let (line, split, dash) = recipe.clone().into_parts();
+                let Some(column) = split else { continue };
+                if !targets.refused().is_empty()
+                    && self.frozen(targets.refused(), baseline[line].origin)
+                {
+                    continue;
+                }
+                if let Some((from, to)) =
+                    baseline[line].source_span(self.input.text(), dash + 1..column)
+                {
+                    edits.push((
+                        from,
+                        to,
+                        crate::format::layout::Replacement::Spaces(1),
+                    ));
+                }
+            }
+        } else if self.converted.is_none() {
+            for end in self.shapes().split {
+                let start =
+                    self.input.text()[..end].trim_end_matches([' ', '\t']).len();
+                edits.push((
+                    crate::rules::support::span_utils::BytePos::new(start),
+                    crate::rules::support::span_utils::BytePos::new(end),
+                    crate::format::layout::Replacement::Spaces(1),
+                ));
+            }
+        }
+        edits
+    }
+
+    pub(crate) fn collection_position(
+        &self,
+        byte: usize,
+        targets: &Candidates,
+        projection: &crate::format::layout::projection::Projection,
+    ) -> crate::format::layout::frame::Position {
+        let original = self
+            .input
+            .byte_line_starts()
+            .partition_point(|&at| at <= byte)
+            .saturating_sub(1);
+        let mut position = self.converted.as_ref().map_or_else(
+            || crate::format::layout::frame::Position {
+                line: self.project_line(original, byte),
+                byte_column: byte - self.input.byte_line_starts()[original],
+                column: self.input.text()
+                    [self.input.byte_line_starts()[original]..byte]
+                    .chars()
+                    .count(),
+            },
+            |frame| frame.source_position(self.input, byte, false),
+        );
+        if self.converted.is_none() {
+            position.column = self.project_column(
+                (projection, None),
+                position.line,
+                original,
+                byte,
+                position.column,
+            );
+        }
+        if let Some(rows) = &self.shape_rows {
+            position = rows.position(position);
+        }
+        let delta = targets.deltas[position.line];
+        let removed: usize = targets.gaps[targets
+            .gaps
+            .partition_point(|gap| gap.line() < position.line)..]
+            .iter()
+            .take_while(|gap| gap.line() == position.line)
+            .filter(|gap| gap.column() + 1 < position.column)
+            .map(|gap| gap.removed())
+            .sum();
+        position.column = position
+            .column
+            .saturating_add_signed(delta)
+            .saturating_sub(removed);
+        position
+    }
+
+    #[inline]
     pub(crate) fn project_line(&self, original: usize, byte: usize) -> usize {
+        if let Some(converted) = &self.converted {
+            return self.converted_line(converted, byte);
+        }
+        self.source_line(original, byte)
+    }
+
+    #[inline]
+    fn source_line(&self, original: usize, byte: usize) -> usize {
         let source = self.input.text().as_ptr() as usize;
         let Some(projection) = &self.projection else {
             return original.min(self.lines.len().saturating_sub(1));
@@ -957,6 +1410,25 @@ impl<'a> Layout<'a> {
             + usize::from(self.lines.get(first + 1).is_some_and(|line| {
                 line.origin == original && line.body.as_ptr() as usize - source <= byte
             }))
+    }
+
+    // Keep the source-only coordinate lookup small enough to inline in token walks.
+    #[inline(never)]
+    fn converted_line(
+        &self,
+        frame: &crate::format::layout::frame::Frame,
+        byte: usize,
+    ) -> usize {
+        let position = frame.source_position(
+            self.input,
+            self.input.text().floor_char_boundary(byte),
+            false,
+        );
+        self.shape_rows
+            .as_ref()
+            .map_or(position, |rows| rows.position(position))
+            .line
+            .min(self.lines.len().saturating_sub(1))
     }
 
     fn reindex(&mut self) {
@@ -1002,7 +1474,7 @@ impl<'a> Layout<'a> {
             .lines
             .get(index)
             .and_then(|line| line.bridge.as_deref())
-            && byte >= bridge.end
+            && byte >= bridge.start
         {
             let source_line = self.lines[index].origin;
             let prefix =
@@ -1010,12 +1482,31 @@ impl<'a> Layout<'a> {
             let prefix = extra.map_or(prefix, |extra| {
                 extra.column(source_line, bridge.start, prefix)
             });
-            let tail = bridge
-                .end_position
-                .filter(|(line, _)| *line == original)
-                .and_then(|(_, end_column)| column.checked_sub(end_column))
-                .unwrap_or_else(|| self.input.text()[bridge.end..byte].chars().count());
-            return prefix + bridge.characters + tail;
+            let prefix = if bridge.tight_join {
+                prefix.saturating_add_signed(
+                    projection.delta_at(bridge.start)
+                        + extra.map_or(0, |extra| extra.delta_at(bridge.start)),
+                )
+            } else {
+                prefix
+            };
+            let retained = if byte >= bridge.end {
+                bridge.retained_characters
+                    + bridge
+                        .end_position
+                        .filter(|(line, _)| *line == original)
+                        .and_then(|(_, end)| column.checked_sub(end))
+                        .unwrap_or_else(|| {
+                            self.input.text()[bridge.end..byte].chars().count()
+                        })
+            } else {
+                self.input.text()[bridge.start..byte].chars().count()
+            };
+            let selected = projection.characters(bridge.start, byte, retained);
+            return prefix
+                + extra.map_or(selected, |extra| {
+                    extra.characters(bridge.start, byte, selected)
+                });
         }
         let project = |byte, column| {
             let column = projection.column(original, byte, column);
@@ -1075,13 +1566,23 @@ impl<'a> Layout<'a> {
             // A tab counts only as the layout emits it, once the edits have run. The
             // edits do not hold trailing-spaces yet: where it runs, a whitespace-only line
             // outside the scalars it protects is blank.
-            if !virtual_line.body.contains('\t') && !virtual_line.tail.contains('\t') {
+            if !virtual_line.body.contains('\t')
+                && !virtual_line.tail.contains('\t')
+                && !virtual_line
+                    .parts()
+                    .into_iter()
+                    .flatten()
+                    .any(|part| part.piece().chars().any(|ch| ch == '\t'))
+            {
                 continue;
             }
             let line = virtual_line.origin;
             // A joined mapping's tab stays indentation, as on its own line.
             let tail = emitted(virtual_line.tail);
-            let content = emitted(virtual_line.body);
+            let mut content = emitted(virtual_line.body);
+            for part in virtual_line.parts().into_iter().flatten() {
+                content.extend(part.piece().chars());
+            }
             if let Some(candidate) = content.tab_candidate(tail) {
                 let protection = refused
                     .needs_protection(line, candidate, self.trimmed)
@@ -1176,6 +1677,10 @@ impl Candidates {
 }
 
 impl Targets {
+    pub(crate) const fn candidates(&self) -> &Candidates {
+        &self.0
+    }
+
     pub(crate) fn dedents_line(&self, line: usize) -> bool {
         self.0.deltas[line] < 0
     }
@@ -1260,6 +1765,7 @@ fn reshape<'a>(
             &hyphens::dash_gap(lines.get(entry.line)),
             own_line,
             directives,
+            false,
         ));
     }
     let (recipes, kept) = shape::settle(
@@ -1440,11 +1946,18 @@ fn settle(lines: &[VirtualLine<'_>], shifts: &[Option<Shift>]) -> Vec<isize> {
 }
 
 pub(crate) struct LineGeometry<'a> {
+    anchor: crate::rules::support::span_utils::BytePos,
     line: &'a VirtualLine<'a>,
     delta: isize,
 }
 
 impl LineGeometry<'_> {
+    pub(crate) const fn source_anchor(
+        &self,
+    ) -> crate::rules::support::span_utils::BytePos {
+        self.anchor
+    }
+
     pub(crate) fn empty(&self) -> bool {
         self.line.is_empty()
     }
@@ -1464,7 +1977,7 @@ impl LineGeometry<'_> {
         self.line.bom
     }
     pub(crate) const fn has_body(&self) -> bool {
-        !self.line.body.is_empty()
+        !self.line.body.is_empty() || self.line.bridge.is_some()
     }
     pub(crate) const fn has_tail(&self) -> bool {
         !self.line.tail.is_empty()
@@ -1475,13 +1988,14 @@ impl LineGeometry<'_> {
     pub(crate) fn scalar_content(
         &self,
     ) -> crate::rules::quoted_strings::LineContent<'_> {
-        crate::rules::quoted_strings::line_content(self.line.body)
+        crate::rules::quoted_strings::line_content(self.line.content())
     }
 }
 
 impl Layout<'_> {
     pub(crate) fn geometry(&self, index: usize, targets: &Targets) -> LineGeometry<'_> {
         LineGeometry {
+            anchor: self.lines[index].source_anchor(self.input.text()),
             line: &self.lines[index],
             delta: targets.deltas()[index],
         }

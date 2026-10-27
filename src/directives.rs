@@ -159,18 +159,29 @@ impl Directives {
             return Self::default();
         }
 
+        let comments =
+            crate::rules::support::comments_scan::collect_comments_with_analysis(input);
+        Self::from_comments(comments.iter().map(|comment| {
+            (
+                comment.span.start.line(),
+                comment.placement,
+                comment.text.as_str(),
+            )
+        }))
+    }
+
+    pub(crate) fn from_comments<'a>(
+        comments: impl Iterator<Item = (usize, Placement, &'a str)>,
+    ) -> Self {
         let mut block: HashSet<&'static str> = HashSet::new();
         let mut directives = Self::default();
-        for comment in
-            crate::rules::support::comments_scan::collect_comments_with_analysis(input)
-        {
-            let line = comment.span.start.line();
-            let disable_line_target = if comment.placement == Placement::Right {
+        for (line, placement, text) in comments {
+            let disable_line_target = if placement == Placement::Right {
                 line
             } else {
                 line + 1
             };
-            for parsed in parse_comment(&comment.text) {
+            for parsed in parse_comment(text) {
                 match parsed.action {
                     Action::Disable => {
                         insert_rules(&mut block, parsed.rules.as_deref());
@@ -193,6 +204,29 @@ impl Directives {
             }
         }
         directives
+    }
+
+    pub(crate) fn parse_projected(
+        input: crate::text_version::Analysis<'_>,
+        frame: &crate::format::layout::frame::Frame,
+        lines: &[crate::format::layout::VirtualLine<'_>],
+    ) -> Self {
+        let comments =
+            crate::rules::support::comments_scan::collect_comments_with_analysis(input);
+        Self::from_comments(comments.iter().map(|comment| {
+            let at = crate::rules::support::span_utils::marker_byte_offset(
+                comment.span.start,
+            )
+            .get();
+            let position = frame.source_position(input, at, false);
+            let line = &lines[position.line];
+            let placement = if position.column > line.prefix {
+                Placement::Right
+            } else {
+                Placement::Above
+            };
+            (position.line + 1, placement, comment.text.as_str())
+        }))
     }
 
     /// Parse inline directives, then layer config `per-line-ignores` on top as a virtual
@@ -231,7 +265,7 @@ impl Directives {
         if !has_regex_entry {
             return directives;
         }
-        for (index, content) in input.line_contents().into_iter().enumerate() {
+        for (index, content, _) in input.lines() {
             for entry in per_line {
                 if entry.regex.is_some_and(|regex| regex.is_match(content)) {
                     insert_rules(

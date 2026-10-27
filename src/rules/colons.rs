@@ -30,6 +30,10 @@ pub(crate) fn context(
     Context::select(input::Initial::new(buffer), end, key_end, guarantees)
 }
 
+pub(crate) fn generated_key_context() -> Context {
+    context(": ", Some(0), Some(0), None)
+}
+
 pub const ID: &str = "colons";
 const TOO_MANY_BEFORE: &str = "too many spaces before colon";
 const TOO_MANY_AFTER: &str = "too many spaces after colon";

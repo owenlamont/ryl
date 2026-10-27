@@ -34,6 +34,7 @@ pub(super) struct ScalarTarget {
 pub(super) struct Geometry {
     pub(super) index: usize,
     pub(super) prefix: usize,
+    pub(super) retained_prefix: usize,
     pub(super) bom: bool,
     pub(super) content: Content,
     pub(super) allowed: bool,
@@ -123,7 +124,10 @@ impl ScalarTarget {
         };
         end.map(|end| {
             // Byte length bounds character length, so short lines need no character walk.
-            let breaks = if length <= usize::from(self.width)
+            let width = usize::from(self.width).saturating_sub(
+                geometry.retained_prefix.saturating_sub(geometry.prefix),
+            );
+            let breaks = if length <= width
                 || (geometry.index == self.last
                     && !line.ends_in_break
                     && line.directive_tail)
@@ -131,13 +135,7 @@ impl ScalarTarget {
                 Vec::new()
             } else {
                 let chars = line.content.scalar_characters(start..end);
-                breaks_from_chars(
-                    chars,
-                    &(start..end),
-                    self.style,
-                    self.indent,
-                    usize::from(self.width),
-                )
+                breaks_from_chars(chars, &(start..end), self.style, self.indent, width)
             };
             let line = geometry.index;
             let indent = self.indent;

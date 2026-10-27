@@ -268,6 +268,8 @@ pub fn arb_quoted_document() -> impl Strategy<Value = String> {
             ("- ", "\n"),
             ("key: ", "\n"),
             ("[", "]\n"),
+            ("key: [a: ", "]\n"),
+            ("items: [", ", 'one\n  two']\n"),
             ("", ": x\n"),
         ]),
         any::<bool>(),
