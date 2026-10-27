@@ -6,6 +6,33 @@ use crate::rules::support::span_utils::containing_byte_scalar_range;
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 use crate::text_version::{Analysis, TextVersion};
 
+pub(crate) struct Gap {
+    start: usize,
+    end: usize,
+    spaces: usize,
+}
+
+impl Gap {
+    pub(crate) const fn new(start: usize, end: usize, spaces: usize) -> Self {
+        Self { start, end, spaces }
+    }
+
+    pub(crate) const fn spaces(&self) -> usize {
+        self.spaces
+    }
+
+    pub(crate) fn select(
+        self,
+        spaces: usize,
+    ) -> Option<super::token_spacing::SpaceEdit> {
+        (spaces != self.spaces).then_some((
+            BytePos::new(self.start),
+            BytePos::new(self.end),
+            spaces,
+        ))
+    }
+}
+
 /// Clamps `current` into `min..=max`; leaves it alone when `min > max`, since no spacing passes.
 pub(crate) fn target_spacing(current: usize, min: i64, max: i64) -> usize {
     let min = usize::try_from(min).unwrap_or(0);

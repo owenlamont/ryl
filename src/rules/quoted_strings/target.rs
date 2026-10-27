@@ -15,20 +15,34 @@ use super::{
 
 #[derive(Clone, Copy)]
 pub(super) struct Placement {
-    pub(super) in_flow: bool,
-    pub(super) at_column_zero: bool,
-    pub(super) colon: ColonTarget,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct ColonTarget {
-    pub(super) follows: bool,
-    pub(super) adjacent: bool,
+    pub(super) context: crate::rules::support::collection_style::RetainedContext,
+    pub(super) column: crate::rules::indentation::RetainedColumn,
+    pub(super) colon: crate::rules::colons::Context,
 }
 
 pub(super) struct Planner<'cfg, 'state> {
-    pub(super) config: &'cfg Config,
-    pub(super) consistent_quote_style: &'state mut Option<QuoteStyle>,
+    config: &'cfg Config,
+    consistent: &'state mut ConsistentStyle,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct ConsistentStyle(Option<QuoteStyle>);
+
+impl ConsistentStyle {
+    pub(super) fn observe(
+        &mut self,
+        config: &Config,
+        model: &Scalar<'_>,
+        initial: Initial<'_>,
+    ) {
+        if self.0.is_none()
+            && !skip_scalar(config, initial.style, model)
+            && let Some(style) = quote_style(initial.style)
+            && !escaped_double_quote_exception(config, style, initial.any_escape())
+        {
+            self.0 = Some(style);
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -64,19 +78,18 @@ impl<'text> Eligible<'text> {
                 style,
                 ScalarStyle::Plain | ScalarStyle::Literal | ScalarStyle::Folded
             );
-        (!keep
-            && !super::should_skip_scalar(
-                config,
-                style,
-                model.tag(),
-                model.is_key(),
-                model.plain_is_string(),
-            ))
-        .then_some(Self(model))
+        (!keep && !skip_scalar(config, style, &model)).then_some(Self(model))
     }
 }
 
-impl Planner<'_, '_> {
+impl<'cfg, 'state> Planner<'cfg, 'state> {
+    pub(super) const fn new(
+        config: &'cfg Config,
+        consistent: &'state mut ConsistentStyle,
+    ) -> Self {
+        Self { config, consistent }
+    }
+
     pub(super) fn plan(
         &mut self,
         eligible: Eligible<'_>,
@@ -87,7 +100,7 @@ impl Planner<'_, '_> {
         let model = eligible.0;
         let value = model.value();
         let mut facts = facts(self.config, value, initial, placement, cache);
-        if placement.colon.adjacent {
+        if placement.colon.adjacent() {
             facts.quotes_needed = Flag::new(true);
         }
         let text = match self.config.required {
@@ -97,12 +110,9 @@ impl Planner<'_, '_> {
             RequiredMode::Never => {
                 self.fix_required_never(value, facts).map(Recipe::Text)
             }
-            RequiredMode::OnlyWhenNeeded => self.fix_only_when_needed(
-                value,
-                model.plain_is_string(),
-                facts,
-                initial,
-            ),
+            RequiredMode::OnlyWhenNeeded => {
+                self.fix_only_when_needed(&model, facts, initial)
+            }
         };
         text.map(Selected)
     }
@@ -155,11 +165,11 @@ impl Planner<'_, '_> {
 
     fn fix_only_when_needed(
         &mut self,
-        value: &str,
-        resolves_to_string: bool,
+        model: &Scalar<'_>,
         facts: ScalarQuoteFacts,
         initial: Initial<'_>,
     ) -> Option<Recipe> {
+        let value = model.value();
         match facts.style {
             None => {
                 if facts.extra_required.get() {
@@ -170,10 +180,10 @@ impl Planner<'_, '_> {
                 }
             }
             Some(style_kind) => {
-                if resolves_to_string
-                    && !value.is_empty()
+                if !value.is_empty()
                     && !facts.quotes_needed.get()
                     && !self.redundant_quote_allowed(style_kind, facts)
+                    && model.plain_is_string()
                 {
                     return Some(Recipe::Text(value.to_owned()));
                 }
@@ -217,9 +227,9 @@ impl Planner<'_, '_> {
     fn default_quote_style(&mut self) -> QuoteStyle {
         match self.config.quote_type {
             QuoteType::Double => QuoteStyle::Double,
-            QuoteType::Consistent => *self
-                .consistent_quote_style
-                .get_or_insert(QuoteStyle::Single),
+            QuoteType::Consistent => {
+                *self.consistent.0.get_or_insert(QuoteStyle::Single)
+            }
             QuoteType::Single | QuoteType::Any => QuoteStyle::Single,
         }
     }
@@ -229,7 +239,7 @@ impl Planner<'_, '_> {
             QuoteType::Single | QuoteType::Any => QuoteStyle::Single,
             QuoteType::Double => QuoteStyle::Double,
             QuoteType::Consistent => {
-                let expected = self.consistent_quote_style.get_or_insert(current);
+                let expected = self.consistent.0.get_or_insert(current);
                 *expected
             }
         }
@@ -246,10 +256,21 @@ impl Planner<'_, '_> {
             facts.has_double_quote_escape.get(),
         ) || configured_quote_type_matches(
             self.config,
-            self.consistent_quote_style,
+            &mut self.consistent.0,
             style_kind,
         ) || (self.config.allow_quoted_quotes && facts.has_quoted_quotes.get()))
     }
+}
+
+pub(super) fn skip_scalar(
+    config: &Config,
+    style: ScalarStyle,
+    model: &Scalar<'_>,
+) -> bool {
+    matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+        || (model.is_key() && !config.check_keys)
+        || model.has_core_tag()
+        || (style == ScalarStyle::Plain && !model.plain_is_string())
 }
 
 fn replacement_for_target(value: &str, target: QuoteStyle) -> Option<String> {
@@ -299,13 +320,13 @@ fn quotes_are_needed(
     plain_scalar_cache: &mut HashMap<String, Option<bool>>,
 ) -> bool {
     if value.contains('\u{feff}')
-        || (placement.at_column_zero
+        || (placement.column.at_zero()
             && starts_with_document_marker(value)
-            && (value.len() != 3 || !placement.colon.follows))
+            && (value.len() != 3 || !placement.colon.follows()))
     {
         return true;
     }
-    if placement.in_flow
+    if placement.context.in_flow()
         && value
             .chars()
             .any(|c| matches!(c, ',' | '[' | ']' | '{' | '}'))

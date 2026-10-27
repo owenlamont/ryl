@@ -11,7 +11,6 @@ use crate::text_version::edits::Edit;
 use ryl_yaml_parser::ScalarStyle;
 use std::collections::HashSet;
 
-use crate::rules::document_end;
 use crate::rules::support::line_syntax::{
     buffer_newline, protected_scalar_lines_with_analysis,
 };
@@ -19,6 +18,8 @@ use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "trailing-spaces";
 pub const MESSAGE: &str = "trailing spaces";
+
+pub(crate) use crate::rules::quoted_strings::protection::{Protection, protection};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Violation {
@@ -73,17 +74,24 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>) -> Option<String> {
 }
 
 pub(crate) fn edits(input: Analysis<'_>) -> Vec<Edit> {
-    edits_restyled(input, |_| false)
+    edits_restyled(input, &crate::rules::quoted_strings::Restyled::default())
 }
 
 /// The edits once each multi-line double-quoted scalar `restyled` names by its start byte
 /// is rewritten in a style whose line ends hold no escapes.
 pub(crate) fn edits_restyled(
     input: Analysis<'_>,
-    restyled: impl Fn(usize) -> bool,
+    restyled: &crate::rules::quoted_strings::Restyled,
+) -> Vec<Edit> {
+    edits_protected(input, protection(input, restyled).as_ref())
+}
+
+pub(crate) fn edits_protected(
+    input: Analysis<'_>,
+    protection: Option<&Protection>,
 ) -> Vec<Edit> {
     let buffer = input.text();
-    let Some((protected, keep_blank_eof)) = protected_lines(input, restyled) else {
+    let Some(protection) = protection else {
         return Vec::new();
     };
     let mut edits = Vec::new();
@@ -92,7 +100,7 @@ pub(crate) fn edits_restyled(
 
     for (idx, raw_line, ending) in input.lines() {
         let line_no = idx + 1;
-        let stripped = if protected.contains(&line_no) {
+        let stripped = if protection.line(line_no) {
             raw_line
         } else {
             let trimmed = raw_line.trim_end_matches([' ', '\t']);
@@ -111,147 +119,17 @@ pub(crate) fn edits_restyled(
         offset += raw_line.len() + ending.len();
     }
 
-    if keep_blank_eof && changed {
+    if protection.keep_blank_eof() && changed {
         let end = BytePos::new(buffer.len());
         edits.push((end, end, buffer_newline(buffer).to_string()));
     }
     edits
 }
 
-/// The 1-based lines whose trailing whitespace is a scalar's value, and whether a
-/// keep-chomped scalar ends at an unterminated spaces-only line.
-pub(crate) fn protected_lines(
-    input: Analysis<'_>,
-    restyled: impl Fn(usize) -> bool,
-) -> Option<(HashSet<usize>, bool)> {
-    let buffer = input.text();
-    let mut protected =
-        crate::rules::support::line_syntax::protected_scalar_lines_with_analysis(
-            input,
-            |style, span| match style {
-                ScalarStyle::Literal | ScalarStyle::Folded => true,
-                ScalarStyle::DoubleQuoted => {
-                    span.end.line() > span.start.line()
-                        && !restyled(
-                            crate::rules::support::span_utils::marker_byte_offset(
-                                span.start,
-                            )
-                            .get(),
-                        )
-                }
-                _ => false,
-            },
-        )?;
-    let content = input.content_blank_lines();
-    let mut keep_blank_eof = false;
-    let headers = input.headers();
-    let root_indents = document_end::root_explicit_content_indents_with_analysis(input);
-    for header in headers {
-        protected.remove(&header.line);
-        let span = header.span;
-        let scanner_indent = span.indent.unwrap_or_else(|| {
-            // Blank-only spans have no content whose spaces need protection.
-            if span.is_empty() || span.start.line() == header.line {
-                usize::MAX
-            } else {
-                span.start.col()
-            }
-        });
-        let root_indent = root_indents.get(&span.start.index()).copied();
-        let indent = root_indent.unwrap_or(scanner_indent);
-        for line in header.line + 1..=span.end.line() {
-            if input.get_line(line - 1).is_some_and(|text| {
-                text.len() <= indent
-                    && text.bytes().all(|ch| ch == b' ')
-                    && !content.contains(&line)
-            }) {
-                protected.remove(&line);
-                if header.chomping == Some('+')
-                    && line == input.line_count()
-                    && !buffer.ends_with(['\n', '\r'])
-                {
-                    keep_blank_eof = true;
-                }
-            } else if header.chomping == Some('+')
-                && input.get_line(line - 1).is_some_and(|text| {
-                    text.contains('\t') && text.trim_matches([' ', '\t']).is_empty()
-                })
-            {
-                // Emptying a tab-only line that ends the body would add the blank lines
-                // after it to the kept value.
-                protected.insert(line);
-            } else if root_indent.is_some()
-                && input
-                    .get_line(line - 1)
-                    .is_some_and(|text| text.bytes().all(|ch| ch == b' '))
-            {
-                protected.insert(line);
-            }
-        }
-    }
-    Some((protected, keep_blank_eof))
-}
-
 pub(crate) fn content_blank_lines_with_analysis(input: Analysis<'_>) -> HashSet<usize> {
-    let buffer = input.text();
-    let mut content = HashSet::new();
-    let headers = input.headers();
-    let root_indents = document_end::root_explicit_content_indents_with_analysis(input);
-    for header in headers {
-        let header_line = input.line_content(header.line - 1);
-        let indicator = header_line
-            .chars()
-            .skip(header.column)
-            .take_while(|ch| !ch.is_whitespace() && *ch != '#')
-            .find_map(|ch| ch.to_digit(10));
-        let followed = header
-            .span
-            .end
-            .byte_offset()
-            .is_some_and(|offset| !buffer[offset..].trim().is_empty());
-        let blank_only = followed
-            && header.line < header.span.end.line()
-            && input
-                .line_contents_from(header.line)
-                .take(header.span.end.line() - 1 - header.line)
-                .all(|line| line.bytes().all(|ch| ch == b' '));
-        let value_indent = if let Some(indent) =
-            root_indents.get(&header.span.start.index())
-        {
-            *indent
-        } else if blank_only {
-            compact_indent(header_line) + indicator.map_or(1, |digit| digit as usize)
-        } else {
-            continue;
-        };
-        for line in header.line + 1..=header.span.end.line() {
-            if input.get_line(line - 1).is_some_and(|text| {
-                text.len() > value_indent && text.bytes().all(|ch| ch == b' ')
-            }) {
-                content.insert(line);
-            }
-        }
-    }
-    content
+    crate::rules::quoted_strings::protection::content_blank_lines(input)
 }
 
-/// The indentation of the node `line` opens: past each `- ` when a compact mapping's key
-/// follows them, as in `-   key: |`.
-fn compact_indent(line: &str) -> usize {
-    let mut rest = line.trim_start_matches(' ');
-    while let Some(after) = rest
-        .strip_prefix('-')
-        .filter(|after| after.starts_with(' '))
-    {
-        rest = after.trim_start_matches(' ');
-    }
-    if rest
-        .split(['|', '>'])
-        .next()
-        .is_some_and(|key| key.contains(": "))
-    {
-        line.len() - rest.len()
-    } else {
-        line.len() - line.trim_start_matches(' ').len()
-    }
+pub(crate) fn clears_line(line: &crate::rules::indentation::LineGeometry<'_>) -> bool {
+    !line.has_tail() && line.scalar_content().horizontal_whitespace()
 }

@@ -8,9 +8,27 @@
 //! after an indicator. A `?` or `:` opening a compact block collection that continues
 //! below is left alone: its spacing is the collection's indentation.
 use crate::config::YamlLintConfig;
+use crate::rules::support::span_utils::BytePos;
 use crate::rules::support::token_spacing::{self, Fix, Indicator, Mode, Site};
 use crate::text_version::edits::Edit;
 use crate::text_version::{Analysis, TextVersion};
+
+mod input;
+mod target;
+pub(crate) use target::{Context, Guarantees, RetainedKey};
+
+pub(crate) fn retained_key(buffer: &str, end: BytePos) -> RetainedKey {
+    RetainedKey::new(input::Key::observe(buffer, end.get()))
+}
+
+pub(crate) fn context(
+    buffer: &str,
+    end: Option<usize>,
+    key_end: Option<usize>,
+    guarantees: Option<&Guarantees<'_>>,
+) -> Context {
+    Context::select(input::Initial::new(buffer), end, key_end, guarantees)
+}
 
 pub const ID: &str = "colons";
 const TOO_MANY_BEFORE: &str = "too many spaces before colon";

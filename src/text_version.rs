@@ -177,7 +177,10 @@ impl<'text> Analysis<'text> {
 
     #[must_use]
     pub fn plan(self, output: String) -> EditPlan {
-        self.plan_version(TextVersion::new(output))
+        EditPlan {
+            epoch: Rc::clone(&self.source.epoch),
+            output: TextVersion::new(output),
+        }
     }
 
     /// Returns no plan for empty, overlapping or non-UTF-8-aligned byte edits.
@@ -213,16 +216,6 @@ impl<'text> Analysis<'text> {
         }
         output.push_str(&buffer[cursor..]);
         Some(self.plan(output))
-    }
-
-    pub(crate) fn plan_version(self, mut output: TextVersion<'static>) -> EditPlan {
-        if let Some(parsed) = self.source.parsed.get() {
-            output.event_capacity = parsed.events.len();
-        }
-        EditPlan {
-            epoch: Rc::clone(&self.source.epoch),
-            output,
-        }
     }
 
     pub(crate) fn parsed(self) -> &'text ParsedFacts {
@@ -503,6 +496,19 @@ pub(crate) struct ParsedFacts {
 }
 
 impl ParsedFacts {
+    pub(crate) fn scalar_contains(&self, at: usize) -> bool {
+        use crate::rules::support::span_utils::marker_byte_offset;
+        let after = self.scalars.partition_point(|&(_, event)| {
+            marker_byte_offset(self.spans.get(self.events[event as usize].1).start)
+                .get()
+                <= at
+        });
+        after.checked_sub(1).is_some_and(|index| {
+            let event = self.scalars[index].1 as usize;
+            at < marker_byte_offset(self.spans.get(self.events[event].1).end).get()
+        })
+    }
+
     pub(crate) fn scalars(&self) -> impl Iterator<Item = (ScalarStyle, Span)> {
         self.scalars.iter().map(|&(style, index)| {
             (style, self.spans.get(self.events[index as usize].1))

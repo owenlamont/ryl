@@ -104,6 +104,14 @@ fn newline_before_comma_is_ignored() {
 }
 
 #[test]
+fn fixing_keeps_a_comma_on_its_own_line() {
+    assert_eq!(
+        commas::fix("[1\n,2]\n", &defaults()),
+        Some("[1\n, 2]\n".into())
+    );
+}
+
+#[test]
 fn ignores_commas_inside_scalars() {
     let cfg = defaults();
     let diagnostics = commas::check("[\"café, menu\", 3]\n", &cfg);

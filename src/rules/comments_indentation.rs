@@ -23,10 +23,33 @@ use crate::rules::support::line_syntax::{
 use crate::rules::support::span_utils::marker_byte_offset;
 use crate::text_version::{Analysis, TextVersion};
 
+mod input;
 mod target;
 
 pub const ID: &str = "comments-indentation";
 pub const MESSAGE: &str = "comment not indented like content";
+
+#[derive(Clone, Copy)]
+pub(crate) struct RetainedLine {
+    column: Option<usize>,
+}
+
+impl RetainedLine {
+    pub(crate) const fn column(self) -> Option<usize> {
+        self.column
+    }
+}
+
+pub(crate) fn retained_line(
+    line: &crate::format::layout::VirtualLine<'_>,
+) -> RetainedLine {
+    let text = line.body.trim_start();
+    RetainedLine {
+        column: text
+            .starts_with('#')
+            .then_some(line.prefix + line.body.len() - text.len()),
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Config {
@@ -170,9 +193,41 @@ fn comment_is_aligned(
 }
 
 /// Each line's kind, as `check` and `fix` judge it.
-pub(crate) fn line_kinds(input: Analysis<'_>) -> impl Fn(usize) -> Option<LineKind> {
-    let lines = build_lines(input);
-    move |line| lines.get(line).map(|info| info.kind)
+struct RetainedLines<'a>(std::borrow::Cow<'a, [LineInfo]>);
+
+impl RetainedLines<'_> {
+    fn kind(&self, line: usize) -> Option<LineKind> {
+        self.0.get(line).map(|info| info.kind)
+    }
+}
+
+pub(crate) fn align_trailing(
+    source: Analysis<'_>,
+    config: Option<Config>,
+    layout: &crate::rules::indentation::Layout<'_>,
+    candidates: &mut crate::rules::indentation::Candidates,
+    permission: crate::format::layout::Permission<'_>,
+) {
+    let Some(admission) = target::TrailingAdmission::new(
+        config,
+        candidates.last_token,
+        input::Projected::new(&layout.lines),
+    ) else {
+        return;
+    };
+    let columns = (0..=candidates.last_token.unwrap_or(0))
+        .map(|line| layout.column(line, candidates.deltas[line]));
+    let mut planner =
+        target::Trailing::new(admission, RetainedLines(build_lines(source)), columns);
+    for line in planner.first()..layout.lines.len() {
+        let column = layout.column(line, candidates.deltas[line]);
+        let origin = column.origin();
+        if let Some(delta) = planner.line(line, column)
+            && permission.line(origin)
+        {
+            candidates.deltas[line] = delta;
+        }
+    }
 }
 
 /// Classify every line once, shared by `check` and `fix`. Scalar tokens come from the

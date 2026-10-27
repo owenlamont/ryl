@@ -2,7 +2,7 @@
 //! (ryl-only) maximum gap from preceding inline content, and an optional exemption
 //! for a line-1 shebang or `#cloud-config`. Mirrors yamllint's `comments`. Safe
 //! `--fix` pads or trims the spaces.
-use crate::rules::support::span_utils::BytePos;
+use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 use crate::text_version::edits::Edit;
 
 use ryl_yaml_parser::Placement;
@@ -12,9 +12,78 @@ use crate::rules::support::comments_scan::CommentInfo;
 use crate::rules::support::line_syntax::is_magic_first_line_comment;
 use crate::text_version::{Analysis, TextVersion};
 
+mod input;
 mod target;
+pub(crate) use target::Magic;
 
 pub const ID: &str = "comments";
+
+pub(crate) struct Trailing(Option<std::ops::Range<usize>>);
+
+impl Trailing {
+    pub(crate) fn observe(buffer: &str, after: usize, end: usize) -> Self {
+        let text = buffer[after..end].trim_matches([' ', '\t', '\n', '\r']);
+        let start = text.as_ptr() as usize - buffer.as_ptr() as usize;
+        Self(text.starts_with('#').then_some(start..start + text.len()))
+    }
+
+    pub(crate) const fn present(&self) -> bool {
+        self.0.is_some()
+    }
+    pub(crate) fn range(&self) -> Option<std::ops::Range<usize>> {
+        self.0.clone()
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct RetainedComments(std::collections::HashSet<usize>);
+
+#[derive(Default)]
+pub(crate) struct Attachments(Vec<(usize, usize)>);
+
+impl Attachments {
+    pub(crate) fn record(&mut self, span: ryl_yaml_parser::Span) {
+        self.0.push((
+            marker_byte_offset(span.start).get(),
+            marker_byte_offset(span.end).get(),
+        ));
+    }
+
+    pub(crate) fn between(&self, from: usize, to: usize) -> bool {
+        self.0
+            .get(self.0.partition_point(|(start, _)| *start < from))
+            .is_some_and(|(start, _)| *start < to)
+    }
+
+    pub(crate) fn touches(&self, at: usize) -> bool {
+        self.0
+            .get(self.0.partition_point(|(_, end)| *end < at))
+            .is_some_and(|(_, end)| *end == at)
+    }
+}
+
+impl RetainedComments {
+    pub(crate) fn record(&mut self, span: ryl_yaml_parser::Span) {
+        self.0.insert(span.start.line() - 1);
+    }
+
+    pub(crate) fn line(&self, line: usize) -> bool {
+        self.0.contains(&line)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RetainedPrefix(bool);
+
+impl RetainedPrefix {
+    pub(crate) fn observe(text: &str) -> Self {
+        Self(text.contains('#'))
+    }
+
+    pub(crate) const fn has_comment(self) -> bool {
+        self.0
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
@@ -192,6 +261,16 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
     edits
 }
 
+pub(crate) fn edits_with_magic(
+    source: Analysis<'_>,
+    cfg: &Config,
+    permission: crate::format::layout::Permission<'_>,
+) -> (Vec<Edit>, Magic) {
+    let edits = edits(source, cfg);
+    let magic = Magic::plan(input::Magic::new(source.text()), cfg, &edits, permission);
+    (edits, magic)
+}
+
 fn comment_byte_start(comment: &CommentInfo) -> usize {
     comment
         .span
@@ -206,4 +285,27 @@ fn spacing_before(buffer: &str, byte_start: usize) -> usize {
         .rev()
         .take_while(|byte| matches!(byte, b' ' | b'\t'))
         .count()
+}
+
+pub(crate) struct RetainedFirstLine(bool);
+
+impl RetainedFirstLine {
+    pub(crate) const fn magic(&self) -> bool {
+        self.0
+    }
+}
+
+pub(crate) fn retained_first_line(line: &str) -> RetainedFirstLine {
+    RetainedFirstLine(crate::rules::support::line_syntax::is_magic_first_line(
+        line.strip_prefix('\u{feff}').unwrap_or(line),
+    ))
+}
+
+pub(crate) use input::DirectiveTail;
+
+pub(crate) const fn directive_tail(
+    source: crate::text_version::Analysis<'_>,
+    end: BytePos,
+) -> DirectiveTail<'_> {
+    DirectiveTail::new(source, end)
 }

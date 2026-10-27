@@ -4,6 +4,18 @@
 //! "Newline" is any YAML 1.2 line break (`\n`, `\r\n`, or a bare `\r`), so a file
 //! ending in a bare `\r` is accepted; the line/column count is CR-aware.
 
+mod input;
+mod target;
+pub(crate) use target::Requirement;
+
+pub(crate) const fn requirement<'a>(
+    buffer: &'a str,
+    policy: Option<&'a crate::fix::NewlinePolicy>,
+    permission: crate::format::layout::Permission<'a>,
+) -> Requirement<'a> {
+    Requirement::new(input::Initial::new(buffer, policy, permission))
+}
+
 use crate::rules::support::line_syntax::split_lines_preserve_endings;
 
 pub const ID: &str = "new-line-at-end-of-file";

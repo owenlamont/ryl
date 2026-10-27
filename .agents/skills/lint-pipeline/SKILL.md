@@ -213,9 +213,23 @@ without a text getter.
 Spacing resolves an observed `GapRequest` into a private `IndentationGap` before the
 indentation analyzer consumes it. Folding settles a scalar candidate and permits a line
 before choosing breaks. Line-ending targets resolve before emission. These decision
-interfaces must not accept `Analysis`, `TextVersion`, or whole-file text. Collection,
-marker, blank-line and refusal planning still have source-aware entry points; their
-candidate dependencies need migration before the whole pipeline has this boundary.
+interfaces must not accept `Analysis`, `TextVersion`, parser events, whole-file text,
+or source-backed callbacks. Private owner observations and source adapters handle
+extraction, coordinates, copying and verification. Other owners supply retained or
+selected facts with private fields; scalar text and parser tag spelling stay out of
+the semantic model.
+
+Collection conversion consumes retained scalar, spacing, comment and geometry facts
+before quote selection. Keep this epoch order: selecting quotes globally first changes
+flow eligibility. Collection policy chooses opaque copy, separator and break recipes;
+its source adapter materializes them. Feasibility and standalone reindentation share
+shape, indentation, refusal and consistency kernels.
+
+Layout candidates settle refusals before publishing immutable indentation targets.
+The consuming `LayoutTargets::finish_lines` and `LineTargets::fold` transitions produce
+`EmitPlan`; candidates cannot finalize lines or emit. Line owners select scalar
+protection, marker attachment, blank quotas and EOF endings. Folding consumes selected
+styles and final line geometry, with characters outside the scalar window hidden.
 
 Forced collection targets plan conversion before layout, retaining the existing
 comment, key, width and reindent refusals. A strict parse compares significant

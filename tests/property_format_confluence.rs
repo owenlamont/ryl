@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
+use ryl::config_schema::CollectionStyleTarget;
 
 use crate::property::{config::synthetic_path, reference, representation};
 
@@ -32,7 +33,7 @@ struct Document {
 }
 
 impl Document {
-    fn render(&self, scramblers: &[&str]) -> String {
+    fn render(&self, scramblers: &[&str], cfg: &YamlLintConfig) -> String {
         let on = |rule| scramblers.contains(&rule);
         let spaces = " ".repeat(self.amount);
         let indent = if on("indentation") {
@@ -81,6 +82,21 @@ impl Document {
              {pad}literal: |-\n{pad}{pad}{word}\n\
              copy{colon}*root\n{blanks}"
         ));
+        let targets = cfg.format().targets();
+        if on("brackets") && targets.sequence_style != CollectionStyleTarget::Preserve {
+            text.push_str(&format!("{quote}q -  s{quote}{colon}\n{pad}{dash}z\n"));
+        } else {
+            text.push_str(&format!(
+                "{quote}q -  s{quote}{colon}[{bracket}z{bracket}]\n"
+            ));
+        }
+        if on("braces") && targets.mapping_style == CollectionStyleTarget::Block {
+            text.push_str(&format!("{quote}q -  m{quote}{colon}\n{pad}a{colon}z\n"));
+        } else {
+            text.push_str(&format!(
+                "{quote}q -  m{quote}{colon}{{{brace}a{colon}z{brace}}}\n"
+            ));
+        }
         if !on("document-end") {
             text.push_str("...\n");
         }
@@ -181,13 +197,13 @@ fn every_scrambler_changes_presentation_and_converges() {
          document-start = 'add'\ndocument-end = 'add'\nmax-blank-lines = 0\n",
     )
     .unwrap();
-    let input = document.render(&[]);
+    let input = document.render(&[], &cfg);
     for rules in SCRAMBLERS
         .map(|rule| vec![rule])
         .into_iter()
         .chain([SCRAMBLERS.to_vec()])
     {
-        let scrambled = document.render(&rules);
+        let scrambled = document.render(&rules, &cfg);
         assert_ne!(input, scrambled, "{rules:?}");
         assert_ne!(format(&scrambled, &cfg), scrambled, "{rules:?}");
         check_confluence(&input, &scrambled, &|text| format(text, &cfg))
@@ -208,6 +224,27 @@ fn confluence_oracle_rejects_invalid_sources_and_broken_passes() {
     assert!(check_confluence("a: 1\n", "a:  1\n", &|_| "a: [".into()).is_err());
 }
 
+#[test]
+fn scalar_indicator_text_does_not_change_collection_targets() {
+    for key in ["a -  key", "a ?  key", "a :  key"] {
+        for (setting, flow, block) in [
+            ("sequence-style", "[z]", "  - z\n"),
+            ("mapping-style", "{a: z}", "  a: z\n"),
+        ] {
+            let input = format!("\"{key}\": {flow}\n");
+            let scrambled = format!("\"{key}\":\n{block}");
+            for style in ["flow", "block"] {
+                let cfg = YamlLintConfig::from_toml_str(&format!(
+                    "[format]\n{setting} = '{style}'\n"
+                ))
+                .unwrap();
+                check_confluence(&input, &scrambled, &|text| format(text, &cfg))
+                    .unwrap_or_else(|error| panic!("{setting}={style}: {error}"));
+            }
+        }
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
@@ -224,11 +261,11 @@ proptest! {
         combined in any::<[bool; 16]>(),
     ) {
         let cfg = YamlLintConfig::from_toml_str(&config).unwrap();
-        let input = document.render(&[]);
+        let input = document.render(&[], &cfg);
         let combined: Vec<_> = SCRAMBLERS.into_iter().zip(combined)
             .filter_map(|(rule, enabled)| enabled.then_some(rule)).collect();
         for rules in [vec![rule], combined] {
-            let scrambled = document.render(&rules);
+            let scrambled = document.render(&rules, &cfg);
             check_confluence(&input, &scrambled, &|text| format(text, &cfg))
                 .map_err(|error| TestCaseError::fail(format!("{rules:?}, {config}: {error}")))?;
         }

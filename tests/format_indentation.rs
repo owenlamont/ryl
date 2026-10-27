@@ -428,3 +428,39 @@ fn large_relaxed_only_reindent_keeps_the_final_strict_guard_required() {
         .is_err()
     );
 }
+
+#[test]
+fn an_earlier_folded_scalar_does_not_hold_the_final_document() {
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(
+        "[format]\nindent-sequences=false\nfold-long-lines=true\ndocument-start='add'\nmax-blank-lines=0\n",
+    ).unwrap();
+    let input = "a:\n  - >2+ \n    word  \n\n\n\n...\na: 1\n\n ";
+    let expected = "---\na:\n- >2+\n  word  \n\n\n\n...\n---\na: 1\n";
+    let output =
+        ryl::format::format_str(input, &cfg, std::path::Path::new("case.yaml"), &[]);
+    assert_eq!(output, expected);
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+}
+
+#[test]
+fn an_earlier_root_scalar_does_not_hold_the_final_document() {
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(
+        "[format]\nindent-sequences=false\nfold-long-lines=true\ndocument-start='add'\nmax-blank-lines=0\n",
+    ).unwrap();
+    for (input, expected) in [
+        (
+            ">2+\n  word\n...\na:  1\n\n ",
+            "---\n>2+\n  word\n...\n---\na: 1\n",
+        ),
+        (">2+\n  word\n\n ", ">2+\n  word\n\n "),
+    ] {
+        let output = ryl::format::format_str(
+            input,
+            &cfg,
+            std::path::Path::new("case.yaml"),
+            &[],
+        );
+        assert_eq!(output, expected);
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+    }
+}

@@ -2,6 +2,31 @@ use crate::text_version::model::Comment;
 
 use super::Config;
 
+#[derive(Default)]
+pub(crate) struct Magic(bool);
+
+impl Magic {
+    pub(super) fn plan(
+        initial: super::input::Magic<'_>,
+        config: &Config,
+        edits: &[crate::text_version::edits::Edit],
+        permission: crate::format::layout::Permission<'_>,
+    ) -> Self {
+        Self(
+            !config.ignore_shebangs()
+                && initial.end().is_some_and(|end| {
+                    edits.iter().any(|(start, to, _)| {
+                        start.get() <= end && permission.allows(*start, *to)
+                    })
+                }),
+        )
+    }
+
+    pub(crate) const fn changed(&self) -> bool {
+        self.0
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct Initial {
     pub(super) gap: Option<usize>,

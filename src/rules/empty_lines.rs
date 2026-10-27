@@ -2,6 +2,18 @@
 //!
 //! `--fix` preserves scalar content, but trims trailing blanks discarded by chomping.
 //! An unparsable buffer is left untouched.
+mod input;
+mod target;
+pub(crate) use input::Line;
+pub(crate) use target::Runs;
+
+pub(crate) fn projected(
+    line: &crate::rules::indentation::LineGeometry<'_>,
+    marker: bool,
+) -> Line {
+    Line::projected(line, marker)
+}
+
 use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
 use std::convert::TryFrom;
@@ -51,6 +63,28 @@ impl Config {
     }
 }
 
+pub(crate) struct BlankLines<'a>(BlankSource<'a>);
+
+enum BlankSource<'a> {
+    Retained(Analysis<'a>),
+    Selected(&'a [bool]),
+}
+
+impl<'a> BlankLines<'a> {
+    pub(crate) const fn retained(source: Analysis<'a>) -> Self {
+        Self(BlankSource::Retained(source))
+    }
+    pub(crate) const fn selected(lines: &'a [bool]) -> Self {
+        Self(BlankSource::Selected(lines))
+    }
+    pub(crate) fn empty(&self, line: usize) -> bool {
+        match self.0 {
+            BlankSource::Retained(source) => source.line_is_empty(line),
+            BlankSource::Selected(lines) => lines[line],
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Violation {
     pub line: usize,
@@ -72,110 +106,47 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
         return Vec::new();
     };
     let mut edits = Vec::new();
-    let mut blank_run = Vec::new();
-    let mut seen_nonblank = false;
-    let mut offset = 0;
+    let mut runs = Runs::new(*cfg, &protected);
     for (idx, raw_line, ending) in input.lines() {
-        let end = offset + raw_line.len() + ending.len();
-        if raw_line.is_empty() && !protected[idx] {
-            blank_run.push(offset..end);
-        } else {
-            flush_blank_run(&mut edits, &mut blank_run, middle_max(seen_nonblank, cfg));
-            if !raw_line.is_empty() {
-                seen_nonblank = true;
-            }
-        }
-        offset = end;
+        append_blank_edits(
+            input,
+            runs.line(idx, Line::retained(idx, raw_line, ending)),
+            &mut edits,
+        );
     }
-    flush_blank_run(&mut edits, &mut blank_run, cfg.max_end());
+    append_blank_edits(input, runs.finish(false), &mut edits);
     edits
 }
 
-fn preserved_scalar_lines(buffer: &str) -> Option<Vec<bool>> {
+fn append_blank_edits(input: Analysis<'_>, removed: &[usize], edits: &mut Vec<Edit>) {
+    if let (Some(&first), Some(&last)) = (removed.first(), removed.last()) {
+        let start = input.byte_line_starts()[first];
+        let end = input
+            .byte_line_starts()
+            .get(last + 1)
+            .copied()
+            .unwrap_or(input.text().len());
+        edits.push((BytePos::new(start), BytePos::new(end), String::new()));
+    }
+}
+
+fn preserved_scalar_lines(
+    buffer: &str,
+) -> Option<crate::rules::quoted_strings::protection::Preserved> {
     preserved_scalar_lines_with_analysis(TextVersion::new(buffer).analysis())
 }
 
 pub(crate) fn preserved_scalar_lines_with_analysis(
     input: Analysis<'_>,
-) -> Option<Vec<bool>> {
-    preserved_scalar_lines_with_empty(input, |line| input.line_is_empty(line))
+) -> Option<crate::rules::quoted_strings::protection::Preserved> {
+    preserved_scalar_lines_with_empty(input, &BlankLines::retained(input))
 }
 
 pub(crate) fn preserved_scalar_lines_with_empty(
     input: Analysis<'_>,
-    empty: impl Fn(usize) -> bool,
-) -> Option<Vec<bool>> {
-    if !input.parsed().valid {
-        return None;
-    }
-    let mut protected = vec![false; input.line_count()];
-    for &(start, last) in input.scalar_lines() {
-        let end = last.min(protected.len());
-        let start = start.saturating_sub(1).min(end);
-        protected[start..end].fill(true);
-    }
-    for header in input.headers() {
-        let blank_only_literal = input
-            .line_content(header.line - 1)
-            .chars()
-            .nth(header.column - 1)
-            == Some('|')
-            && header.chomping.is_none()
-            && input
-                .line_contents_from(header.line)
-                .take_while(|line| line.trim().is_empty())
-                .count()
-                >= 2;
-        if header.chomping == Some('+') || blank_only_literal {
-            continue;
-        }
-        let span = header.span;
-        let end_line = (span.end.line() <= input.line_count())
-            .then(|| input.line_content(span.end.line() - 1));
-        let next_token = end_line.is_some_and(|line| {
-            line.chars().take(span.end.col()).all(|ch| ch == ' ')
-                && line.chars().nth(span.end.col()).is_some()
-        });
-        let last = span.end.line()
-            - usize::from(span.end.col() == 0 || span.is_empty() || next_token);
-        for line in (header.line + 1..=last)
-            .rev()
-            .take_while(|line| empty(*line - 1))
-        {
-            *protected
-                .get_mut(line - 1)
-                .expect("parsed scalar line belongs to the source line table") = false;
-        }
-    }
-    Some(protected)
-}
-
-fn middle_max(seen_nonblank: bool, cfg: &Config) -> i64 {
-    if seen_nonblank {
-        cfg.max()
-    } else {
-        cfg.max_start()
-    }
-}
-
-fn flush_blank_run(
-    edits: &mut Vec<Edit>,
-    run: &mut Vec<std::ops::Range<usize>>,
-    max: i64,
-) {
-    let keep = usize::try_from(max).unwrap_or(0);
-    if let Some(first) = run.get(keep) {
-        edits.push((
-            BytePos::new(first.start),
-            BytePos::new(
-                run.last()
-                    .expect("a blank run has a first removed line")
-                    .end,
-            ),
-            String::new(),
-        ));
-    }
-    run.clear();
+    empty: &BlankLines<'_>,
+) -> Option<crate::rules::quoted_strings::protection::Preserved> {
+    crate::rules::quoted_strings::protection::preserved_lines(input, empty)
 }
 
 #[must_use]
@@ -220,7 +191,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     if !violations.is_empty()
         && let Some(protected) = preserved_scalar_lines(buffer)
     {
-        violations.retain(|violation| !protected[violation.line - 1]);
+        violations.retain(|violation| !protected.line(violation.line - 1));
     }
     violations
 }
@@ -257,4 +228,15 @@ fn finalize_run(
         column: 1,
         message: format!("too many blank lines ({run_len} > {allowed})"),
     });
+}
+
+pub(crate) fn clears_stream(text: &str, config: &Config) -> bool {
+    target::clears_stream(&input::Stream::new(text), config)
+}
+
+pub(crate) fn retains_final_blank<'a>(
+    mut lines: impl DoubleEndedIterator<Item = crate::rules::indentation::LineGeometry<'a>>
+    + ExactSizeIterator,
+) -> bool {
+    lines.len() > 1 && lines.next_back().is_some_and(|line| line.empty())
 }

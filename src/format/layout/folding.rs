@@ -1,12 +1,20 @@
-use ryl_yaml_parser::ScalarStyle;
+use crate::rules::quoted_strings::{ContentKind as Content, LayoutStyle};
 
 use super::Fallback;
-use super::pieces::Piece;
+mod input;
+pub(super) use input::SelectedLine;
+
+pub(super) fn selected_line<'a>(
+    geometry: &AllowedLine,
+    parts: Vec<super::pieces::Piece<'a>>,
+) -> SelectedLine<'a> {
+    SelectedLine::new(parts, geometry.0.prefix, geometry.0.bom)
+}
 use crate::rules::line_length::Fold;
 use crate::rules::line_length::fold::breaks_from_chars;
 
 pub(super) struct ScalarCandidate {
-    pub(super) style: ScalarStyle,
+    pub(super) style: LayoutStyle,
     pub(super) first: usize,
     pub(super) last: usize,
     pub(super) content: usize,
@@ -15,7 +23,7 @@ pub(super) struct ScalarCandidate {
 }
 
 pub(super) struct ScalarTarget {
-    style: ScalarStyle,
+    style: LayoutStyle,
     first: usize,
     last: usize,
     content: usize,
@@ -32,16 +40,9 @@ pub(super) struct Geometry {
     pub(super) guarded_directive_tail: bool,
 }
 
-#[derive(PartialEq, Eq)]
-pub(super) enum Content {
-    Empty,
-    Whitespace,
-    Text,
-}
-
 pub(super) struct Line<'a> {
     pub(super) geometry: AllowedLine,
-    pub(super) parts: Vec<Piece<'a>>,
+    pub(super) content: SelectedLine<'a>,
     pub(super) scalar_end: Option<usize>,
     pub(super) ends_in_break: bool,
     pub(super) directive_tail: bool,
@@ -63,12 +64,8 @@ pub(super) struct FoldBreak {
 
 impl ScalarCandidate {
     pub(super) fn settle(self, cfg: Fold) -> Option<ScalarTarget> {
-        let folded = self.style == ScalarStyle::Folded;
-        let step = if self.style == ScalarStyle::Plain {
-            1
-        } else {
-            2
-        };
+        let folded = self.style.is_folded();
+        let step = if self.style.is_plain() { 1 } else { 2 };
         if (!folded
             && self
                 .existing
@@ -95,13 +92,13 @@ impl ScalarCandidate {
 
 impl ScalarTarget {
     pub(super) fn needs_end(&self, index: usize) -> bool {
-        self.style != ScalarStyle::Folded && index == self.last
+        !self.style.is_folded() && index == self.last
     }
 
     pub(super) fn allow_line(&self, line: Geometry) -> Option<AllowedLine> {
         (line.allowed
             && !(line.index == self.last && line.guarded_directive_tail)
-            && (self.style != ScalarStyle::Folded
+            && (!self.style.is_folded()
                 || (line.prefix == self.indent && line.content == Content::Text)))
             .then_some(AllowedLine(line))
     }
@@ -111,11 +108,8 @@ impl ScalarTarget {
         line: Line<'_>,
     ) -> Result<impl Iterator<Item = FoldBreak> + use<>, Fallback> {
         let geometry = line.geometry.0;
-        let bom = if geometry.bom { "\u{feff}" } else { "" };
-        let length = geometry.prefix
-            + bom.len()
-            + line.parts.iter().map(|part| part.len()).sum::<usize>();
-        let start = if self.style == ScalarStyle::Folded {
+        let length = line.content.bytes();
+        let start = if self.style.is_folded() {
             self.indent
         } else if geometry.index == self.first {
             self.content
@@ -136,16 +130,7 @@ impl ScalarTarget {
             {
                 Vec::new()
             } else {
-                let chars = bom
-                    .chars()
-                    .chain(std::iter::repeat_n(' ', geometry.prefix))
-                    .chain(line.parts.iter().flat_map(|part| part.chars()));
-                let mut byte = 0;
-                let chars = chars.map(|ch| {
-                    let at = byte;
-                    byte += ch.len_utf8();
-                    (at, ch)
-                });
+                let chars = line.content.scalar_characters(start..end);
                 breaks_from_chars(
                     chars,
                     &(start..end),

@@ -10,7 +10,31 @@ pub(super) struct Guard {
     added_starts: Vec<usize>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct Permission<'a> {
+    guard: Option<&'a Guard>,
+    rule: &'static str,
+}
+
+impl Permission<'_> {
+    pub(crate) fn line(self, line: usize) -> bool {
+        self.guard.is_none_or(|guard| guard.line(self.rule, line))
+    }
+
+    pub(crate) fn allows(self, start: BytePos, end: BytePos) -> bool {
+        self.guard
+            .is_none_or(|guard| guard.allows(self.rule, start, end))
+    }
+}
+
 impl Guard {
+    pub(super) const fn permission<'a>(
+        guard: Option<&'a Self>,
+        rule: &'static str,
+    ) -> Permission<'a> {
+        Permission { guard, rule }
+    }
+
     pub(super) fn new(input: Analysis<'_>, passes: &Passes<'_>) -> Option<Box<Self>> {
         let directives = input.directives();
         if passes.per_line.is_empty()

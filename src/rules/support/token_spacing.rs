@@ -8,10 +8,27 @@ use crate::text_version::Analysis;
 use std::ops::Range;
 
 use crate::text_version::lexical::Kind as LexicalKind;
-use ryl_yaml_parser::ScalarStyle;
 
 use crate::rules::support::punctuation::byte_line_and_column;
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
+
+mod input;
+mod target;
+
+pub(crate) struct RetainedIndicators<'a>(input::Indicators<'a>);
+
+impl RetainedIndicators<'_> {
+    pub(crate) fn widened(&self) -> bool {
+        self.0.spacing_prefixes().any(|spaces| spaces == 2)
+    }
+}
+
+pub(crate) fn retained_indicators(
+    input: Analysis<'_>,
+    range: Range<usize>,
+) -> RetainedIndicators<'_> {
+    RetainedIndicators(input::Indicators::new(input, range))
+}
 
 pub(crate) type SpaceEdit = (BytePos, BytePos, usize);
 
@@ -118,19 +135,8 @@ pub(crate) struct Site {
 }
 
 impl Site {
-    /// The most spaces `tolerance` accepts: before `:`, never fewer than the grammar needs.
-    fn allowed(&self, tolerance: i64) -> Option<usize> {
-        let tolerance = usize::try_from(tolerance).ok()?;
-        Some(if self.before {
-            tolerance.max(self.min)
-        } else {
-            tolerance
-        })
-    }
-
     pub(crate) fn exceeds(&self, tolerance: i64) -> bool {
-        self.allowed(tolerance)
-            .is_some_and(|allowed| self.spaces > allowed)
+        target::allowed(self, tolerance).is_some_and(|allowed| self.spaces > allowed)
     }
 }
 
@@ -188,23 +194,7 @@ impl<'a> Sites<'a> {
         hyphens: bool,
     ) -> Vec<SpaceSite> {
         let stop = self.found.partition_point(|site| site.line <= line);
-        let edits = self.found[self.delivered..stop]
-            .iter()
-            .filter_map(|site| {
-                let enabled = if site.indicator == Indicator::Dash {
-                    hyphens
-                } else {
-                    colons
-                };
-                enabled
-                    .then(|| space_site(Mode::Format, site, i64::from(!site.before)))
-                    .flatten()
-                    .map(|edit| SpaceSite {
-                        indicator: site.indicator,
-                        edit,
-                    })
-            })
-            .collect();
+        let edits = target::through(&self.found[self.delivered..stop], colons, hyphens);
         self.delivered = stop;
         edits
     }
@@ -214,38 +204,22 @@ impl<'a> Sites<'a> {
         span: ryl_yaml_parser::Span,
         token: &LexicalKind<'_>,
     ) {
+        let extent = input::Extent::observe(span, token);
         self.open.retain_mut(|(index, line, depth)| {
-            match token {
-                LexicalKind::BlockMappingStart | LexicalKind::BlockSequenceStart => {
-                    *depth += 1;
-                }
-                LexicalKind::BlockEnd => *depth -= 1,
+            match extent.kind {
+                input::ExtentKind::Open => *depth += 1,
+                input::ExtentKind::Close => *depth -= 1,
                 _ => {}
             }
-            let multiline = *depth > 0
-                && match token {
-                    LexicalKind::Comment { .. } | LexicalKind::BlockEnd => false,
-                    LexicalKind::Scalar {
-                        style: ScalarStyle::Literal | ScalarStyle::Folded,
-                        ..
-                    } => span.end.line() > *line,
-                    _ => span.start.line() > *line,
-                };
-            if multiline {
-                self.found[*index].fix = Fix::Reindents;
-            } else if *depth == 0 {
-                self.found[*index].fix = Fix::Safe;
+            let fix = target::extent(&extent, *depth, *line);
+            if let Some(fix) = fix {
+                self.found[*index].fix = fix;
             }
-            *depth > 0 && !multiline
+            *depth > 0 && fix != Some(Fix::Reindents)
         });
         if let Some((index, line)) = self.pending.take()
-            && span.start.line() == line
-            && matches!(
-                token,
-                LexicalKind::BlockMappingStart | LexicalKind::BlockSequenceStart
-            )
+            && target::compact(&extent, line)
         {
-            // Streaming cannot emit the gap before the collection's extent is known.
             self.found[index].fix = Fix::Reindents;
             self.open.push((index, line, 1));
         }
@@ -275,13 +249,7 @@ impl<'a> Sites<'a> {
             }
             self.found.push(site);
         }
-        self.previous_min = match token {
-            LexicalKind::Scalar { .. }
-            | LexicalKind::FlowMappingEnd
-            | LexicalKind::FlowSequenceEnd => Some(0),
-            LexicalKind::Alias | LexicalKind::Anchor | LexicalKind::Tag => Some(1),
-            _ => None,
-        };
+        self.previous_min = target::minimum(&extent.adjacent);
     }
 }
 
@@ -302,26 +270,8 @@ pub(crate) fn edits(
 }
 
 fn site_edit(mode: Mode, site: &Site, tolerance: i64) -> Option<Edit> {
-    space_site(mode, site, tolerance)
+    target::space_site(mode, site, tolerance)
         .map(|(from, to, spaces)| (from, to, " ".repeat(spaces)))
-}
-
-fn space_site(mode: Mode, site: &Site, tolerance: i64) -> Option<SpaceEdit> {
-    if site.fix != Fix::Safe {
-        return None;
-    }
-    let target = usize::try_from(tolerance).ok()?.max(site.min);
-    let edit = match mode {
-        Mode::Lint => site.spaces > target,
-        Mode::Format => site.ws.len() != target || site.contains_tab,
-    };
-    edit.then(|| {
-        (
-            BytePos::new(site.ws.start),
-            BytePos::new(site.ws.end),
-            target,
-        )
-    })
 }
 
 struct Walk<'a> {
@@ -372,14 +322,9 @@ impl Walk<'_> {
         while matches!(self.byte_at(end), b' ' | b'\t') {
             end += 1;
         }
-        let next = self.byte_at(end);
-        if matches!(next, b'\n' | b'\r' | b'#') {
-            return None;
-        }
+        let fix = target::after(input::Following::observe(self.byte_at(end)))?;
         let mut site = self.site(indicator, false, at + 1..end, 1)?;
-        if matches!(next, b',' | b']' | b'}') {
-            site.fix = Fix::Elsewhere;
-        }
+        site.fix = fix;
         Some(site)
     }
 
@@ -391,4 +336,16 @@ impl Walk<'_> {
         }
         self.site(Indicator::Colon, true, start..at, min)
     }
+}
+
+pub(crate) fn separate_keys(text: &str, edits: Vec<SpaceEdit>) -> Vec<SpaceEdit> {
+    edits
+        .into_iter()
+        .filter_map(|edit| {
+            target::separate(
+                input::ExplicitKey::observe(text, edit.0.get(), edit.1.get()),
+                edit,
+            )
+        })
+        .collect()
 }

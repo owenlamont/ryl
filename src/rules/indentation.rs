@@ -2,9 +2,9 @@
 //! `--fix`; `ryl format` re-indents through [`reindent`], which places each line where
 //! the check expects it.
 
+use crate::rules::quoted_strings::{self, LayoutStyle};
 use crate::text_version::lexical::Kind as LexicalKind;
 use crate::text_version::{Analysis, TextVersion};
-use ryl_yaml_parser::ScalarStyle;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::byte_line_and_column;
@@ -14,12 +14,68 @@ use crate::rules::support::token_spacing::{GapRequest, Indicator};
 
 mod input;
 mod rewrite;
+mod settlement;
+mod shape;
+pub(crate) use shape::SplitTargets;
 
 pub(crate) use rewrite::reindent_with_analysis;
+pub(crate) use rewrite::{Candidates, Layout, Targets};
 pub use rewrite::{Cause, Refusal, Reindented, fix, reindent};
-pub(crate) use rewrite::{Layout, Targets};
+pub(crate) use rewrite::{CollectionFeasibility, CollectionGeometry, LineGeometry};
 
 pub const ID: &str = "indentation";
+
+#[derive(Clone, Copy)]
+pub(crate) struct RetainedColumn(usize);
+
+pub(crate) struct RetainedLine(usize);
+
+impl RetainedLine {
+    pub(crate) const fn from_position(line: usize) -> Self {
+        Self(line)
+    }
+    pub(crate) const fn same_as(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+pub(crate) struct Column {
+    origin: usize,
+    retained: isize,
+    current: isize,
+}
+
+impl Column {
+    pub(crate) const fn origin(&self) -> usize {
+        self.origin
+    }
+
+    pub(crate) const fn current(&self) -> isize {
+        self.current
+    }
+
+    pub(crate) const fn delta_to(self, column: isize) -> isize {
+        column - self.retained
+    }
+}
+
+impl RetainedColumn {
+    pub(crate) const fn from_position(column: usize) -> Self {
+        Self(column)
+    }
+
+    pub(crate) const fn characters(self) -> usize {
+        self.0
+    }
+
+    pub(crate) fn from_marker(marker: ryl_yaml_parser::Marker) -> Self {
+        Self(marker.col())
+    }
+
+    pub(crate) const fn at_zero(self) -> bool {
+        self.0 == 0
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Violation {
@@ -185,7 +241,7 @@ enum Kind {
     Key { explicit: bool },
     Value,
     Property,
-    Scalar { style: ScalarStyle, empty: bool },
+    Scalar { style: LayoutStyle, empty: bool },
     Marker,
     Other,
 }
@@ -202,6 +258,14 @@ pub(crate) struct Token {
 }
 
 impl Token {
+    fn restyle(&mut self, styles: &mut quoted_strings::StyleCursor<'_>) {
+        if let Kind::Scalar { style, .. } = &mut self.kind
+            && let Some(selected) = styles.layout_at(self.start)
+        {
+            *style = selected;
+        }
+    }
+
     fn is(self, kinds: &[Kind]) -> bool {
         kinds.contains(&self.kind)
     }
@@ -329,7 +393,8 @@ impl Normalizer<'_> {
             LexicalKind::DocumentStart | LexicalKind::DocumentEnd => Kind::Marker,
             LexicalKind::Anchor | LexicalKind::Tag => Kind::Property,
             LexicalKind::Scalar { style, empty } => {
-                if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
+                let style = quoted_strings::retained_layout_style(*style);
+                if style.is_block() {
                     // the parser starts a block scalar at its content, PyYAML at
                     // `|`/`>`.
                     let from = self.previous.as_ref().map_or(0, |prev| prev.end);
@@ -346,7 +411,7 @@ impl Normalizer<'_> {
                     }
                 }
                 Kind::Scalar {
-                    style: *style,
+                    style,
                     empty: *empty && start == end,
                 }
             }
@@ -658,7 +723,7 @@ impl<'a> Analyzer<'a> {
         }
         if visible {
             let trailing = if matches!(token.kind, Kind::Scalar { .. }) {
-                self.initial.trailing_breaks(token.start..token.end)
+                self.initial.scalar(token).trailing_breaks()
             } else {
                 0
             };
@@ -907,8 +972,8 @@ impl<'a> Analyzer<'a> {
     /// Moves a scalar's later lines: a block body to where [`Self::check_scalar`] expects
     /// it, or with the collection it is indented against where an indentation indicator
     /// fixes its column, and a continuation with the line it starts on.
-    fn carry_scalar_lines(&mut self, token: &Token, style: ScalarStyle) {
-        let block = matches!(style, ScalarStyle::Literal | ScalarStyle::Folded);
+    fn carry_scalar_lines(&mut self, token: &Token, style: LayoutStyle) {
+        let block = style.is_block();
         let delta = if !block {
             // A continuation follows its token, but one deeper than its collection stays so.
             (token.line + 1..=last_line(token))
@@ -926,7 +991,7 @@ impl<'a> Analyzer<'a> {
                     },
                 )
         } else if let Some((_, indent)) = self.body_indents(token).next()
-            && !self.initial.indentation_indicator(token.start)
+            && !self.initial.scalar(token).indentation_indicator()
         {
             let found = to_isize(indent);
             self.expected_scalar_indent(token, style, found) - found
@@ -968,7 +1033,7 @@ impl<'a> Analyzer<'a> {
         })
     }
 
-    fn check_scalar(&mut self, token: &Token, style: ScalarStyle) {
+    fn check_scalar(&mut self, token: &Token, style: LayoutStyle) {
         let lines: Vec<(usize, usize)> = self.body_indents(token).collect();
         let Some(&(_, first)) = lines.first() else {
             return;
@@ -985,15 +1050,14 @@ impl<'a> Analyzer<'a> {
     fn expected_scalar_indent(
         &mut self,
         token: &Token,
-        style: ScalarStyle,
+        style: LayoutStyle,
         found: isize,
     ) -> isize {
         let column = self.column(token);
         let top = self.top();
-        match style {
-            ScalarStyle::Plain => column,
-            ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted => column + 1,
-            _ => match top.kind {
+        match style.inline_content_offset() {
+            Some(offset) => column + to_isize(offset),
+            None => match top.kind {
                 ParentKind::BlockEntry | ParentKind::Key => {
                     self.detect_indent(column, found)
                 }
@@ -1047,4 +1111,22 @@ const fn last_line(token: &Token) -> usize {
 
 fn wrong_indent_message(expected: isize, found: isize) -> String {
     format!("wrong indentation: expected {expected} but found {found}")
+}
+
+pub(crate) fn discards_gap(
+    source: &str,
+    line: &crate::format::layout::VirtualLine<'_>,
+    from: usize,
+    to: usize,
+) -> bool {
+    let site = input::DiscardedGap::observe(source, line, from, to);
+    let body_end =
+        line.body.as_ptr() as usize - source.as_ptr() as usize + line.body.len();
+    shape::discards_gap(
+        &site,
+        &crate::rules::hyphens::retained_before(
+            source,
+            crate::rules::support::span_utils::BytePos::new(body_end),
+        ),
+    )
 }
