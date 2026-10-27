@@ -17,7 +17,9 @@ pub(crate) mod protection;
 mod spelling;
 mod target;
 use crate::text_version::model::{Role, Scalar as ScalarModel};
-pub(crate) use spelling::{LayoutStyle, Restyled, Retained, Spelling, Styles};
+pub(crate) use spelling::{
+    LayoutStyle, Restyled, Retained, Spelling, StyleCursor, Styles,
+};
 
 pub(crate) const fn retained_layout_style(style: ScalarStyle) -> LayoutStyle {
     LayoutStyle::retained(style)

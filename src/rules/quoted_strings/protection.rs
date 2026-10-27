@@ -237,6 +237,7 @@ fn final_break(blocks: &Blocks<'_>) -> bool {
     blocks.last_block_rooted()
         && blocks.last().is_some_and(|block| {
             block.chomp() == Some('+')
+                && block.end_line() >= blocks.count()
                 && block.header() + 1 < blocks.count()
                 && block
                     .break_indicator()
@@ -263,5 +264,6 @@ fn select_folded_tail(
         return None;
     }
     let block = blocks.last()?;
-    block.folded().then(|| block.header_position())
+    (block.folded() && block.end_line() >= blocks.count())
+        .then(|| block.header_position())
 }

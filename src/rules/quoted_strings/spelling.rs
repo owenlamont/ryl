@@ -59,6 +59,10 @@ impl Styles {
         Self(styles)
     }
 
+    pub(crate) fn cursor(&self) -> StyleCursor<'_> {
+        StyleCursor(&self.0)
+    }
+
     pub(crate) fn at(&self, start: usize) -> Option<ScalarStyle> {
         self.0
             .binary_search_by_key(&start, |(at, _)| *at)
@@ -78,6 +82,20 @@ impl Styles {
                 .map(|(start, _)| *start)
                 .collect(),
         )
+    }
+}
+
+pub(crate) struct StyleCursor<'a>(&'a [(usize, ScalarStyle)]);
+
+impl StyleCursor<'_> {
+    pub(crate) fn layout_at(&mut self, start: usize) -> Option<LayoutStyle> {
+        while self.0.first().is_some_and(|(at, _)| *at < start) {
+            self.0 = &self.0[1..];
+        }
+        self.0
+            .first()
+            .filter(|(at, _)| *at == start)
+            .map(|(_, style)| LayoutStyle(*style))
     }
 }
 

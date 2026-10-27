@@ -260,7 +260,7 @@ pub(crate) struct Token {
 }
 
 impl Token {
-    fn restyle(&mut self, styles: &quoted_strings::Styles) {
+    fn restyle(&mut self, styles: &mut quoted_strings::StyleCursor<'_>) {
         if let Kind::Scalar { style, .. } = &mut self.kind
             && let Some(selected) = styles.layout_at(self.start)
         {

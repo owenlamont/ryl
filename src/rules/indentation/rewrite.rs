@@ -614,9 +614,10 @@ impl<'a> Layout<'a> {
         let line_count = self.input.line_count();
         let projection =
             crate::format::layout::projection::Projection::new(self.input, edits);
+        let mut styles = styles.cursor();
         super::normalized_tokens(self.input, &self.source_starts).map(
             move |mut token| {
-                token.restyle(styles);
+                token.restyle(&mut styles);
                 let line = self.project_line(token.line, token.start);
                 let end_line = if token.end_line >= line_count {
                     self.lines.len()
@@ -873,6 +874,7 @@ impl<'a> Layout<'a> {
         spacing: &'b mut Vec<crate::rules::support::token_spacing::SpaceSite>,
     ) -> impl Iterator<Item = (super::Token, super::Token)> + 'b {
         use crate::format::layout::projection::Projection;
+        let mut styles = styles.cursor();
         let input = self.input;
         let projection = Projection::new(input, edits);
         let mut gaps = Projection::incremental();
@@ -909,7 +911,7 @@ impl<'a> Layout<'a> {
             }
             let original = line.pop_front().expect("a source line has a token");
             let mut token = original;
-            token.restyle(styles);
+            token.restyle(&mut styles);
             let projected = self.project_line(token.line, token.start);
             let end = if token.end_line >= input.line_count() {
                 self.lines.len()
