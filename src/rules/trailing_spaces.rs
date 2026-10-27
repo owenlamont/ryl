@@ -20,6 +20,17 @@ use crate::text_version::{Analysis, TextVersion};
 pub const ID: &str = "trailing-spaces";
 pub const MESSAGE: &str = "trailing spaces";
 
+pub(crate) struct Protection {
+    lines: HashSet<usize>,
+    keep_blank_eof: bool,
+}
+
+impl Protection {
+    pub(crate) fn line(&self, line: usize) -> bool {
+        self.lines.contains(&line)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Violation {
     pub line: usize,
@@ -73,17 +84,24 @@ pub(crate) fn fix_with_analysis(input: Analysis<'_>) -> Option<String> {
 }
 
 pub(crate) fn edits(input: Analysis<'_>) -> Vec<Edit> {
-    edits_restyled(input, |_| false)
+    edits_restyled(input, &crate::rules::quoted_strings::Restyled::default())
 }
 
 /// The edits once each multi-line double-quoted scalar `restyled` names by its start byte
 /// is rewritten in a style whose line ends hold no escapes.
 pub(crate) fn edits_restyled(
     input: Analysis<'_>,
-    restyled: impl Fn(usize) -> bool,
+    restyled: &crate::rules::quoted_strings::Restyled,
+) -> Vec<Edit> {
+    edits_protected(input, protection(input, restyled).as_ref())
+}
+
+pub(crate) fn edits_protected(
+    input: Analysis<'_>,
+    protection: Option<&Protection>,
 ) -> Vec<Edit> {
     let buffer = input.text();
-    let Some((protected, keep_blank_eof)) = protected_lines(input, restyled) else {
+    let Some(protection) = protection else {
         return Vec::new();
     };
     let mut edits = Vec::new();
@@ -92,7 +110,7 @@ pub(crate) fn edits_restyled(
 
     for (idx, raw_line, ending) in input.lines() {
         let line_no = idx + 1;
-        let stripped = if protected.contains(&line_no) {
+        let stripped = if protection.line(line_no) {
             raw_line
         } else {
             let trimmed = raw_line.trim_end_matches([' ', '\t']);
@@ -111,7 +129,7 @@ pub(crate) fn edits_restyled(
         offset += raw_line.len() + ending.len();
     }
 
-    if keep_blank_eof && changed {
+    if protection.keep_blank_eof && changed {
         let end = BytePos::new(buffer.len());
         edits.push((end, end, buffer_newline(buffer).to_string()));
     }
@@ -120,10 +138,10 @@ pub(crate) fn edits_restyled(
 
 /// The 1-based lines whose trailing whitespace is a scalar's value, and whether a
 /// keep-chomped scalar ends at an unterminated spaces-only line.
-pub(crate) fn protected_lines(
+pub(crate) fn protection(
     input: Analysis<'_>,
-    restyled: impl Fn(usize) -> bool,
-) -> Option<(HashSet<usize>, bool)> {
+    restyled: &crate::rules::quoted_strings::Restyled,
+) -> Option<Protection> {
     let buffer = input.text();
     let mut protected =
         crate::rules::support::line_syntax::protected_scalar_lines_with_analysis(
@@ -132,7 +150,7 @@ pub(crate) fn protected_lines(
                 ScalarStyle::Literal | ScalarStyle::Folded => true,
                 ScalarStyle::DoubleQuoted => {
                     span.end.line() > span.start.line()
-                        && !restyled(
+                        && !restyled.contains(
                             crate::rules::support::span_utils::marker_byte_offset(
                                 span.start,
                             )
@@ -189,7 +207,10 @@ pub(crate) fn protected_lines(
             }
         }
     }
-    Some((protected, keep_blank_eof))
+    Some(Protection {
+        lines: protected,
+        keep_blank_eof,
+    })
 }
 
 pub(crate) fn content_blank_lines_with_analysis(input: Analysis<'_>) -> HashSet<usize> {

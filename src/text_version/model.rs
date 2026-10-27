@@ -5,7 +5,7 @@ use ryl_yaml_parser::Tag;
 use crate::rules::support::yaml_version::{
     Version, resolves_as_yaml_1_1, resolves_to_nonstring_in_yaml_1_1,
 };
-use crate::yaml_dom::{Scalar as Value, is_core_schema_int_spelling};
+use crate::yaml_dom::{Scalar as Value, is_core_schema, is_core_schema_int_spelling};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Role {
@@ -67,8 +67,8 @@ impl<'a> Scalar<'a> {
             .get_or_init(|| resolves_to_string_for_version(self.version, self.value))
     }
 
-    pub(crate) const fn tag(&self) -> Option<&'a Tag> {
-        self.tag
+    pub(crate) fn has_core_tag(&self) -> bool {
+        self.tag.is_some_and(is_core_schema)
     }
 
     pub(crate) const fn is_key(&self) -> bool {

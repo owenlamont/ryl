@@ -4,18 +4,21 @@
 
 use std::cell::OnceCell;
 
-use ryl_yaml_parser::{Event, Parser, ScalarStyle, Span, StructureStyle};
+mod context;
+pub(crate) use context::RetainedContext;
+
+use ryl_yaml_parser::{Event, StructureStyle};
 
 use crate::config_schema::CollectionStyleTarget;
 use crate::directives::{Directives, disables_file};
 use crate::lint::{LintProblem, Severity};
-use crate::rules::support::line_syntax::{
-    buffer_newline, split_lines_preserve_endings,
-};
+use crate::rules::support::line_syntax::buffer_newline;
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
-use crate::rules::{braces, brackets, comments_indentation, indentation};
+use crate::rules::{
+    braces, brackets, comments_indentation, indentation, quoted_strings,
+};
 use crate::text_version::{Analysis, TextVersion};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,7 +136,7 @@ fn plan(
     let style = |target, rule| {
         (!directives.disables_any(rule) && !disables_file(buffer)).then_some(target)
     };
-    let (nodes, comments) = tree_from_events(buffer, input.event_iter());
+    let (nodes, comments) = tree_from_events(input);
     let restyler = Restyler {
         buffer,
         input,
@@ -179,7 +182,7 @@ fn plan(
         }
     }
     let edits = skip_reindent_dependent(
-        buffer,
+        input,
         edits,
         &mut findings,
         indent,
@@ -197,7 +200,7 @@ fn changes_style(target: CollectionStyleTarget, style: StructureStyle) -> bool {
 }
 
 fn skip_reindent_dependent(
-    buffer: &str,
+    input: Analysis<'_>,
     edits: Vec<(Edit, usize)>,
     findings: &mut [Finding],
     indent: Option<&indentation::Config>,
@@ -209,21 +212,26 @@ fn skip_reindent_dependent(
         return edits.into_iter().map(|(edit, _)| edit).collect();
     };
     let candidate = apply_replacements(
-        buffer,
+        input.text(),
         edits.iter().map(|(edit, _)| edit.clone()).collect(),
     );
-    let reindented = indentation::reindent(&candidate, indent);
+    let candidate = TextVersion::new(candidate);
+    let (reindented, output) =
+        indentation::reindent_with_analysis(candidate.analysis(), indent);
     let inconsistent = if require_consistent_indent {
-        indentation::check(&reindented.text, &indent.with_consistent_spaces())
+        indentation::check_with_analysis(
+            output.analysis(),
+            &indent.with_consistent_spaces(),
+        )
     } else {
         Vec::new()
     };
     if reindented.refused.is_empty() && inconsistent.is_empty() {
         return edits.into_iter().map(|(edit, _)| edit).collect();
     }
-    let candidate_starts = document_start_lines(&candidate);
-    let output_starts = document_start_lines(&reindented.text);
-    let source_starts = document_start_lines(buffer);
+    let candidate_starts = document_start_lines(candidate.analysis());
+    let output_starts = document_start_lines(output.analysis());
+    let source_starts = document_start_lines(input);
     let mut blocked = vec![None; source_starts.len()];
     for refusal in reindented.refused {
         let document = candidate_starts
@@ -236,7 +244,7 @@ fn skip_reindent_dependent(
             output_starts.partition_point(|start| *start <= violation.line) - 1;
         blocked[document].get_or_insert("the result would fail consistent indentation");
     }
-    let source_lines = byte_line_starts(buffer);
+    let source_lines = input.byte_line_starts();
     edits
         .into_iter()
         .filter_map(|(edit, finding)| {
@@ -254,21 +262,12 @@ fn skip_reindent_dependent(
         .collect()
 }
 
-fn byte_line_starts(buffer: &str) -> Vec<usize> {
-    let mut starts = vec![0];
-    for (_, content, ending) in split_lines_preserve_endings(buffer) {
-        starts.push(starts.last().copied().unwrap() + content.len() + ending.len());
-    }
-    starts
-}
-
-fn document_start_lines(buffer: &str) -> Vec<usize> {
-    let mut starts: Vec<usize> = Parser::new_from_str(buffer)
-        .map_while(Result::ok)
-        .filter_map(|item| match item {
-            (Event::DocumentStart(..), span) => Some(span.start.line()),
-            _ => None,
-        })
+fn document_start_lines(input: Analysis<'_>) -> Vec<usize> {
+    let mut starts: Vec<usize> = input
+        .parsed()
+        .document_starts
+        .iter()
+        .map(|start| start + 1)
         .collect();
     *starts
         .first_mut()
@@ -277,16 +276,16 @@ fn document_start_lines(buffer: &str) -> Vec<usize> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    Scalar(ScalarStyle),
+enum Kind<'a> {
+    Scalar(quoted_strings::Retained<'a>),
     Alias,
     Sequence,
     Mapping,
 }
 
 #[derive(Debug)]
-struct Node {
-    kind: Kind,
+struct Node<'a> {
+    kind: Kind<'a>,
     flow: bool,
     /// A flow collection written with its own `[` or `{`, unlike an implicit `a: 1` pair.
     braced: bool,
@@ -299,14 +298,12 @@ struct Node {
     children: Vec<usize>,
 }
 
-fn tree_from_events<'a>(
-    buffer: &str,
-    events: impl Iterator<Item = (Event<'a>, Span)>,
-) -> (Vec<Node>, Vec<(usize, usize)>) {
-    let mut nodes: Vec<Node> = Vec::new();
+fn tree_from_events<'a>(input: Analysis<'a>) -> (Vec<Node<'a>>, Vec<(usize, usize)>) {
+    let buffer = input.text();
+    let mut nodes: Vec<Node<'a>> = Vec::new();
     let mut comments = Vec::new();
     let mut open: Vec<usize> = Vec::new();
-    for (event, span) in events {
+    for (event, span) in input.event_iter() {
         let (start, end) = (
             marker_byte_offset(span.start).get(),
             marker_byte_offset(span.end).get(),
@@ -316,7 +313,10 @@ fn tree_from_events<'a>(
                 comments.push((start, end));
                 continue;
             }
-            Event::Scalar(_, style, ..) => (Kind::Scalar(style), false),
+            Event::Scalar(_, style, ..) => (
+                Kind::Scalar(quoted_strings::retained(input, style, span)),
+                false,
+            ),
             Event::Alias(_) => (Kind::Alias, false),
             Event::SequenceStart(style, ..) => {
                 (Kind::Sequence, style == StructureStyle::Flow)
@@ -391,7 +391,7 @@ struct Restyler<'a> {
     input: Analysis<'a>,
     indentation: Option<indentation::Config>,
     layout: OnceCell<(indentation::Layout<'a>, indentation::Targets)>,
-    nodes: Vec<Node>,
+    nodes: Vec<Node<'a>>,
     comments: Vec<(usize, usize)>,
     sequences: Option<CollectionStyleTarget>,
     mappings: Option<CollectionStyleTarget>,
@@ -401,7 +401,7 @@ struct Restyler<'a> {
 }
 
 impl Restyler<'_> {
-    fn target(&self, kind: Kind) -> Option<CollectionStyleTarget> {
+    fn target(&self, kind: Kind<'_>) -> Option<CollectionStyleTarget> {
         if kind == Kind::Sequence {
             self.sequences
         } else {
@@ -488,8 +488,8 @@ impl Restyler<'_> {
         let width = self.indentation.map_or(width, |cfg| {
             let (layout, targets) = self.layout.get_or_init(|| {
                 let mut layout = indentation::Layout::new(self.input, &cfg);
-                let mut targets = layout.targets(&cfg, &[], false);
-                layout.freeze_targets(&mut targets);
+                let candidates = layout.targets(&cfg, &[], false);
+                let (targets, _) = candidates.settle(&layout);
                 (layout, targets)
             });
             let origin = self
@@ -498,7 +498,7 @@ impl Restyler<'_> {
                 .partition_point(|&at| at <= start)
                 - 1;
             let line = layout.project_line(origin, start);
-            width.saturating_add_signed(targets.deltas[line])
+            width.saturating_add_signed(targets.deltas()[line])
         });
         let owner = self.buffer[line_start..].split(['\n', '\r']).next();
         (width <= self.width && !owner.is_some_and(widened_indicator)).then_some((
@@ -513,15 +513,9 @@ impl Restyler<'_> {
     /// leading `:` or `?`.
     fn flow_entry(&self, index: usize, pos: usize) -> Option<&str> {
         let node = &self.nodes[index];
-        let written = &self.buffer[node.start..node.end];
         let fits = match node.kind {
-            Kind::Scalar(ScalarStyle::Plain) => {
-                !written.is_empty()
-                    && !written.contains([',', '[', ']', '{', '}'])
-                    && !written.starts_with([':', '?'])
-            }
-            Kind::Scalar(ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted)
-            | Kind::Alias => true,
+            Kind::Scalar(spelling) => spelling.flow_compatible(),
+            Kind::Alias => true,
             _ => false,
         };
         fits.then(|| self.text(pos, node.end).ok()).flatten()
@@ -627,7 +621,7 @@ impl Restyler<'_> {
                 }
                 let colon = self.skip_space(key.end);
                 let has_colon = self.buffer[colon..].starts_with(':');
-                if key.kind == Kind::Scalar(ScalarStyle::Plain)
+                if matches!(key.kind, Kind::Scalar(spelling) if spelling.is_plain())
                     && has_colon
                     && !self.buffer[colon + 1..].starts_with(is_space)
                 {
@@ -696,9 +690,7 @@ impl Restyler<'_> {
     /// Node `index`'s text from byte `pos`; `PyYAML` reads a plain `?x` in flow as a key.
     fn copy(&self, index: usize, pos: usize) -> Result<&str, &'static str> {
         let node = &self.nodes[index];
-        if node.kind == Kind::Scalar(ScalarStyle::Plain)
-            && self.buffer[node.start..].starts_with('?')
-        {
+        if matches!(node.kind, Kind::Scalar(spelling) if spelling.starts_question()) {
             return Err("an entry starts with `?`");
         }
         self.text(pos, node.end)

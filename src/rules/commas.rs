@@ -1,10 +1,13 @@
 //! `commas`: spacing around `,` separators in flow collections: no space before,
 //! exactly one after. Mirrors yamllint's `commas`. Safe `--fix` normalises the spacing.
+mod input;
+mod target;
+
 use crate::text_version::edits::Edit;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    byte_line_and_column, collect_scalar_ranges, skip_comment, target_spacing,
+    byte_line_and_column, collect_scalar_ranges, skip_comment,
 };
 use crate::rules::support::span_utils::{BytePos, apply_replacements};
 use crate::text_version::{Analysis, TextVersion};
@@ -285,36 +288,7 @@ pub(crate) fn collect_comma_fixes(
     comma_idx: usize,
     replacements: &mut Vec<crate::rules::support::token_spacing::SpaceEdit>,
 ) {
-    if let BeforeResult::SameLine { spaces, start_idx } =
-        compute_spaces_before(bytes, comma_idx)
-        && cfg.max_spaces_before >= 0
-    {
-        let target = usize::try_from(cfg.max_spaces_before).unwrap_or(usize::MAX);
-        if spaces > target {
-            replacements.push((
-                BytePos::new(start_idx),
-                BytePos::new(comma_idx),
-                target,
-            ));
-        }
-    }
-
-    if let AfterResult::SameLine { spaces, next_char } =
-        compute_spaces_after(bytes, comma_idx)
-        && let Some(target) = target_spaces_after(cfg, spaces)
-        && target != spaces
-    {
-        replacements.push((
-            BytePos::new(comma_idx + 1),
-            BytePos::new(next_char),
-            target,
-        ));
-    }
-}
-
-fn target_spaces_after(cfg: &Config, current: usize) -> Option<usize> {
-    let target = target_spacing(current, cfg.min_spaces_after, cfg.max_spaces_after);
-    (target != current).then_some(target)
+    replacements.extend(target::select(cfg, input::Initial::new(bytes, comma_idx)));
 }
 
 #[doc(hidden)]

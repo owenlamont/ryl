@@ -12,7 +12,9 @@ use crate::rules::support::comments_scan::CommentInfo;
 use crate::rules::support::line_syntax::is_magic_first_line_comment;
 use crate::text_version::{Analysis, TextVersion};
 
+mod input;
 mod target;
+pub(crate) use target::Magic;
 
 pub const ID: &str = "comments";
 
@@ -190,6 +192,16 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
     }
 
     edits
+}
+
+pub(crate) fn edits_with_magic(
+    source: Analysis<'_>,
+    cfg: &Config,
+    permission: crate::format::layout::Permission<'_>,
+) -> (Vec<Edit>, Magic) {
+    let edits = edits(source, cfg);
+    let magic = Magic::plan(input::Magic::new(source.text()), cfg, &edits, permission);
+    (edits, magic)
 }
 
 fn comment_byte_start(comment: &CommentInfo) -> usize {

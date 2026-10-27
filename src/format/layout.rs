@@ -20,6 +20,7 @@ mod guard;
 mod line_endings;
 use folding::FoldBreak;
 use guard::Guard;
+pub(crate) use guard::Permission;
 mod pieces;
 pub(crate) mod projection;
 pub(crate) use pieces::PlanEdit;
@@ -42,7 +43,8 @@ struct DocumentPlan<'a> {
     targets: indentation::Targets,
     edits: Vec<PlanEdit>,
     boundaries: Vec<Edit>,
-    styles: Vec<(usize, ScalarStyle)>,
+    styles: quoted_strings::Styles,
+    magic: comments::Magic,
     rules: Vec<&'static str>,
     endings: line_endings::Target,
     dirty: bool,
@@ -273,7 +275,7 @@ fn format_document_staged(
 
 type Candidate = (
     String,
-    Vec<(usize, ScalarStyle)>,
+    quoted_strings::Styles,
     Vec<&'static str>,
     Option<Box<Guard>>,
 );
@@ -295,7 +297,12 @@ fn prepare_candidate(
 ) -> Result<(Option<Candidate>, Kept), Fallback> {
     if blank_stream(input.text(), passes, frozen) {
         stats::count(stats::Counter::Plan);
-        let candidate = (String::new(), Vec::new(), vec![empty_lines::ID], None);
+        let candidate = (
+            String::new(),
+            quoted_strings::Styles::default(),
+            vec![empty_lines::ID],
+            None,
+        );
         Ok((Some(candidate), Kept::default()))
     } else {
         DocumentPlan::new(input, passes, quotes, frozen).and_then(|plan| {
@@ -386,7 +393,7 @@ fn format_document_refused(
 fn settles(
     input: Analysis<'_>,
     output: Analysis<'_>,
-    (styles, guard): (&[(usize, ScalarStyle)], Option<&Guard>),
+    (styles, guard): (&quoted_strings::Styles, Option<&Guard>),
     passes: &Passes<'_>,
     (settled, unambiguous): (bool, bool),
 ) -> bool {
@@ -417,9 +424,6 @@ fn may_turn_ambiguous(input: Analysis<'_>) -> bool {
     })
 }
 
-/// Whether `text` is a stream of LF-only blank lines that the resolved passes empty, so its
-/// candidate needs no line records; verification and the dry plan still check it, and with
-/// no block scalar it cannot be ambiguous, so it skips the probe.
 /// `edits` keeping the separation an explicit `?` key needs before what follows it.
 fn separate_keys(
     text: &str,
@@ -457,6 +461,9 @@ fn closes_after(text: &[u8], mut from: usize) -> bool {
     }
 }
 
+/// Whether `text` is a stream of LF-only blank lines that the resolved passes empty, so its
+/// candidate needs no line records; verification and the dry plan still check it, and with
+/// no block scalar it cannot be ambiguous, so it skips the probe.
 fn blank_stream(
     text: &str,
     passes: &Passes<'_>,
@@ -475,7 +482,7 @@ fn blank_stream(
 fn verify_presentation(
     input: Analysis<'_>,
     output: Analysis<'_>,
-    styles: &[(usize, ScalarStyle)],
+    styles: &quoted_strings::Styles,
     document_start: bool,
     guard: Option<&Guard>,
 ) -> Result<(), Fallback> {
@@ -494,7 +501,7 @@ fn verify_presentation(
 
 fn expected_events<'a>(
     input: Analysis<'a>,
-    styles: &'a [(usize, ScalarStyle)],
+    styles: &'a quoted_strings::Styles,
     document_start: bool,
     guard: Option<&'a Guard>,
 ) -> impl Iterator<Item = Event<'a>> {
@@ -502,9 +509,7 @@ fn expected_events<'a>(
         Event::Scalar(value, style, anchor, tag) => {
             let at =
                 crate::rules::support::span_utils::marker_byte_offset(span.start).get();
-            let style = styles
-                .binary_search_by_key(&at, |(at, _)| *at)
-                .map_or(style, |index| styles[index].1);
+            let style = styles.at(at).unwrap_or(style);
             Event::Scalar(value, style, anchor, tag)
         }
         Event::DocumentStart(explicit, version) => {
@@ -566,7 +571,8 @@ fn remember(
 
 struct Presentation {
     edits: Vec<PlanEdit>,
-    styles: Vec<(usize, ScalarStyle)>,
+    styles: quoted_strings::Styles,
+    magic: comments::Magic,
     rules: Vec<&'static str>,
     guard: Option<Box<Guard>>,
 }
@@ -585,12 +591,8 @@ impl Presentation {
         })
     }
 
-    fn restyled(&self) -> Vec<usize> {
-        self.styles
-            .iter()
-            .filter(|(_, style)| *style != ScalarStyle::DoubleQuoted)
-            .map(|(start, _)| *start)
-            .collect()
+    fn restyled(&self) -> quoted_strings::Restyled {
+        self.styles.restyled()
     }
 
     fn lint_spacing(&mut self, input: Analysis<'_>, passes: &Passes<'_>) {
@@ -799,7 +801,13 @@ impl Presentation {
         layout: &mut indentation::Layout<'_>,
     ) {
         if let Some(cfg) = &passes.comments {
-            self.extend(comments::ID, comments::edits(input, cfg));
+            let (edits, magic) = comments::edits_with_magic(
+                input,
+                cfg,
+                Guard::permission(self.guard.as_deref(), comments::ID),
+            );
+            self.magic = magic;
+            self.extend(comments::ID, edits);
         }
         self.align_comments(input, passes, layout);
     }
@@ -836,59 +844,20 @@ impl Presentation {
         }
     }
 
-    /// `settle` moves an own-line comment below the last content line with that line's
-    /// shift; `comments-indentation` then judges the moved column against the target of
-    /// the content line it follows, as it would on the output.
     fn align_trailing_comments(
         &self,
         input: Analysis<'_>,
         passes: &Passes<'_>,
         layout: &indentation::Layout<'_>,
-        targets: &mut indentation::Targets,
+        targets: &mut indentation::Candidates,
     ) {
-        use comments_indentation::LineKind;
-        let (Some(cfg), Some(last)) = (passes.comments_indentation, targets.last_token)
-        else {
-            return;
-        };
-        let lines = &layout.lines;
-        if cfg != comments_indentation::Config::default()
-            || lines[last + 1..]
-                .iter()
-                .all(|content| content.comment_column().is_none())
-        {
-            return;
-        }
-        let kind = comments_indentation::line_kinds(input);
-        let column = |line: usize| {
-            let content = &lines[line];
-            (content.prefix + content.body.len() - content.body.trim_start().len())
-                .cast_signed()
-        };
-        let previous = (0..=last)
-            .rev()
-            .find(|&line| kind(lines[line].origin) == Some(LineKind::Other))
-            .map_or(0, |line| column(line) + targets.deltas[line]);
-        let mut reference = previous;
-        for (line, content) in lines.iter().enumerate().skip(last + 1) {
-            if content.comment_column().is_none() {
-                continue;
-            }
-            let moved = column(line) + targets.deltas[line];
-            match kind(content.origin) {
-                Some(LineKind::Comment) => {
-                    let aligned = if moved == 0 { 0 } else { reference };
-                    if self.guard.as_ref().is_none_or(|guard| {
-                        guard.line(comments_indentation::ID, content.origin)
-                    }) {
-                        targets.deltas[line] = aligned - column(line);
-                    }
-                    reference = aligned;
-                }
-                Some(LineKind::ScalarTrailingComment) => reference = moved,
-                _ => reference = previous,
-            }
-        }
+        comments_indentation::align_trailing(
+            input,
+            passes.comments_indentation,
+            layout,
+            targets,
+            Guard::permission(self.guard.as_deref(), comments_indentation::ID),
+        );
     }
 
     fn retain_documents(
@@ -896,11 +865,10 @@ impl Presentation {
         input: Analysis<'_>,
         passes: &Passes<'_>,
         layout: &mut indentation::Layout<'_>,
-        targets: &mut indentation::Targets,
+        targets: &mut indentation::Candidates,
         cfg: &indentation::Config,
         frozen: Option<&[Option<indentation::Cause>]>,
-    ) -> Result<(Vec<indentation::Refusal>, Vec<indentation::Violation>), Fallback>
-    {
+    ) -> Result<Vec<indentation::Violation>, Fallback> {
         if passes.indentation.is_none() {
             targets.deltas.fill(0);
             targets.gaps.clear();
@@ -911,7 +879,7 @@ impl Presentation {
             return Err(Fallback::Verification);
         }
         if !targets.refused.iter().any(Option::is_some) {
-            return Ok((Vec::new(), Vec::new()));
+            return Ok(Vec::new());
         }
         let mut refused = targets.refused.clone();
         let mut reshaped = std::mem::take(&mut layout.reshaped);
@@ -961,8 +929,7 @@ impl Presentation {
             .and_then(|()| {
                 self.align_comments(input, passes, layout);
                 self.align_trailing_comments(input, passes, layout, targets);
-                self.settle()
-                    .map(|()| (layout.freeze_targets(targets), violations))
+                self.settle().map(|()| violations)
             })
     }
 
@@ -995,7 +962,8 @@ impl Presentation {
         passes: &Passes<'_>,
         cache: &mut HashMap<String, Option<bool>>,
         cfg: &indentation::Config,
-    ) -> Result<(indentation::Layout<'a>, indentation::Targets, Self), Fallback> {
+    ) -> Result<(indentation::Layout<'a>, indentation::Candidates, Self), Fallback>
+    {
         facts::prepare_input(input, passes.line_length.is_some()).and_then(|()| {
             let mut layout = indentation::Layout::format(input, cfg);
             layout.trimmed = passes.trailing_spaces;
@@ -1008,7 +976,7 @@ impl Presentation {
                 presentation
                     .edits
                     .sort_by_key(|(start, end, _)| (*start, *end));
-                layout.restyled = presentation.restyled();
+                layout.restyle(presentation.restyled());
                 presentation.drop_split_gaps(input, &mut layout);
                 if !layout.collapse_scalars(&presentation.edits) {
                     return Err(Fallback::ScalarInteraction);
@@ -1034,11 +1002,12 @@ impl Presentation {
         passes: &Passes<'_>,
         cache: &mut HashMap<String, Option<bool>>,
         cfg: &indentation::Config,
-    ) -> Result<(indentation::Layout<'a>, indentation::Targets, Self), Fallback> {
+    ) -> Result<(indentation::Layout<'a>, indentation::Candidates, Self), Fallback>
+    {
         let mut presentation = Self::pre_scan(input, passes, cache)?;
         let mut layout = indentation::Layout::format(input, cfg);
         layout.trimmed = passes.trailing_spaces;
-        layout.restyled = presentation.restyled();
+        layout.restyle(presentation.restyled());
         if !layout.collapse_scalars(&presentation.edits) {
             return Err(Fallback::ScalarInteraction);
         }
@@ -1116,14 +1085,12 @@ impl Presentation {
         quotes: &mut HashMap<String, Option<bool>>,
     ) -> Result<Self, Fallback> {
         let mut edits = Vec::new();
-        let mut styles = Vec::new();
+        let mut styles = quoted_strings::Styles::default();
         let guard = Guard::new(input, passes);
-        let spaced_colon = |at| {
-            passes.colons == Some(colons::Config::format())
-                && guard.as_ref().is_none_or(|guard| {
-                    guard.allows(colons::ID, BytePos::new(at), BytePos::new(at + 1))
-                })
-        };
+        let spaced_colon = colons::Guarantees::new(
+            passes.colons,
+            Guard::permission(guard.as_deref(), colons::ID),
+        );
         let result = passes.quoted_strings.as_ref().map_or(Ok(()), |cfg| {
             let mut next = quoted_strings::format_replacements(
                 input,
@@ -1145,9 +1112,7 @@ impl Presentation {
                     return Err(Fallback::Verification);
                 }
             }
-            for (start, _, text) in &next {
-                styles.push((start.get(), text.style()));
-            }
+            styles = quoted_strings::selected_styles(&next);
             next.into_iter().try_for_each(|(start, end, text)| {
                 let text = text.into_text();
                 if text.contains(['\n', '\r']) {
@@ -1169,6 +1134,7 @@ impl Presentation {
             Self {
                 edits: edits.into_iter().map(plan_edit).collect(),
                 styles,
+                magic: comments::Magic::default(),
                 rules,
                 guard,
             }
@@ -1206,14 +1172,15 @@ impl<'a> DocumentPlan<'a> {
                     &cfg,
                     frozen,
                 )
-                .and_then(|refusals| {
+                .and_then(|violations| {
+                    let (targets, refused) = targets.settle(&layout);
                     Self::assemble(
                         input,
                         passes,
                         layout,
                         targets,
                         presentation,
-                        refusals,
+                        (refused, violations),
                     )
                 })
         })
@@ -1233,6 +1200,7 @@ impl<'a> DocumentPlan<'a> {
         let Presentation {
             edits,
             styles,
+            magic,
             mut rules,
             guard,
         } = presentation;
@@ -1241,8 +1209,8 @@ impl<'a> DocumentPlan<'a> {
         {
             return Err(Fallback::ScalarInteraction);
         }
-        if targets.deltas.iter().any(|&delta| delta != 0)
-            || !targets.gaps.is_empty()
+        if targets.deltas().iter().any(|&delta| delta != 0)
+            || !targets.gaps().is_empty()
             || layout.shaped
         {
             rules.push(indentation::ID);
@@ -1277,6 +1245,7 @@ impl<'a> DocumentPlan<'a> {
             edits,
             boundaries: Vec::new(),
             styles,
+            magic,
             rules,
             endings,
             dirty: false,
@@ -1305,12 +1274,7 @@ impl<'a> DocumentPlan<'a> {
             })
             .collect();
         if passes.trailing_spaces {
-            let styles = &self.styles;
-            let mut next = trailing_spaces::edits_restyled(input, |start| {
-                styles
-                    .binary_search_by_key(&start, |(at, _)| *at)
-                    .is_ok_and(|index| styles[index].1 != ScalarStyle::DoubleQuoted)
-            });
+            let mut next = trailing_spaces::edits_protected(input, layout.protection());
             if let Some(guard) = &self.guard {
                 next.retain(|(start, end, _)| {
                     guard.allows(trailing_spaces::ID, *start, *end)
@@ -1351,7 +1315,7 @@ impl<'a> DocumentPlan<'a> {
         let final_newline = self.final_newline_enabled(passes)
             || (self.layout.lines.len() > 1
                 && self.layout.lines.last().is_some_and(VirtualLine::is_empty));
-        let keep_magic = !self.edits_magic_first_line(passes);
+        let keep_magic = !self.magic.changed();
         let input = self.input;
 
         let boundaries = &mut self.boundaries;
@@ -1404,28 +1368,6 @@ impl<'a> DocumentPlan<'a> {
         }
     }
 
-    fn edits_magic_first_line(&self, passes: &Passes<'_>) -> bool {
-        let Some(cfg) = passes
-            .comments
-            .as_ref()
-            .filter(|cfg| !cfg.ignore_shebangs())
-        else {
-            return false;
-        };
-        let first = self.input.text().lines().next().unwrap_or_default();
-        crate::rules::support::line_syntax::is_magic_first_line(
-            first.strip_prefix('\u{feff}').unwrap_or(first),
-        ) && comments::edits(self.input, cfg)
-            .iter()
-            .any(|(start, end, _)| {
-                start.get() <= first.len()
-                    && self
-                        .guard
-                        .as_ref()
-                        .is_none_or(|guard| guard.allows(comments::ID, *start, *end))
-            })
-    }
-
     fn final_newline_enabled(&self, passes: &Passes<'_>) -> bool {
         passes.final_newline.is_some()
             && self.guard.as_ref().is_none_or(|guard| {
@@ -1451,7 +1393,7 @@ impl<'a> DocumentPlan<'a> {
                         || line.bom
                         || line
                             .prefix
-                            .saturating_add_signed(self.targets.deltas[*index])
+                            .saturating_add_signed(self.targets.deltas()[*index])
                             > 0
                 })
                 .is_some_and(|(_, line)| line.ending.is_empty());
@@ -1486,7 +1428,6 @@ impl<'a> DocumentPlan<'a> {
         }
         let edits = &mut self.edits;
         let boundaries = &mut self.boundaries;
-        let styles = &mut self.styles;
         let rules = &mut self.rules;
         edits.sort_by_key(|(start, end, _)| (start.get(), end.get()));
         edits.dedup();
@@ -1494,7 +1435,6 @@ impl<'a> DocumentPlan<'a> {
             pair[0].1 > pair[1].0 || (pair[0].0 == pair[1].0 && pair[1].0 == pair[1].1)
         });
         boundaries.sort_by_key(|(start, _, _)| start.get());
-        styles.sort_by_key(|(start, _)| *start);
         self.dirty = !rules.is_empty();
         self.finish_endings();
         disjoint
@@ -1604,7 +1544,7 @@ impl<'a> DocumentPlan<'a> {
     }
 
     fn kept(&self) -> Kept {
-        let refused = &self.targets.refused;
+        let refused = &self.targets.refused();
         if self.layout.kept_dash_lines.is_empty()
             && !refused.iter().any(Option::is_some)
         {
@@ -1728,7 +1668,7 @@ impl<'a> DocumentPlan<'a> {
                     }
                     let prefix = line
                         .prefix
-                        .saturating_add_signed(self.targets.deltas[index]);
+                        .saturating_add_signed(self.targets.deltas()[index]);
                     output.extend(std::iter::repeat_n(
                         ' ',
                         prefix * usize::from(!line.is_empty()),
@@ -1770,12 +1710,18 @@ impl<'a> DocumentPlan<'a> {
         index: usize,
         emit: impl FnMut(Piece<'s>),
     ) -> Result<(), Fallback> {
-        let first = self.targets.gaps.partition_point(|gap| gap.line() < index);
-        let last = self.targets.gaps.partition_point(|gap| gap.line() <= index);
+        let first = self
+            .targets
+            .gaps()
+            .partition_point(|gap| gap.line() < index);
+        let last = self
+            .targets
+            .gaps()
+            .partition_point(|gap| gap.line() <= index);
         visit_body(
             self.input.text(),
             &self.layout.lines[index],
-            &self.targets.gaps[first..last],
+            &self.targets.gaps()[first..last],
             &self.edits,
             emit,
         )
@@ -1784,7 +1730,7 @@ impl<'a> DocumentPlan<'a> {
     fn prefix(&self, index: usize) -> usize {
         let line = &self.layout.lines[index];
         line.prefix
-            .saturating_add_signed(self.targets.deltas[index])
+            .saturating_add_signed(self.targets.deltas()[index])
             * usize::from(!line.is_empty())
     }
 
@@ -1834,9 +1780,12 @@ impl<'a> DocumentPlan<'a> {
     }
 
     fn close_gaps(&self, index: usize, mut position: usize) -> usize {
-        let raw = position.saturating_add_signed(-self.targets.deltas[index]);
-        let first = self.targets.gaps.partition_point(|gap| gap.line() < index);
-        for gap in self.targets.gaps[first..]
+        let raw = position.saturating_add_signed(-self.targets.deltas()[index]);
+        let first = self
+            .targets
+            .gaps()
+            .partition_point(|gap| gap.line() < index);
+        for gap in self.targets.gaps()[first..]
             .iter()
             .take_while(|gap| gap.line() == index)
         {
@@ -1862,8 +1811,8 @@ impl<'a> DocumentPlan<'a> {
                     .partition_point(|&start| start <= scalar.content.start)
                     - 1;
                 let frozen_owner = (!reindents
-                    || (!self.targets.refused.is_empty()
-                        && self.layout.frozen(&self.targets.refused, line)))
+                    || (!self.targets.refused().is_empty()
+                        && self.layout.frozen(self.targets.refused(), line)))
                 .then(|| scalar.owner.map_or(0, |(_, column)| column));
                 self.plan_scalar_fold(
                     scalar.content,
@@ -1900,10 +1849,7 @@ impl<'a> DocumentPlan<'a> {
         if full.is_empty() {
             return Ok(());
         }
-        let style = self
-            .styles
-            .binary_search_by_key(&full.start, |(at, _)| *at)
-            .map_or(style, |index| self.styles[index].1);
+        let style = self.styles.at(full.start).unwrap_or(style);
         let quotes = quote_width(style);
         let first = self.layout.project_line(line_of(full.start), full.start);
         let last = self
@@ -1915,10 +1861,10 @@ impl<'a> DocumentPlan<'a> {
             .and_then(|content| {
                 let owner = frozen_owner.unwrap_or_else(|| {
                     self.targets
-                        .scalar_owners
+                        .scalar_owners()
                         .partition_point(|&(at, _)| at <= full.start)
                         .checked_sub(1)
-                        .map_or(0, |index| self.targets.scalar_owners[index].1)
+                        .map_or(0, |index| self.targets.scalar_owners()[index].1)
                 });
                 let existing = (first + 1..=last)
                     .find(|&line| !self.layout.lines[line].body.trim().is_empty())
@@ -2134,7 +2080,7 @@ fn folded_tail_interacts(
         && input.headers().last().is_some_and(|header| {
             let line = header.line - 1;
             input.line_content(line).chars().nth(header.column - 1) == Some('>')
-                && targets.deltas
+                && targets.deltas()
                     [layout.project_line(line, input.byte_line_starts()[line])]
                     < 0
         })
@@ -2277,13 +2223,6 @@ impl<'a> VirtualLine<'a> {
 
     pub(crate) fn is_empty(&self) -> bool {
         !self.bom && self.prefix == 0 && self.body.is_empty() && self.tail.is_empty()
-    }
-
-    pub(crate) fn comment_column(&self) -> Option<usize> {
-        self.body
-            .trim_start()
-            .starts_with('#')
-            .then(|| self.prefix + self.body.len() - self.body.trim_start().len())
     }
 
     pub(crate) fn spaces_after(&self, column: usize) -> usize {

@@ -14,12 +14,46 @@ use crate::rules::support::token_spacing::{GapRequest, Indicator};
 
 mod input;
 mod rewrite;
+mod settlement;
 
 pub(crate) use rewrite::reindent_with_analysis;
+pub(crate) use rewrite::{Candidates, Layout, Targets};
 pub use rewrite::{Cause, Refusal, Reindented, fix, reindent};
-pub(crate) use rewrite::{Layout, Targets};
 
 pub const ID: &str = "indentation";
+
+#[derive(Clone, Copy)]
+pub(crate) struct RetainedColumn(usize);
+
+pub(crate) struct Column {
+    origin: usize,
+    retained: isize,
+    current: isize,
+}
+
+impl Column {
+    pub(crate) const fn origin(&self) -> usize {
+        self.origin
+    }
+
+    pub(crate) const fn current(&self) -> isize {
+        self.current
+    }
+
+    pub(crate) const fn delta_to(self, column: isize) -> isize {
+        column - self.retained
+    }
+}
+
+impl RetainedColumn {
+    pub(crate) fn from_marker(marker: ryl_yaml_parser::Marker) -> Self {
+        Self(marker.col())
+    }
+
+    pub(crate) const fn at_zero(self) -> bool {
+        self.0 == 0
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Violation {

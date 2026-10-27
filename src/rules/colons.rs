@@ -12,6 +12,19 @@ use crate::rules::support::token_spacing::{self, Fix, Indicator, Mode, Site};
 use crate::text_version::edits::Edit;
 use crate::text_version::{Analysis, TextVersion};
 
+mod input;
+mod target;
+pub(crate) use target::{Context, Guarantees};
+
+pub(crate) fn context(
+    buffer: &str,
+    end: Option<usize>,
+    key_end: Option<usize>,
+    guarantees: Option<&Guarantees<'_>>,
+) -> Context {
+    Context::select(input::Initial::new(buffer), end, key_end, guarantees)
+}
+
 pub const ID: &str = "colons";
 const TOO_MANY_BEFORE: &str = "too many spaces before colon";
 const TOO_MANY_AFTER: &str = "too many spaces after colon";

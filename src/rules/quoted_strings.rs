@@ -8,10 +8,8 @@ use std::collections::HashMap;
 mod input;
 mod spelling;
 mod target;
-use crate::text_version::model::{
-    Role, Scalar as ScalarModel, resolves_to_string_for_version,
-};
-pub(crate) use spelling::Spelling;
+use crate::text_version::model::{Role, Scalar as ScalarModel};
+pub(crate) use spelling::{Restyled, Retained, Spelling, Styles};
 
 use regex::Regex;
 use ryl_yaml_parser::{
@@ -19,12 +17,13 @@ use ryl_yaml_parser::{
 };
 
 use crate::config::YamlLintConfig;
+use crate::rules::support::collection_style::RetainedContext;
 use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
 use crate::rules::support::yaml_version::{Version, event_version};
-use crate::yaml_dom::is_core_schema;
+use crate::rules::{colons, indentation};
 
 pub const ID: &str = "quoted-strings";
 
@@ -270,11 +269,11 @@ impl SpannedEventReceiver<'_> for QuotedStringsReceiver<'_> {
             }
             Event::DocumentEnd => self.state.document_end(),
             Event::SequenceStart(style, _, _) => {
-                self.state.enter_sequence(style == StructureStyle::Flow);
+                self.state.enter_sequence(style);
             }
             Event::SequenceEnd | Event::MappingEnd => self.state.exit_container(),
             Event::MappingStart(style, _, _) => {
-                self.state.enter_mapping(style == StructureStyle::Flow);
+                self.state.enter_mapping(style);
             }
             Event::Scalar(value, style, _, tag) => {
                 self.state.handle_scalar(
@@ -294,7 +293,7 @@ impl SpannedEventReceiver<'_> for QuotedStringsReceiver<'_> {
 struct QuotedStringsState<'cfg> {
     config: &'cfg Config,
     buffer: &'cfg str,
-    walker: Walker<(), bool>,
+    walker: Walker<(), RetainedContext>,
     consistent_quote_style: Option<QuoteStyle>,
     current_version: Option<Version>,
     plain_scalar_cache: HashMap<String, Option<bool>>,
@@ -327,12 +326,14 @@ impl<'cfg> QuotedStringsState<'cfg> {
         self.walker.reset();
     }
 
-    fn enter_mapping(&mut self, flow: bool) {
-        self.walker.enter_mapping((), flow);
+    fn enter_mapping(&mut self, style: StructureStyle) {
+        self.walker
+            .enter_mapping((), RetainedContext::from_style(style));
     }
 
-    fn enter_sequence(&mut self, flow: bool) {
-        self.walker.enter_sequence(flow);
+    fn enter_sequence(&mut self, style: StructureStyle) {
+        self.walker
+            .enter_sequence(RetainedContext::from_style(style));
     }
 
     fn exit_container(&mut self) {
@@ -353,25 +354,27 @@ impl<'cfg> QuotedStringsState<'cfg> {
     ) {
         let context = self.walker.begin_node();
         let active_key = context.active();
-        let resolves_to_string =
-            resolves_to_string_for_version(self.current_version, value);
-
-        if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
+        let model = scalar_model(value, tag, active_key, self.current_version);
+        if target::skip_scalar(self.config, style, &model) {
             self.walker.finish_node(context);
             return;
         }
 
-        if let Some(violation) =
-            self.evaluate_scalar(style, value, active_key, resolves_to_string, span)
-        {
+        if let Some(violation) = self.evaluate_scalar(
+            style,
+            value,
+            active_key,
+            model.plain_is_string(),
+            span,
+        ) {
             diagnostics.push(violation);
         }
 
         self.walker.finish_node(context);
     }
 
-    fn in_flow(&self) -> bool {
-        self.walker.any_metadata(|flow| *flow)
+    fn context(&self) -> RetainedContext {
+        RetainedContext::enclosing(&self.walker)
     }
 
     fn evaluate_scalar(
@@ -385,10 +388,13 @@ impl<'cfg> QuotedStringsState<'cfg> {
         let node_label = if active_key { "key" } else { "value" };
         let facts = scalar_quote_facts(
             self.config,
-            (self.buffer, self.in_flow()),
+            (self.buffer, self.context()),
             style,
             value,
-            (span, colon_follows(self.buffer, span, None)),
+            (
+                span,
+                colons::context(self.buffer, span.end.byte_offset(), None, None),
+            ),
             &mut self.plain_scalar_cache,
         );
 
@@ -555,36 +561,12 @@ fn build_violation(span: Span, message: String) -> Violation {
     }
 }
 
-fn should_skip_scalar(
-    config: &Config,
-    style: ScalarStyle,
-    tag: Option<&Tag>,
-    active_key: bool,
-    resolves_to_string: bool,
-) -> bool {
-    if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
-        return true;
-    }
-
-    if active_key && !config.check_keys {
-        return true;
-    }
-
-    if let Some(tag) = tag
-        && is_core_schema(tag)
-    {
-        return true;
-    }
-
-    matches!(style, ScalarStyle::Plain) && !resolves_to_string
-}
-
 fn scalar_quote_facts(
     config: &Config,
-    (buffer, in_flow): (&str, bool),
+    (buffer, context): (&str, RetainedContext),
     style: ScalarStyle,
     value: &str,
-    (span, colon_follows): (Span, bool),
+    (span, colon): (Span, colons::Context),
     plain_scalar_cache: &mut HashMap<String, Option<bool>>,
 ) -> ScalarQuoteFacts {
     target::facts(
@@ -592,12 +574,9 @@ fn scalar_quote_facts(
         value,
         scalar_initial(buffer, style, span),
         target::Placement {
-            in_flow,
-            at_column_zero: span.start.col() == 0,
-            colon: target::ColonTarget {
-                follows: colon_follows,
-                adjacent: false,
-            },
+            context,
+            column: indentation::RetainedColumn::from_marker(span.start),
+            colon,
         },
         plain_scalar_cache,
     )
@@ -639,15 +618,6 @@ fn configured_quote_type_matches(
     }
 }
 
-fn has_escaping_in_double_quotes(buffer: &str, style: ScalarStyle, span: Span) -> bool {
-    if !matches!(style, ScalarStyle::DoubleQuoted) {
-        return false;
-    }
-
-    let (scalar_start, scalar_end) = scalar_source_bounds(buffer, style, span);
-    inner_quoted_content(buffer, scalar_start, scalar_end).contains('\\')
-}
-
 /// The quotes the formatter's ladder keeps a quoted scalar in, after prettier's YAML rule.
 fn ladder_target(
     preferred: QuoteStyle,
@@ -673,21 +643,6 @@ fn inner_quoted_content(buffer: &str, start: BytePos, end: BytePos) -> &str {
     let slice_start = start.get().saturating_add(1).min(buffer.len());
     let slice_end = end.get().saturating_sub(1).max(slice_start);
     &buffer[slice_start..slice_end]
-}
-
-/// Whether a `:` follows the scalar at `span`, directly or once the colons pass closes
-/// the spaces before it, which `spaced_colon` says it does at a byte.
-fn colon_follows(
-    buffer: &str,
-    span: Span,
-    spaced_colon: Option<&dyn Fn(usize) -> bool>,
-) -> bool {
-    span.end.byte_offset().is_some_and(|end| {
-        let rest = &buffer[end..];
-        let gap = rest.len() - rest.trim_start_matches(' ').len();
-        rest[gap..].starts_with(':')
-            && (gap == 0 || spaced_colon.is_some_and(|spaced| spaced(end + gap)))
-    })
 }
 
 fn plain_scalar_equivalent(value: &str) -> Option<bool> {
@@ -753,16 +708,6 @@ fn contains_non_printable(value: &str) -> bool {
     })
 }
 
-fn next_token(mut rest: &str) -> &str {
-    loop {
-        rest = rest.trim_start_matches([' ', '\t', '\r', '\n']);
-        let Some(comment) = rest.strip_prefix('#') else {
-            return rest;
-        };
-        rest = comment.find(['\r', '\n']).map_or("", |eol| &comment[eol..]);
-    }
-}
-
 fn scalar_source_bounds(
     buffer: &str,
     style: ScalarStyle,
@@ -823,6 +768,26 @@ fn double_quoted_scalar_end(buffer: &str, start: usize) -> usize {
 
 type Replacement = (BytePos, BytePos, Spelling);
 
+pub(crate) fn selected_styles(replacements: &[Replacement]) -> Styles {
+    Styles::selected(
+        replacements
+            .iter()
+            .map(|(start, _, spelling)| (start.get(), spelling)),
+    )
+}
+
+pub(crate) fn retained(
+    input: crate::text_version::Analysis<'_>,
+    style: ScalarStyle,
+    span: Span,
+) -> Retained<'_> {
+    Retained::new(
+        style,
+        &input.text()
+            [marker_byte_offset(span.start).get()..marker_byte_offset(span.end).get()],
+    )
+}
+
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     let mut parser = Parser::new_from_str(buffer);
@@ -831,16 +796,22 @@ pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
     fixer.finish()
 }
 
-/// Each scalar's settled replacement; `format` leaves plain and block scalars alone, and
-/// `spaced_colon` says whether the colons pass leaves a space after the `:` at a byte.
+/// Each scalar's settled replacement under the upstream colon guarantees.
 pub(crate) fn format_replacements<'a>(
     input: crate::text_version::Analysis<'a>,
     cfg: &'a Config,
     cache: &mut HashMap<String, Option<bool>>,
     format: bool,
-    spaced_colon: &'a dyn Fn(usize) -> bool,
+    spaced_colon: &'a colons::Guarantees<'a>,
 ) -> Vec<Replacement> {
-    let mut fixer = QuotedStringsFixer::new(cfg, input.text());
+    let mut finder = ConsistentQuoteStyleFinder::new(cfg, input.text());
+    if matches!(cfg.quote_type, QuoteType::Consistent) {
+        for (event, span) in input.event_iter() {
+            finder.on_event(event, span);
+        }
+    }
+    let mut fixer =
+        QuotedStringsFixer::with_consistent_style(cfg, input.text(), finder.finish());
     fixer.state.spaced_colon = Some(spaced_colon);
     std::mem::swap(&mut fixer.state.plain_scalar_cache, cache);
     fixer.format = format;
@@ -852,9 +823,12 @@ pub(crate) fn format_replacements<'a>(
     fixer.replacements
 }
 
-fn initial_consistent_quote_style(cfg: &Config, buffer: &str) -> Option<QuoteStyle> {
+fn initial_consistent_quote_style(
+    cfg: &Config,
+    buffer: &str,
+) -> target::ConsistentStyle {
     if !matches!(cfg.quote_type, QuoteType::Consistent) {
-        return None;
+        return target::ConsistentStyle::default();
     }
 
     let mut parser = Parser::new_from_str(buffer);
@@ -874,7 +848,7 @@ impl<'cfg> ConsistentQuoteStyleFinder<'cfg> {
         }
     }
 
-    fn finish(self) -> Option<QuoteStyle> {
+    fn finish(self) -> target::ConsistentStyle {
         self.state.consistent_quote_style
     }
 }
@@ -897,12 +871,20 @@ struct QuotedStringsFixer<'cfg> {
 
 impl<'cfg> QuotedStringsFixer<'cfg> {
     fn new(cfg: &'cfg Config, buffer: &'cfg str) -> Self {
+        Self::with_consistent_style(
+            cfg,
+            buffer,
+            initial_consistent_quote_style(cfg, buffer),
+        )
+    }
+
+    fn with_consistent_style(
+        cfg: &'cfg Config,
+        buffer: &'cfg str,
+        consistent: target::ConsistentStyle,
+    ) -> Self {
         Self {
-            state: FixState::with_consistent_quote_style(
-                cfg,
-                buffer,
-                initial_consistent_quote_style(cfg, buffer),
-            ),
+            state: FixState::with_consistent_quote_style(cfg, buffer, consistent),
             replacements: Vec::new(),
             format: false,
             settle: false,
@@ -941,12 +923,12 @@ impl SpannedEventReceiver<'_> for QuotedStringsFixer<'_> {
 struct FixState<'cfg> {
     config: &'cfg Config,
     buffer: &'cfg str,
-    walker: Walker<(), bool>,
-    seeded_consistent_quote_style: Option<QuoteStyle>,
-    consistent_quote_style: Option<QuoteStyle>,
+    walker: Walker<(), RetainedContext>,
+    seeded_consistent_quote_style: target::ConsistentStyle,
+    consistent_quote_style: target::ConsistentStyle,
     current_version: Option<Version>,
     plain_scalar_cache: HashMap<String, Option<bool>>,
-    spaced_colon: Option<&'cfg dyn Fn(usize) -> bool>,
+    spaced_colon: Option<&'cfg colons::Guarantees<'cfg>>,
 }
 
 impl<'cfg> FixState<'cfg> {
@@ -984,8 +966,8 @@ impl<'cfg> FixState<'cfg> {
             Marker::new(chars, end_line, end_column).with_byte_offset(Some(text.len())),
         );
         let mut local = FixState::new(self.config, &buffer);
-        if self.in_flow() {
-            local.enter_sequence(true);
+        if self.context().in_flow() {
+            local.enter_sequence(StructureStyle::Flow);
         }
         std::mem::swap(&mut local.plain_scalar_cache, &mut self.plain_scalar_cache);
         let next = local.compute_fix(
@@ -998,22 +980,9 @@ impl<'cfg> FixState<'cfg> {
         (start, end, next.map_or(spelling, |(_, _, next)| next))
     }
 
-    /// Whether a `:` before a non-space (`{'k':v}`, `{'k' :v}`) follows the key ending at
-    /// `end`, even across comments and line breaks: it is a value indicator only because the
-    /// key is quoted, unless the colons pass spaces it.
     fn adjacent_colon(&self, end: BytePos) -> bool {
-        let rest = &self.buffer[end.get()..];
-        let token = next_token(rest);
-        token
-            .strip_prefix(':')
-            .and_then(|after| after.chars().next())
-            .is_some_and(|next| {
-                !next.is_whitespace()
-                    && (matches!(next, ',' | ']' | '}' | '#')
-                        || self.spaced_colon.is_none_or(|spaced| {
-                            !spaced(end.get() + rest.len() - token.len())
-                        }))
-            })
+        colons::context(self.buffer, None, Some(end.get()), self.spaced_colon)
+            .adjacent()
     }
 
     fn visit_event(
@@ -1029,11 +998,11 @@ impl<'cfg> FixState<'cfg> {
             }
             Event::DocumentEnd => self.document_end(),
             Event::SequenceStart(style, _, _) => {
-                self.enter_sequence(style == StructureStyle::Flow);
+                self.enter_sequence(style);
             }
             Event::SequenceEnd | Event::MappingEnd => self.exit_container(),
             Event::MappingStart(style, _, _) => {
-                self.enter_mapping(style == StructureStyle::Flow);
+                self.enter_mapping(style);
             }
             Event::Scalar(value, style, _, tag) => {
                 visit_scalar(self, style, value.as_ref(), tag.as_deref(), span);
@@ -1044,13 +1013,17 @@ impl<'cfg> FixState<'cfg> {
     }
 
     fn new(config: &'cfg Config, buffer: &'cfg str) -> Self {
-        Self::with_consistent_quote_style(config, buffer, None)
+        Self::with_consistent_quote_style(
+            config,
+            buffer,
+            target::ConsistentStyle::default(),
+        )
     }
 
     fn with_consistent_quote_style(
         config: &'cfg Config,
         buffer: &'cfg str,
-        consistent_quote_style: Option<QuoteStyle>,
+        consistent_quote_style: target::ConsistentStyle,
     ) -> Self {
         Self {
             config,
@@ -1079,12 +1052,14 @@ impl<'cfg> FixState<'cfg> {
         self.walker.reset();
     }
 
-    fn enter_mapping(&mut self, flow: bool) {
-        self.walker.enter_mapping((), flow);
+    fn enter_mapping(&mut self, style: StructureStyle) {
+        self.walker
+            .enter_mapping((), RetainedContext::from_style(style));
     }
 
-    fn enter_sequence(&mut self, flow: bool) {
-        self.walker.enter_sequence(flow);
+    fn enter_sequence(&mut self, style: StructureStyle) {
+        self.walker
+            .enter_sequence(RetainedContext::from_style(style));
     }
 
     fn exit_container(&mut self) {
@@ -1095,8 +1070,8 @@ impl<'cfg> FixState<'cfg> {
         self.walker.skip_node();
     }
 
-    fn in_flow(&self) -> bool {
-        self.walker.any_metadata(|flow| *flow)
+    fn context(&self) -> RetainedContext {
+        RetainedContext::enclosing(&self.walker)
     }
 
     fn fix_scalar(
@@ -1136,25 +1111,11 @@ impl<'cfg> FixState<'cfg> {
     ) {
         let context = self.walker.begin_node();
         let active_key = context.active();
-        let resolves_to_string =
-            resolves_to_string_for_version(self.current_version, value);
-
-        if should_skip_scalar(self.config, style, tag, active_key, resolves_to_string) {
-            self.walker.finish_node(context);
-            return;
-        }
-
-        if self.consistent_quote_style.is_none()
-            && let Some(style_kind) = quote_style(style)
-            && !escaped_double_quote_exception(
-                self.config,
-                style_kind,
-                has_escaping_in_double_quotes(self.buffer, style, span),
-            )
-        {
-            self.consistent_quote_style = Some(style_kind);
-        }
-
+        self.consistent_quote_style.observe(
+            self.config,
+            &scalar_model(value, tag, active_key, self.current_version),
+            scalar_initial(self.buffer, style, span),
+        );
         self.walker.finish_node(context);
     }
 
@@ -1170,26 +1131,25 @@ impl<'cfg> FixState<'cfg> {
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
         let initial = scalar_initial(self.buffer, style, span);
         let placement = target::Placement {
-            in_flow: self.in_flow(),
-            at_column_zero: span.start.col() == 0,
-            colon: target::ColonTarget {
-                follows: colon_follows(self.buffer, span, self.spaced_colon),
-                adjacent: active_key && self.adjacent_colon(end),
-            },
+            context: self.context(),
+            column: indentation::RetainedColumn::from_marker(span.start),
+            colon: colons::context(
+                self.buffer,
+                span.end.byte_offset(),
+                active_key.then_some(end.get()),
+                self.spaced_colon,
+            ),
         };
-        target::Planner {
-            config: self.config,
-            consistent_quote_style: &mut self.consistent_quote_style,
-        }
-        .plan(eligible, initial, placement, &mut self.plain_scalar_cache)
-        .map(|selected| {
-            let retained = if style == ScalarStyle::DoubleQuoted {
-                inner_quoted_content(self.buffer, start, end)
-            } else {
-                ""
-            };
-            (start, end, Spelling::materialize(selected, retained))
-        })
+        target::Planner::new(self.config, &mut self.consistent_quote_style)
+            .plan(eligible, initial, placement, &mut self.plain_scalar_cache)
+            .map(|selected| {
+                let retained = if style == ScalarStyle::DoubleQuoted {
+                    inner_quoted_content(self.buffer, start, end)
+                } else {
+                    ""
+                };
+                (start, end, Spelling::materialize(selected, retained))
+            })
     }
 }
 

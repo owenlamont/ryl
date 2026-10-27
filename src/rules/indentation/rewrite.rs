@@ -1,9 +1,11 @@
 use std::borrow::Cow;
+use std::cell::OnceCell;
 use std::ops::RangeInclusive;
 
 use super::{
-    Analyzer, Config, Gap, ID, Kind, Mode, Shift,
+    Analyzer, Config, Gap, Kind, Mode, Shift,
     input::{GapInitial, Initial},
+    settlement::{Content, Refusals},
 };
 use crate::directives::Directives;
 use crate::format::layout::{VirtualLine, lines as virtual_lines};
@@ -74,10 +76,38 @@ pub(crate) struct Layout<'a> {
     /// Whether `trailing-spaces` empties whitespace-only lines.
     pub(crate) trimmed: bool,
     /// The start of each scalar the plan restyles out of double quotes.
-    pub(crate) restyled: Vec<usize>,
+    restyled: crate::rules::quoted_strings::Restyled,
+    protection: OnceCell<Option<crate::rules::trailing_spaces::Protection>>,
 }
 
 impl<'a> Layout<'a> {
+    pub(crate) fn restyle(&mut self, styles: crate::rules::quoted_strings::Restyled) {
+        self.restyled = styles;
+        self.protection.take();
+    }
+
+    pub(crate) fn protection(
+        &self,
+    ) -> Option<&crate::rules::trailing_spaces::Protection> {
+        self.protection
+            .get_or_init(|| {
+                crate::rules::trailing_spaces::protection(self.input, &self.restyled)
+            })
+            .as_ref()
+    }
+
+    pub(crate) fn column(&self, index: usize, delta: isize) -> super::Column {
+        let line = &self.lines[index];
+        let retained = super::to_isize(
+            line.prefix + line.body.len() - line.body.trim_start().len(),
+        );
+        super::Column {
+            origin: line.origin,
+            retained,
+            current: retained + delta,
+        }
+    }
+
     pub(crate) fn collapse_scalars<'b>(
         &mut self,
         edits: impl IntoIterator<Item = &'b crate::format::layout::PlanEdit>,
@@ -227,7 +257,7 @@ impl<'a> Layout<'a> {
         refused[self.starts.partition_point(|&at| at <= line) - 1].is_some()
     }
 
-    pub(crate) fn freeze_targets(&self, targets: &mut Targets) -> Vec<Refusal> {
+    fn freeze_candidates(&self, targets: &mut Candidates) -> Vec<Refusal> {
         for (index, line) in self.lines.iter().enumerate() {
             if self.frozen(&targets.refused, line.origin) {
                 targets.deltas[index] = 0;
@@ -332,7 +362,8 @@ impl<'a> Layout<'a> {
             reshaped: Vec::new(),
             consistent: None,
             trimmed: false,
-            restyled: Vec::new(),
+            restyled: crate::rules::quoted_strings::Restyled::default(),
+            protection: OnceCell::new(),
         };
         layout.reindex();
         layout
@@ -355,7 +386,7 @@ impl<'a> Layout<'a> {
             );
         }
         let original_line_count = input.line_count();
-        let Targets {
+        let Candidates {
             deltas,
             gaps,
             mut refused,
@@ -426,7 +457,7 @@ impl<'a> Layout<'a> {
         cfg: &Config,
         edits: &[crate::format::layout::PlanEdit],
         folding: bool,
-    ) -> Targets {
+    ) -> Candidates {
         let line_starts = self.line_starts();
         let mut analyzer = Analyzer::new(
             Initial::new(self.input.text(), &line_starts).projected(&self.lines),
@@ -449,7 +480,7 @@ impl<'a> Layout<'a> {
             (&analyzer.block_tails, &deltas),
             edits,
         );
-        Targets {
+        Candidates {
             deltas,
             gaps: analyzer.gaps,
             refused,
@@ -500,7 +531,7 @@ impl<'a> Layout<'a> {
     /// Each token on its virtual line, at the column the layout `targets` emits it at.
     fn targeted<'b>(
         &'b self,
-        targets: &'b Targets,
+        targets: &'b Candidates,
         edits: &'b [crate::format::layout::PlanEdit],
     ) -> impl Iterator<Item = super::Token> + 'b {
         let column = move |line: usize, column: usize| {
@@ -529,7 +560,7 @@ impl<'a> Layout<'a> {
     pub(crate) fn target_violations(
         &self,
         cfg: &Config,
-        targets: &Targets,
+        targets: &Candidates,
         edits: &[crate::format::layout::PlanEdit],
     ) -> Vec<super::Violation> {
         let line_starts = self.line_starts();
@@ -554,7 +585,7 @@ impl<'a> Layout<'a> {
             .iter()
             .map(|&(line, column)| starts[line - 1] + column - 1)
             .collect();
-        self.targeted(targets, edits)
+        self.targeted(&targets.0, edits)
             .filter(|token| {
                 token.kind == Kind::BlockEntry && dashes.contains(&token.start)
             })
@@ -917,27 +948,18 @@ impl<'a> Layout<'a> {
             return Vec::new();
         }
         let directives = &self.directives;
-        let mut refused: Vec<Option<Cause>> = vec![None; self.starts.len()];
-        let mut refuse = |line: usize, cause: Cause| {
-            let document = self.starts.partition_point(|&start| start <= line) - 1;
-            refused[document].get_or_insert(cause);
-        };
+        let mut refused = Refusals::new(&self.starts, directives);
         for line in 0..self.input.line_count() {
-            if directives.is_disabled(ID, line + 1) {
-                refuse(line, Cause::Disabled);
-            }
+            refused.line(line);
         }
-        for gap in gaps {
-            if directives.is_disabled(gap.rule(), self.lines[gap.line()].origin + 1) {
-                refuse(self.lines[gap.line()].origin, Cause::Disabled);
-            }
+        for &gap in gaps {
+            refused.gap(gap, self.lines[gap.line()].origin);
         }
-        let mut protected = None;
         let source = self.input.text().as_ptr() as usize;
         // An empty tail is a literal outside the input.
         let emitted = |text: &str| {
             if text.is_empty() {
-                String::new()
+                Content::default()
             } else {
                 edited(text, text.as_ptr() as usize - source, edits)
             }
@@ -952,44 +974,32 @@ impl<'a> Layout<'a> {
             let line = virtual_line.origin;
             // A joined mapping's tab stays indentation, as on its own line.
             let tail = emitted(virtual_line.tail);
-            let content = emitted(virtual_line.body) + &tail;
-            if (tab_in_indentation(&content) || tab_in_indentation(&tail))
-                && (!content.trim_start_matches([' ', '\t']).is_empty()
-                    || !self.trimmed
-                    || directives
-                        .is_disabled(crate::rules::trailing_spaces::ID, line + 1)
-                    || protected
-                        .get_or_insert_with(|| {
-                            crate::rules::trailing_spaces::protected_lines(
-                                self.input,
-                                |start| self.restyled.contains(&start),
-                            )
-                            .map(|(lines, _)| lines)
-                            .unwrap_or_default()
-                        })
-                        .contains(&(line + 1)))
-            {
-                refuse(line, Cause::Tab);
+            let content = emitted(virtual_line.body).append(tail);
+            if let Some(candidate) = content.tab_candidate(tail) {
+                let protection = refused
+                    .needs_protection(line, candidate, self.trimmed)
+                    .then(|| self.protection())
+                    .flatten();
+                refused.tab(line, candidate, self.trimmed, protection);
             }
         }
         for problem in diagnostics {
-            refuse(self.lines[problem.line - 1].origin, Cause::Unfollowable);
+            refused.unfollowable(self.lines[problem.line - 1].origin);
         }
         for &(line, body, content) in block_tails {
             let Some(&delta) = deltas.get(line) else {
                 continue;
             };
             let virtual_line = &self.lines[line];
-            let text = virtual_line.body.trim_start();
-            let column = super::to_isize(
-                virtual_line.prefix + virtual_line.body.len() - text.len(),
+            refused.block_tail(
+                virtual_line.origin,
+                crate::rules::comments_indentation::retained_line(virtual_line),
+                delta,
+                body,
+                content,
             );
-            let content = content.map_or(column + 1, super::to_isize);
-            if text.starts_with('#') && column + delta >= content + body {
-                refuse(virtual_line.origin, Cause::Changed);
-            }
         }
-        refused
+        refused.finish()
     }
 }
 
@@ -1036,13 +1046,44 @@ impl Shapes {
     }
 }
 
-pub(crate) struct Targets {
+pub(crate) struct Candidates {
     pub(crate) deltas: Vec<isize>,
     pub(crate) gaps: Vec<Gap>,
     pub(crate) refused: Vec<Option<Cause>>,
     pub(crate) scalar_owners: Vec<(usize, usize)>,
     /// The last line a token leads or a scalar carries.
     pub(crate) last_token: Option<usize>,
+}
+
+pub(crate) struct Targets(Candidates);
+
+impl Candidates {
+    pub(crate) fn settle(mut self, layout: &Layout<'_>) -> (Targets, Vec<Refusal>) {
+        let refused = if self.refused.iter().any(Option::is_some) {
+            layout.freeze_candidates(&mut self)
+        } else {
+            Vec::new()
+        };
+        (Targets(self), refused)
+    }
+}
+
+impl Targets {
+    pub(crate) fn deltas(&self) -> &[isize] {
+        &self.0.deltas
+    }
+
+    pub(crate) fn gaps(&self) -> &[Gap] {
+        &self.0.gaps
+    }
+
+    pub(crate) fn refused(&self) -> &[Option<Cause>] {
+        &self.0.refused
+    }
+
+    pub(crate) fn scalar_owners(&self) -> &[(usize, usize)] {
+        &self.0.scalar_owners
+    }
 }
 
 pub(crate) struct StreamTargets {
@@ -1058,9 +1099,9 @@ impl StreamTargets {
         self,
         layout: &Layout<'_>,
         edits: &[crate::format::layout::PlanEdit],
-    ) -> Targets {
+    ) -> Candidates {
         let deltas = settle(&layout.lines, &self.shifts);
-        Targets {
+        Candidates {
             refused: layout.refusals(
                 &self.gaps,
                 &self.diagnostics,
@@ -1316,9 +1357,9 @@ fn edited(
     content: &str,
     start: usize,
     edits: &[crate::format::layout::PlanEdit],
-) -> String {
+) -> Content {
     let end = start + content.len();
-    let mut text = String::new();
+    let mut text = Content::default();
     let mut at = start;
     for (from, to, replacement) in
         &edits[edits.partition_point(|(_, to, _)| to.get() < start)..]
@@ -1327,23 +1368,12 @@ fn edited(
         if from > end {
             break;
         }
-        text.push_str(&content[at - start..from.max(at) - start]);
+        text.extend(content[at - start..from.max(at) - start].chars());
         text.extend(replacement.piece().chars());
         at = to.min(end);
     }
-    text.push_str(&content[at - start..]);
+    text.extend(content[at - start..].chars());
     text
-}
-
-fn tab_in_indentation(content: &str) -> bool {
-    let rest = content.trim_start_matches(' ');
-    rest.starts_with('\t')
-        || ["-", "?", ":"].iter().any(|indicator| {
-            rest.strip_prefix(indicator).is_some_and(|after| {
-                after.starts_with('\t')
-                    && !after.trim_start_matches([' ', '\t']).is_empty()
-            })
-        })
 }
 
 /// Each line's shift, settling the lines no token or scalar leads: a whole-line comment
@@ -1366,7 +1396,10 @@ fn settle(lines: &[VirtualLine<'_>], shifts: &[Option<Shift>]) -> Vec<isize> {
         );
         let delta = match shifts[line] {
             Some(shift) => shift.delta(),
-            None if content.comment_column().is_some() => {
+            None if crate::rules::comments_indentation::retained_line(content)
+                .column()
+                .is_some() =>
+            {
                 match (following.peek().map(|(_, target)| *target), previous) {
                     (Some((found, delta)), _) if found == column => delta,
                     (_, Some((found, delta))) if found == column => delta,
