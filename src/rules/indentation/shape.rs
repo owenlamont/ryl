@@ -187,17 +187,6 @@ pub(super) fn settle(
     (recipes, kept)
 }
 
-pub(crate) fn discards_gap(
-    site: &super::input::DiscardedGap<'_>,
-    dash: &hyphens::RetainedDash,
-) -> bool {
-    !site.bridged
-        && dash.present()
-        && site.at_body_end
-        && site.before_tail
-        && site.whitespace()
-}
-
 pub(super) struct Rows(Vec<Row>);
 
 struct Row {

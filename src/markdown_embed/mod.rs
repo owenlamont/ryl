@@ -7,6 +7,7 @@
 
 mod lint;
 
+pub(crate) use lint::in_host;
 pub use lint::{lint_markdown_str, markdown_region_problems};
 
 use std::ops::Range;

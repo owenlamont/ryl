@@ -111,7 +111,7 @@ impl Rewrite {
         (path, base_dir): (&Path, &Path),
         skip: &[&str],
         cache: &mut FormatCache,
-        parsed: Option<&mut ParsedInput>,
+        parsed: &mut ParsedInput,
     ) -> String {
         match self {
             Self::Fix => apply_safe_fixes_filtered(input, cfg, path, base_dir, skip),
@@ -245,7 +245,7 @@ pub fn rewrite_str(
                 (path, base_dir),
                 &[],
                 &mut cache,
-                Some(&mut events),
+                &mut events,
             );
             let mut skipped =
                 unfixed_notices(&fixed, cfg, path, base_dir, rewrite, &mut cache);
@@ -262,24 +262,13 @@ pub fn rewrite_str(
             let (fixed, refusals) = fix_markdown_cached(
                 content, path, cfg, base_dir, rewrite, true, &mut cache,
             );
-            // Read from the *fixed* bytes (what gets written) so the reported line stays
-            // correct after an earlier region's fix shifts the line count.
-            let mut skipped = markdown_region_problems(
-                fixed.as_deref().unwrap_or(content),
-                cfg,
-                |region| {
-                    region_skips(
-                        &region.content,
-                        cfg,
-                        path,
-                        base_dir,
-                        rewrite,
-                        &mut cache,
-                    )
-                },
-            );
-            skipped.extend(refusals.into_iter().map(|refusal| refusal.problem));
-            (fixed, skipped)
+            (
+                fixed,
+                refusals
+                    .into_iter()
+                    .map(|refusal| refusal.problem)
+                    .collect(),
+            )
         }
     }
 }
@@ -404,24 +393,29 @@ pub struct DiffStats {
     pub skipped: Vec<PathBuf>,
     /// Unified diffs for files that would change, in input order.
     pub diffs: Vec<String>,
-    pub problems: Vec<(PathBuf, Vec<crate::lint::LintProblem>)>,
+    /// Each changed file's findings and diff.
+    pub problems: Vec<(PathBuf, Vec<crate::lint::LintProblem>, Option<String>)>,
+    /// Files read that would not change and drew no skip.
+    pub unchanged: usize,
 }
 
 impl DiffStats {
     pub fn record(&mut self, path: &Path, outcome: DiffOutcome, flag: &str) {
         self.changed_files += usize::from(outcome.changed);
+        self.unchanged += usize::from(!outcome.changed && outcome.skipped.is_empty());
         if !outcome.skipped.is_empty() {
             self.skipped.push(path.to_path_buf());
         }
-        if let Some(diff) = outcome.diff {
-            self.diffs.push(diff);
+        if let Some(diff) = &outcome.diff {
+            self.diffs.push(diff.clone());
         }
         for problem in &outcome.skipped {
             self.notices
                 .extend_from_slice(skip_notice(path, problem, flag).as_bytes());
         }
         if !outcome.problems.is_empty() {
-            self.problems.push((path.to_path_buf(), outcome.problems));
+            self.problems
+                .push((path.to_path_buf(), outcome.problems, outcome.diff));
         }
     }
 }
@@ -535,10 +529,12 @@ pub fn diff_outcome(
     let mut cache = FormatCache::default();
     let mut outcome =
         diff_and_skips(content, cfg, path, base_dir, kind, rewrite, &mut cache);
-    if rewrite == Rewrite::Format && outcome.changed {
-        outcome.problems.extend(crate::format::problems(
-            content, cfg, path, kind, &mut cache,
-        ));
+    if rewrite == Rewrite::Format
+        && (outcome.diff.is_some() || outcome.changed && outcome.problems.is_empty())
+    {
+        outcome
+            .problems
+            .push(would_reformat(outcome.diff.as_deref()));
     }
     if path_unrepresentable_in_diff(path) {
         outcome.diff = None;
@@ -548,6 +544,55 @@ pub fn diff_outcome(
         ));
     }
     outcome
+}
+
+/// The one finding a file `ryl format` would change gets, at the first change in `diff`
+/// (the start, without one), as ruff reports an unformatted file.
+fn would_reformat(diff: Option<&str>) -> crate::lint::LintProblem {
+    let (line, column) = diff.map_or((1, 1), first_change);
+    crate::lint::LintProblem {
+        line,
+        column,
+        level: crate::lint::Severity::Error,
+        message: "File would be reformatted".to_string(),
+        rule: Some("unformatted"),
+    }
+}
+
+/// The 1-based line and character column of the first change a unified `diff` makes to its
+/// old text.
+fn first_change(diff: &str) -> (usize, usize) {
+    let mut lines = diff.lines().skip_while(|line| !line.starts_with("@@"));
+    let header = lines
+        .next()
+        .expect("a diff of changed text has a hunk")
+        .trim_start_matches("@@ -");
+    let mut line = header
+        .split([',', ' '])
+        .next()
+        .and_then(|start| start.parse::<usize>().ok())
+        .map_or(1, |start| start.max(1));
+    let mut removed = None;
+    for text in lines {
+        match text.split_at_checked(1) {
+            Some((" ", _)) if removed.is_none() => line += 1,
+            Some(("-", old)) => {
+                removed.get_or_insert(old);
+            }
+            Some(("+", new)) => {
+                let same = removed.map_or(0, |old: &str| {
+                    old.chars()
+                        .zip(new.chars())
+                        .take_while(|(a, b)| a == b)
+                        .count()
+                });
+                return (line, same + 1);
+            }
+            Some(("\\", _)) => {}
+            _ => break,
+        }
+    }
+    (line, 1)
 }
 
 fn diff_and_skips(
@@ -571,14 +616,8 @@ fn diff_and_skips(
                     };
                 }
             };
-            let fixed = rewrite.apply(
-                content,
-                cfg,
-                (path, base_dir),
-                &[],
-                cache,
-                Some(&mut events),
-            );
+            let fixed =
+                rewrite.apply(content, cfg, (path, base_dir), &[], cache, &mut events);
             if content != fixed && ends_in_bare_cr(content, &fixed) {
                 return DiffOutcome {
                     changed: rewrite == Rewrite::Format,
@@ -613,49 +652,68 @@ fn diff_and_skips(
             }
         }
         SourceKind::Markdown => {
-            // A bare-`\r` markdown host is skipped upstream (`fix_markdown_str` returns
-            // `None`), so content reaching `render_unified_diff` never carries a bare `\r`.
-            let (fixed, refusals) = fix_markdown_cached(
-                content, path, cfg, base_dir, rewrite, false, cache,
-            );
-            // Report skips against the *original* content: `--diff` never writes, so the file
-            // stays `content` and a skip notice must point at the original line (the in-place
-            // path uses `fixed` because it writes it).
-            let mut skips = |markdown| {
-                markdown_region_problems(markdown, cfg, |region| {
-                    region_skips(&region.content, cfg, path, base_dir, rewrite, cache)
-                })
-            };
-            let mut skipped = skips(content);
-            skipped.retain(|problem| {
-                !refusals.iter().any(|refusal| {
-                    refusal.problem.level == crate::lint::Severity::Warning
-                        && refusal.problem.line == problem.line
-                        && refusal.problem.column == problem.column
-                        && problem.rule.is_none()
-                })
-            });
-            skipped.extend(refusals.iter().map(|refusal| refusal.problem.clone()));
-            // `key-ordering` notices describe the fixed text, so they come from it.
-            if let Some(fixed) = fixed.as_ref().filter(|_| rewrite == Rewrite::Fix) {
-                skipped.retain(|problem| problem.rule.is_none());
-                skipped.extend(skips(fixed).into_iter().filter(|p| p.rule.is_some()));
-            }
-            let changed = fixed.is_some()
-                || refusals.iter().any(|refusal| refusal.blocks_preview);
-            let diff =
-                fixed.and_then(|fixed| render_unified_diff(content, &fixed, path));
-            DiffOutcome {
-                changed,
-                diff,
-                skipped,
-                problems: refusals
-                    .into_iter()
-                    .filter(|refusal| refusal.blocks_preview)
-                    .map(|refusal| refusal.problem)
-                    .collect(),
-            }
+            markdown_diff(content, cfg, (path, base_dir), rewrite, cache)
         }
+    }
+}
+
+/// [`diff_and_skips`] for a Markdown host.
+fn markdown_diff(
+    content: &str,
+    cfg: &YamlLintConfig,
+    (path, base_dir): (&Path, &Path),
+    rewrite: Rewrite,
+    cache: &mut FormatCache,
+) -> DiffOutcome {
+    // A bare-`\r` markdown host is skipped upstream (`fix_markdown_str` returns
+    // `None`), so content reaching `render_unified_diff` never carries a bare `\r`.
+    let (fixed, refusals) =
+        fix_markdown_cached(content, path, cfg, base_dir, rewrite, false, cache);
+    // `--diff` never writes, so skips point at the original content's lines.
+    let mut skips = |markdown| {
+        markdown_region_problems(markdown, cfg, |region| {
+            let strict = crate::lint::strict_parse_error(&region.content);
+            region_skips(
+                &region.content,
+                strict,
+                (cfg, path, base_dir),
+                rewrite,
+                cache,
+            )
+        })
+    };
+    // A format preview gets its region notices from `fix_markdown_cached`.
+    let mut skipped = if rewrite == Rewrite::Fix {
+        skips(content)
+    } else {
+        Vec::new()
+    };
+    skipped.retain(|problem| {
+        !refusals.iter().any(|refusal| {
+            refusal.problem.level == crate::lint::Severity::Warning
+                && refusal.problem.line == problem.line
+                && refusal.problem.column == problem.column
+                && problem.rule.is_none()
+        })
+    });
+    skipped.extend(refusals.iter().map(|refusal| refusal.problem.clone()));
+    // `key-ordering` notices describe the fixed text, so they come from it.
+    if let Some(fixed) = fixed.as_ref().filter(|_| rewrite == Rewrite::Fix) {
+        skipped.retain(|problem| problem.rule.is_none());
+        skipped.extend(skips(fixed).into_iter().filter(|p| p.rule.is_some()));
+    }
+    let changed =
+        fixed.is_some() || refusals.iter().any(|refusal| refusal.blocks_preview);
+    let diff = fixed.and_then(|fixed| render_unified_diff(content, &fixed, path));
+    DiffOutcome {
+        changed,
+        diff,
+        skipped,
+        problems: refusals
+            .into_iter()
+            .filter(|refusal| refusal.blocks_preview)
+            .map(|refusal| refusal.problem)
+            .collect(),
     }
 }
 
@@ -704,16 +762,16 @@ fn unfixed_notices(
     notices
 }
 
-/// A Markdown region's skips: its parse error, else unsafe scalar or unsorted mappings.
+/// A Markdown region's skips: its `strict` parse error, else unsafe scalar or unsorted
+/// mappings.
 fn region_skips(
     region: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    base_dir: &Path,
+    strict: Option<crate::lint::LintProblem>,
+    (cfg, path, base_dir): (&YamlLintConfig, &Path, &Path),
     rewrite: Rewrite,
     cache: &mut FormatCache,
 ) -> Vec<crate::lint::LintProblem> {
-    crate::lint::strict_parse_error(region).map_or_else(
+    strict.map_or_else(
         || unfixed_notices(region, cfg, path, base_dir, rewrite, cache),
         |problem| vec![problem],
     )
@@ -1056,7 +1114,13 @@ fn fix_markdown_cached(
     cache: &mut FormatCache,
 ) -> (Option<String>, Vec<MarkdownRefusal>) {
     if crate::markdown_embed::markdown_has_unsupported_cr(markdown) {
-        return (None, Vec::new());
+        let skip = crate::markdown_embed::unsupported_cr_skip();
+        let reported = refusal_lines_in_output || rewrite == Rewrite::Format;
+        let refusals = reported.then_some(MarkdownRefusal {
+            problem: skip,
+            blocks_preview: false,
+        });
+        return (None, refusals.into_iter().collect());
     }
     let sources = MarkdownSources {
         front_matter: cfg.markdown_front_matter(),
@@ -1067,72 +1131,59 @@ fn fix_markdown_cached(
 
     let mut out = markdown.to_string();
     let mut changed = false;
+    let mut notices = Vec::new();
     let mut refusals = Vec::new();
     for region in &regions {
         if region.content.trim().is_empty() {
             continue;
         }
-        let Ok(mut parsed) = rewrite_parse_gate(&region.content, rewrite) else {
-            continue;
-        };
-        let fixed = rewrite.apply(
-            &region.content,
-            cfg,
-            (path, base_dir),
-            suppressed_rules(),
-            cache,
-            Some(&mut parsed),
-        );
-        if fixed == region.content {
-            continue;
-        }
-        let Some((prefix, newline)) = region_prefix(markdown, region) else {
-            let raw = &markdown[region.raw_span.clone()];
-            if raw.contains("\r\n")
-                && raw.matches('\n').count() > raw.matches("\r\n").count()
+        let mut parsed = rewrite_parse_gate(&region.content, rewrite);
+        let fixed = parsed.as_mut().ok().map(|parsed| {
+            rewrite.apply(
+                &region.content,
+                cfg,
+                (path, base_dir),
+                suppressed_rules(),
+                cache,
+                parsed,
+            )
+        });
+        let written = fixed
+            .as_ref()
+            .filter(|fixed| **fixed != region.content)
+            .and_then(|fixed| {
+                write_region(&out, region, fixed, (sources, rewrite), &mut refusals)
+            });
+        if refusal_lines_in_output || rewrite == Rewrite::Format {
+            if let Some((_, _, line_delta)) =
+                written.as_ref().filter(|_| refusal_lines_in_output)
             {
-                refusals.push(markdown_refusal(
-                    region,
-                    "mixes CRLF and LF line endings; cannot write it back safely",
-                    rewrite == Rewrite::Format,
-                ));
-            }
-            continue;
-        };
-        let replacement = reindent(&fixed, &prefix, newline);
-        let mut candidate = out.clone();
-        candidate.replace_range(region.raw_span.clone(), &replacement);
-        let expected_span =
-            region.raw_span.start..region.raw_span.start + replacement.len();
-        if !extract_regions(&candidate, sources).iter().any(|updated| {
-            updated.kind == region.kind
-                && updated.raw_span == expected_span
-                && updated.content.replace("\r\n", "\n") == fixed.replace("\r\n", "\n")
-        }) {
-            if rewrite == Rewrite::Format {
-                refusals.push(markdown_refusal(
-                    region,
-                    "would change Markdown fence boundaries; left unchanged",
-                    false,
-                ));
-            }
-            continue;
-        }
-        if refusal_lines_in_output {
-            let line_delta = replacement.matches('\n').count().cast_signed()
-                - markdown[region.raw_span.clone()]
-                    .matches('\n')
-                    .count()
-                    .cast_signed();
-            for refusal in &mut refusals {
-                refusal.problem.line =
-                    refusal.problem.line.checked_add_signed(line_delta).expect(
+                for problem in notices
+                    .iter_mut()
+                    .chain(refusals.iter_mut().map(|refusal| &mut refusal.problem))
+                {
+                    problem.line = problem.line.checked_add_signed(*line_delta).expect(
                         "rewritten region shifts a later refusal within the document",
                     );
+                }
+            }
+            let mode = (rewrite, refusal_lines_in_output);
+            if let Some((host, shown, strict)) =
+                notice_source(markdown, region, &parsed, written.as_ref(), mode)
+            {
+                let context = (cfg, path, base_dir);
+                let skips =
+                    region_skips(&shown.content, strict, context, rewrite, cache);
+                notices
+                    .splice(0..0, crate::markdown_embed::in_host(host, shown, skips));
             }
         }
-        if let Some(mut problem) =
-            rewrite_parse_notice(&region.content, &fixed, &parsed)
+        let (Some((candidate, ..)), Ok(parsed), Some(fixed)) =
+            (written, &parsed, &fixed)
+        else {
+            continue;
+        };
+        if let Some(mut problem) = rewrite_parse_notice(&region.content, fixed, parsed)
         {
             problem.line += region.line_offset;
             problem.column += region.col_offset;
@@ -1144,7 +1195,103 @@ fn fix_markdown_cached(
         out = candidate;
         changed = true;
     }
-    (changed.then_some(out), refusals)
+    let mut problems: Vec<_> = notices
+        .into_iter()
+        .map(|problem| MarkdownRefusal {
+            problem,
+            blocks_preview: false,
+        })
+        .collect();
+    problems.extend(refusals);
+    (changed.then_some(out), problems)
+}
+
+/// The host and region `region`'s notices are read from, with the strict parse error that
+/// replaces them; `None` where a preview reports a repaired region through its repair
+/// notice alone.
+fn notice_source<'a>(
+    markdown: &'a str,
+    region: &'a EmbeddedRegion,
+    parsed: &Result<ParsedInput, crate::lint::LintProblem>,
+    written: Option<&'a (String, EmbeddedRegion, isize)>,
+    (rewrite, in_output): (Rewrite, bool),
+) -> Option<(
+    &'a str,
+    &'a EmbeddedRegion,
+    Option<crate::lint::LintProblem>,
+)> {
+    let input_strict = || {
+        parsed.as_ref().map_or_else(
+            |_| crate::lint::strict_parse_error(&region.content),
+            |parsed| parsed.strict_error.clone(),
+        )
+    };
+    match written {
+        // Rewritten YAML parses strictly by construction, so only `--fix` re-checks it.
+        Some((candidate, updated, _)) if in_output => Some((
+            candidate.as_str(),
+            updated,
+            (rewrite == Rewrite::Fix)
+                .then(|| crate::lint::strict_parse_error(&updated.content))
+                .flatten(),
+        )),
+        Some(_) => input_strict().is_none().then_some((markdown, region, None)),
+        None => Some((markdown, region, input_strict())),
+    }
+}
+
+/// `out` with `region` rewritten to `fixed`, the rewritten region, and the lines it adds;
+/// `None`, with any refusal, where writing it back would not reproduce `fixed`.
+fn write_region(
+    out: &str,
+    region: &EmbeddedRegion,
+    fixed: &str,
+    (sources, rewrite): (MarkdownSources, Rewrite),
+    refusals: &mut Vec<MarkdownRefusal>,
+) -> Option<(String, EmbeddedRegion, isize)> {
+    let Some((prefix, newline)) = region_prefix(out, region) else {
+        let raw = &out[region.raw_span.clone()];
+        if raw.contains("\r\n")
+            && raw.matches('\n').count() > raw.matches("\r\n").count()
+        {
+            refusals.push(markdown_refusal(
+                region,
+                "mixes CRLF and LF line endings; cannot write it back safely",
+                rewrite == Rewrite::Format,
+            ));
+        }
+        return None;
+    };
+    let replacement = reindent(fixed, &prefix, newline);
+    let mut candidate = out.to_owned();
+    candidate.replace_range(region.raw_span.clone(), &replacement);
+    let expected_span =
+        region.raw_span.start..region.raw_span.start + replacement.len();
+    let Some(updated) =
+        extract_regions(&candidate, sources)
+            .into_iter()
+            .find(|updated| {
+                updated.kind == region.kind
+                    && updated.raw_span == expected_span
+                    && updated.content.replace("\r\n", "\n")
+                        == fixed.replace("\r\n", "\n")
+            })
+    else {
+        if rewrite == Rewrite::Format {
+            refusals.push(markdown_refusal(
+                region,
+                "would change Markdown fence boundaries; left unchanged",
+                false,
+            ));
+        }
+        return None;
+    };
+    let line_delta = replacement.matches('\n').count().cast_signed()
+        - out[region.raw_span.clone()]
+            .matches('\n')
+            .count()
+            .cast_signed();
+    Some((candidate, updated, line_delta))
 }
 
 /// The prefix the parser stripped from each line of `region` and the host's line ending, or
@@ -1300,11 +1447,6 @@ pub(crate) fn rewrite<'a>(
             break;
         }
     }
-    debug_assert!(
-        current.analysis().text() == input
-            || crate::lint::strict_parse_error(current.analysis().text()).is_none(),
-        "a rewrite changed the input into YAML that does not parse strictly"
-    );
     current.into_owned()
 }
 
@@ -1479,6 +1621,8 @@ pub(crate) struct ReindentEvidence {
     pub(crate) inconsistent: Option<Vec<(usize, usize)>>,
     /// Whether the plan showed the text holds no ambiguous block scalar.
     pub(crate) unambiguous: bool,
+    /// Whether the plan left every collection in its configured style.
+    pub(crate) settled: bool,
 }
 
 impl ReindentEvidence {
@@ -1488,7 +1632,7 @@ impl ReindentEvidence {
         refused: Vec<indentation::Refusal>,
         kept_dash_lines: Vec<(usize, usize)>,
         inconsistent: Option<Vec<(usize, usize)>>,
-        unambiguous: bool,
+        (unambiguous, settled): (bool, bool),
     ) -> Self {
         Self {
             epoch: input.epoch(),
@@ -1497,6 +1641,7 @@ impl ReindentEvidence {
             kept_dash_lines,
             inconsistent,
             unambiguous,
+            settled,
         }
     }
 
@@ -1505,7 +1650,23 @@ impl ReindentEvidence {
         input: Analysis<'_>,
         config: indentation::Config,
     ) -> bool {
-        std::rc::Rc::ptr_eq(&self.epoch, &input.epoch()) && self.config == config
+        self.describes(input) && self.config == config
+    }
+
+    pub(crate) fn describes(&self, input: Analysis<'_>) -> bool {
+        std::rc::Rc::ptr_eq(&self.epoch, &input.epoch())
+    }
+
+    /// Whether the plan refused nothing, kept no dash, and left no ambiguous scalar or
+    /// unconverted collection.
+    pub(crate) fn is_quiet(&self) -> bool {
+        self.unambiguous
+            && self.settled
+            && self.kept_dash_lines.is_empty()
+            && self
+                .refused
+                .iter()
+                .all(|refusal| matches!(refusal.cause, indentation::Cause::Disabled))
     }
 }
 
@@ -1523,7 +1684,7 @@ pub(crate) fn repair(
     passes: &Passes,
 ) -> Option<TextVersion<'static>> {
     let target = passes.repair_indentation?;
-    let spaced = separate_flow_keys(input.text()).map(TextVersion::new);
+    let spaced = separate_flow_keys(input).map(TextVersion::observed);
     let source = spaced.as_ref().map_or(input, TextVersion::analysis);
     let repaired = Directives::parse_per_line_with_analysis(source, &passes.per_line)
         .reconcile(
@@ -1531,30 +1692,49 @@ pub(crate) fn repair(
             source.text(),
             &indentation::reindent_with_analysis(source, &target).0.text,
         );
-    (repaired != input.text()
-        && crate::lint::strict_parse_error(&repaired).is_none()
-        && repair_events_match(input.text(), &repaired))
-    .then(|| {
-        let mut version = TextVersion::new(repaired);
+    if repaired == input.text() {
+        return None;
+    }
+    let mut version = TextVersion::observed(repaired);
+    let output = version.analysis();
+    let valid = output.parsed().valid
+        && crate::lint::parse_error_from_result(
+            output.text(),
+            output.parsed().strict_error(),
+        )
+        .is_none()
+        && representation_matches(input, output);
+    valid.then(|| {
         version.mark_strict_valid();
         version
     })
 }
 
-/// `text` with a space after each flow `?` that a flow indicator follows, which relaxed
+/// `input` with a space after each flow `?` that a flow indicator follows, which relaxed
 /// parsing reads as an empty explicit key.
-fn separate_flow_keys(text: &str) -> Option<String> {
-    let mut spaced: Option<String> = None;
-    while let Err(error) = crate::lint::scan(spaced.as_deref().unwrap_or(text), true)
-        && matches!(
+fn separate_flow_keys(input: Analysis<'_>) -> Option<String> {
+    let flow_key = |error: &ryl_yaml_parser::ScanError| {
+        matches!(
             error.kind(),
             ryl_yaml_parser::ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator {
                 indicator: '?'
             }
         )
-    {
-        let at = error.marker().byte_offset().expect("string input has byte offsets");
-        spaced.get_or_insert_with(|| text.to_owned()).insert(at + 1, ' ');
+    };
+    let mut error = input
+        .parsed()
+        .strict_error()
+        .filter(|e| flow_key(e))
+        .cloned();
+    let mut spaced: Option<String> = None;
+    while let Some(found) = error {
+        let at = found
+            .marker()
+            .byte_offset()
+            .expect("string input has byte offsets");
+        let text = spaced.get_or_insert_with(|| input.text().to_owned());
+        text.insert(at + 1, ' ');
+        error = crate::lint::scan(text, true).err().filter(flow_key);
     }
     spaced
 }

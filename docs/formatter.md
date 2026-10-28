@@ -13,7 +13,7 @@ Biome does not format YAML, so there is no Biome YAML style to migrate.
 # Format every YAML file under the current directory, in place
 ryl format .
 
-# Write nothing; exit 1 if any file would change, listing why
+# Write nothing; exit 1 if any file would change, showing the change
 ryl format --check .
 
 # Write nothing; print a unified diff of the changes
@@ -27,10 +27,12 @@ Inputs, file discovery, `.gitignore` handling and config discovery are the same 
 `ryl check`. Unlike `ryl check`, `ryl format` needs no config: with none it formats
 with the defaults below.
 
-`--check` reports each line `ryl format` would change as a diagnostic from the rule
-whose fix changes it, through the same reporters as `ryl check`, so it honours
-`--output-format` and [`[output]`](output-formats.md) and picks the GitHub format in
-GitHub Actions.
+`--check` reports each file `ryl format` would change as one `unformatted` finding at
+its first change, as ruff does. The `standard` and `colored` formats show the diff under
+the finding. It uses the same reporters as `ryl check`, so it honours `--output-format`
+and [`[output]`](output-formats.md) and picks the GitHub format in GitHub Actions.
+`--check` and `--diff` end with a summary on stderr, such as
+`1 file would be reformatted, 2 files already formatted`.
 
 Already formatted files are skipped on later runs through the
 [content-hash cache](getting-started/quickstart.md#caching). `--check` can also
@@ -47,11 +49,12 @@ Every edit `ryl format` makes is checked by property tests to be:
 - **Idempotent.** Formatting formatted output changes nothing.
 
 These hold by design: each rule's target reads only preserved facts and the targets of
-rules before it, so `ryl format` parses and plans each file once and writes the result
-without parsing it again. Debug builds still compare document events before and after
-rewriting and replan the output, failing on any difference, so the tests and corpus
-runs check every edit. `check --fix` replans its output until no edit remains, since
-lint rule options can contradict each other. Root strings such as `'---'` and `'...'` retain their quotes because
+rules before it, so `ryl format` parses and plans each file, or each YAML block in
+Markdown, once. It writes or previews the result without parsing it again, and the
+property tests, not runtime checks, confirm the rule order. Two cases parse again: a
+repair parses its output to prove the repair (below), and a file with a `not fixed`
+notice is re-read to place the notice. `check --fix` replans its output
+until no edit remains, since lint rule options can contradict each other. Root strings such as `'---'` and `'...'` retain their quotes because
 the plain spellings are document markers. Marker prefixes followed by Unicode
 whitespace also keep quotes for
 [reference-parser compatibility](getting-started/migrating-from-yamllint.md#marker-like-root-strings-and-unicode-whitespace).

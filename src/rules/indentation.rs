@@ -1120,21 +1120,3 @@ const fn last_line(token: &Token) -> usize {
 fn wrong_indent_message(expected: isize, found: isize) -> String {
     format!("wrong indentation: expected {expected} but found {found}")
 }
-
-pub(crate) fn discards_gap(
-    source: &str,
-    line: &crate::format::layout::VirtualLine<'_>,
-    from: usize,
-    to: usize,
-) -> bool {
-    let site = input::DiscardedGap::observe(source, line, from, to);
-    let body_end =
-        line.body.as_ptr() as usize - source.as_ptr() as usize + line.body.len();
-    shape::discards_gap(
-        &site,
-        &crate::rules::hyphens::retained_before(
-            source,
-            crate::rules::support::span_utils::BytePos::new(body_end),
-        ),
-    )
-}

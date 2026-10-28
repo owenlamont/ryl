@@ -95,8 +95,6 @@ macro_rules! emit_problems {
     };
 }
 
-pub(crate) use emit_problems;
-
 macro_rules! lint_rule {
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, value) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
@@ -498,7 +496,6 @@ pub(crate) fn parse_errors(
 }
 
 pub(crate) fn strict_parse_error(content: &str) -> Option<LintProblem> {
-    crate::format::layout::stats::count(crate::format::layout::stats::Counter::Strict);
     unsupported_version_error(content)
         .or_else(|| scan(content, true).err().as_ref().map(syntax_problem))
 }

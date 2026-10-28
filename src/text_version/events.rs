@@ -1,51 +1,8 @@
 use std::borrow::Cow;
 
 use ryl_yaml_parser::{
-    Event, Parser, Placement, ScalarStyle, Span, StructureStyle, Tag, YamlVersion,
+    Event, Placement, ScalarStyle, StructureStyle, Tag, YamlVersion,
 };
-
-/// Whether `output` parses strictly to `expected`, observing each event of the parse.
-pub(super) fn verify_strict<'a, 'b, const COLLECTIONS: bool>(
-    expected: impl Iterator<Item = Event<'a>>,
-    output: &'b str,
-    lexical: impl ryl_yaml_parser::TokenObserver,
-    mut observe: impl FnMut(Event<'b>, Span),
-) -> bool {
-    let significant = |event: &Event<'_>| {
-        !matches!(
-            event,
-            Event::Comment(..) | Event::StreamStart | Event::StreamEnd
-        )
-    };
-    let mut expected = expected.filter(significant);
-    let parser = Parser::with_options_and_observer(
-        ryl_yaml_parser::StrInput::new(output),
-        ryl_yaml_parser::options! { strict_indentation: true },
-        lexical,
-    );
-    let mut matches = true;
-    let mut failed = false;
-    for (event, span) in parser.map_while(|item| {
-        failed |= item.is_err();
-        item.ok()
-    }) {
-        if significant(&event) {
-            matches &= expected
-                .next()
-                .is_some_and(|before| match (&before, &event) {
-                    (Event::SequenceStart(_, a, t), Event::SequenceStart(_, b, u))
-                    | (Event::MappingStart(_, a, t), Event::MappingStart(_, b, u))
-                        if COLLECTIONS =>
-                    {
-                        a == b && t == u
-                    }
-                    _ => before == event,
-                });
-        }
-        observe(event, span);
-    }
-    !failed && matches && expected.next().is_none()
-}
 
 #[derive(Default)]
 pub(super) struct Tables {

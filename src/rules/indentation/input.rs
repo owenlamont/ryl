@@ -109,36 +109,3 @@ impl<'a> Initial<'a> {
         self.lines.expect("target input has projected lines")[index].prefix
     }
 }
-
-pub(crate) struct DiscardedGap<'a> {
-    source: &'a str,
-    range: std::ops::Range<usize>,
-    pub(super) bridged: bool,
-    pub(super) at_body_end: bool,
-    pub(super) before_tail: bool,
-}
-
-impl<'a> DiscardedGap<'a> {
-    pub(super) fn whitespace(&self) -> bool {
-        self.source[self.range.clone()]
-            .bytes()
-            .all(|byte| byte.is_ascii_whitespace())
-    }
-    pub(super) fn observe(
-        source: &'a str,
-        line: &VirtualLine<'_>,
-        from: usize,
-        to: usize,
-    ) -> Self {
-        Self {
-            bridged: line.bridge.is_some(),
-            at_body_end: from
-                == line.body.as_ptr() as usize - source.as_ptr() as usize
-                    + line.body.len(),
-            before_tail: line.tail.is_empty()
-                || to <= line.tail.as_ptr() as usize - source.as_ptr() as usize,
-            source,
-            range: from..to,
-        }
-    }
-}

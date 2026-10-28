@@ -46,20 +46,29 @@ pub fn markdown_region_problems(
             continue;
         }
         let problems = region_problems(&region);
-        if problems.is_empty() {
-            continue;
-        }
-        let stripped = stripped_indents(markdown, &region);
-        for mut problem in problems {
-            problem.column += stripped
-                .get(problem.line - 1)
-                .copied()
-                .unwrap_or(region.col_offset);
-            problem.line += region.line_offset;
-            skips.push(problem);
-        }
+        skips.extend(in_host(markdown, &region, problems));
     }
     skips
+}
+
+/// `problems`, found in `region` of `markdown`, at their positions in `markdown`.
+pub(crate) fn in_host(
+    markdown: &str,
+    region: &EmbeddedRegion,
+    mut problems: Vec<LintProblem>,
+) -> Vec<LintProblem> {
+    if problems.is_empty() {
+        return problems;
+    }
+    let stripped = stripped_indents(markdown, region);
+    for problem in &mut problems {
+        problem.column += stripped
+            .get(problem.line - 1)
+            .copied()
+            .unwrap_or(region.col_offset);
+        problem.line += region.line_offset;
+    }
+    problems
 }
 
 /// Per content line, the chars `CommonMark` stripped from its start (`chars(raw) -

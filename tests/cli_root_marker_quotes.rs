@@ -60,6 +60,7 @@ fn semantic_guard_accepts_presentation_changes() {
     for (input, output) in [
         ("'text'\n", "---\ntext\n...\n"),
         ("[a, b]\n", "- a\n- b\n"),
+        ("{a: b}\n", "a: b\n"),
         ("%YAML 1.1\n---\n'1e3'\n", "%YAML 1.1\n---\n1e3\n"),
         ("a: |+\r  value\r  ", "a: |+\n  value\n\n"),
     ] {

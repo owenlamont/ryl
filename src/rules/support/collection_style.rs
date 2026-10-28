@@ -41,24 +41,14 @@ pub struct Finding {
 impl Finding {
     #[must_use]
     pub fn into_problem(self) -> LintProblem {
-        let kind = if self.rule == braces::ID {
-            "mapping"
-        } else {
-            "sequence"
-        };
-        let (from, to) = if self.to_flow {
-            ("block", "flow")
-        } else {
-            ("flow", "block")
-        };
+        let reason = self
+            .refused
+            .expect("only a refused conversion to block becomes a problem");
         LintProblem {
             line: self.line,
             column: self.column,
             level: Severity::Error,
-            message: self.refused.map_or_else(
-                || format!("{from} {kind} would become {to}"),
-                |reason| format!("cannot convert to {to} safely: {reason}"),
-            ),
+            message: format!("cannot convert to block safely: {reason}"),
             rule: Some(self.rule),
         }
     }
@@ -77,9 +67,6 @@ pub fn findings(
 pub(crate) struct Forms(Vec<(usize, Form)>);
 
 impl Forms {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
     pub(crate) fn new(mut forms: Vec<(usize, Form)>) -> Self {
         forms.sort_unstable_by_key(|&(node, _)| node);
         Self(forms)
@@ -173,20 +160,6 @@ impl Plan {
         changed
     }
 
-    pub(crate) fn forms(&self) -> Forms {
-        Forms::new(
-            self.selections()
-                .flat_map(Selected::fragments)
-                .filter_map(|part| match part {
-                    FragmentPart::Structure(Structure::Start {
-                        node, form, ..
-                    }) => Some((node, form)),
-                    _ => None,
-                })
-                .collect(),
-        )
-    }
-
     pub(crate) fn is_empty(&self) -> bool {
         self.recipes.is_empty()
     }
@@ -202,13 +175,37 @@ impl Plan {
     }
 
     fn covers(&self, index: usize) -> bool {
+        self.covering(index).is_some()
+    }
+
+    /// The finding of the recipe that rewrites the collection at `index`.
+    fn covering(&self, index: usize) -> Option<usize> {
         let site = &self.sites[index];
         let covering = self
             .recipes
             .partition_point(|(recipe, _)| recipe.range().end.get() < site.start);
-        self.recipes.get(covering).is_some_and(|(recipe, _)| {
-            let range = recipe.range();
-            range.start.get() <= site.start && site.end <= range.end.get()
+        self.recipes
+            .get(covering)
+            .filter(|(recipe, _)| {
+                let range = recipe.range();
+                range.start.get() <= site.start && site.end <= range.end.get()
+            })
+            .map(|&(_, finding)| finding)
+    }
+
+    /// Whether no collection ends in flow style where `cfg` asks for block, the only
+    /// conversion a refusal can name.
+    pub(crate) fn settles(&self, cfg: Config) -> bool {
+        self.sites.iter().enumerate().all(|(index, site)| {
+            let target = match self.nodes[index].kind() {
+                Kind::Mapping => cfg.mappings,
+                Kind::Sequence => cfg.sequences,
+                Kind::Scalar | Kind::Alias => return true,
+            };
+            target != CollectionStyleTarget::Block
+                || !self
+                    .covering(index)
+                    .map_or(site.flow, |finding| self.findings[finding].to_flow)
         })
     }
 

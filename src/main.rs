@@ -917,7 +917,9 @@ fn render_target(
             return out.write_all(&render_gitlab(entries.expect(REPORT_ENTRIES_BUILT)));
         }
     };
-    render_streaming(records, append, out)
+    let diffs = matches!(format, OutputFormat::Standard | OutputFormat::Colored)
+        .then_some(format == OutputFormat::Colored);
+    render_streaming(records, append, diffs, out)
 }
 
 // A report target means entries are built, so the junit/gitlab arms only see `Some`; the
@@ -930,6 +932,7 @@ const REPORT_ENTRIES_BUILT: &str =
 fn render_streaming(
     records: &[FileRecord],
     append: fn(&mut Vec<u8>, &Path, &[LintProblem]),
+    diffs: Option<bool>,
     out: &mut dyn Write,
 ) -> std::io::Result<()> {
     let mut block: Vec<u8> = Vec::new();
@@ -939,9 +942,38 @@ fn render_streaming(
             writeln!(block, "error: {message}").expect(OUTPUT_INFALLIBLE);
         } else if !record.kept.is_empty() {
             append(&mut block, record.path, &record.kept);
+            if let (Some(colored), Some(diff)) = (diffs, record.diff) {
+                block.pop();
+                append_diff(&mut block, diff, colored);
+                writeln!(block).expect(OUTPUT_INFALLIBLE);
+            }
         }
         out.write_all(&block)
     })
+}
+
+/// `diff`'s hunks, indented under a file's finding as ruff shows what `--check` would
+/// change; tabs survive the control-character escaping.
+fn append_diff(out: &mut Vec<u8>, diff: &str, colored: bool) {
+    for line in diff.lines().skip_while(|line| !line.starts_with("@@")) {
+        let text = line
+            .split('\t')
+            .map(sanitize_control)
+            .collect::<Vec<_>>()
+            .join("\t");
+        let color = match line.as_bytes().first() {
+            Some(b'-') => "31",
+            Some(b'+') => "32",
+            Some(b'@') => "36",
+            _ => "0",
+        };
+        if colored {
+            writeln!(out, "  \u{001b}[{color}m{text}\u{001b}[0m")
+        } else {
+            writeln!(out, "  {text}")
+        }
+        .expect(OUTPUT_INFALLIBLE);
+    }
 }
 
 /// Convert every record (clean files included) into a [`ReportEntry`] with a project-root
@@ -1668,7 +1700,8 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
                 cache::mark_clean(&entry)?;
             }
         }
-        return emit_format_preview(&stats, preview, &targets);
+        let cached = cache_hits.iter().filter(|hit| **hit).count();
+        return emit_format_preview(&stats, (preview, cached), &targets);
     }
     let mut stats = rewrite_files(&pending, Rewrite::Format);
     for (index, entry) in entries.into_iter().enumerate() {
@@ -1780,20 +1813,54 @@ fn warn_format_conflicts<'a>(
 
 fn emit_format_preview(
     stats: &DiffStats,
-    preview: Preview,
+    (preview, cached): (Preview, usize),
     targets: &[OutputTarget],
 ) -> Result<ExitCode, String> {
     let records: Vec<FileRecord> = stats
         .problems
         .iter()
-        .map(|(path, problems)| FileRecord {
+        .map(|(path, problems, diff)| FileRecord {
             path,
-            kept: problems.clone(),
+            // `--diff` shows the change itself, as ruff does, rather than a finding for it.
+            kept: problems
+                .iter()
+                .filter(|problem| {
+                    preview == Preview::Check || problem.rule != Some("unformatted")
+                })
+                .cloned()
+                .collect(),
             error: None,
+            diff: diff.as_deref().filter(|_| preview == Preview::Check),
         })
         .collect();
     emit_targets(targets, &records)?;
-    Ok(emit_diff(stats, preview))
+    let code = emit_diff(stats, preview);
+    if let Some(summary) = format_summary(stats.changed_files, stats.unchanged + cached)
+    {
+        eprintln!("{summary}");
+    }
+    Ok(code)
+}
+
+/// ruff's closing line for a format preview.
+fn format_summary(changed: usize, unchanged: usize) -> Option<String> {
+    let files = |count: usize| {
+        if count == 1 {
+            "1 file".to_string()
+        } else {
+            format!("{count} files")
+        }
+    };
+    match (changed, unchanged) {
+        (0, 0) => None,
+        (0, _) => Some(format!("{} already formatted", files(unchanged))),
+        (_, 0) => Some(format!("{} would be reformatted", files(changed))),
+        _ => Some(format!(
+            "{} would be reformatted, {} already formatted",
+            files(changed),
+            files(unchanged)
+        )),
+    }
 }
 
 /// `ryl format -`: the formatted text goes to stdout, an ignored `--stdin-filename` passing
@@ -1820,7 +1887,7 @@ fn run_stdin_format(
             )?,
             None => DiffStats::default(),
         };
-        return emit_format_preview(&stats, preview, &targets);
+        return emit_format_preview(&stats, (preview, 0), &targets);
     }
     let (content, raw) = read_stdin_decoded(&path)?;
     let (formatted, skipped) = kind.map_or((None, Vec::new()), |kind| {
@@ -2032,6 +2099,8 @@ struct FileRecord<'a> {
     path: &'a Path,
     kept: Vec<LintProblem>,
     error: Option<String>,
+    /// The diff `ryl format --check` shows under the file's finding.
+    diff: Option<&'a str>,
 }
 
 /// Filter and tally every lint result into [`FileRecord`]s in file order. The returned
@@ -2059,6 +2128,7 @@ fn collect_records<'a>(
                     path,
                     kept: Vec::new(),
                     error: Some(message),
+                    diff: None,
                 });
             }
             Ok(mut kept) => {
@@ -2076,6 +2146,7 @@ fn collect_records<'a>(
                     path,
                     kept,
                     error: None,
+                    diff: None,
                 });
             }
         }

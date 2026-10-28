@@ -1798,7 +1798,7 @@ Biome does not format YAML, so there is no Biome YAML style to migrate.
 # Format every YAML file under the current directory, in place
 ryl format .
 
-# Write nothing; exit 1 if any file would change, listing why
+# Write nothing; exit 1 if any file would change, showing the change
 ryl format --check .
 
 # Write nothing; print a unified diff of the changes
@@ -1812,10 +1812,12 @@ Inputs, file discovery, `.gitignore` handling and config discovery are the same 
 `ryl check`. Unlike `ryl check`, `ryl format` needs no config: with none it formats
 with the defaults below.
 
-`--check` reports each line `ryl format` would change as a diagnostic from the rule
-whose fix changes it, through the same reporters as `ryl check`, so it honours
-`--output-format` and [`[output]`](output-formats.md) and picks the GitHub format in
-GitHub Actions.
+`--check` reports each file `ryl format` would change as one `unformatted` finding at
+its first change, as ruff does. The `standard` and `colored` formats show the diff under
+the finding. It uses the same reporters as `ryl check`, so it honours `--output-format`
+and [`[output]`](output-formats.md) and picks the GitHub format in GitHub Actions.
+`--check` and `--diff` end with a summary on stderr, such as
+`1 file would be reformatted, 2 files already formatted`.
 
 Already formatted files are skipped on later runs through the
 [content-hash cache](https://ryl-docs.pages.dev/getting-started/quickstart/#caching). `--check` can also
@@ -1832,11 +1834,12 @@ Every edit `ryl format` makes is checked by property tests to be:
 - **Idempotent.** Formatting formatted output changes nothing.
 
 These hold by design: each rule's target reads only preserved facts and the targets of
-rules before it, so `ryl format` parses and plans each file once and writes the result
-without parsing it again. Debug builds still compare document events before and after
-rewriting and replan the output, failing on any difference, so the tests and corpus
-runs check every edit. `check --fix` replans its output until no edit remains, since
-lint rule options can contradict each other. Root strings such as `'---'` and `'...'` retain their quotes because
+rules before it, so `ryl format` parses and plans each file, or each YAML block in
+Markdown, once. It writes or previews the result without parsing it again, and the
+property tests, not runtime checks, confirm the rule order. Two cases parse again: a
+repair parses its output to prove the repair (below), and a file with a `not fixed`
+notice is re-read to place the notice. `check --fix` replans its output
+until no edit remains, since lint rule options can contradict each other. Root strings such as `'---'` and `'...'` retain their quotes because
 the plain spellings are document markers. Marker prefixes followed by Unicode
 whitespace also keep quotes for
 [reference-parser compatibility](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#marker-like-root-strings-and-unicode-whitespace).
@@ -3118,7 +3121,8 @@ fails on a missing file.
 
 ### `ryl format --check`
 
-`ryl format --check` reports the lines it would change through the same formats.
+`ryl format --check` reports each file it would change, as one `unformatted` finding at
+its first change, through the same formats.
 An empty or wholly excluded run still writes an empty configured report, including
 when `--stdin-filename` is excluded.
 `ryl format --output-format` takes one format, written to its default stream, and
@@ -3800,7 +3804,8 @@ flowchart LR
 | **Input de-duplication is lexical.** Absolute paths are normalized without resolving symlinks, so distinct symlink paths remain distinct inputs. | Resolving symlinks would merge a symlink with its target and undermine symlink-aware fix handling. | [Decision](https://github.com/owenlamont/ryl/pull/282), [Review rationale](https://github.com/owenlamont/ryl/pull/282#issuecomment-4646614421) |
 | **Output destinations are repeatable pairs.** CLI format and file targets override `[output]`, which overrides the console default; conflicting destinations fail with exit 2. | One run needs both console diagnostics and report files; paired targets make each destination explicit. | [Decision](https://github.com/owenlamont/ryl/pull/303) |
 | **GitLab fingerprints exclude location.** They hash path, rule, and message so a finding keeps its identity when line numbers move. | A location-free fingerprint remains stable when unrelated edits move a finding to another line. | [Decision](https://github.com/owenlamont/ryl/pull/301) |
-| **`ryl format` parses each file once.** Rule order guarantees value preservation and idempotence; release builds neither re-parse the output nor replan it, and debug builds check both. | A second parse and plan cost about 45% of format time from 64 KiB up; tests and corpus runs in debug still catch a rule that breaks the order. | [Decision](https://github.com/owenlamont/ryl/issues/834) |
+| **`ryl format` parses each file once.** Rule order guarantees value preservation and idempotence, so no build re-parses or replans the output; only a repair, and a file reporting a `not fixed` notice, parse again. | A second parse and plan cost about 45% of format time from 64 KiB up; property tests, not runtime checks, catch a rule that breaks the order. | [Decision](https://github.com/owenlamont/ryl/issues/834), [one parse everywhere](https://github.com/owenlamont/ryl/issues/843) |
+| **`ryl format --check` reports like ruff.** Each file that would change gets one `unformatted` finding at its first change, with the diff in the human formats, and a closing summary. | Naming the rule behind each changed line needed every rule's check and a format per rule; ruff's shape needs the one parse. | [Decision](https://github.com/owenlamont/ryl/issues/843) |
 | **Safe fixes converge in one invocation.** Ryl repeats the fix pipeline to a fixed point, with a bounded pass count and a visible non-convergence error. | Interacting fixes can expose later fixes, while a cap and visible error prevent an endless loop. | [Decision](https://github.com/owenlamont/ryl/pull/467) |
 | **Encoding does not make a pending change invisible.** BOM and UTF-16/32 inputs preserve their encoding through formatting; `--check` and `check --diff` still report changes when a byte patch cannot be shown. | An encoding that cannot carry an applicable text patch must still produce an accurate pending-change exit code. | [Format](https://github.com/owenlamont/ryl/pull/617), [check](https://github.com/owenlamont/ryl/pull/620) |
 | **A write failure does not stop later files.** Formatting reports failed destinations, continues with the rest, and exits 2. | One unwritable file should not hide changes or failures in later inputs. | [Decision](https://github.com/owenlamont/ryl/pull/714) |

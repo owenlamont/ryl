@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use ryl_yaml_parser::Event;
-
 use crate::fix::{PassTracking, Passes};
 use crate::rules::support::collection_style;
 use crate::rules::support::span_utils::BytePos;
@@ -111,19 +109,15 @@ fn probe(tracking: &mut PassTracking<'_>, input: Analysis<'_>) -> Result<(), Fal
     }
 }
 
-type Candidate = (
-    String,
-    quoted_strings::Styles,
-    Vec<&'static str>,
-    Option<Box<Guard>>,
-    collection_style::Forms,
-);
+type Candidate = (String, Vec<&'static str>);
 /// What [`crate::format::unfixed`] reports, on the plan's output lines: each kept dash,
-/// each refused document, and each consistent-width violation.
+/// each refused document, each consistent-width violation, and whether every collection
+/// settled in its configured style.
 type Kept = (
     Vec<(usize, usize)>,
     Vec<indentation::Refusal>,
     Vec<(usize, usize)>,
+    bool,
 );
 
 /// The emitted candidate, or `None` for a clean plan, with the layout facts to remember.
@@ -133,6 +127,7 @@ fn prepare_candidate(
     tracking: &mut PassTracking<'_>,
     quotes: &mut HashMap<String, Option<bool>>,
 ) -> Result<(Option<Candidate>, Kept), Fallback> {
+    let mut settled = true;
     if let Some(cfg) = passes.collection_style {
         let (mut collections, observed) = collection_style::settled_with_view(
             input,
@@ -150,16 +145,12 @@ fn prepare_candidate(
                 observed,
             );
         }
+        settled =
+            collections.settles(cfg) && !crate::fix::non_ascii_marker(input.text());
     }
     if blank_stream(input.text(), passes) {
         stats::count(stats::Counter::Plan);
-        let candidate = (
-            String::new(),
-            quoted_strings::Styles::default(),
-            vec![empty_lines::ID],
-            None,
-            collection_style::Forms::default(),
-        );
+        let candidate = (String::new(), vec![empty_lines::ID]);
         Ok((Some(candidate), Kept::default()))
     } else {
         let EmitPlan(plan) = EmitPlan::new(input, passes, quotes)?;
@@ -173,22 +164,12 @@ fn prepare_candidate(
             .then_some(())
             .ok_or(Fallback::Refusal)
             .and_then(|()| {
-                let kept = plan.kept();
+                let mut kept = plan.kept();
+                kept.3 = settled;
                 if !plan.dirty {
                     return Ok((None, kept));
                 }
-                plan.emit().map(|text| {
-                    (
-                        Some((
-                            text,
-                            plan.styles,
-                            plan.rules,
-                            plan.guard,
-                            collection_style::Forms::default(),
-                        )),
-                        kept,
-                    )
-                })
+                plan.emit().map(|text| (Some((text, plan.rules)), kept))
             })
     }
 }
@@ -456,23 +437,22 @@ fn finish_candidate(
 ) -> Result<(Option<Candidate>, Kept), Fallback> {
     let selected = !collections.is_empty();
     let rules: Vec<_> = collections.rules().collect();
-    let forms = collections.forms();
+    let settled = passes.collection_style.is_none_or(|cfg| {
+        collections.settles(cfg)
+            && !crate::fix::non_ascii_marker(targets.0.input.text())
+    });
     drop(collections);
     targets
         .finish_lines(passes)
         .and_then(|targets| targets.fold(passes))
         .and_then(|EmitPlan(mut plan)| {
-            let kept = plan.kept();
+            let mut kept = plan.kept();
+            kept.3 = settled;
             if !plan.dirty && !selected {
                 return Ok((None, kept));
             }
             plan.rules.extend(rules);
-            plan.emit().map(|text| {
-                (
-                    Some((text, plan.styles, plan.rules, plan.guard, forms)),
-                    kept,
-                )
-            })
+            plan.emit().map(|text| (Some((text, plan.rules)), kept))
         })
 }
 
@@ -487,7 +467,7 @@ fn format_document_refused(
     let mut quotes = HashMap::new();
     let (prepared, kept) =
         prepare_candidate(source.analysis(), passes, tracking, &mut quotes)?;
-    let Some((text, styles, rules, guard, forms)) = prepared else {
+    let Some((text, rules)) = prepared else {
         remember(tracking, source, passes.indentation, kept, false);
         source.release_tokens();
         source.mark_strict_valid();
@@ -506,87 +486,26 @@ fn format_document_refused(
     source.release_layout();
     let mut output = TextVersion::new(text);
     stats::count(stats::Counter::Emit);
-    let verification = if forms.is_empty() {
-        Ok(())
-    } else {
-        verify_presentation(
-            source.analysis(),
-            output.analysis(),
-            &styles,
-            &forms,
-            passes.document_start.is_some(),
-            guard.as_deref(),
-        )
-    };
-    verification.and_then(|()| {
-        debug_assert!(
-            settles(
-                source.analysis(),
-                output.analysis(),
-                (&styles, &forms, guard.as_deref()),
-                passes,
-                (passes.preserve_events, unambiguous),
-            ),
-            "formatted output changed a value or does not replan to itself"
-        );
-        output.mark_strict_valid();
-        tracking.edited.extend(rules);
-        if !passes.preserve_events
-            && EmitPlan::new(output.analysis(), passes, &mut quotes)
-                .is_ok_and(|replan| replan.0.dirty)
-        {
-            stats::count(stats::Counter::Rollback);
-            return (output.analysis().text() != source.analysis().text())
-                .then_some((output, false))
-                .ok_or(Fallback::DryEdits);
-        }
-        remember(tracking, &output, passes.indentation, kept, unambiguous);
-        output.release_tokens();
-        *source = TextVersion::new(String::new());
-        Ok((output, true))
-    })
-}
-
-/// Whether `output` keeps `input`'s values and, once `settled`, replans to itself; and
-/// whether an `unambiguous` output holds no ambiguous block scalar. Rule order guarantees
-/// these, so only debug builds check them, unrecorded.
-fn settles(
-    input: Analysis<'_>,
-    output: Analysis<'_>,
-    (styles, forms, guard): (
-        &quoted_strings::Styles,
-        &collection_style::Forms,
-        Option<&Guard>,
-    ),
-    passes: &Passes<'_>,
-    (settled, unambiguous): (bool, bool),
-) -> bool {
-    stats::unrecorded(|| {
-        verify_presentation(
-            input,
-            output,
-            styles,
-            forms,
-            passes.document_start.is_some(),
-            guard,
-        )
-        .is_ok()
-            && (!settled || dry(output, passes))
-            && !(unambiguous && crate::fix::ambiguous(output))
-    })
-}
-
-fn dry(input: Analysis<'_>, passes: &Passes<'_>) -> bool {
-    EmitPlan::new(input, passes, &mut HashMap::new()).is_ok_and(|plan| !plan.0.dirty)
-        && passes.collection_style.is_none_or(|cfg| {
-            collection_style::settled(input, cfg, passes.indentation.as_ref())
-                .is_empty()
-        })
+    output.mark_strict_valid();
+    tracking.edited.extend(rules);
+    if !passes.preserve_events
+        && EmitPlan::new(output.analysis(), passes, &mut quotes)
+            .is_ok_and(|replan| replan.0.dirty)
+    {
+        stats::count(stats::Counter::Rollback);
+        return (output.analysis().text() != source.analysis().text())
+            .then_some((output, false))
+            .ok_or(Fallback::DryEdits);
+    }
+    remember(tracking, &output, passes.indentation, kept, unambiguous);
+    output.release_tokens();
+    *source = TextVersion::new(String::new());
+    Ok((output, true))
 }
 
 /// Whether `text` is a stream of LF-only blank lines that the resolved passes empty, so its
-/// candidate needs no line records; verification and the dry plan still check it, and with
-/// no block scalar it cannot be ambiguous, so it skips the probe.
+/// candidate needs no line records; with no block scalar it cannot be ambiguous, so it skips
+/// the probe.
 fn blank_stream(text: &str, passes: &Passes<'_>) -> bool {
     passes.collection_style.is_none()
         && passes.per_line.is_empty()
@@ -595,57 +514,11 @@ fn blank_stream(text: &str, passes: &Passes<'_>) -> bool {
             .is_some_and(|cfg| empty_lines::clears_stream(text, &cfg))
 }
 
-fn verify_presentation(
-    input: Analysis<'_>,
-    output: Analysis<'_>,
-    styles: &quoted_strings::Styles,
-    forms: &collection_style::Forms,
-    document_start: bool,
-    guard: Option<&Guard>,
-) -> Result<(), Fallback> {
-    let expected = expected_events(input, styles, forms, document_start, guard);
-    let valid = input.verify_format_events(output, expected)
-        || (output.parsed().valid
-            && crate::lint::strict_parse_error(output.text()).is_none()
-            && crate::fix::format_events_match(input.text(), output.text()));
-    stats::add(stats::Counter::Rollback, usize::from(!valid));
-    valid.then_some(()).ok_or(Fallback::Verification)
-}
-
-fn expected_events<'a>(
-    input: Analysis<'a>,
-    styles: &'a quoted_strings::Styles,
-    forms: &'a collection_style::Forms,
-    document_start: bool,
-    guard: Option<&'a Guard>,
-) -> impl Iterator<Item = Event<'a>> {
-    forms.events(input).map(move |(event, span)| match event {
-        Event::Scalar(value, style, anchor, tag) => {
-            let at =
-                crate::rules::support::span_utils::marker_byte_offset(span.start).get();
-            let style = styles.at(at).unwrap_or(style);
-            Event::Scalar(value, style, anchor, tag)
-        }
-        Event::DocumentStart(explicit, version) => {
-            let added = document_start
-                && guard.is_none_or(|guard| {
-                    let document =
-                        input.parsed().document_starts.partition_point(|&line| {
-                            line < span.start.line().saturating_sub(1)
-                        });
-                    guard.added_start(document)
-                });
-            Event::DocumentStart(explicit || added, version)
-        }
-        other => other,
-    })
-}
-
 fn remember(
     tracking: &mut PassTracking<'_>,
     text: &TextVersion<'_>,
     target: Option<indentation::Config>,
-    (kept_dash_lines, refused, inconsistent): Kept,
+    (kept_dash_lines, refused, inconsistent, settled): Kept,
     unambiguous: bool,
 ) {
     if let (Some(slot), Some(target)) = (tracking.reindented.as_deref_mut(), target) {
@@ -655,7 +528,7 @@ fn remember(
             refused,
             kept_dash_lines,
             Some(inconsistent),
-            unambiguous,
+            (unambiguous, settled),
         ));
     }
 }
@@ -993,6 +866,7 @@ impl Presentation {
                 }
                 false
             });
+            self.edits.sort_by_key(|(from, to, _)| (*from, *to));
             layout.keep_refused(&refused, &self.edits);
             *targets = layout.targets(
                 cfg,
@@ -1502,11 +1376,6 @@ impl<'a> DocumentPlan<'a> {
                 if rule == document_start::ID {
                     attach_marker_bom(input, &mut self.layout, &self.targets, edit.0);
                 }
-                if rule == document_start::ID
-                    && let Some(guard) = &mut self.guard
-                {
-                    guard.add_start(input, edit.0);
-                }
                 if rule == document_end::ID {
                     edit = document_end::finalize_boundary(input, edit, final_newline);
                 }
@@ -1686,6 +1555,7 @@ impl DocumentPlan<'_> {
                 .iter()
                 .map(|violation| place((violation.line, violation.column)))
                 .collect(),
+            false,
         )
     }
 }
@@ -2470,31 +2340,14 @@ fn visit_body<'a>(
         });
         edits[first..]
             .iter()
-            .take_while(|(from, _, _)| {
-                from.get() < end || (piece != 1 && from.get() == end)
+            .take_while(|(from, to, _)| {
+                from.get() < end || (piece != 1 && from.get() == end && *to == *from)
             })
             .try_for_each(|(from, to, text)| {
-                if selected.is_none()
-                    && piece != 1
-                    && line.bridge.as_ref().is_some_and(|bridge| {
-                        bridge.start <= from.get()
-                            && from.get() < bridge.end
-                            && to.get() <= bridge.end
-                    })
-                {
-                    return Ok(());
-                }
-                if from.get() < start || to.get() > end {
-                    return indentation::discards_gap(
-                        source,
-                        line,
-                        from.get(),
-                        to.get(),
-                    )
+                let result = (start <= from.get() && to.get() <= end)
                     .then_some(())
-                    .ok_or(Fallback::Overlap);
-                }
-                let result = append(Piece::Text(&source[at..from.get()]))
+                    .ok_or(Fallback::Overlap)
+                    .and_then(|()| append(Piece::Text(&source[at..from.get()])))
                     .and_then(|()| append(text.piece()));
                 at = to.get();
                 result

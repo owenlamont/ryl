@@ -87,6 +87,17 @@ impl<'text> TextVersion<'text> {
         }
     }
 
+    /// `text` with its facts and lexical tokens taken from one parse.
+    pub(crate) fn observed(text: String) -> TextVersion<'static> {
+        let (facts, tokens) = ParsedFacts::parse_observed(&text, 0);
+        let version = TextVersion {
+            tokens: tokens.map_or_else(OnceCell::new, OnceCell::from),
+            ..TextVersion::new(text)
+        };
+        version.analysis().seed_facts(facts);
+        version
+    }
+
     pub fn analysis(&self) -> Analysis<'_> {
         Analysis { source: self }
     }
@@ -249,85 +260,6 @@ impl<'text> Analysis<'text> {
             .events
             .iter()
             .map(move |(event, _)| event.borrow(self.text(), &facts.tables))
-    }
-
-    pub(crate) fn verify_format_events(
-        self,
-        output: Analysis<'_>,
-        expected: impl Iterator<Item = Event<'text>>,
-    ) -> bool {
-        self.verify_events(output, expected)
-    }
-
-    /// Whether `output` parses strictly to `expected` and to this text's values; on
-    /// success its facts and tokens are cached from that one parse.
-    fn verify_events(
-        self,
-        output: Analysis<'_>,
-        expected: impl Iterator<Item = Event<'text>>,
-    ) -> bool {
-        crate::format::layout::stats::count(
-            crate::format::layout::stats::Counter::Analysis,
-        );
-        crate::format::layout::stats::count(
-            crate::format::layout::stats::Counter::Verify,
-        );
-        crate::format::layout::stats::count(
-            crate::format::layout::stats::Counter::Strict,
-        );
-        let mut facts = ParsedFacts {
-            events: Vec::with_capacity(self.parsed().events.len()),
-            ..ParsedFacts::default()
-        };
-        let mut tokens = lexical::Tokens::default();
-        let mut depth = 0;
-        let mut original = self.event_values().filter(|event| {
-            !matches!(
-                event,
-                Event::Comment(..) | Event::StreamStart | Event::StreamEnd
-            )
-        });
-        let mut comparison = crate::fix::EventComparison::default();
-        let mut semantic_matches = !crate::fix::non_ascii_marker(output.text());
-        let verified = events::verify_strict::<false>(
-            expected,
-            output.text(),
-            |span: &Span, kind: ryl_yaml_parser::TokenKind<'_>| {
-                tokens.push(span, kind);
-            },
-            |event, span| {
-                if !matches!(
-                    event,
-                    Event::Comment(..) | Event::StreamStart | Event::StreamEnd
-                ) {
-                    semantic_matches &= original
-                        .next()
-                        .is_some_and(|before| comparison.matches(&before, &event));
-                }
-                facts.push(output.text(), event, &span, &mut depth);
-            },
-        ) && semantic_matches
-            && original.next().is_none();
-        if verified {
-            facts.valid = true;
-            facts.compact();
-            output.seed_facts(facts);
-            crate::format::layout::stats::captured();
-            output.seed_tokens(tokens);
-        }
-        verified
-    }
-
-    pub(crate) fn significant_events_match(self, other: Analysis<'_>) -> bool {
-        let significant = |event: &Event<'_>| {
-            !matches!(
-                event,
-                Event::Comment(..) | Event::StreamStart | Event::StreamEnd
-            )
-        };
-        self.event_values()
-            .filter(significant)
-            .eq(other.event_values().filter(significant))
     }
 
     pub(crate) fn byte_line_starts(self) -> &'text [usize] {
@@ -579,6 +511,9 @@ impl ParsedFacts {
         text: &str,
         event_capacity: usize,
     ) -> (Self, Option<lexical::Tokens>) {
+        crate::format::layout::stats::count(
+            crate::format::layout::stats::Counter::Analysis,
+        );
         let mut tokens = lexical::Tokens::default();
         let facts = Self::parse_using(
             text,

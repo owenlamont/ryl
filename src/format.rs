@@ -1,20 +1,16 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::num::NonZeroU16;
 use std::path::Path;
 
-use similar::{DiffTag, TextDiff};
-
-use crate::config::{SourceKind, YamlLintConfig};
+use crate::config::YamlLintConfig;
 use crate::config_schema::{
     CollectionStyleTarget, FormatTable, LineEndingTarget, MarkerTarget,
     QuoteStyleTarget,
 };
 use crate::fix::{
-    NewlinePolicy, ParsedInput, PassTracking, Passes, ReindentCache, region_prefix,
-    rewrite_parse_gate, suppressed_rules,
+    NewlinePolicy, ParsedInput, PassTracking, Passes, ReindentCache, rewrite_parse_gate,
 };
 use crate::lint::{LintProblem, Severity, lint_str};
-use crate::markdown_embed::markdown_region_problems;
 use crate::rules::braces::Forbid;
 use crate::rules::support::collection_style;
 use crate::rules::{
@@ -175,14 +171,19 @@ pub fn refusals(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
 }
 
 fn refusals_at(content: &str, cfg: &YamlLintConfig, indent: u8) -> Vec<LintProblem> {
-    refusals_with_analysis(TextVersion::new(content).analysis(), cfg, indent, true)
+    refusals_with_analysis(
+        TextVersion::new(content).analysis(),
+        cfg,
+        indent,
+        (true, true),
+    )
 }
 
 fn refusals_with_analysis(
     input: Analysis<'_>,
     cfg: &YamlLintConfig,
     indent: u8,
-    ambiguous: bool,
+    (ambiguous, unsettled): (bool, bool),
 ) -> Vec<LintProblem> {
     if let Some(line) = ambiguous
         .then(|| {
@@ -200,6 +201,9 @@ fn refusals_with_analysis(
                 .to_string(),
             rule: Some(indentation::ID),
         }];
+    }
+    if !unsettled {
+        return Vec::new();
     }
     collection_style::findings(
         input,
@@ -234,7 +238,7 @@ pub fn format_str(
             strict_input: Some(parsed.strict_error.is_none()),
             unprobed: false,
         },
-        Some(&mut parsed),
+        &mut parsed,
     )
     .into_text()
 }
@@ -303,37 +307,31 @@ fn format_tracked(
     path: &Path,
     skip: &[&str],
     tracking: &mut PassTracking<'_>,
-    parsed: Option<&mut ParsedInput>,
+    parsed: &mut ParsedInput,
 ) -> TextVersion<'static> {
-    let _recording = layout::stats::Recording::start(
-        path,
-        input.len(),
-        parsed.is_some(),
-        tracking.strict_input,
-    );
+    let _recording =
+        layout::stats::Recording::start(path, input.len(), tracking.strict_input);
     let passes = Passes::format(cfg, input, skip);
     let source = TextVersion::new(input);
-    if let Some(parsed) = parsed {
-        let prefetched = std::mem::take(&mut parsed.prefetched);
-        if prefetched {
-            layout::stats::prefetched();
-        }
-        source.analysis().seed_facts(
-            parsed
-                .facts
-                .take()
-                .expect("format facts are transferred once"),
-        );
-        if !prefetched {
-            layout::stats::captured();
-        }
-        source.analysis().seed_tokens(
-            parsed
-                .tokens
-                .take()
-                .expect("format tokens are transferred once"),
-        );
+    let prefetched = std::mem::take(&mut parsed.prefetched);
+    if prefetched {
+        layout::stats::prefetched();
     }
+    source.analysis().seed_facts(
+        parsed
+            .facts
+            .take()
+            .expect("format facts are transferred once"),
+    );
+    if !prefetched {
+        layout::stats::captured();
+    }
+    source.analysis().seed_tokens(
+        parsed
+            .tokens
+            .take()
+            .expect("format tokens are transferred once"),
+    );
     crate::fix::rewrite(input, source, &passes, tracking)
 }
 
@@ -348,14 +346,18 @@ pub(crate) struct FormatCache {
 }
 
 impl FormatCache {
-    pub(crate) fn format(
-        &mut self,
-        input: &str,
-        cfg: &YamlLintConfig,
-        path: &Path,
-        skip: &[&str],
-    ) -> &(String, Vec<&'static str>) {
-        self.format_with_facts(input, cfg, path, skip, None)
+    /// Whether formatting `input` left nothing for [`unfixed`] to report, read from the
+    /// plan without analysing `input` again.
+    fn quiet(&self, input: &str) -> bool {
+        let Some((formatted, _)) = self.formatted.get(input) else {
+            return false;
+        };
+        self.snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot.analysis().text() == formatted
+                && self.reindented.as_ref().is_some_and(|evidence| {
+                    evidence.describes(snapshot.analysis()) && evidence.is_quiet()
+                })
+        })
     }
 
     pub(crate) fn format_with_facts(
@@ -364,17 +366,12 @@ impl FormatCache {
         cfg: &YamlLintConfig,
         path: &Path,
         skip: &[&str],
-        initial: Option<&mut ParsedInput>,
+        parsed: &mut ParsedInput,
     ) -> &(String, Vec<&'static str>) {
         if self.formatted.contains_key(input) {
             return &self.formatted[input];
         }
-        let mut parsed = initial
-            .is_none()
-            .then(|| rewrite_parse_gate(input, crate::fix::Rewrite::Format));
-        let parsed =
-            initial.or_else(|| parsed.as_mut().and_then(|result| result.as_mut().ok()));
-        let strict_input = parsed.as_ref().map(|parsed| parsed.strict_error.is_none());
+        let strict_input = Some(parsed.strict_error.is_none());
         self.formatted.entry(input.to_string()).or_insert_with(|| {
             let mut edited = Vec::new();
             let formatted = format_tracked(
@@ -395,109 +392,6 @@ impl FormatCache {
             (text, edited)
         })
     }
-}
-
-/// Why `ryl format` would rewrite `content`: the diagnostics of each formatting rule that
-/// would edit it, or a `would reformat` line for a rule that edits what its check misses.
-pub(crate) fn problems(
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    kind: SourceKind,
-    cache: &mut FormatCache,
-) -> Vec<LintProblem> {
-    match kind {
-        SourceKind::Yaml => region_problems(content, cfg, path, &[], cache),
-        SourceKind::Markdown => markdown_region_problems(content, cfg, |region| {
-            if region_prefix(content, region).is_none() {
-                return Vec::new();
-            }
-            region_problems(&region.content, cfg, path, suppressed_rules(), cache)
-        }),
-    }
-}
-
-fn region_problems(
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-    skip: &[&str],
-    cache: &mut FormatCache,
-) -> Vec<LintProblem> {
-    let (formatted, edited) = cache.format(content, cfg, path, skip);
-    if formatted == content {
-        return Vec::new();
-    }
-    let mut changed: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
-    let mut problems: Vec<LintProblem> =
-        checks(content, &Passes::format(cfg, content, skip))
-            .into_iter()
-            .filter(|problem| {
-                problem.rule.is_some_and(|rule| {
-                    changed
-                        .entry(rule)
-                        .or_insert_with(|| lines_changed_by(rule, content, cfg, path))
-                        .contains(&problem.line)
-                })
-            })
-            .collect();
-    let unexplained: BTreeSet<&'static str> = edited
-        .iter()
-        .copied()
-        .filter(|rule| !problems.iter().any(|problem| problem.rule == Some(rule)))
-        .collect();
-    problems.extend(unexplained.into_iter().map(|rule| LintProblem {
-        line: 1,
-        column: 1,
-        level: Severity::Error,
-        message: "would reformat".to_string(),
-        rule: Some(rule),
-    }));
-    problems.sort_by_key(|problem| (problem.line, problem.column));
-    problems
-}
-
-/// The 1-based lines of `content` that `rule`'s fix alone rewrites, an insertion counting
-/// against the line before it (the first line at the start).
-fn lines_changed_by(
-    rule: &str,
-    content: &str,
-    cfg: &YamlLintConfig,
-    path: &Path,
-) -> BTreeSet<usize> {
-    let others: Vec<&str> = FORMAT_RULE_IDS
-        .into_iter()
-        .filter(|other| *other != rule)
-        .collect();
-    let alone = format_tracked(
-        content,
-        cfg,
-        path,
-        &others,
-        &mut PassTracking {
-            edited: &mut Vec::new(),
-            reindented: None,
-            strict_input: None,
-            unprobed: false,
-        },
-        None,
-    );
-    let before: Vec<&str> = content.split_inclusive('\n').collect();
-    let after: Vec<&str> = alone.split_inclusive('\n').collect();
-    TextDiff::from_slices(&before, &after)
-        .ops()
-        .iter()
-        .filter(|op| op.tag() != DiffTag::Equal)
-        .flat_map(|op| {
-            let lines = op.old_range();
-            let first = if lines.is_empty() {
-                lines.start.max(1)
-            } else {
-                lines.start + 1
-            };
-            first..=lines.end.max(first)
-        })
-        .collect()
 }
 
 /// The `indentation` config `ryl format` re-indents to.
@@ -522,6 +416,9 @@ pub(crate) fn unfixed(
     cfg: &YamlLintConfig,
     cache: &mut FormatCache,
 ) -> Vec<LintProblem> {
+    if cache.quiet(content) {
+        return Vec::new();
+    }
     let local;
     let input = if let Some(snapshot) = cache
         .snapshot
@@ -553,7 +450,7 @@ pub(crate) fn unfixed(
             result.refused,
             result.kept_dash_lines,
             None,
-            false,
+            (false, false),
         );
         &computed
     };
@@ -613,7 +510,7 @@ pub(crate) fn unfixed(
         input,
         cfg,
         indent,
-        !reindented.unambiguous,
+        (!reindented.unambiguous, !reindented.settled),
     ));
     problems.sort_by_key(|problem| (problem.line, problem.column));
     problems.dedup();
@@ -668,99 +565,6 @@ fn refused_spacing(
             rule: Some(rule),
         })
         .collect()
-}
-
-fn checks(content: &str, passes: &Passes) -> Vec<LintProblem> {
-    let mut problems = Vec::new();
-    macro_rules! report {
-        ($rule:ident) => {
-            report!(
-                $rule,
-                passes
-                    .$rule
-                    .iter()
-                    .flat_map(|cfg| $rule::check(content, cfg))
-            )
-        };
-        ($rule:ident, $hits:expr) => {
-            report!($rule, $hits, |hit: $rule::Violation| hit.message)
-        };
-        ($rule:ident, $hits:expr, $message:expr) => {
-            crate::lint::emit_problems!(
-                problems,
-                $rule,
-                $hits,
-                Severity::Error,
-                $message
-            )
-        };
-    }
-    let platform = new_lines::platform_newline();
-    report!(
-        new_lines,
-        passes
-            .new_lines
-            .iter()
-            .filter_map(|cfg| new_lines::check(content, *cfg, platform))
-    );
-    report!(comments);
-    report!(
-        comments_indentation,
-        passes
-            .comments_indentation
-            .iter()
-            .flat_map(|cfg| comments_indentation::check(content, cfg)),
-        |_| comments_indentation::MESSAGE.to_string()
-    );
-    report!(commas);
-    problems.extend(
-        passes
-            .collection_style
-            .iter()
-            .flat_map(|cfg| {
-                collection_style::findings(
-                    TextVersion::new(content).analysis(),
-                    *cfg,
-                    passes.indentation.as_ref(),
-                )
-            })
-            .filter(|finding| finding.refused.is_none())
-            .map(collection_style::Finding::into_problem),
-    );
-    report!(braces);
-    report!(brackets);
-    report!(colons);
-    report!(hyphens);
-    report!(indentation);
-    report!(
-        new_line_at_end_of_file,
-        passes
-            .final_newline
-            .iter()
-            .filter_map(|_| new_line_at_end_of_file::check(content)),
-        |_| new_line_at_end_of_file::MESSAGE.to_string()
-    );
-    report!(quoted_strings);
-    report!(
-        trailing_spaces,
-        passes
-            .trailing_spaces
-            .then(|| trailing_spaces::check(content))
-            .into_iter()
-            .flatten(),
-        |_| trailing_spaces::MESSAGE.to_string()
-    );
-    report!(document_start);
-    report!(document_end);
-    report!(empty_lines);
-    report!(
-        line_length,
-        passes
-            .line_length
-            .iter()
-            .flat_map(|fold| line_length::check(content, &fold.check_config()))
-    );
-    problems
 }
 
 /// One warning per enabled formatting rule whose lint options reject what `ryl format`

@@ -180,10 +180,16 @@ const ENCODINGS: [(usize, bool, bool); 10] = [
 
 fn assert_preview(output: &Output, expected: i32, mode: &str, encoded: bool) {
     assert_eq!(output.status.code(), Some(expected), "{output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
     if expected == 1 {
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains("colons"),
+            stderr.ends_with("1 file would be reformatted\n"),
             "{output:?}"
+        );
+        assert_eq!(
+            stderr.contains("unformatted"),
+            mode == "--check",
+            "only --check reports the file as a finding: {output:?}"
         );
     }
     if mode == "--diff" && encoded {
@@ -263,9 +269,9 @@ fn encoding_overrides_are_preserved_by_stdin_and_checked_by_previews() {
 #[test]
 fn format_previews_count_changes_without_an_applicable_patch() {
     let dir = tempdir().unwrap();
-    for (name, input) in [
-        ("bare-cr.yaml", b"a:    1\r".as_slice()),
-        ("line\nbreak.yaml", b"a:    1\n"),
+    for (name, input, first_change) in [
+        ("bare-cr.yaml", b"a:    1\r".as_slice(), "1:1"),
+        ("line\nbreak.yaml", b"a:    1\n", "1:4"),
     ] {
         for mode in ["--check", "--diff"] {
             let mut command = ryl(dir.path());
@@ -280,6 +286,14 @@ fn format_previews_count_changes_without_an_applicable_patch() {
             ]);
             let output = stdin_output(&mut command, input, |result| result.unwrap());
             assert_preview(&output, 1, mode, true);
+            assert_eq!(
+                String::from_utf8_lossy(&output.stderr)
+                    .lines()
+                    .any(|line| line.contains(first_change)
+                        && line.contains("unformatted")),
+                mode == "--check",
+                "the finding sits at the first change, the start without a diff: {output:?}"
+            );
         }
     }
 }

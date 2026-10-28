@@ -8,7 +8,6 @@ pub(super) struct Guard {
     directives: Directives,
     starts: Vec<usize>,
     last: usize,
-    added_starts: Vec<usize>,
     projected: Option<LineMap>,
 }
 
@@ -51,7 +50,6 @@ impl Guard {
             directives,
             starts: input.byte_line_starts().to_vec(),
             last: input.line_count().saturating_sub(1),
-            added_starts: Vec::new(),
             projected: None,
         }))
     }
@@ -102,22 +100,5 @@ impl Guard {
 
     pub(super) fn line(&self, rule: &str, line: usize) -> bool {
         !self.directives.is_disabled(rule, line + 1)
-    }
-
-    pub(super) fn add_start(&mut self, input: Analysis<'_>, at: BytePos) {
-        let line = input
-            .byte_line_starts()
-            .partition_point(|&start| start <= at.get())
-            .saturating_sub(1);
-        self.added_starts.push(
-            input
-                .parsed()
-                .document_starts
-                .partition_point(|&start| start < line),
-        );
-    }
-
-    pub(super) fn added_start(&self, document: usize) -> bool {
-        self.added_starts.binary_search(&document).is_ok()
     }
 }
