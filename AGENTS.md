@@ -21,9 +21,10 @@ ryl lints and formats YAML files
 
 ## Coding Standards
 
-- Code maintainability is the top priority: a new agent should get all needed context
-  from the docs and code with no surprising behaviour (the pit-of-success principle —
-  the most likely way to do something is also the correct way).
+- When qualities conflict, follow the staged
+  [priorities](docs/design/decisions.md#priorities). A new agent should get all needed
+  context from the docs and code with no surprising behaviour (the pit-of-success
+  principle).
 - Before a feature request, check [`docs/scope.md`](docs/scope.md) and the public
   [design decisions](docs/design/decisions.md). Bring requests outside scope to the
   maintainer.
@@ -36,7 +37,7 @@ ryl lints and formats YAML files
   decide. Carry out mechanical fixes and clear-cut review feedback without asking.
 - With those options, give the precedent in ruff, rumdl, ty and biome — tested against
   the installed binaries where possible, not recalled. ryl models itself on them;
-  yamllint is a migration target, so it decides only where migrating users would break.
+  competing YAML tools are migration targets, deciding only where their users would break.
 - If you notice anything inaccurate or stale in this `AGENTS.md` or in a dev skill while
   working, fix it as part of the change rather than leaving it for later.
 - Keep code as succinct as practical: every line has a maintenance and read-time cost,

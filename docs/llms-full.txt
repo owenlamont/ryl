@@ -3684,6 +3684,36 @@ Source: https://ryl-docs.pages.dev/design/decisions/
 
 These are current, load-bearing choices from ryl's issues, pull requests, and repository history. Each Why records the published reason, or says "Not recorded" when no reason was found. [Scope](https://ryl-docs.pages.dev/scope/) records declined requests, and the [migration catalog](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#how-ryl-differs-from-yamllint) records compatibility differences.
 
+## Priorities
+
+When qualities conflict, work through these stages in order. An earlier stage wins only on a real conflict, and a later one still counts: meet it in a lesser form rather than dropping it. Where evidence is missing, keep the existing behaviour and ask.
+
+```mermaid
+flowchart LR
+  S[Scope and authority] --> C[Contracts] --> P[Predictable behaviour] --> R[Ranked preferences]
+```
+
+**Scope and authority.** The priorities decide choices within an authorised change; they never authorise one. A new default, flag, config key, output change or compatibility break needs the maintainer's agreement. [Scope](https://ryl-docs.pages.dev/scope/), the decisions below, and the lint, test and coverage gates CI runs stand; changing a gate is the maintainer's call.
+
+**Contracts.** These are never traded, against each other or anything else. If an edit cannot satisfy every contract, leave the input unchanged and report why.
+
+- **Security.** A hostile payload never executes code, reads, copies, writes or appends outside the file being processed, writes through a symlink, or grows memory or time without bound, under the threat model in [SECURITY.md](https://github.com/owenlamont/ryl/blob/main/SECURITY.md). Supply-chain checks are best effort. When containment and completeness conflict, analysis stops at its bound and reports fewer problems.
+- **Never corrupt a document.** Resolved values, comments, anchors and untouched bytes are protected, and formatting and fixes are idempotent. Tests and debug builds enforce the guarantee, so release builds need not re-verify it.
+- **Spec conformance.** ryl never writes invalid YAML or reports invalid input as valid, and the YAML 1.2.2 grammar and reference parser decide parse disagreements. `format` and `--fix` may repair invalid input only where the output strict-parses and the relaxed input's events are preserved; a plausible guess at intent is not enough.
+- **Supported platforms.** Behaviour holds on Linux, macOS and Windows as documented for each; a platform-specific fast path must not change any platform's documented behaviour.
+
+**Predictable behaviour.** Configuration is explicit, local and fails loudly, except on the documented migration surfaces. Established ryl behaviour changes only through an authorised change with a deprecation path. For interface questions, follow the tool precedents below; for migration questions, the tool being migrated from.
+
+**Ranked preferences.** Earlier wins:
+
+1. **Runtime speed, where added complexity pays for itself.** A speed claim names its baseline, the workloads it affects, input sizes and run-to-run variance, measured on release builds. A change that adds code is accepted for speed only when its speedup on the affected workloads (old time ÷ new time) exceeds its code growth (new ÷ old lines in the modules it touches, counted by `tokei`; a new module counts as growth of the modules that call it), and no other workload regresses beyond variance; doubling a module's code needs more than double its speed. When judging a gain, weigh the default `check` and `format` paths on typical files above rare paths. A simplification must not slow any workload beyond variance, rare paths included. Design work may start from a cost model.
+2. **Migration from other YAML tools.** Every competing linter and formatter has a clear migration path; a tool's behaviour decides only where its migrating users would break.
+3. **Low peak memory.** Minimise it; when speed wins, report the memory cost.
+4. **Simple, idiomatic code.** Less code, fewer branches, Rust best practice, and a repository layout that developers of ruff, rumdl, ty, biome or ripgrep recognise. Simplify wherever the items above are unchanged.
+5. **Fast CI and local feedback.** Compile, lint and test times, locally and in CI.
+
+**Process and community.** These shape how work is done, not code trade-offs. Enforce a repeated quality check deterministically, through the compiler, a linter, a test or an agent hook, rather than with a document or reviewer attention; written guidance is for judgement only. Acknowledge every contribution and lower the bus factor: a safe contributor PR merges on its merits, and simplicity is restored in a follow-up rather than as a condition of merging. Docs and skills serve agents as users and contributors, within the always-on context budget.
+
 ## Precedent and trust
 
 | Decision | Why | Source |
@@ -3693,7 +3723,7 @@ These are current, load-bearing choices from ryl's issues, pull requests, and re
 | **ryl-yaml-parser supplies ryl's parse events.** Known divergences are recorded with examples in the migration catalog. | A single parser stack avoids conflicting event streams; published divergences make cases where ryl differs from other parsers reviewable. | [Parser stack](https://github.com/owenlamont/ryl/pull/228), [divergence catalog](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#how-ryl-differs-from-yamllint) |
 | **ryl owns its parser as the `ryl-yaml-parser` workspace crate.** It is forked from granit-parser 2.0.0, never depends on ryl, and follows semantic versioning on its own API, independently of ryl's version; ryl is dual-licensed MIT OR Apache-2.0 to match. | Owning the parser lets ryl cut the formatter's memory and repeated scans without waiting on upstream; a separate crate keeps the parser reusable and movable to its own repository. | [Format performance](https://github.com/owenlamont/ryl/issues/787) |
 | **Configuration is explicit, local and fails loudly.** Nothing runs from an unseen default, one nearest config governs each file, and anything ryl cannot apply is an error rather than a quiet warning. | Opening one file should show exactly what runs, and a typo or unsupported key must not look effective. | [Explicit and local](https://github.com/owenlamont/ryl/issues/291#issuecomment-4698540200), [unknown keys rejected](https://github.com/owenlamont/ryl/pull/308) |
-| **Ruff, rumdl, ty, and Biome are tool precedents.** Check their installed binaries where possible; yamllint decides only where migration compatibility would break. | ryl began from rumdl's example: a mostly single-developer Rust tool replacing Python Markdown linters showed the same could be done for YAML. rumdl itself draws on Astral's Rust tools (ruff, ty), so following their lead keeps ryl familiar to users of all three; yamllint remains the migration path, not the model. | [Contributor policy](https://github.com/owenlamont/ryl/blob/main/AGENTS.md#coding-standards), [formatter re-review](https://github.com/owenlamont/ryl/issues/374) |
+| **Ruff, rumdl, ty, and Biome are tool precedents.** Check their installed binaries where possible; a competing YAML tool decides only where migration compatibility would break. | ryl began from rumdl's example: a mostly single-developer Rust tool replacing Python Markdown linters showed the same could be done for YAML. rumdl itself draws on Astral's Rust tools (ruff, ty), so following their lead keeps ryl familiar to users of all three; competing YAML tools are migration paths, not models. | [Contributor policy](https://github.com/owenlamont/ryl/blob/main/AGENTS.md#coding-standards), [formatter re-review](https://github.com/owenlamont/ryl/issues/374) |
 
 ## Configuration
 
