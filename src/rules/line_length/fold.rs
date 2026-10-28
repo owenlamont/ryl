@@ -4,7 +4,6 @@ use crate::rules::quoted_strings::{self, LayoutStyle};
 use crate::text_version::Analysis;
 use crate::text_version::lexical::Kind;
 
-use super::Config;
 use crate::rules::support::span_utils::marker_byte_offset;
 
 #[derive(Debug, Clone, Copy)]
@@ -18,17 +17,6 @@ pub(crate) struct FoldableScalar {
     pub(crate) content: Range<usize>,
     pub(crate) owner: Option<(usize, usize)>,
     pub(crate) style: LayoutStyle,
-}
-
-impl Fold {
-    #[must_use]
-    pub fn check_config(self) -> Config {
-        Config {
-            max: i64::from(self.width),
-            allow_non_breakable_words: false,
-            allow_non_breakable_inline_mappings: false,
-        }
-    }
 }
 
 /// The content (inside any quotes) of each block-context plain, quoted or `>` scalar that is

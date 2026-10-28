@@ -4,8 +4,6 @@ use std::process::Command;
 use crate::common;
 use serde_json::Value;
 
-const STRICT_PARSES: usize = 1;
-
 fn format_with_statistics(input: &str, config: &str) -> (String, Value) {
     format_with_workers(input, config, 2)
 }
@@ -142,7 +140,6 @@ fn multiline_quotes_share_one_layout_plan() {
         ("lexical_scans", 0),
         ("planning_invocations", 1),
         ("emissions", 1),
-        ("strict_parses", STRICT_PARSES),
         ("rollback", 0),
         ("cached_lexical_tapes", 1),
         ("line_table_builds", 1),
@@ -172,7 +169,6 @@ fn touching_quote_collapses_share_the_original_epoch() {
         for (name, count) in [
             ("analyses", 1),
             ("planning_invocations", 1),
-            ("strict_parses", STRICT_PARSES),
             ("rollback", 0),
         ] {
             assert_eq!(statistics[name], count, "{name}: {statistics}");
@@ -1142,7 +1138,6 @@ fn assert_threshold(bytes: usize, scans: usize) {
     assert_eq!(stats["cached_lexical_tapes"], 1);
     for (name, count) in [
         ("analyses", 1),
-        ("strict_parses", STRICT_PARSES),
         (
             "lexical_scans",
             if std::thread::available_parallelism().unwrap().get() > 1 {
@@ -1285,13 +1280,12 @@ fn assert_independent_recordings(preview: bool) {
         .unwrap()
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
-        .filter(|row: &Value| row["seeded"] == true && row["planning_invocations"] == 1)
+        .filter(|row: &Value| row["planning_invocations"] == 1)
         .collect();
     assert_eq!(rows.len(), 3);
     for row in rows {
         assert_eq!(row["fallback"], Value::Null, "{row}");
         assert_eq!(row["analyses"], 1, "{row}");
-        assert_eq!(row["strict_parses"], STRICT_PARSES, "{row}");
         assert_eq!(
             row["lexical_scans"],
             usize::from(std::thread::available_parallelism().unwrap().get() > 1),
@@ -1782,4 +1776,11 @@ fn tight_joined_quotes_keep_the_folded_plain_width() {
         "- a: one two\n    three four\n    five six\n    seven\n"
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
+}
+
+#[test]
+fn a_repair_parses_its_output_again() {
+    let (output, statistics) = format_with_statistics("[?,]\n", "[format]\n");
+    assert_eq!(output, "[? ]\n");
+    assert_eq!(statistics["analyses"], 4, "{statistics}");
 }

@@ -41,24 +41,14 @@ pub struct Finding {
 impl Finding {
     #[must_use]
     pub fn into_problem(self) -> LintProblem {
-        let kind = if self.rule == braces::ID {
-            "mapping"
-        } else {
-            "sequence"
-        };
-        let (from, to) = if self.to_flow {
-            ("block", "flow")
-        } else {
-            ("flow", "block")
-        };
+        let reason = self
+            .refused
+            .expect("only a refused conversion to block becomes a problem");
         LintProblem {
             line: self.line,
             column: self.column,
             level: Severity::Error,
-            message: self.refused.map_or_else(
-                || format!("{from} {kind} would become {to}"),
-                |reason| format!("cannot convert to {to} safely: {reason}"),
-            ),
+            message: format!("cannot convert to block safely: {reason}"),
             rule: Some(self.rule),
         }
     }

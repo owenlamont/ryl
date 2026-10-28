@@ -2344,27 +2344,10 @@ fn visit_body<'a>(
                 from.get() < end || (piece != 1 && from.get() == end && *to == *from)
             })
             .try_for_each(|(from, to, text)| {
-                if selected.is_none()
-                    && piece != 1
-                    && line.bridge.as_ref().is_some_and(|bridge| {
-                        bridge.start <= from.get()
-                            && from.get() < bridge.end
-                            && to.get() <= bridge.end
-                    })
-                {
-                    return Ok(());
-                }
-                if from.get() < start || to.get() > end {
-                    return indentation::discards_gap(
-                        source,
-                        line,
-                        from.get(),
-                        to.get(),
-                    )
+                let result = (start <= from.get() && to.get() <= end)
                     .then_some(())
-                    .ok_or(Fallback::Overlap);
-                }
-                let result = append(Piece::Text(&source[at..from.get()]))
+                    .ok_or(Fallback::Overlap)
+                    .and_then(|()| append(Piece::Text(&source[at..from.get()])))
                     .and_then(|()| append(text.piece()));
                 at = to.get();
                 result

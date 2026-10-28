@@ -111,7 +111,7 @@ impl Rewrite {
         (path, base_dir): (&Path, &Path),
         skip: &[&str],
         cache: &mut FormatCache,
-        parsed: Option<&mut ParsedInput>,
+        parsed: &mut ParsedInput,
     ) -> String {
         match self {
             Self::Fix => apply_safe_fixes_filtered(input, cfg, path, base_dir, skip),
@@ -245,7 +245,7 @@ pub fn rewrite_str(
                 (path, base_dir),
                 &[],
                 &mut cache,
-                Some(&mut events),
+                &mut events,
             );
             let mut skipped =
                 unfixed_notices(&fixed, cfg, path, base_dir, rewrite, &mut cache);
@@ -549,7 +549,7 @@ pub fn diff_outcome(
 /// The one finding a file `ryl format` would change gets, at the first change in `diff`
 /// (the start, without one), as ruff reports an unformatted file.
 fn would_reformat(diff: Option<&str>) -> crate::lint::LintProblem {
-    let (line, column) = diff.and_then(first_change).unwrap_or((1, 1));
+    let (line, column) = diff.map_or((1, 1), first_change);
     crate::lint::LintProblem {
         line,
         column,
@@ -561,15 +561,17 @@ fn would_reformat(diff: Option<&str>) -> crate::lint::LintProblem {
 
 /// The 1-based line and character column of the first change a unified `diff` makes to its
 /// old text.
-fn first_change(diff: &str) -> Option<(usize, usize)> {
+fn first_change(diff: &str) -> (usize, usize) {
     let mut lines = diff.lines().skip_while(|line| !line.starts_with("@@"));
-    let header = lines.next()?.strip_prefix("@@ -")?;
+    let header = lines
+        .next()
+        .expect("a diff of changed text has a hunk")
+        .trim_start_matches("@@ -");
     let mut line = header
         .split([',', ' '])
-        .next()?
-        .parse::<usize>()
-        .ok()?
-        .max(1);
+        .next()
+        .and_then(|start| start.parse::<usize>().ok())
+        .map_or(1, |start| start.max(1));
     let mut removed = None;
     for text in lines {
         match text.split_at_checked(1) {
@@ -584,13 +586,13 @@ fn first_change(diff: &str) -> Option<(usize, usize)> {
                         .take_while(|(a, b)| a == b)
                         .count()
                 });
-                return Some((line, same + 1));
+                return (line, same + 1);
             }
             Some(("\\", _)) => {}
             _ => break,
         }
     }
-    Some((line, 1))
+    (line, 1)
 }
 
 fn diff_and_skips(
@@ -614,14 +616,8 @@ fn diff_and_skips(
                     };
                 }
             };
-            let fixed = rewrite.apply(
-                content,
-                cfg,
-                (path, base_dir),
-                &[],
-                cache,
-                Some(&mut events),
-            );
+            let fixed =
+                rewrite.apply(content, cfg, (path, base_dir), &[], cache, &mut events);
             if content != fixed && ends_in_bare_cr(content, &fixed) {
                 return DiffOutcome {
                     changed: rewrite == Rewrite::Format,
@@ -1149,7 +1145,7 @@ fn fix_markdown_cached(
                 (path, base_dir),
                 suppressed_rules(),
                 cache,
-                Some(parsed),
+                parsed,
             )
         });
         let written = fixed

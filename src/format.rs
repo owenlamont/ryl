@@ -238,7 +238,7 @@ pub fn format_str(
             strict_input: Some(parsed.strict_error.is_none()),
             unprobed: false,
         },
-        Some(&mut parsed),
+        &mut parsed,
     )
     .into_text()
 }
@@ -307,37 +307,31 @@ fn format_tracked(
     path: &Path,
     skip: &[&str],
     tracking: &mut PassTracking<'_>,
-    parsed: Option<&mut ParsedInput>,
+    parsed: &mut ParsedInput,
 ) -> TextVersion<'static> {
-    let _recording = layout::stats::Recording::start(
-        path,
-        input.len(),
-        parsed.is_some(),
-        tracking.strict_input,
-    );
+    let _recording =
+        layout::stats::Recording::start(path, input.len(), tracking.strict_input);
     let passes = Passes::format(cfg, input, skip);
     let source = TextVersion::new(input);
-    if let Some(parsed) = parsed {
-        let prefetched = std::mem::take(&mut parsed.prefetched);
-        if prefetched {
-            layout::stats::prefetched();
-        }
-        source.analysis().seed_facts(
-            parsed
-                .facts
-                .take()
-                .expect("format facts are transferred once"),
-        );
-        if !prefetched {
-            layout::stats::captured();
-        }
-        source.analysis().seed_tokens(
-            parsed
-                .tokens
-                .take()
-                .expect("format tokens are transferred once"),
-        );
+    let prefetched = std::mem::take(&mut parsed.prefetched);
+    if prefetched {
+        layout::stats::prefetched();
     }
+    source.analysis().seed_facts(
+        parsed
+            .facts
+            .take()
+            .expect("format facts are transferred once"),
+    );
+    if !prefetched {
+        layout::stats::captured();
+    }
+    source.analysis().seed_tokens(
+        parsed
+            .tokens
+            .take()
+            .expect("format tokens are transferred once"),
+    );
     crate::fix::rewrite(input, source, &passes, tracking)
 }
 
@@ -372,17 +366,12 @@ impl FormatCache {
         cfg: &YamlLintConfig,
         path: &Path,
         skip: &[&str],
-        initial: Option<&mut ParsedInput>,
+        parsed: &mut ParsedInput,
     ) -> &(String, Vec<&'static str>) {
         if self.formatted.contains_key(input) {
             return &self.formatted[input];
         }
-        let mut parsed = initial
-            .is_none()
-            .then(|| rewrite_parse_gate(input, crate::fix::Rewrite::Format));
-        let parsed =
-            initial.or_else(|| parsed.as_mut().and_then(|result| result.as_mut().ok()));
-        let strict_input = parsed.as_ref().map(|parsed| parsed.strict_error.is_none());
+        let strict_input = Some(parsed.strict_error.is_none());
         self.formatted.entry(input.to_string()).or_insert_with(|| {
             let mut edited = Vec::new();
             let formatted = format_tracked(

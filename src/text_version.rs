@@ -90,11 +90,11 @@ impl<'text> TextVersion<'text> {
     /// `text` with its facts and lexical tokens taken from one parse.
     pub(crate) fn observed(text: String) -> TextVersion<'static> {
         let (facts, tokens) = ParsedFacts::parse_observed(&text, 0);
-        let version = TextVersion::new(text);
+        let version = TextVersion {
+            tokens: tokens.map_or_else(OnceCell::new, OnceCell::from),
+            ..TextVersion::new(text)
+        };
         version.analysis().seed_facts(facts);
-        if let Some(tokens) = tokens {
-            version.analysis().seed_tokens(tokens);
-        }
         version
     }
 
@@ -511,6 +511,9 @@ impl ParsedFacts {
         text: &str,
         event_capacity: usize,
     ) -> (Self, Option<lexical::Tokens>) {
+        crate::format::layout::stats::count(
+            crate::format::layout::stats::Counter::Analysis,
+        );
         let mut tokens = lexical::Tokens::default();
         let facts = Self::parse_using(
             text,

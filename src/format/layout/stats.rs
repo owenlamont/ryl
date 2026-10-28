@@ -7,12 +7,10 @@ use std::time::Instant;
 struct Counts {
     path: String,
     bytes: usize,
-    seeded: bool,
     analyses: usize,
     lexical_scans: usize,
     planning_invocations: usize,
     emissions: usize,
-    strict_parses: usize,
     rollback: usize,
     skips: usize,
     cached_lexical_tapes: usize,
@@ -34,7 +32,6 @@ pub(crate) enum Counter {
     Scan,
     Plan,
     Emit,
-    Strict,
     Rollback,
     Skip,
     Tape,
@@ -79,7 +76,6 @@ pub(crate) fn add(counter: Counter, amount: usize) {
                 Counter::Scan => &mut counts.lexical_scans,
                 Counter::Plan => &mut counts.planning_invocations,
                 Counter::Emit => &mut counts.emissions,
-                Counter::Strict => &mut counts.strict_parses,
                 Counter::Rollback => &mut counts.rollback,
                 Counter::Skip => &mut counts.skips,
                 Counter::Tape => &mut counts.cached_lexical_tapes,
@@ -103,16 +99,13 @@ impl Recording {
     pub(crate) fn start(
         path: &Path,
         bytes: usize,
-        initial: bool,
         strict: Option<bool>,
     ) -> Option<Self> {
         let destination = std::env::var_os("RYL_LAYOUT_STATS")?;
         let counts = Counts {
             path: path.to_string_lossy().into_owned(),
             bytes,
-            seeded: initial,
-            analyses: usize::from(initial) * (1 + usize::from(strict == Some(false))),
-            strict_parses: usize::from(initial),
+            analyses: 1 + usize::from(strict == Some(false)),
             ..Counts::default()
         };
         Some(Self {
