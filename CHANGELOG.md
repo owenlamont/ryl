@@ -5,8 +5,23 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Changed
+
+- `ryl format --check` reports each file that would change as one `unformatted` finding
+  at its first change, with the diff under it, as ruff does, instead of one finding per
+  rule and line. `--check` and `--diff` end with a summary such as
+  `1 file would be reformatted`.
+  ([#843](https://github.com/owenlamont/ryl/issues/843))
+- `ryl format` parses each file, or each YAML block in Markdown, once, including under
+  `--check` and `--diff`. Debug builds no longer re-check formatter output.
+  ([#843](https://github.com/owenlamont/ryl/issues/843))
+
 ### Fixed
 
+- `ryl format` no longer panics on a document whose re-indentation is refused while a
+  hyphen-spacing edit applies.
+- `sequence-style = 'flow'` converts a sequence whose items end in trailing whitespace,
+  where the whole file was previously left unformatted.
 - Collection conversion handles sequences flush with their mapping key, so a spacing
   change no longer prevents another collection in the document from being converted.
 - Flow conversion measures width at the target indentation, so changing source

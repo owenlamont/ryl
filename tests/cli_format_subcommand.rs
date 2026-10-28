@@ -113,7 +113,12 @@ fn format_preview_validates_resolved_output_streams_like_check() {
                     b"a: 1\n",
                 );
                 assert_eq!(code, 0, "{output}/{input}/{args:?}: {stderr}");
-                assert!(stderr.is_empty(), "{stderr}");
+                let summary = if input == empty.to_str().unwrap() {
+                    ""
+                } else {
+                    "1 file already formatted\n"
+                };
+                assert_eq!(stderr, summary, "{output}/{input}/{args:?}");
                 assert_eq!(stdout, if args[0] == "--check" { "[]\n" } else { "" });
             }
         }

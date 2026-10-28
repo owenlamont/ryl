@@ -1,5 +1,5 @@
 //! `ryl format` folds over-long plain scalar lines only when `[format] fold-long-lines` is
-//! on. `--check` explains each fold it would make and passes lines it cannot fold, which
+//! on. `--check` fails on a fold it would make and passes lines it cannot fold, which
 //! `ryl check` keeps reporting, and `ryl check --fix` never folds.
 
 use std::fs;
@@ -32,18 +32,13 @@ fn folding_is_opt_in() {
 }
 
 #[test]
-fn check_and_diff_explain_folds_and_pass_unfoldable_lines() {
+fn check_and_diff_flag_folds_and_pass_unfoldable_lines() {
     let url = "url: https://example.com/aaaaaaaaaaaaaaaaaaaa\n";
     let input = format!("{LONG}{url}");
     let (code, _, stderr, after) = ryl_on(Some(FOLD), &input, &["format", "--check"]);
     assert_eq!((code, after.as_str()), (1, input.as_str()), "{stderr}");
-    let reported: Vec<&str> = stderr
-        .lines()
-        .filter(|l| l.contains("line-length"))
-        .collect();
-    assert_eq!(reported.len(), 1, "only the folded line: {stderr}");
     assert!(
-        reported[0].contains("2:21") && reported[0].contains("(26 > 20"),
+        stderr.ends_with("1 file would be reformatted\n"),
         "{stderr}"
     );
 
@@ -57,23 +52,21 @@ fn check_and_diff_explain_folds_and_pass_unfoldable_lines() {
     let unfoldable = format!("---\n{url}");
     let (code, stdout, stderr, _) =
         ryl_on(Some(FOLD), &unfoldable, &["format", "--check"]);
-    assert_eq!((code, stdout.as_str(), stderr.as_str()), (0, "", ""));
+    assert_eq!(
+        (code, stdout.as_str(), stderr.as_str()),
+        (0, "", "1 file already formatted\n")
+    );
 }
 
 #[test]
-fn a_fold_only_another_pass_makes_necessary_is_still_reported() {
+fn a_fold_only_another_pass_makes_necessary_is_made() {
     let config = "line-length = 16\n[format]\nfold-long-lines = true\n";
-    let (code, _, stderr, _) = ryl_on(
-        Some(config),
-        "---\nkey: aaa bbb #c\n",
-        &["format", "--check"],
-    );
-    assert_eq!(code, 1, "{stderr}");
-    assert!(
-        stderr.lines().any(|line| line.contains("1:1")
-            && line.contains("would reformat")
-            && line.contains("line-length")),
-        "{stderr}"
+    let (code, _, stderr, after) =
+        ryl_on(Some(config), "---\nkey: aaa bbb #c\n", &["format"]);
+    assert_eq!(
+        (code, after.as_str()),
+        (0, "---\nkey: aaa\n  bbb  # c\n"),
+        "the comment's new spacing pushes the line past the limit: {stderr}"
     );
 }
 

@@ -319,6 +319,11 @@ fn malformed_entry_destination_reports_cache_error() {
         run(cmd.arg(&file))
     };
     assert_eq!(format(true).0, 0);
+    assert_eq!(
+        format(true),
+        (0, String::new(), "1 file already formatted\n".to_string()),
+        "a cache hit counts as already formatted"
+    );
     let entry = entries(&format_root).pop().unwrap();
     fs::remove_file(&entry).unwrap();
     fs::create_dir(&entry).unwrap();

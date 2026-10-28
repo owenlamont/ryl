@@ -95,8 +95,6 @@ macro_rules! emit_problems {
     };
 }
 
-pub(crate) use emit_problems;
-
 macro_rules! lint_rule {
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, value) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,

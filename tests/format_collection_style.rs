@@ -579,11 +579,7 @@ fn block_to_flow_survives_unrelated_reindent_refusal() {
     let file = dir.path().join("case.yaml");
     fs::write(&file, input).unwrap();
     let (code, _, stderr) = run(ryl(dir.path()).args(["format", "--check"]).arg(&file));
-    assert_eq!(code, 1, "{stderr}");
-    assert!(
-        stderr.contains("block sequence would become flow"),
-        "{stderr}"
-    );
+    assert_eq!(code, 1, "the conversion still fails --check: {stderr}");
 }
 
 #[test]
@@ -701,7 +697,7 @@ fn a_reindent_refusal_does_not_block_another_document() {
 }
 
 #[test]
-fn check_attributes_each_conversion_and_write_mode_reports_refusals() {
+fn check_and_write_mode_report_refusals_where_each_reads_them() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join(".ryl.toml"), BOTH).unwrap();
     let file = dir.path().join("a.yaml");
@@ -710,28 +706,16 @@ fn check_attributes_each_conversion_and_write_mode_reports_refusals() {
 
     let (code, _, stderr) = run(ryl(dir.path()).args(["format", "--check"]).arg(&file));
     assert_eq!(code, 1, "{stderr}");
-    for (position, message, rule) in [
-        ("2:4", "flow sequence would become block", "brackets"),
-        ("3:4", "flow mapping would become block", "braces"),
-        (
-            "4:4",
-            "cannot convert to block safely: it holds a comment",
-            "brackets",
-        ),
-    ] {
-        assert!(
-            stderr.lines().any(|line| line.contains(position)
-                && line.contains(message)
-                && line.contains(rule)),
-            "{position} {message}: {stderr}"
-        );
-    }
+    assert!(
+        stderr.contains("4:4 brackets not fixed: cannot convert to block safely"),
+        "--check points at the input: {stderr}"
+    );
 
     let (code, _, stderr) = run(ryl(dir.path()).arg("format").arg(&file));
     assert_eq!(code, 0, "{stderr}");
     assert!(
         stderr.contains("6:4 brackets not fixed: cannot convert to block safely"),
-        "{stderr}"
+        "the write points at the output: {stderr}"
     );
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -813,22 +797,6 @@ fn block_collections_flow_cannot_hold_stay_block() {
     assert_eq!(
         restyle(long, &format!("line-length = 17\n{FLOW}")),
         "key: [aaaa, bbbb]\n"
-    );
-}
-
-#[test]
-fn check_reports_a_block_collection_that_would_become_flow() {
-    let dir = tempdir().unwrap();
-    fs::write(dir.path().join(".ryl.toml"), FLOW).unwrap();
-    let file = dir.path().join("a.yaml");
-    fs::write(&file, "---\nk:\n  - a\n").unwrap();
-    let (code, _, stderr) = run(ryl(dir.path()).args(["format", "--check"]).arg(&file));
-    assert_eq!(code, 1, "{stderr}");
-    assert!(
-        stderr.lines().any(|line| line.contains("3:3")
-            && line.contains("block sequence would become flow")
-            && line.contains("brackets")),
-        "{stderr}"
     );
 }
 

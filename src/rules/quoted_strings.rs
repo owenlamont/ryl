@@ -493,11 +493,6 @@ impl<'cfg> QuotedStringsState<'cfg> {
                 {
                     return self.redundant_quote_message(node_label, style_kind, facts);
                 }
-                if let Some(preferred) = self.config.avoid_escapes {
-                    return self.ladder_message(
-                        node_label, preferred, style_kind, value, facts,
-                    );
-                }
                 self.mismatched_quote(
                     style_kind,
                     facts.has_quoted_quotes.get(),
@@ -506,23 +501,6 @@ impl<'cfg> QuotedStringsState<'cfg> {
                 .then(|| self.not_quoted_with_message(node_label))
             },
         )
-    }
-
-    fn ladder_message(
-        &self,
-        node_label: &str,
-        preferred: QuoteStyle,
-        current: QuoteStyle,
-        value: &str,
-        facts: ScalarQuoteFacts,
-    ) -> Option<String> {
-        match ladder_target(preferred, current, value, facts) {
-            target if target == current => None,
-            target if target == preferred => {
-                Some(self.not_quoted_with_message(node_label))
-            }
-            _ => Some("change outer quotes to avoid escaping inner quotes".to_owned()),
-        }
     }
 
     fn redundant_quote_message(

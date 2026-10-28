@@ -162,8 +162,7 @@ skipped (`fix::ends_in_bare_cr` — `similar` can't render it; use `--fix`).
 `fix::Passes` value. A file-wide disable skips the input. A strict-invalid input is
 first re-indented (`fix::repair`) when that alone makes it strictly valid with the same
 representation. `format::layout` then plans every rule in one candidate emission and
-writes it without parsing it again; debug builds `debug_assert!` that its events match
-and that it replans clean (`layout::settles`). `check --fix` lint passes instead replan
+writes it without parsing it again. `check --fix` lint passes instead replan
 their output until no edit remains, since lint options can contradict each other.
 `truthy` and `key-ordering` run after each settled layout as guarded text fixes; a
 change restarts the layout, bounded by `FIX_PIPELINE_MAX_PASSES`. An input with an
@@ -177,16 +176,14 @@ zero-config run formats. Inline directives are honoured by both. A YAML config g
 `[format]` defaults.
 
 Value preservation and idempotence hold by rule order: each target reads only preserved
-facts and earlier targets. A rule that breaks the order fails the debug check in tests
-and debug corpus runs. Plan-time refusals stand in for the old rollbacks: a block
+facts and earlier targets. The property suites, not runtime checks, catch a rule that
+breaks the order. Plan-time refusals stand in for the old rollbacks: a block
 scalar's first trailing comment that would move further than its body freezes its
 document, and a `---` line followed by non-ASCII whitespace, or a root keep scalar
 whose final spaces-only line ryl's parser reads unlike the reference parser, falls back.
 
 Layout handles suppression and indentation refusals while retaining source bytes for
-refused documents. Collapses that cannot share a virtual line retry
-after a separately verified quote epoch, and a folded-tail interaction retries with an
-unindented first epoch. The formatter drops a comma before a closing bracket. In
+refused documents. The formatter drops a comma before a closing bracket. In
 `check --fix` the comma takes the bracket rule's spacing, and is dropped where the two
 lint options contradict. Lint colon and
 hyphen options plan from their own configs; the cached spacing sites serve only the
@@ -199,8 +196,7 @@ Column-zero document-marker checks run before the value-only cache lookup.
 Unguarded ladder replacements settle locally before indentation measures
 the resulting scalar lengths; a no-edit certificate avoids a whole-document quote
 probe. Multiline collapses change virtual lines; multiline style changes compose
-line-local edits. Quote interactions settle through a separately verified quote
-stage; partially suppressed multiline quotes preserve rollback.
+line-local edits. A partially suppressed multiline quote edit falls back at plan time.
 Every quote replacement retains
 the existing schema and snippet checks;
 unchanged plain and block scalars need no quote decision.
@@ -232,16 +228,11 @@ protection, marker attachment, blank quotas and EOF endings. Folding consumes se
 styles and final line geometry, with characters outside the scalar window hidden.
 
 Forced collection targets plan conversion before layout, retaining the existing
-comment, key, width and reindent refusals. A strict parse compares significant
-events with only collection style relaxed, alongside the semantic comparison.
-Block-to-flow width checks use target indentation columns, computed lazily when a
-candidate needs them and cached for the conversion stage.
-All folding profiles settle quote edits in a separately verified epoch before
-measuring fold endpoints. Conversions with comments align comments before
-conversion, defer further comment alignment until after reindentation, then run
-the full layout. A conversion remaining in the output becomes the next verified
-stage. Rejected conversions can retry after a changed layout stage, retaining the
-existing fixed-point bound.
+comment, key, width and reindent refusals. Block-to-flow width checks use target
+indentation columns, computed lazily when a candidate needs them and cached for the
+conversion stage.
+Conversions with comments align comments before conversion, defer further comment
+alignment until after reindentation, then run the full layout.
 
 The layout planner retains source provenance through dash joins, scalar collapses,
 comment shifts, folding and boundary finishing. Set
@@ -251,13 +242,14 @@ traversal/emission counts and elapsed time during development.
 Both plans collect shared header, comment, sparse spacing and folding facts during
 lexical scanning. The input buffers the unresolved line, projects tokens against
 settled local gaps and quotes, and feeds the indentation analyzer directly.
-The debug replan invokes the same producers and layout planner on the output. With
-`indent-width` unset, the plan checks a consistent width over its own target columns,
+With `indent-width` unset, the plan checks a consistent width over its own target columns,
 refusing each document that breaks it until none does.
-Debug candidate verification compares expected events and semantic events in
-the same parse. Refusal reporting stores the emit plan's refusals, kept dashes and
-width violations, mapped to output lines, as epoch-bound evidence, and whether a block
-scalar header could make the output ambiguous; only then do notices parse the output.
+Refusal reporting stores the emit plan's refusals, kept dashes and width violations,
+mapped to output lines, as epoch-bound evidence, with whether a block scalar header
+could make the output ambiguous and whether a flow collection stays where `block` is
+configured (`collection_style::Plan::settles`); only then do notices parse the output.
+A preview skips notices outright when that evidence is quiet (`FormatCache::quiet`).
+Markdown notices come from each region's own rewrite in `fix_markdown_cached`.
 BOM inputs retain the
 cached normalizer, whose marker columns distinguish prefix BOMs from scalar content.
 Physical lines borrow slices from the byte-start table; scalar protection ranges are
@@ -274,15 +266,14 @@ tokens. Input that only strict indentation rejects keeps the facts and tokens of
 same relaxed parse for the repair path.
 
 Re-indentation for fallback, notice and repair callers shares the layout's refusals, so
-it keeps every document's events; debug builds assert so. `fix::repair` still parses
-its result strictly and compares representations, and collection conversion verifies
-its own output.
+it keeps every document's events. `fix::repair` reuses the input's relaxed parse and
+parses its result once, strictly, to compare representations.
 
-- `--check`/`--diff` attach `format::problems` to `DiffOutcome`: the formatting rules'
-  checkers on the original text, kept only for rules that actually edited and lines no
-  directive disables, plus a `1:1 would reformat` line per editing rule that no checker
-  explained. `--check` sends them through config `[output]`; `--diff` keeps stdout for
-  the patch and uses the default target. Ragged Markdown regions remain unchanged;
+- `--check`/`--diff` attach one `unformatted` problem per changed file to `DiffOutcome`,
+  at the first change in its diff (`fix::would_reformat`), as ruff does. `--check`
+  sends it through config `[output]`, with the diff under it in `standard`/`colored`;
+  `--diff` prints only the patch. Both end with a stderr summary
+  (`format_summary`). Ragged Markdown regions remain unchanged;
   retained layout findings are reported and keep format previews failing.
 - `format::conflicts` formats a fixed probe and lints it under the file's config; each
   enabled formatting rule that rejects the output is a stderr warning, deduplicated by

@@ -109,7 +109,11 @@ fn default_width_agrees_with_explicit_key_indentation() {
         assert_eq!(code, 0, "{input:?}: {stdout}{stderr}");
         let (code, _, stderr, _) =
             ryl_on(Some(config), &formatted, &["format", "--check"]);
-        assert_eq!((code, stderr.as_str()), (0, ""), "{input:?}");
+        assert_eq!(
+            (code, stderr.as_str()),
+            (0, "1 file already formatted\n"),
+            "{input:?}"
+        );
     }
 }
 
@@ -138,7 +142,7 @@ fn format_check_fails_only_on_what_it_would_change() {
     let disabled =
         COMPACT.replace("a: 1", "a: 1  # yamllint disable-line rule:hyphens");
     let (code, stderr, _) = run_on(&disabled, &["format", "--check"]);
-    assert_eq!((code, stderr.as_str()), (0, ""));
+    assert_eq!((code, stderr.as_str()), (0, "1 file already formatted\n"));
 }
 
 #[test]

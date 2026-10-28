@@ -225,6 +225,10 @@ fn a_directive_keyword_inside_a_scalar_does_not_cache_tokens() {
 
 #[test]
 fn a_dash_at_the_end_of_a_key_does_not_own_the_colon_gap() {
+    assert_eq!(
+        format_with_statistics("café- : x\n", "[format]\n").0,
+        "café-: x\n"
+    );
     let (status, _, diagnostics, _) = common::cli::ryl_on(
         Some("[format]\n"),
         "café- : x\n",
@@ -232,10 +236,9 @@ fn a_dash_at_the_end_of_a_key_does_not_own_the_colon_gap() {
     );
     assert_eq!(status, 1);
     assert!(
-        diagnostics.contains(":1:6: [error] too many spaces before colon (colons)"),
-        "{diagnostics}"
+        diagnostics.contains(":1:6: [error] File would be reformatted (unformatted)"),
+        "the first change's column counts characters: {diagnostics}"
     );
-    assert!(!diagnostics.contains("(hyphens)"), "{diagnostics}");
 }
 
 #[test]
@@ -427,33 +430,11 @@ fn unchanged_bom_and_endings_need_no_candidate_or_verification() {
 }
 
 #[test]
-fn structural_gap_previews_keep_indentation_provenance() {
-    let (status, _, diagnostics, _) = common::cli::ryl_on(
-        Some("[format]\n"),
-        "-   name: value\n    next: x\n",
-        &["format", "--check", "--output-format", "parsable"],
-    );
-    assert_eq!(status, 1);
-    assert!(diagnostics.contains("(indentation)"), "{diagnostics}");
-    assert!(!diagnostics.contains("(hyphens)"), "{diagnostics}");
-}
-
-#[test]
-fn collapsed_scalar_tail_keeps_trimming_and_preview_provenance() {
+fn collapsed_scalar_tail_keeps_trimming() {
     let input = "é: 'first\n  second'  \nnext: café\n";
     let (output, statistics) = format_with_statistics(input, "[format]\n");
     assert_eq!(output, "é: first second\nnext: café\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    let (status, _, diagnostics, _) = common::cli::ryl_on(
-        Some("[format]\n"),
-        input,
-        &["format", "--check", "--output-format", "parsable"],
-    );
-    assert_eq!(status, 1, "{diagnostics}");
-    assert!(
-        diagnostics.contains(":2:10: [error] trailing spaces (trailing-spaces)"),
-        "{diagnostics}"
-    );
 }
 
 #[test]
@@ -1268,23 +1249,6 @@ fn concurrent_previews_do_not_charge_another_files_recording() {
     assert_independent_recordings(true);
 }
 
-#[test]
-fn a_fold_without_reindentation_continues_under_its_source_owner() {
-    let (code, _, diagnostics, _) = common::cli::ryl_on(
-        Some(
-            "line-length = 12\n[format]\nfold-long-lines = true\nquote-style = 'single'\n",
-        ),
-        "spec:\n volumes:\n       lun: <ADD LUN ID Here>\n",
-        &["format", "--check", "--output-format", "parsable"],
-    );
-    assert_eq!(code, 1, "{diagnostics}");
-    assert!(
-        diagnostics.contains(":3:13: [error] line too long"),
-        "{diagnostics}"
-    );
-    assert!(!diagnostics.contains("would reformat"), "{diagnostics}");
-}
-
 fn assert_independent_recordings(preview: bool) {
     let directory = tempfile::tempdir().unwrap();
     let configuration = directory.path().join("ryl.toml");
@@ -1321,14 +1285,6 @@ fn assert_independent_recordings(preview: bool) {
         .unwrap()
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
-        .collect();
-    if preview {
-        assert!(rows.iter().any(|row| {
-            row["seeded"] == false && row["planning_invocations"].as_u64().unwrap() > 0
-        }));
-    }
-    let rows: Vec<_> = rows
-        .into_iter()
         .filter(|row: &Value| row["seeded"] == true && row["planning_invocations"] == 1)
         .collect();
     assert_eq!(rows.len(), 3);
