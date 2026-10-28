@@ -3686,31 +3686,33 @@ These are current, load-bearing choices from ryl's issues, pull requests, and re
 
 ## Priorities
 
-When qualities conflict, work through these stages in order. An earlier stage wins, but a later one still counts: meet it in a lesser form rather than dropping it.
+When qualities conflict, work through these stages in order. An earlier stage wins only on a real conflict, and a later one still counts: meet it in a lesser form rather than dropping it. Where evidence is missing, keep the existing behaviour and ask.
 
 ```mermaid
 flowchart LR
   S[Scope and authority] --> C[Contracts] --> P[Predictable behaviour] --> R[Ranked preferences]
 ```
 
-**Scope and authority.** [Scope](https://ryl-docs.pages.dev/scope/) and the decisions below stand. No priority authorises a user-facing change without the maintainer's agreement.
+**Scope and authority.** The priorities decide choices within an authorised change; they never authorise one. A new default, flag, config key, output change or compatibility break needs the maintainer's agreement. [Scope](https://ryl-docs.pages.dev/scope/), the decisions below, and the required lint, test and coverage gates stand.
 
-**Contracts.** These are never traded against anything, each other included. When one would break, refuse the change or leave the input unchanged.
+**Contracts.** These are never traded, against each other or anything else. If an edit cannot satisfy every contract, leave the input unchanged and report why.
 
-- **Security.** A hostile payload never executes code, reads, copies, writes or appends outside the file being processed, writes through a symlink, or exhausts memory, under the threat model in [SECURITY.md](https://github.com/owenlamont/ryl/blob/main/SECURITY.md). Supply-chain checks are best effort. When containment and completeness conflict, analysis stops at its bound and reports fewer problems.
-- **Never corrupt a document.** Values, comments and anchors survive; output is idempotent. Tests and debug builds enforce the guarantee, so release builds need not re-verify it.
-- **Spec conformance.** ryl never writes invalid YAML or reports invalid input as valid. `format` and `--fix` may repair invalid input where the intent is unambiguous. When parsers disagree on validity the reference parser decides; when it is unclear, ryl does not rewrite.
+- **Security.** A hostile payload never executes code, reads, copies, writes or appends outside the file being processed, writes through a symlink, or grows memory or time without bound, under the threat model in [SECURITY.md](https://github.com/owenlamont/ryl/blob/main/SECURITY.md). Supply-chain checks are best effort. When containment and completeness conflict, analysis stops at its bound and reports fewer problems.
+- **Never corrupt a document.** Resolved values, comments, anchors and untouched bytes are protected, and formatting and fixes are idempotent. Tests and debug builds enforce the guarantee, so release builds need not re-verify it.
+- **Spec conformance.** ryl never writes invalid YAML or reports invalid input as valid, and the YAML 1.2.2 grammar and reference parser decide what YAML means. `format` and `--fix` may repair invalid input only where the output strict-parses and the relaxed input's events are preserved; a plausible guess at intent is not enough.
+- **Supported platforms.** Behaviour holds on Linux, macOS and Windows; no change drops one silently.
 
-**Predictable behaviour.** Configuration is explicit, local and fails loudly, except on the documented migration surfaces. Surface behaviour follows the tool precedents below; an unexplained divergence goes to the maintainer.
+**Predictable behaviour.** Configuration is explicit, local and fails loudly, except on the documented migration surfaces. Established ryl behaviour changes only through an authorised change with a deprecation path. For interface questions, follow the tool precedents below; for migration questions, the tool being migrated from.
 
 **Ranked preferences.** Earlier wins:
 
-1. **Runtime speed.** A speed claim needs a release-build measurement on the affected workloads. Without a meaningful measured gain, the simpler design wins.
-2. **Peak memory.** When speed wins, report the memory cost.
-3. **Simple, idiomatic code.** Less code, fewer branches, Rust best practice, a repository layout that developers of ruff, rumdl, ty, biome or ripgrep recognise, and fast CI. Simplify wherever speed and memory are unchanged.
-4. **Migration from other YAML tools.** A clear path from yamllint, yamlfmt, prettier and other formatters; yamllint compatibility decides only where migrating users would break.
-5. **A welcoming community.** Acknowledge every contribution and lower the bus factor. A safe contributor PR merges on its merits; simplicity is restored in a follow-up rather than as a condition of merging.
-6. **Agent support.** ryl works well for agents as users and contributors, without growing the always-on agent context past its budget.
+1. **Runtime speed.** A speed claim names its baseline, workloads, input sizes and run-to-run variance, measured on release builds. Design work may start from a cost model, but without a meaningful measured gain the simpler design wins.
+2. **Migration from other YAML tools.** A clear path from yamllint, yamlfmt, prettier and other formatters; yamllint compatibility decides only where migrating users would break.
+3. **Peak memory.** When speed wins, report the memory cost.
+4. **Simple, idiomatic code.** Less code, fewer branches, Rust best practice, and a repository layout that developers of ruff, rumdl, ty, biome or ripgrep recognise. Simplify wherever the items above are unchanged.
+5. **Fast CI and local feedback.**
+
+**Community.** These shape how work is done, not code trade-offs. Acknowledge every contribution and lower the bus factor: a safe contributor PR merges on its merits, and simplicity is restored in a follow-up rather than as a condition of merging. Docs and skills serve agents as users and contributors, within the always-on context budget.
 
 ## Precedent and trust
 
