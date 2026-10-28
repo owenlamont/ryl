@@ -855,6 +855,7 @@ impl Presentation {
                 }
                 false
             });
+            self.edits.sort_by_key(|(from, to, _)| (*from, *to));
             layout.keep_refused(&refused, &self.edits);
             *targets = layout.targets(
                 cfg,
