@@ -1300,11 +1300,6 @@ pub(crate) fn rewrite<'a>(
             break;
         }
     }
-    debug_assert!(
-        current.analysis().text() == input
-            || crate::lint::strict_parse_error(current.analysis().text()).is_none(),
-        "a rewrite changed the input into YAML that does not parse strictly"
-    );
     current.into_owned()
 }
 

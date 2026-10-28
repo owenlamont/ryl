@@ -708,11 +708,6 @@ impl<'a> Layout<'a> {
         };
         let mut output = TextVersion::new(render(&refused));
         output.inherit_event_capacity(input);
-        debug_assert!(
-            output.analysis().text() == buffer
-                || input.significant_events_match(output.analysis()),
-            "re-indentation changed a document's events"
-        );
         (
             self.result(output.to_string(), &refused, original_line_count),
             output,

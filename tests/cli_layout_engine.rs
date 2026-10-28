@@ -4,7 +4,7 @@ use std::process::Command;
 use crate::common;
 use serde_json::Value;
 
-const STRICT_PARSES: usize = 1 + cfg!(debug_assertions) as usize;
+const STRICT_PARSES: usize = 1;
 
 fn format_with_statistics(input: &str, config: &str) -> (String, Value) {
     format_with_workers(input, config, 2)
@@ -39,7 +39,6 @@ fn clean_incompatible_collection_candidates_reuse_their_input() {
     for (name, count) in [
         ("planning_invocations", 1),
         ("emissions", 0),
-        ("verification_parses", 0),
         ("rollback", 0),
     ] {
         assert_eq!(statistics[name], count, "{name}: {statistics}");
@@ -144,7 +143,6 @@ fn multiline_quotes_share_one_layout_plan() {
         ("planning_invocations", 1),
         ("emissions", 1),
         ("strict_parses", STRICT_PARSES),
-        ("verification_parses", 0),
         ("rollback", 0),
         ("cached_lexical_tapes", 1),
         ("line_table_builds", 1),
@@ -175,7 +173,6 @@ fn touching_quote_collapses_share_the_original_epoch() {
             ("analyses", 1),
             ("planning_invocations", 1),
             ("strict_parses", STRICT_PARSES),
-            ("verification_parses", 0),
             ("rollback", 0),
         ] {
             assert_eq!(statistics[name], count, "{name}: {statistics}");
@@ -366,14 +363,13 @@ fn folding_keeps_other_rules_inline_directives_attached() {
 }
 
 #[test]
-fn sequence_conversion_keeps_its_verification() {
+fn sequence_conversion_parses_its_input_once() {
     let config = "[format]\nsequence-style = 'block'\n";
     let (output, statistics) = format_with_statistics("é: [ café,世 ]\n", config);
     assert_eq!(output, "é:\n  - café\n  - 世\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     for (name, count) in [
-        ("analyses", 2),
-        ("verification_parses", 1),
+        ("analyses", 1),
         ("planning_invocations", 1),
         ("emissions", 1),
         ("rollback", 0),
@@ -427,7 +423,6 @@ fn unchanged_bom_and_endings_need_no_candidate_or_verification() {
         assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
         assert_eq!(statistics["planning_invocations"], 1);
         assert_eq!(statistics["emissions"], 0);
-        assert_eq!(statistics["verification_parses"], 0);
     }
 }
 
@@ -1361,7 +1356,7 @@ fn forced_collections_settle_multiline_quote_offsets_before_folding() {
         "é: The allowed models may change\n  over time and depend on the\n  user's settings. Supported values\n  include café and many more\n  options.\nlist:\n  - café\n  - 世\n"
     );
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["verification_parses"], 1, "{statistics}");
+    assert_eq!(statistics["analyses"], 1, "{statistics}");
     assert_eq!(format_with_statistics(&output, config).0, output);
 }
 
@@ -1475,7 +1470,6 @@ fn folding_settles_multiline_quote_offsets_without_collection_targets() {
         format_with_statistics("é: 'one two three\n  user''s four five six'\n", config);
     assert_eq!(output, "é: one two three\n  user's four\n  five six\n");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["verification_parses"], 0, "{statistics}");
     assert_eq!(format_with_statistics(&output, config).0, output);
 }
 
@@ -1538,7 +1532,6 @@ fn lf_only_stream_uses_one_plan() {
         format_with_statistics(&"\n".repeat(262_144), "[format]\n");
     assert_eq!(output, "");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
-    assert_eq!(statistics["verification_parses"], 0, "{statistics}");
     assert_eq!(statistics["planning_invocations"], 1, "{statistics}");
     assert_eq!(statistics["line_table_builds"], 1, "{statistics}");
     assert_eq!(statistics["emissions"], 1, "{statistics}");

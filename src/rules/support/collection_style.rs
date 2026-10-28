@@ -77,9 +77,6 @@ pub fn findings(
 pub(crate) struct Forms(Vec<(usize, Form)>);
 
 impl Forms {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
     pub(crate) fn new(mut forms: Vec<(usize, Form)>) -> Self {
         forms.sort_unstable_by_key(|&(node, _)| node);
         Self(forms)
@@ -171,20 +168,6 @@ impl Plan {
             });
         }
         changed
-    }
-
-    pub(crate) fn forms(&self) -> Forms {
-        Forms::new(
-            self.selections()
-                .flat_map(Selected::fragments)
-                .filter_map(|part| match part {
-                    FragmentPart::Structure(Structure::Start {
-                        node, form, ..
-                    }) => Some((node, form)),
-                    _ => None,
-                })
-                .collect(),
-        )
     }
 
     pub(crate) fn is_empty(&self) -> bool {
