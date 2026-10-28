@@ -28,7 +28,7 @@ flowchart LR
 2. **Migration from other YAML tools.** Every competing linter and formatter has a clear migration path; a tool's behaviour decides only where its migrating users would break.
 3. **Low peak memory.** Minimise it; when speed wins, report the memory cost.
 4. **Simple, idiomatic code.** Less code, fewer branches, Rust best practice, and a repository layout that developers of ruff, rumdl, ty, biome or ripgrep recognise. Simplify wherever the items above are unchanged.
-5. **Fast CI and local feedback.**
+5. **Fast CI and local feedback.** Compile, lint and test times, locally and in CI.
 
 **Community.** These shape how work is done, not code trade-offs. Acknowledge every contribution and lower the bus factor: a safe contributor PR merges on its merits, and simplicity is restored in a follow-up rather than as a condition of merging. Docs and skills serve agents as users and contributors, within the always-on context budget.
 
