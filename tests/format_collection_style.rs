@@ -133,6 +133,14 @@ fn converting_a_child_keeps_the_parent_nonleaf() {
 }
 
 #[test]
+fn flow_conversion_drops_trailing_whitespace_after_an_item() {
+    let cfg = config("[format]\nsequence-style = 'flow'\n");
+    let output =
+        format_str("key:\n  - a \n  - b\t\n", &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "key: [a, b]\n");
+}
+
+#[test]
 fn implicit_mappings_settle_block_quotes_before_flow_eligibility() {
     for (input, mapping, expected) in [
         ("key: [a: \"b\n  c\"]\n", "flow", "key:\n  - {a: b c}\n"),

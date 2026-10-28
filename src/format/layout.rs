@@ -2328,8 +2328,8 @@ fn visit_body<'a>(
         });
         edits[first..]
             .iter()
-            .take_while(|(from, _, _)| {
-                from.get() < end || (piece != 1 && from.get() == end)
+            .take_while(|(from, to, _)| {
+                from.get() < end || (piece != 1 && from.get() == end && *to == *from)
             })
             .try_for_each(|(from, to, text)| {
                 if selected.is_none()
