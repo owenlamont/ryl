@@ -52,8 +52,8 @@ These hold by design: each rule's target reads only preserved facts and the targ
 rules before it, so `ryl format` parses and plans each file, or each YAML block in
 Markdown, once. It writes or previews the result without parsing it again, and the
 property tests, not runtime checks, confirm the rule order. Two cases parse again: a
-repair parses its output to prove the repair (below), and a flow collection left in
-place under `block` style is re-read to report why. `check --fix` replans its output
+repair parses its output to prove the repair (below), and a file with a `not fixed`
+notice is re-read to place the notice. `check --fix` replans its output
 until no edit remains, since lint rule options can contradict each other. Root strings such as `'---'` and `'...'` retain their quotes because
 the plain spellings are document markers. Marker prefixes followed by Unicode
 whitespace also keep quotes for

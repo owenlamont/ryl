@@ -13,7 +13,8 @@ summarize user-visible changes from the tagged commits and published release rec
   `1 file would be reformatted`.
   ([#843](https://github.com/owenlamont/ryl/issues/843))
 - `ryl format` parses each file, or each YAML block in Markdown, once, including under
-  `--check` and `--diff`. Debug builds no longer re-check formatter output.
+  `--check` and `--diff`, unless it reports a repair or a `not fixed` notice. Debug
+  builds no longer re-check formatter output.
   ([#843](https://github.com/owenlamont/ryl/issues/843))
 
 ### Fixed
