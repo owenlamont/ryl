@@ -3707,8 +3707,8 @@ flowchart LR
 **Ranked preferences.** Earlier wins:
 
 1. **Runtime speed.** A speed claim names its baseline, workloads, input sizes and run-to-run variance, measured on release builds. Design work may start from a cost model, but without a meaningful measured gain the simpler design wins.
-2. **Migration from other YAML tools.** A clear path from yamllint, yamlfmt, prettier and other formatters; yamllint compatibility decides only where migrating users would break.
-3. **Peak memory.** When speed wins, report the memory cost.
+2. **Migration from other YAML tools.** Every competing linter and formatter has a clear migration path; a tool's behaviour decides only where its migrating users would break.
+3. **Low peak memory.** Minimise it; when speed wins, report the memory cost.
 4. **Simple, idiomatic code.** Less code, fewer branches, Rust best practice, and a repository layout that developers of ruff, rumdl, ty, biome or ripgrep recognise. Simplify wherever the items above are unchanged.
 5. **Fast CI and local feedback.**
 
@@ -3723,7 +3723,7 @@ flowchart LR
 | **ryl-yaml-parser supplies ryl's parse events.** Known divergences are recorded with examples in the migration catalog. | A single parser stack avoids conflicting event streams; published divergences make cases where ryl differs from other parsers reviewable. | [Parser stack](https://github.com/owenlamont/ryl/pull/228), [divergence catalog](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#how-ryl-differs-from-yamllint) |
 | **ryl owns its parser as the `ryl-yaml-parser` workspace crate.** It is forked from granit-parser 2.0.0, never depends on ryl, and follows semantic versioning on its own API, independently of ryl's version; ryl is dual-licensed MIT OR Apache-2.0 to match. | Owning the parser lets ryl cut the formatter's memory and repeated scans without waiting on upstream; a separate crate keeps the parser reusable and movable to its own repository. | [Format performance](https://github.com/owenlamont/ryl/issues/787) |
 | **Configuration is explicit, local and fails loudly.** Nothing runs from an unseen default, one nearest config governs each file, and anything ryl cannot apply is an error rather than a quiet warning. | Opening one file should show exactly what runs, and a typo or unsupported key must not look effective. | [Explicit and local](https://github.com/owenlamont/ryl/issues/291#issuecomment-4698540200), [unknown keys rejected](https://github.com/owenlamont/ryl/pull/308) |
-| **Ruff, rumdl, ty, and Biome are tool precedents.** Check their installed binaries where possible; yamllint decides only where migration compatibility would break. | ryl began from rumdl's example: a mostly single-developer Rust tool replacing Python Markdown linters showed the same could be done for YAML. rumdl itself draws on Astral's Rust tools (ruff, ty), so following their lead keeps ryl familiar to users of all three; yamllint remains the migration path, not the model. | [Contributor policy](https://github.com/owenlamont/ryl/blob/main/AGENTS.md#coding-standards), [formatter re-review](https://github.com/owenlamont/ryl/issues/374) |
+| **Ruff, rumdl, ty, and Biome are tool precedents.** Check their installed binaries where possible; a competing YAML tool decides only where migration compatibility would break. | ryl began from rumdl's example: a mostly single-developer Rust tool replacing Python Markdown linters showed the same could be done for YAML. rumdl itself draws on Astral's Rust tools (ruff, ty), so following their lead keeps ryl familiar to users of all three; competing YAML tools are migration paths, not models. | [Contributor policy](https://github.com/owenlamont/ryl/blob/main/AGENTS.md#coding-standards), [formatter re-review](https://github.com/owenlamont/ryl/issues/374) |
 
 ## Configuration
 
