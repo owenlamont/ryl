@@ -3699,8 +3699,8 @@ flowchart LR
 
 - **Security.** A hostile payload never executes code, reads, copies, writes or appends outside the file being processed, writes through a symlink, or grows memory or time without bound, under the threat model in [SECURITY.md](https://github.com/owenlamont/ryl/blob/main/SECURITY.md). Supply-chain checks are best effort. When containment and completeness conflict, analysis stops at its bound and reports fewer problems.
 - **Never corrupt a document.** Resolved values, comments, anchors and untouched bytes are protected, and formatting and fixes are idempotent. Tests and debug builds enforce the guarantee, so release builds need not re-verify it.
-- **Spec conformance.** ryl never writes invalid YAML or reports invalid input as valid, and the YAML 1.2.2 grammar and reference parser decide what YAML means. `format` and `--fix` may repair invalid input only where the output strict-parses and the relaxed input's events are preserved; a plausible guess at intent is not enough.
-- **Supported platforms.** Behaviour holds on Linux, macOS and Windows; a platform-specific fast path is fine when every platform gives the same result.
+- **Spec conformance.** ryl never writes invalid YAML or reports invalid input as valid, and the YAML 1.2.2 grammar and reference parser decide parse disagreements. `format` and `--fix` may repair invalid input only where the output strict-parses and the relaxed input's events are preserved; a plausible guess at intent is not enough.
+- **Supported platforms.** Behaviour holds on Linux, macOS and Windows as documented for each; a platform-specific fast path must not change any platform's documented behaviour.
 
 **Predictable behaviour.** Configuration is explicit, local and fails loudly, except on the documented migration surfaces. Established ryl behaviour changes only through an authorised change with a deprecation path. For interface questions, follow the tool precedents below; for migration questions, the tool being migrated from.
 
