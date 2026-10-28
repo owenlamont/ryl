@@ -1518,7 +1518,7 @@ pub(crate) fn repair(
     passes: &Passes,
 ) -> Option<TextVersion<'static>> {
     let target = passes.repair_indentation?;
-    let spaced = separate_flow_keys(input.text()).map(TextVersion::new);
+    let spaced = separate_flow_keys(input).map(TextVersion::observed);
     let source = spaced.as_ref().map_or(input, TextVersion::analysis);
     let repaired = Directives::parse_per_line_with_analysis(source, &passes.per_line)
         .reconcile(
@@ -1526,30 +1526,49 @@ pub(crate) fn repair(
             source.text(),
             &indentation::reindent_with_analysis(source, &target).0.text,
         );
-    (repaired != input.text()
-        && crate::lint::strict_parse_error(&repaired).is_none()
-        && repair_events_match(input.text(), &repaired))
-    .then(|| {
-        let mut version = TextVersion::new(repaired);
+    if repaired == input.text() {
+        return None;
+    }
+    let mut version = TextVersion::observed(repaired);
+    let output = version.analysis();
+    let valid = output.parsed().valid
+        && crate::lint::parse_error_from_result(
+            output.text(),
+            output.parsed().strict_error(),
+        )
+        .is_none()
+        && representation_matches(input, output);
+    valid.then(|| {
         version.mark_strict_valid();
         version
     })
 }
 
-/// `text` with a space after each flow `?` that a flow indicator follows, which relaxed
+/// `input` with a space after each flow `?` that a flow indicator follows, which relaxed
 /// parsing reads as an empty explicit key.
-fn separate_flow_keys(text: &str) -> Option<String> {
-    let mut spaced: Option<String> = None;
-    while let Err(error) = crate::lint::scan(spaced.as_deref().unwrap_or(text), true)
-        && matches!(
+fn separate_flow_keys(input: Analysis<'_>) -> Option<String> {
+    let flow_key = |error: &ryl_yaml_parser::ScanError| {
+        matches!(
             error.kind(),
             ryl_yaml_parser::ErrorKind::PlainScalarStartsWithIndicatorBeforeFlowIndicator {
                 indicator: '?'
             }
         )
-    {
-        let at = error.marker().byte_offset().expect("string input has byte offsets");
-        spaced.get_or_insert_with(|| text.to_owned()).insert(at + 1, ' ');
+    };
+    let mut error = input
+        .parsed()
+        .strict_error()
+        .filter(|e| flow_key(e))
+        .cloned();
+    let mut spaced: Option<String> = None;
+    while let Some(found) = error {
+        let at = found
+            .marker()
+            .byte_offset()
+            .expect("string input has byte offsets");
+        let text = spaced.get_or_insert_with(|| input.text().to_owned());
+        text.insert(at + 1, ' ');
+        error = crate::lint::scan(text, true).err().filter(flow_key);
     }
     spaced
 }

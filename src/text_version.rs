@@ -87,6 +87,17 @@ impl<'text> TextVersion<'text> {
         }
     }
 
+    /// `text` with its facts and lexical tokens taken from one parse.
+    pub(crate) fn observed(text: String) -> TextVersion<'static> {
+        let (facts, tokens) = ParsedFacts::parse_observed(&text, 0);
+        let version = TextVersion::new(text);
+        version.analysis().seed_facts(facts);
+        if let Some(tokens) = tokens {
+            version.analysis().seed_tokens(tokens);
+        }
+        version
+    }
+
     pub fn analysis(&self) -> Analysis<'_> {
         Analysis { source: self }
     }
