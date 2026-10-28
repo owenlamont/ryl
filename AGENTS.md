@@ -21,9 +21,10 @@ ryl lints and formats YAML files
 
 ## Coding Standards
 
-- Code maintainability is the top priority: a new agent should get all needed context
-  from the docs and code with no surprising behaviour (the pit-of-success principle —
-  the most likely way to do something is also the correct way).
+- When qualities conflict, follow the staged
+  [priorities](docs/design/decisions.md#priorities). A new agent should get all needed
+  context from the docs and code with no surprising behaviour (the pit-of-success
+  principle).
 - Before a feature request, check [`docs/scope.md`](docs/scope.md) and the public
   [design decisions](docs/design/decisions.md). Bring requests outside scope to the
   maintainer.

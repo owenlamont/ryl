@@ -2,6 +2,34 @@
 
 These are current, load-bearing choices from ryl's issues, pull requests, and repository history. Each Why records the published reason, or says "Not recorded" when no reason was found. [Scope](../scope.md) records declined requests, and the [migration catalog](../getting-started/migrating-from-yamllint.md#how-ryl-differs-from-yamllint) records compatibility differences.
 
+## Priorities
+
+When qualities conflict, work through these stages in order. An earlier stage wins, but a later one still counts: meet it in a lesser form rather than dropping it.
+
+```mermaid
+flowchart LR
+  S[Scope and authority] --> C[Contracts] --> P[Predictable behaviour] --> R[Ranked preferences]
+```
+
+**Scope and authority.** [Scope](../scope.md) and the decisions below stand. No priority authorises a user-facing change without the maintainer's agreement.
+
+**Contracts.** These are never traded against anything, each other included. When one would break, refuse the change or leave the input unchanged.
+
+- **Security.** A hostile payload never executes code, reads, copies, writes or appends outside the file being processed, writes through a symlink, or exhausts memory, under the threat model in [SECURITY.md](https://github.com/owenlamont/ryl/blob/main/SECURITY.md). Supply-chain checks are best effort. When containment and completeness conflict, analysis stops at its bound and reports fewer problems.
+- **Never corrupt a document.** Values, comments and anchors survive; output is idempotent. Tests and debug builds enforce the guarantee, so release builds need not re-verify it.
+- **Spec conformance.** ryl never writes invalid YAML or reports invalid input as valid. `format` and `--fix` may repair invalid input where the intent is unambiguous. When parsers disagree on validity the reference parser decides; when it is unclear, ryl does not rewrite.
+
+**Predictable behaviour.** Configuration is explicit, local and fails loudly, except on the documented migration surfaces. Surface behaviour follows the tool precedents below; an unexplained divergence goes to the maintainer.
+
+**Ranked preferences.** Earlier wins:
+
+1. **Runtime speed.** A speed claim needs a release-build measurement on the affected workloads. Without a meaningful measured gain, the simpler design wins.
+2. **Peak memory.** When speed wins, report the memory cost.
+3. **Simple, idiomatic code.** Less code, fewer branches, Rust best practice, a repository layout that developers of ruff, rumdl, ty, biome or ripgrep recognise, and fast CI. Simplify wherever speed and memory are unchanged.
+4. **Migration from other YAML tools.** A clear path from yamllint, yamlfmt, prettier and other formatters; yamllint compatibility decides only where migrating users would break.
+5. **A welcoming community.** Acknowledge every contribution and lower the bus factor. A safe contributor PR merges on its merits; simplicity is restored in a follow-up rather than as a condition of merging.
+6. **Agent support.** ryl works well for agents as users and contributors, without growing the always-on agent context past its budget.
+
 ## Precedent and trust
 
 | Decision | Why | Source |
