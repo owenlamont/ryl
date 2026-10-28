@@ -1531,6 +1531,8 @@ pub(crate) struct ReindentEvidence {
     pub(crate) inconsistent: Option<Vec<(usize, usize)>>,
     /// Whether the plan showed the text holds no ambiguous block scalar.
     pub(crate) unambiguous: bool,
+    /// Whether the plan left every collection in its configured style.
+    pub(crate) settled: bool,
 }
 
 impl ReindentEvidence {
@@ -1540,7 +1542,7 @@ impl ReindentEvidence {
         refused: Vec<indentation::Refusal>,
         kept_dash_lines: Vec<(usize, usize)>,
         inconsistent: Option<Vec<(usize, usize)>>,
-        unambiguous: bool,
+        (unambiguous, settled): (bool, bool),
     ) -> Self {
         Self {
             epoch: input.epoch(),
@@ -1549,6 +1551,7 @@ impl ReindentEvidence {
             kept_dash_lines,
             inconsistent,
             unambiguous,
+            settled,
         }
     }
 

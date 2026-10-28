@@ -111,11 +111,13 @@ fn probe(tracking: &mut PassTracking<'_>, input: Analysis<'_>) -> Result<(), Fal
 
 type Candidate = (String, Vec<&'static str>);
 /// What [`crate::format::unfixed`] reports, on the plan's output lines: each kept dash,
-/// each refused document, and each consistent-width violation.
+/// each refused document, each consistent-width violation, and whether every collection
+/// settled in its configured style.
 type Kept = (
     Vec<(usize, usize)>,
     Vec<indentation::Refusal>,
     Vec<(usize, usize)>,
+    bool,
 );
 
 /// The emitted candidate, or `None` for a clean plan, with the layout facts to remember.
@@ -125,6 +127,7 @@ fn prepare_candidate(
     tracking: &mut PassTracking<'_>,
     quotes: &mut HashMap<String, Option<bool>>,
 ) -> Result<(Option<Candidate>, Kept), Fallback> {
+    let mut settled = true;
     if let Some(cfg) = passes.collection_style {
         let (mut collections, observed) = collection_style::settled_with_view(
             input,
@@ -142,6 +145,8 @@ fn prepare_candidate(
                 observed,
             );
         }
+        settled =
+            collections.settles(cfg) && !crate::fix::non_ascii_marker(input.text());
     }
     if blank_stream(input.text(), passes) {
         stats::count(stats::Counter::Plan);
@@ -159,7 +164,8 @@ fn prepare_candidate(
             .then_some(())
             .ok_or(Fallback::Refusal)
             .and_then(|()| {
-                let kept = plan.kept();
+                let mut kept = plan.kept();
+                kept.3 = settled;
                 if !plan.dirty {
                     return Ok((None, kept));
                 }
@@ -431,12 +437,17 @@ fn finish_candidate(
 ) -> Result<(Option<Candidate>, Kept), Fallback> {
     let selected = !collections.is_empty();
     let rules: Vec<_> = collections.rules().collect();
+    let settled = passes.collection_style.is_none_or(|cfg| {
+        collections.settles(cfg)
+            && !crate::fix::non_ascii_marker(targets.0.input.text())
+    });
     drop(collections);
     targets
         .finish_lines(passes)
         .and_then(|targets| targets.fold(passes))
         .and_then(|EmitPlan(mut plan)| {
-            let kept = plan.kept();
+            let mut kept = plan.kept();
+            kept.3 = settled;
             if !plan.dirty && !selected {
                 return Ok((None, kept));
             }
@@ -507,7 +518,7 @@ fn remember(
     tracking: &mut PassTracking<'_>,
     text: &TextVersion<'_>,
     target: Option<indentation::Config>,
-    (kept_dash_lines, refused, inconsistent): Kept,
+    (kept_dash_lines, refused, inconsistent, settled): Kept,
     unambiguous: bool,
 ) {
     if let (Some(slot), Some(target)) = (tracking.reindented.as_deref_mut(), target) {
@@ -517,7 +528,7 @@ fn remember(
             refused,
             kept_dash_lines,
             Some(inconsistent),
-            unambiguous,
+            (unambiguous, settled),
         ));
     }
 }
@@ -1544,6 +1555,7 @@ impl DocumentPlan<'_> {
                 .iter()
                 .map(|violation| place((violation.line, violation.column)))
                 .collect(),
+            false,
         )
     }
 }

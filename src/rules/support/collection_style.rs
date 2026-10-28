@@ -185,13 +185,37 @@ impl Plan {
     }
 
     fn covers(&self, index: usize) -> bool {
+        self.covering(index).is_some()
+    }
+
+    /// The finding of the recipe that rewrites the collection at `index`.
+    fn covering(&self, index: usize) -> Option<usize> {
         let site = &self.sites[index];
         let covering = self
             .recipes
             .partition_point(|(recipe, _)| recipe.range().end.get() < site.start);
-        self.recipes.get(covering).is_some_and(|(recipe, _)| {
-            let range = recipe.range();
-            range.start.get() <= site.start && site.end <= range.end.get()
+        self.recipes
+            .get(covering)
+            .filter(|(recipe, _)| {
+                let range = recipe.range();
+                range.start.get() <= site.start && site.end <= range.end.get()
+            })
+            .map(|&(_, finding)| finding)
+    }
+
+    /// Whether no collection ends in flow style where `cfg` asks for block, the only
+    /// conversion a refusal can name.
+    pub(crate) fn settles(&self, cfg: Config) -> bool {
+        self.sites.iter().enumerate().all(|(index, site)| {
+            let target = match self.nodes[index].kind() {
+                Kind::Mapping => cfg.mappings,
+                Kind::Sequence => cfg.sequences,
+                Kind::Scalar | Kind::Alias => return true,
+            };
+            target != CollectionStyleTarget::Block
+                || !self
+                    .covering(index)
+                    .map_or(site.flow, |finding| self.findings[finding].to_flow)
         })
     }
 

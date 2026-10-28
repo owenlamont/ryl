@@ -175,14 +175,19 @@ pub fn refusals(content: &str, cfg: &YamlLintConfig) -> Vec<LintProblem> {
 }
 
 fn refusals_at(content: &str, cfg: &YamlLintConfig, indent: u8) -> Vec<LintProblem> {
-    refusals_with_analysis(TextVersion::new(content).analysis(), cfg, indent, true)
+    refusals_with_analysis(
+        TextVersion::new(content).analysis(),
+        cfg,
+        indent,
+        (true, true),
+    )
 }
 
 fn refusals_with_analysis(
     input: Analysis<'_>,
     cfg: &YamlLintConfig,
     indent: u8,
-    ambiguous: bool,
+    (ambiguous, unsettled): (bool, bool),
 ) -> Vec<LintProblem> {
     if let Some(line) = ambiguous
         .then(|| {
@@ -200,6 +205,9 @@ fn refusals_with_analysis(
                 .to_string(),
             rule: Some(indentation::ID),
         }];
+    }
+    if !unsettled {
+        return Vec::new();
     }
     collection_style::findings(
         input,
@@ -553,7 +561,7 @@ pub(crate) fn unfixed(
             result.refused,
             result.kept_dash_lines,
             None,
-            false,
+            (false, false),
         );
         &computed
     };
@@ -613,7 +621,7 @@ pub(crate) fn unfixed(
         input,
         cfg,
         indent,
-        !reindented.unambiguous,
+        (!reindented.unambiguous, !reindented.settled),
     ));
     problems.sort_by_key(|problem| (problem.line, problem.column));
     problems.dedup();
