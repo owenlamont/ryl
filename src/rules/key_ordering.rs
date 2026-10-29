@@ -499,6 +499,13 @@ fn movable(
     if pinned {
         return Err("a suppression directive applies inside it");
     }
+    if layout
+        .own_line_ytt_directives
+        .iter()
+        .any(|line| (first..=last).contains(line))
+    {
+        return Err("an own-line ytt directive sits inside it");
+    }
     Ok(())
 }
 

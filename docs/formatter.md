@@ -238,6 +238,8 @@ metadata:
 Empty `[]` and `{}` stay flow. A collection that holds a comment, a multi-line entry, a
 collection or empty key, or an entry some loaders would read differently in block style
 stays as written, and `ryl format` says why on stderr.
+So does a collection followed by a ytt `#@` directive on its line, since ytt binds the
+directive to the last node on the line, and moving it to the key's line rebinds it.
 If the document cannot be re-indented safely, flow collections in that document stay
 flow, with a refusal notice. Block-to-flow conversions and conversions in other
 documents can still proceed.

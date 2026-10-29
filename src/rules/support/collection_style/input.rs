@@ -67,6 +67,7 @@ impl FlowSite<'_> {
 pub(super) struct Outer<'a> {
     prefix: hyphens::CollectionPrefix,
     comment: comments::Trailing,
+    ytt_directive: bool,
     fragment: Option<Fragment>,
     extent: Fragment,
     indicators: token_spacing::RetainedIndicators<'a>,
@@ -78,6 +79,9 @@ impl<'a> Outer<'a> {
     }
     pub(super) const fn comment(&self) -> &comments::Trailing {
         &self.comment
+    }
+    pub(super) const fn ytt_directive(&self) -> bool {
+        self.ytt_directive
     }
     pub(super) fn take_comment(&mut self) -> Option<Fragment> {
         self.fragment.take()
@@ -294,9 +298,13 @@ impl<'a> Initial<'a> {
         } else {
             indicators
         };
+        let ytt_directive = comment.range().is_some_and(|range| {
+            comments::is_ytt_directive(&buffer[range.start + 1..range.end])
+        });
         Outer {
             prefix,
             comment,
+            ytt_directive,
             fragment,
             extent: self.fragment(Boundary(site.start), site.end),
             indicators,

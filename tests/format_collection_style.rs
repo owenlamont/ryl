@@ -454,6 +454,14 @@ fn unsafe_collections_stay_flow_with_the_reason() {
             "a trailing comment has no key line to move to",
         ),
         (
+            "k: [a, b] #@ x\n",
+            "a trailing ytt directive would bind to another node",
+        ),
+        (
+            "- {a: 1} #@overlay/replace\n",
+            "a trailing ytt directive would bind to another node",
+        ),
+        (
             "k: [a,\n  b]  # c\n",
             "a trailing comment has no key line to move to",
         ),

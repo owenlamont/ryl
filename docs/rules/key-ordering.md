@@ -166,6 +166,8 @@ gamma: 3  # Gamma-specific note.
   the later one wins;
 - an entry ends in a keep-chomping (`|+`, `>+`) block scalar, whose value
   absorbs the blank lines after it;
+- an own-line ytt `#@` directive sits inside it, since moving one can break an
+  `if`/`end` block or rebind an annotation;
 - a `# ryl disable`/`enable` directive sits inside it, or `key-ordering` is
   disabled on any of its lines.
 

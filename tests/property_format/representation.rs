@@ -67,6 +67,8 @@ pub struct Comment {
     /// a block node's start counts as first only alone, since joining or breaking a `-`
     /// line moves a collection's. A comment immediately after a sequence dash counts
     /// before that sequence's start, regardless of when the parser emits the start.
+    /// A ytt `#@` inline comment counts every data event before it: ytt binds it to the
+    /// last node on its line, so it must not move to the key line.
     pub after_events: usize,
     pub inline: bool,
     pub ytt: bool,
@@ -184,6 +186,7 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
         let node = match event {
             Event::Comment(text, placement) => {
                 let inline = placement == Placement::Right;
+                let ytt = text.starts_with('@');
                 let after_events = if self
                     .dash_comments
                     .contains(&(line, span.start.col()))
@@ -196,7 +199,7 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
                         self.counted
                     }
                 } else {
-                    if inline {
+                    if inline && !ytt {
                         self.inline_after_events(line)
                     } else {
                         self.counted
@@ -205,7 +208,7 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
                 self.comments.push(Comment {
                     after_events,
                     inline,
-                    ytt: text.starts_with('@'),
+                    ytt,
                     text: comment_text(text.trim()),
                 });
                 return;

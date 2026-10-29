@@ -214,6 +214,9 @@ impl<'a, 'text> Planner<'a, 'text> {
                     .line(self.nodes[parent].children()[node.position() - 1])
                     .same_as(&self.initial.line(index))
         });
+        if outer.ytt_directive() {
+            return Err("a trailing ytt directive would bind to another node");
+        }
         if outer.comment().present() && (!keyed || outer.extent().multiline()) {
             return Err("a trailing comment has no key line to move to");
         }

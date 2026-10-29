@@ -42,6 +42,8 @@ summarize user-visible changes from the tagged commits and published release rec
 - Formatting and lint fixes preserve ytt `#@` directives and their inline spacing
   instead of converting them into ordinary comments, and the `comments` rule no
   longer reports them.
+  Block collection style leaves a flow collection with a trailing directive as
+  written, and the `key-ordering` fix skips a mapping holding an own-line one.
   ([#780](https://github.com/owenlamont/ryl/issues/780))
 
 ## v0.26.1
