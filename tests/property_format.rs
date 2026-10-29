@@ -2048,14 +2048,6 @@ fn a_trailing_comment_keeps_its_node_on_the_key_line() {
 }
 
 #[test]
-fn annotation_oracle_distinguishes_ytt_directives_from_plain_comments() {
-    assert_ne!(
-        annotations("key: #@ name\n"),
-        annotations("key: # @ name\n")
-    );
-}
-
-#[test]
 fn a_dash_line_comment_survives_sequence_and_mapping_layout_changes() {
     for (toml, input, expected) in [
         (
@@ -2154,7 +2146,15 @@ fn a_deliberately_broken_pass_fails_the_suite() {
             "renames an anchor",
         ),
     ];
-    let broken_spacing: [(&str, (&str, Broken, &str)); 2] = [
+    let broken_spacing: [(&str, (&str, Broken, &str)); 3] = [
+        (
+            "#@ x\nk: v  #@ y\n",
+            (
+                "comment/anchor fidelity",
+                |s| s.replace("#@", "# @"),
+                "turns a ytt directive into a plain comment",
+            ),
+        ),
         (
             "k:\n    s: |2\n          lead\n        x\n",
             (
