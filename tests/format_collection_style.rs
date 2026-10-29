@@ -422,8 +422,13 @@ fn flow_conversion_settles_default_indent_around_explicit_keys() {
 #[test]
 fn conversion_keeps_a_hash_continuation_on_an_unbroken_last_line() {
     assert_eq!(
-        restyle("b: [x]\nk: 'd\n  #u'", BOTH),
-        "b:\n  - x\nk: 'd\n  #u'"
+        format_str(
+            "b: [x]\nk: 'd\n  #u'",
+            &config(BOTH),
+            Path::new("golden.yaml"),
+            &[]
+        ),
+        "b:\n  - x\nk: 'd\n  #u'\n"
     );
 }
 
