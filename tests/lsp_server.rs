@@ -2130,7 +2130,8 @@ fn document_diagnostic_pull_reads_a_closed_file_only_in_workspace_mode() {
 #[test]
 fn document_diagnostic_pull_is_empty_for_unreadable_targets() {
     let dir = project(TRAILING);
-    let (mut client, _init) = Client::launch(None, None);
+    let (mut client, _init) =
+        Client::launch_with(None, None, true, None, false, Some(workspace_mode()));
     let missing = file_uri(dir.path(), "nope.yaml");
     let DocumentDiagnosticReport::Full(report) = client.document_diagnostic(&missing)
     else {
