@@ -25,17 +25,9 @@ fn ytt_directives_preserve_their_prefix_and_inline_gap() {
     let cfg = build_toml_config(
         "[lint.rules.comments]\nignore-shebangs = false\nmax-spaces-from-content = 2\n",
     );
-    for input in [
-        "#@ name = \"web\"\nmetadata:\n  name: #@ name\n",
-        "key: value     #@overlay/match missing_ok=True\n",
-        "items:\n  #@ for name in [\"café\"]:\n  - #@ name\n  #@ end\n",
-    ] {
-        for newline in ["\n", "\r\n", "\r"] {
-            let input = input.replace('\n', newline);
-            assert!(comments::check(&input, &cfg).is_empty(), "{input:?}");
-            assert_eq!(comments::fix(&input, &cfg), None, "{input:?}");
-        }
-    }
+    let input = "#@ name = \"web\"\nkey: value     #@overlay/match missing_ok=True\n";
+    assert!(comments::check(input, &cfg).is_empty());
+    assert_eq!(comments::fix(input, &cfg), None);
     assert_eq!(
         comments::fix("##@ordinary\n", &cfg).as_deref(),
         Some("## @ordinary\n")

@@ -201,13 +201,16 @@ fn arb_follow_on() -> impl Strategy<Value = FollowOn> {
 fn arb_filler() -> impl Strategy<Value = Filler> {
     prop_oneof![
         (0u8..=2).prop_map(|spaces| Filler::Blank { spaces }),
-        (0u8..=3, 0u8..=2, "[a-z][a-z0-9 ]{0,6}").prop_map(
-            |(indent, spaces_after_hash, text)| Filler::Comment {
+        (
+            0u8..=3,
+            0u8..=2,
+            prop_oneof![8 => "[a-z][a-z0-9 ]{0,6}", 1 => "@[a-z][a-z0-9 ]{0,6}"],
+        )
+            .prop_map(|(indent, spaces_after_hash, text)| Filler::Comment {
                 indent,
                 spaces_after_hash,
                 text,
-            }
-        ),
+            }),
     ]
 }
 
