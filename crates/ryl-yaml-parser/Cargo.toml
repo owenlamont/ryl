@@ -22,7 +22,7 @@ keywords = [ "yaml", "parser", "cst" ]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/owenlamont/ryl"
 
-rust-version = "1.99.0"
+rust-version = "1.99.1"
 version = "0.1.0"
 # Cargo skips dot-directories unless listed, and the license requires `.licenses/`.
 include = [
