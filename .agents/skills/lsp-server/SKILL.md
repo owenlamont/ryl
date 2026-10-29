@@ -23,9 +23,19 @@ unit/property testable: `encoding` (position math + `uri_to_path`/`path_to_uri`)
 
 ## Diagnostics
 
-Push diagnostics (`publishDiagnostics`) are gated on `Server::push_diagnostics` =
-`!client_supports_pull_diagnostics`, so a pull-capable client gets diagnostics once via
-pull, not twice — clients like VS Code merge the two channels.
+Push diagnostics (`publishDiagnostics`) are gated on `Server::delivery` ==
+`Delivery::Push` (`diagnostic_delivery`), so a pull-capable client gets diagnostics
+once via pull, not twice — clients like VS Code merge the two channels.
+
+`Settings::diagnostic_mode` (`diagnosticMode`, after ty) defaults to `openFilesOnly`. A
+client with `textDocument.diagnostic.dynamicRegistration` gets no static
+`diagnostic_provider`; `register_diagnostics` registers it after `initialized` with
+`workspaceDiagnostics` following the mode, and a mode change unregisters and re-registers
+it. That registration is what makes VS Code stop pulling the workspace and clear a closed
+file itself (`vscode-languageclient`'s `forgetDocument` keeps a closed file's diagnostics
+while `workspaceDiagnostics` is on). A static client in `openFilesOnly` gets a scan of no
+roots (so earlier workspace reports are cleared, then the pull is held) and an empty
+document pull for an unopened file.
 
 Pull diagnostics are `textDocument/diagnostic` + `workspace/diagnostic`, the latter over
 a per-entry-cancellable `discover::gather_yaml_from_dir_cancellable` walk of every root,
@@ -78,7 +88,7 @@ has no per-occurrence fix; code actions honour `context.only`.
 Resolved per document via `discover_config` (full CLI precedence incl.
 `YAMLLINT_CONFIG_FILE`), layering the client's `Settings` (`initializationOptions` /
 `workspace/didChangeConfiguration`: `configPath`/`configData`/`enable`, CLI-equivalent
-precedence).
+precedence, plus `diagnosticMode`, whose unknown value is reported via `showMessage`).
 
 Config-file changes go through `handle_config_change` via a dynamic
 `didChangeWatchedFiles` registration: a push client gets a re-lint+re-push, a pull

@@ -3327,7 +3327,7 @@ hover only explains ryl's own diagnostics.
 | Capability | LSP feature | Behaviour |
 | --- | --- | --- |
 | Diagnostics (push) | `textDocument/publishDiagnostics` | Every enabled rule, re-linted on open and on each change. Sent only to a client that does *not* advertise the pull model (see below) |
-| Diagnostics (pull) | `textDocument/diagnostic`, `workspace/diagnostic` | On-demand diagnostics for one document or every `*.yaml`/`*.yml` under the workspace root; result ids and long polling keep an idle workspace free |
+| Diagnostics (pull) | `textDocument/diagnostic`, `workspace/diagnostic` | On-demand diagnostics for open documents, or with `diagnosticMode: "workspace"` every `*.yaml`/`*.yml` under the workspace root; result ids and long polling keep an idle workspace free |
 | Fix all | `source.fixAll.ryl` code action | Applies every safe fix to the document (the `--fix` set) |
 | Fix all of one rule | `source.fixAll.ryl.<rule>` code action | Applies just one safe-fixable rule's fixes (offered per rule with a diagnostic) |
 | Disable a rule | `quickfix` code action | Inserts `# ryl disable-line rule:<rule>` (per line) or a first-line `# ryl disable-file` (whole file) |
@@ -3383,6 +3383,7 @@ documents:
 | `enable` (bool, default `true`) | `false` turns ryl off: no diagnostics, no actions |
 | `configPath` (string) | Use this config file instead of discovering one (like `ryl check -c`) |
 | `configData` (string) | Inline config text (TOML, or deprecated YAML), highest precedence (like `ryl check -d`) |
+| `diagnosticMode` (string, default `"openFilesOnly"`) | `"openFilesOnly"` reports open files only, as Ruff does; `"workspace"` also reports every `*.yaml`/`*.yml` under the workspace roots through `workspace/diagnostic`, as ty's setting of the same name does. An unknown value is reported and falls back to `"openFilesOnly"` |
 
 These are the same precedence as the CLI: `configData` > `configPath` > the discovered
 project/user config.
@@ -3471,8 +3472,14 @@ issue tracker: [owenlamont/ryl-vscode](https://github.com/owenlamont/ryl-vscode)
   client is asked to re-pull via `workspace/diagnostic/refresh` (if it advertised
   `refreshSupport`), since its gated-off push results would otherwise leave stale diagnostics
   on screen; a pull client without that capability re-pulls only on its own cadence.
-- **Workspace pull diagnostics** cover `*.yaml`/`*.yml` files under each workspace root
-  (git-ignored files excluded); Markdown and files matched only by custom `[files]` globs
+- **Only open files are diagnosed by default.** In the default `openFilesOnly` mode a
+  client that supports dynamic registration (VS Code does) is told not to pull
+  `workspace/diagnostic` at all, so it clears a file's diagnostics when the file closes.
+  Any other client gets an empty answer to a workspace pull, held open, and an empty one
+  to a document pull for a file that is not open. A push client only ever gets open
+  documents, whatever the mode.
+- **Workspace pull diagnostics**, with `diagnosticMode: "workspace"`, cover
+  `*.yaml`/`*.yml` files under each workspace root (git-ignored files excluded); Markdown and files matched only by custom `[files]` globs
   are diagnosed when opened or pulled individually. The scan runs on a background thread
   (so editing, hover, and other requests stay responsive while it works) and lints files
   in parallel across CPU cores, in batches. A new pull supersedes any in-flight one, and a

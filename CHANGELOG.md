@@ -7,6 +7,10 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- `ryl server` reports open files only by default, as ruff, rumdl and biome do. The new
+  `diagnosticMode` setting, named after ty's, restores the workspace-wide
+  `workspace/diagnostic` scan with `"workspace"`.
+  ([#407](https://github.com/owenlamont/ryl/issues/407))
 - `ryl format --check` reports each file that would change as one `unformatted` finding
   at its first change, with the diff under it, as ruff does, instead of one finding per
   rule and line. `--check` and `--diff` end with a summary such as

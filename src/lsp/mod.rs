@@ -20,26 +20,28 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, select, unbounded};
 use rayon::prelude::*;
+use serde::Deserialize;
 
 use lsp_server::{
     Connection, ErrorCode, Message, Notification, Request, RequestId, Response,
 };
 use lsp_types::{
     CancelParams, CodeActionParams, CodeActionProviderCapability, CodeActionResponse,
-    Diagnostic, DiagnosticOptions, DiagnosticServerCapabilities, DiagnosticSeverity,
-    DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesParams, DidChangeWatchedFilesRegistrationOptions,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentDiagnosticParams,
-    DocumentDiagnosticReport, DocumentFormattingParams, FileSystemWatcher,
-    FullDocumentDiagnosticReport, GlobPattern, Hover, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, MessageType,
-    NumberOrString, OneOf, Position, PrepareRenameResponse, PreviousResultId,
-    ProgressToken, PublishDiagnosticsParams, Range, Registration, RegistrationParams,
-    RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport,
-    RenameOptions, RenameParams, ServerCapabilities, ServerInfo, ShowMessageParams,
-    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextEdit, UnchangedDocumentDiagnosticReport, Uri, WorkDoneProgressOptions,
-    WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
+    Diagnostic, DiagnosticOptions, DiagnosticRegistrationOptions,
+    DiagnosticServerCapabilities, DiagnosticSeverity, DidChangeConfigurationParams,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidChangeWatchedFilesRegistrationOptions, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
+    DocumentFormattingParams, FileSystemWatcher, FullDocumentDiagnosticReport,
+    GlobPattern, Hover, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, MessageType, NumberOrString, OneOf, Position,
+    PrepareRenameResponse, PreviousResultId, ProgressToken, PublishDiagnosticsParams,
+    Range, Registration, RegistrationParams, RelatedFullDocumentDiagnosticReport,
+    RelatedUnchangedDocumentDiagnosticReport, RenameOptions, RenameParams,
+    ServerCapabilities, ServerInfo, ShowMessageParams, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
+    UnchangedDocumentDiagnosticReport, Unregistration, UnregistrationParams, Uri,
+    WorkDoneProgressOptions, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
     WorkspaceDiagnosticReportPartialResult, WorkspaceDocumentDiagnosticReport,
     WorkspaceEdit, WorkspaceFullDocumentDiagnosticReport,
     WorkspaceUnchangedDocumentDiagnosticReport,
@@ -121,8 +123,9 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
             .as_ref()
             .and_then(|general| general.position_encodings.as_deref()),
     );
+    let delivery = diagnostic_delivery(&params);
     let result = InitializeResult {
-        capabilities: server_capabilities(encoding),
+        capabilities: server_capabilities(encoding, delivery),
         server_info: Some(ServerInfo {
             name: "ryl".to_string(),
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -134,7 +137,8 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         serde_json::to_value(result).expect("server capabilities always serialize");
     let _ = connection.initialize_finish(id, result);
 
-    let settings = Settings::from_options(params.initialization_options.as_ref());
+    let (settings, settings_warning) =
+        Settings::from_options(params.initialization_options.as_ref());
 
     // `initialize_finish` blocks until the client's `initialized` arrives, so registering a
     // capability now respects the LSP ordering (not sent before `initialized`). Only when
@@ -144,7 +148,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
     }
 
     let (scan_tx, scan_rx) = unbounded();
-    let server = Server {
+    let mut server = Server {
         encoding,
         roots: workspace_roots(&params),
         supports_document_changes: params
@@ -154,9 +158,9 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
             .and_then(|workspace| workspace.workspace_edit.as_ref())
             .and_then(|workspace_edit| workspace_edit.document_changes)
             .unwrap_or(false),
-        push_diagnostics: !client_supports_pull_diagnostics(&params),
+        delivery,
         supports_diagnostic_refresh,
-        next_refresh_id: 0,
+        next_request_id: 0,
         settings,
         documents: HashMap::new(),
         reported_messages: HashSet::new(),
@@ -166,10 +170,17 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         scan_tx,
         scan_rx,
     };
+    if delivery == Delivery::RegisteredPull {
+        server.register_diagnostics(connection);
+    }
+    server.report_config_notices(connection, settings_warning.as_slice());
     server.message_loop(connection)
 }
 
-fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
+fn server_capabilities(
+    encoding: PositionEncoding,
+    delivery: Delivery,
+) -> ServerCapabilities {
     ServerCapabilities {
         position_encoding: Some(encoding.kind()),
         // INCREMENTAL: a change carries only the edited range; ryl re-lints the whole
@@ -184,15 +195,20 @@ fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
             prepare_provider: Some(true),
             work_done_progress_options: WorkDoneProgressOptions::default(),
         })),
-        diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
-            DiagnosticOptions {
-                identifier: Some("ryl".to_string()),
-                // Each YAML file is linted independently.
-                inter_file_dependencies: false,
-                workspace_diagnostics: true,
-                ..Default::default()
-            },
-        )),
+        // Registered after `initialized` instead when the client allows, so the
+        // workspace pull can follow `diagnosticMode` (see `Server::register_diagnostics`).
+        diagnostic_provider: (delivery != Delivery::RegisteredPull)
+            .then(|| DiagnosticServerCapabilities::Options(diagnostic_options(true))),
+        ..Default::default()
+    }
+}
+
+fn diagnostic_options(workspace_diagnostics: bool) -> DiagnosticOptions {
+    DiagnosticOptions {
+        identifier: Some("ryl".to_string()),
+        // Each YAML file is linted independently.
+        inter_file_dependencies: false,
+        workspace_diagnostics,
         ..Default::default()
     }
 }
@@ -207,17 +223,32 @@ fn client_supports_watch_registration(params: &InitializeParams) -> bool {
         .unwrap_or(false)
 }
 
-/// Whether the client uses the LSP 3.17 pull model. When it does the server must *not*
-/// also push `publishDiagnostics`: a client keeping the two channels in separate
-/// collections (e.g. VS Code) would list every diagnostic twice. Emit only one model per
-/// document.
-fn client_supports_pull_diagnostics(params: &InitializeParams) -> bool {
-    params
+/// How diagnostics reach a client: one model only, never both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Delivery {
+    Push,
+    /// Pull, advertised at initialize.
+    Pull,
+    /// Pull, registered by [`Server::register_diagnostics`].
+    RegisteredPull,
+}
+
+/// A client using the LSP 3.17 pull model must *not* also get `publishDiagnostics`: a
+/// client keeping the two channels in separate collections (e.g. VS Code) would list
+/// every diagnostic twice.
+fn diagnostic_delivery(params: &InitializeParams) -> Delivery {
+    match params
         .capabilities
         .text_document
         .as_ref()
         .and_then(|text_document| text_document.diagnostic.as_ref())
-        .is_some()
+    {
+        None => Delivery::Push,
+        Some(diagnostic) if diagnostic.dynamic_registration == Some(true) => {
+            Delivery::RegisteredPull
+        }
+        Some(_) => Delivery::Pull,
+    }
 }
 
 /// Whether the client accepts a server-initiated `workspace/diagnostic/refresh`. Only a
@@ -315,22 +346,7 @@ fn register_config_watchers(connection: &Connection, config_file: Option<&Path>)
     );
 }
 
-/// Ask a pull-capable client to re-pull every diagnostic. Fire-and-forget; `seq` keeps the
-/// id unique so a client can correlate concurrent refreshes.
-///
-/// `Value::Null` is the spec-correct no-params shape, not a malformed `"params":null`:
-/// `lsp_server::Request` tags `params` `skip_serializing_if = Value::is_null`, so it is
-/// omitted from the wire entirely.
-fn request_diagnostic_refresh(connection: &Connection, seq: i32) {
-    send(
-        connection,
-        Message::Request(Request::new(
-            RequestId::from(format!("ryl-refresh-diagnostics-{seq}")),
-            "workspace/diagnostic/refresh".to_string(),
-            serde_json::Value::Null,
-        )),
-    );
-}
+const DIAGNOSTIC_REGISTRATION_ID: &str = "ryl-diagnostics";
 
 /// An open document. `version` is stamped into edits so a client can drop one whose buffer
 /// moved on before it was applied.
@@ -341,13 +357,24 @@ struct Document {
 }
 
 /// Client-provided settings: a config-file path / inline data override (the CLI's
-/// `-c`/`-d`) and an on/off toggle (`ryl.enable`). `pub` only so the free `workspace_scan`
-/// is unit-testable.
+/// `-c`/`-d`), an on/off toggle (`ryl.enable`) and which files to report. `pub` only so
+/// the free `workspace_scan` is unit-testable.
 #[derive(Debug, Clone)]
 pub struct Settings {
     config_file: Option<PathBuf>,
     config_data: Option<String>,
     enable: bool,
+    diagnostic_mode: DiagnosticMode,
+}
+
+/// ty's `diagnosticMode`: whether pull diagnostics cover only open files, as in ruff,
+/// rumdl and biome, or every YAML file in the workspace.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum DiagnosticMode {
+    #[default]
+    OpenFilesOnly,
+    Workspace,
 }
 
 impl Default for Settings {
@@ -356,16 +383,30 @@ impl Default for Settings {
             config_file: None,
             config_data: None,
             enable: true,
+            diagnostic_mode: DiagnosticMode::default(),
         }
     }
 }
 
 impl Settings {
-    fn from_options(value: Option<&serde_json::Value>) -> Self {
+    /// The settings, plus a warning when `diagnosticMode` names no known mode.
+    fn from_options(value: Option<&serde_json::Value>) -> (Self, Option<String>) {
         let mut settings = Self::default();
+        let mut warning = None;
         // Accept either a bare settings object (`initializationOptions`) or one nested under
         // a `ryl` section (the `didChangeConfiguration` convention).
         if let Some(section) = value.map(|value| value.get("ryl").unwrap_or(value)) {
+            if let Some(mode) = section.get("diagnosticMode") {
+                match DiagnosticMode::deserialize(mode) {
+                    Ok(mode) => settings.diagnostic_mode = mode,
+                    Err(_) => {
+                        warning = Some(format!(
+                            "ryl: unknown diagnosticMode {mode}; expected \"openFilesOnly\" \
+                             or \"workspace\", using \"openFilesOnly\""
+                        ));
+                    }
+                }
+            }
             if let Some(path) = section.get("configPath").and_then(as_nonempty_str) {
                 settings.config_file = Some(PathBuf::from(path));
             }
@@ -378,7 +419,11 @@ impl Settings {
                 settings.enable = enable;
             }
         }
-        settings
+        (settings, warning)
+    }
+
+    fn reports_workspace(&self) -> bool {
+        self.diagnostic_mode == DiagnosticMode::Workspace
     }
 
     fn overrides(&self) -> Overrides {
@@ -399,13 +444,13 @@ struct Server {
     /// files in a `workspace/diagnostic` pull. Empty when the client sent no folders.
     roots: Vec<PathBuf>,
     supports_document_changes: bool,
-    /// Whether to push `publishDiagnostics`. False for a pull client so it gets diagnostics
-    /// once via pull, not twice (see [`client_supports_pull_diagnostics`]).
-    push_diagnostics: bool,
+    /// Push or pull, so a pull client gets diagnostics once, not twice (see
+    /// [`diagnostic_delivery`]).
+    delivery: Delivery,
     supports_diagnostic_refresh: bool,
-    /// Each `workspace/diagnostic/refresh` needs a distinct id (JSON-RPC forbids reusing one
-    /// for an outstanding request, and config changes can fire several in a row).
-    next_refresh_id: i32,
+    /// Each server-to-client request needs a distinct id (JSON-RPC forbids reusing one for
+    /// an outstanding request, and config changes can fire several in a row).
+    next_request_id: i32,
     settings: Settings,
     documents: HashMap<String, Document>,
     /// Config errors and warnings already surfaced via `window/showMessage`, so each is
@@ -595,8 +640,26 @@ impl Server {
                 if let Some(params) =
                     parse::<DidChangeConfigurationParams>(&params) =>
             {
-                self.settings = Settings::from_options(Some(&params.settings));
+                let (settings, warning) =
+                    Settings::from_options(Some(&params.settings));
+                let mode_changed =
+                    settings.diagnostic_mode != self.settings.diagnostic_mode;
+                self.settings = settings;
+                if self.delivery == Delivery::RegisteredPull && mode_changed {
+                    self.client_request(
+                        connection,
+                        "client/unregisterCapability",
+                        UnregistrationParams {
+                            unregisterations: vec![Unregistration {
+                                id: DIAGNOSTIC_REGISTRATION_ID.to_string(),
+                                method: "textDocument/diagnostic".to_string(),
+                            }],
+                        },
+                    );
+                    self.register_diagnostics(connection);
+                }
                 self.handle_config_change(connection);
+                self.report_config_notices(connection, warning.as_slice());
                 self.wake(connection);
             }
             "$/cancelRequest"
@@ -684,7 +747,7 @@ impl Server {
         version: Option<i32>,
         diagnostics: Vec<Diagnostic>,
     ) {
-        if self.push_diagnostics {
+        if self.delivery == Delivery::Push {
             publish(connection, uri, version, diagnostics);
         }
     }
@@ -695,12 +758,57 @@ impl Server {
     /// refresh support re-pulls only on its own cadence.
     fn handle_config_change(&mut self, connection: &Connection) {
         self.reported_messages.clear();
-        if self.push_diagnostics {
+        if self.delivery == Delivery::Push {
             self.relint_open_documents(connection);
         } else if self.supports_diagnostic_refresh {
-            self.next_refresh_id += 1;
-            request_diagnostic_refresh(connection, self.next_refresh_id);
+            // `Value::Null` is the spec-correct no-params shape: `lsp_server::Request`
+            // omits a null `params` from the wire entirely.
+            self.client_request(
+                connection,
+                "workspace/diagnostic/refresh",
+                serde_json::Value::Null,
+            );
         }
+    }
+
+    /// Register pull diagnostics with `workspaceDiagnostics` following `diagnosticMode`,
+    /// as ty does: without it a client like VS Code never sends `workspace/diagnostic`,
+    /// and clears a file's diagnostics itself on close rather than waiting for a workspace
+    /// report that `openFilesOnly` would never send.
+    fn register_diagnostics(&mut self, connection: &Connection) {
+        let options = DiagnosticRegistrationOptions {
+            diagnostic_options: diagnostic_options(self.settings.reports_workspace()),
+            ..Default::default()
+        };
+        self.client_request(
+            connection,
+            "client/registerCapability",
+            RegistrationParams {
+                registrations: vec![Registration {
+                    id: DIAGNOSTIC_REGISTRATION_ID.to_string(),
+                    method: "textDocument/diagnostic".to_string(),
+                    register_options: serde_json::to_value(options).ok(),
+                }],
+            },
+        );
+    }
+
+    /// Send a fire-and-forget request; the client's response is ignored.
+    fn client_request<P: serde::Serialize>(
+        &mut self,
+        connection: &Connection,
+        method: &str,
+        params: P,
+    ) {
+        self.next_request_id += 1;
+        send(
+            connection,
+            Message::Request(Request::new(
+                RequestId::from(format!("ryl-request-{}", self.next_request_id)),
+                method.to_string(),
+                params,
+            )),
+        );
     }
 
     fn relint_open_documents(&mut self, connection: &Connection) {
@@ -989,7 +1097,13 @@ impl Server {
         let flag = Arc::clone(&cancel);
         let sink = ReportSink::new(connection.sender.clone(), token);
         let results = self.scan_tx.clone();
-        let roots = self.roots.clone();
+        // Walking no roots still clears every file reported before a switch away from
+        // `workspace` mode, then leaves the pull held open.
+        let roots = if self.settings.reports_workspace() {
+            self.roots.clone()
+        } else {
+            Vec::new()
+        };
         let settings = self.settings.clone();
         let encoding = self.encoding;
         let open = self.open_snapshot();
@@ -1090,9 +1204,14 @@ impl Server {
         )
     }
 
+    /// The text to pull diagnostics for. `None` for a closed file in `openFilesOnly` mode,
+    /// so the pull a client makes as it closes a file clears that file.
     fn document_text(&self, uri: &str) -> Option<String> {
         if let Some(document) = self.documents.get(uri) {
             return Some(document.text.clone());
+        }
+        if !self.settings.reports_workspace() {
+            return None;
         }
         let path = uri_to_path(uri)?;
         crate::decoder::read_file(&path).ok()
