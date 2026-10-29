@@ -71,10 +71,12 @@ documents:
 | `enable` (bool, default `true`) | `false` turns ryl off: no diagnostics, no actions |
 | `configPath` (string) | Use this config file instead of discovering one (like `ryl check -c`) |
 | `configData` (string) | Inline config text (TOML, or deprecated YAML), highest precedence (like `ryl check -d`) |
-| `diagnosticMode` (string, default `"openFilesOnly"`) | `"openFilesOnly"` reports open files only, as Ruff does; `"workspace"` also reports every `*.yaml`/`*.yml` under the workspace roots through `workspace/diagnostic`, as ty's setting of the same name does. An unknown value is reported and falls back to `"openFilesOnly"` |
+| `diagnosticMode` (string, default `"openFilesOnly"`) | `"openFilesOnly"` reports open files only, as Ruff does; `"workspace"` also reports every `*.yaml`/`*.yml` under the workspace roots through `workspace/diagnostic`, as ty's setting of the same name does. |
 
 These are the same precedence as the CLI: `configData` > `configPath` > the discovered
-project/user config.
+project/user config. A setting of the wrong type, or an unknown `diagnosticMode`, is
+reported through `window/showMessage` and ignored, keeping its default; `null` counts as
+unset.
 
 ## Neovim
 

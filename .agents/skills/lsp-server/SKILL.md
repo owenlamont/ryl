@@ -89,7 +89,8 @@ has no per-occurrence fix; code actions honour `context.only`.
 Resolved per document via `discover_config` (full CLI precedence incl.
 `YAMLLINT_CONFIG_FILE`), layering the client's `Settings` (`initializationOptions` /
 `workspace/didChangeConfiguration`: `configPath`/`configData`/`enable`, CLI-equivalent
-precedence, plus `diagnosticMode`, whose unknown value is reported via `showMessage`).
+precedence, plus `diagnosticMode`). `read_setting` reports a mistyped or unknown value via
+`showMessage` and ignores it; `null` counts as unset.
 
 Config-file changes go through `handle_config_change` via a dynamic
 `didChangeWatchedFiles` registration: a push client gets a re-lint+re-push, a pull

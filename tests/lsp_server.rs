@@ -44,6 +44,10 @@ const UNHANDLED_METHOD: &str = "ryl/internalUnhandledProbe";
 /// that the server is long-polling it rather than merely slow.
 const SUSPEND_GRACE: Duration = Duration::from_millis(500);
 
+/// How long any awaited message may take: far above a slow CI runner's scan of a test
+/// workspace, so tripping it means the server will never send the message.
+const RECV_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// The `didChangeWatchedFiles` payload a client sends when the project's config changed
 /// (`type: 2` is the spec's `Changed`).
 fn changed_config(dir: &Path) -> Value {
@@ -318,10 +322,19 @@ impl Client {
         self.conn().sender.send(message).expect("send raw");
     }
 
+    /// The next server message; a server that has gone quiet fails the test rather than
+    /// hanging it.
+    fn recv(&self) -> Message {
+        self.conn()
+            .receiver
+            .recv_timeout(RECV_TIMEOUT)
+            .expect("the server sends the awaited message within RECV_TIMEOUT")
+    }
+
     /// Receive the response to `id`, skipping any notifications queued ahead of it.
     fn response(&self, id: &RequestId) -> Response {
         loop {
-            match self.conn().receiver.recv().expect("recv") {
+            match self.recv() {
                 Message::Response(response) if &response.id == id => return response,
                 _ => {}
             }
@@ -355,7 +368,7 @@ impl Client {
     ) -> (Vec<Notification>, Response) {
         let mut notifications = Vec::new();
         loop {
-            match self.conn().receiver.recv().expect("recv") {
+            match self.recv() {
                 Message::Response(response) if &response.id == id => {
                     return (notifications, response);
                 }
@@ -372,7 +385,7 @@ impl Client {
     fn messages_until_response(&self, id: &RequestId) -> (Vec<Message>, Response) {
         let mut messages = Vec::new();
         loop {
-            match self.conn().receiver.recv().expect("recv") {
+            match self.recv() {
                 Message::Response(response) if &response.id == id => {
                     return (messages, response);
                 }
@@ -389,8 +402,7 @@ impl Client {
     /// the version the diagnostics were computed against).
     fn publish_params(&self) -> PublishDiagnosticsParams {
         loop {
-            if let Message::Notification(note) =
-                self.conn().receiver.recv().expect("recv")
+            if let Message::Notification(note) = self.recv()
                 && note.method == "textDocument/publishDiagnostics"
             {
                 return serde_json::from_value(note.params)
@@ -404,7 +416,7 @@ impl Client {
     fn drain_to_publish(&self) -> Vec<Message> {
         let mut messages = Vec::new();
         loop {
-            let message = self.conn().receiver.recv().expect("recv");
+            let message = self.recv();
             let is_publish = matches!(
                 &message,
                 Message::Notification(note)
@@ -648,13 +660,11 @@ impl Client {
         );
     }
 
-    /// Receive the next server-to-client request, skipping notifications/responses.
     /// Block until the first `$/progress` carrying `token`, so a test can act on a scan
     /// that is provably past its directory walk.
     fn recv_progress(&self, token: &str) {
         loop {
-            if let Message::Notification(note) =
-                self.conn().receiver.recv().expect("recv")
+            if let Message::Notification(note) = self.recv()
                 && note.method == "$/progress"
                 && note.params["token"] == token
             {
@@ -663,11 +673,10 @@ impl Client {
         }
     }
 
+    /// Receive the next server-to-client request, skipping notifications/responses.
     fn recv_request(&self) -> Request {
         loop {
-            if let Message::Request(request) =
-                self.conn().receiver.recv().expect("recv")
-            {
+            if let Message::Request(request) = self.recv() {
                 return request;
             }
         }
@@ -2909,6 +2918,31 @@ fn malformed_did_change_configuration_is_ignored() {
         Value::String("bad".to_string()),
     );
     client.assert_alive();
+}
+
+#[test]
+fn mistyped_settings_are_reported_and_ignored() {
+    let dir = project(TRAILING);
+    let options = json!({ "enable": "no", "configPath": 3, "configData": null });
+    let (mut client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, Some(options));
+    let id = client.request(UNHANDLED_METHOD, Value::Null);
+    let (messages, _) = client.messages_until_response(&id);
+    let warnings: Vec<String> = messages.iter().filter_map(warning_text).collect();
+    assert_eq!(
+        warnings,
+        [
+            "ryl: ignoring setting configPath = 3; expected a string",
+            "ryl: ignoring setting enable = \"no\"; expected true or false",
+        ],
+        "each mistyped setting is reported once; a null one counts as unset"
+    );
+    client.did_open(file_uri(dir.path(), "x.yaml"), "a: 1 \n");
+    assert_eq!(
+        client.diagnostics().len(),
+        1,
+        "the ignored settings keep their defaults, so linting stays on"
+    );
 }
 
 #[test]

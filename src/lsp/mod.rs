@@ -137,7 +137,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         serde_json::to_value(result).expect("server capabilities always serialize");
     let _ = connection.initialize_finish(id, result);
 
-    let (settings, settings_warning) =
+    let (settings, settings_warnings) =
         Settings::from_options(params.initialization_options.as_ref());
 
     // `initialize_finish` blocks until the client's `initialized` arrives, so registering a
@@ -174,7 +174,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
     if delivery == Delivery::RegisteredPull {
         server.register_diagnostics(connection);
     }
-    server.report_config_notices(connection, settings_warning.as_slice());
+    server.report_config_notices(connection, &settings_warnings);
     server.message_loop(connection)
 }
 
@@ -390,37 +390,46 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// The settings, plus a warning when `diagnosticMode` names no known mode.
-    fn from_options(value: Option<&serde_json::Value>) -> (Self, Option<String>) {
+    /// The settings, plus a warning for each one ignored as mistyped or unknown.
+    fn from_options(value: Option<&serde_json::Value>) -> (Self, Vec<String>) {
         let mut settings = Self::default();
-        let mut warning = None;
+        let mut warnings = Vec::new();
         // Accept either a bare settings object (`initializationOptions`) or one nested under
         // a `ryl` section (the `didChangeConfiguration` convention).
         if let Some(section) = value.map(|value| value.get("ryl").unwrap_or(value)) {
-            if let Some(mode) = section.get("diagnosticMode") {
-                match DiagnosticMode::deserialize(mode) {
-                    Ok(mode) => settings.diagnostic_mode = mode,
-                    Err(_) => {
-                        warning = Some(format!(
-                            "ryl: unknown diagnosticMode {mode}; expected \"openFilesOnly\" \
-                             or \"workspace\", using \"openFilesOnly\""
-                        ));
-                    }
-                }
-            }
-            if let Some(path) = section.get("configPath").and_then(as_nonempty_str) {
+            let string = serde_json::Value::as_str;
+            if let Some(path) =
+                read_setting(section, "configPath", "a string", string, &mut warnings)
+                && !path.is_empty()
+            {
                 settings.config_file = Some(PathBuf::from(path));
             }
-            if let Some(data) = section.get("configData").and_then(as_nonempty_str) {
+            if let Some(data) =
+                read_setting(section, "configData", "a string", string, &mut warnings)
+                && !data.is_empty()
+            {
                 settings.config_data = Some(data.to_string());
             }
-            if let Some(enable) =
-                section.get("enable").and_then(serde_json::Value::as_bool)
-            {
+            if let Some(enable) = read_setting(
+                section,
+                "enable",
+                "true or false",
+                serde_json::Value::as_bool,
+                &mut warnings,
+            ) {
                 settings.enable = enable;
             }
+            if let Some(mode) = read_setting(
+                section,
+                "diagnosticMode",
+                "\"openFilesOnly\" or \"workspace\"",
+                |value| DiagnosticMode::deserialize(value).ok(),
+                &mut warnings,
+            ) {
+                settings.diagnostic_mode = mode;
+            }
         }
-        (settings, warning)
+        (settings, warnings)
     }
 
     fn reports_workspace(&self) -> bool {
@@ -435,8 +444,23 @@ impl Settings {
     }
 }
 
-fn as_nonempty_str(value: &serde_json::Value) -> Option<&str> {
-    value.as_str().filter(|text| !text.is_empty())
+/// `key`'s value when `parse` accepts it. A null counts as unset; any other value `parse`
+/// rejects is warned about rather than silently ignored.
+fn read_setting<'a, T>(
+    section: &'a serde_json::Value,
+    key: &str,
+    expected: &str,
+    parse: impl FnOnce(&'a serde_json::Value) -> Option<T>,
+    warnings: &mut Vec<String>,
+) -> Option<T> {
+    let value = section.get(key).filter(|value| !value.is_null())?;
+    let parsed = parse(value);
+    if parsed.is_none() {
+        warnings.push(format!(
+            "ryl: ignoring setting {key} = {value}; expected {expected}"
+        ));
+    }
+    parsed
 }
 
 struct Server {
@@ -654,7 +678,7 @@ impl Server {
                 if let Some(params) =
                     parse::<DidChangeConfigurationParams>(&params) =>
             {
-                let (settings, warning) =
+                let (settings, warnings) =
                     Settings::from_options(Some(&params.settings));
                 let mode_changed =
                     settings.diagnostic_mode != self.settings.diagnostic_mode;
@@ -673,7 +697,7 @@ impl Server {
                     self.register_diagnostics(connection);
                 }
                 self.handle_config_change(connection);
-                self.report_config_notices(connection, warning.as_slice());
+                self.report_config_notices(connection, &warnings);
                 self.wake(connection);
             }
             "$/cancelRequest"
