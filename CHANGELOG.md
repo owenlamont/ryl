@@ -39,6 +39,8 @@ summarize user-visible changes from the tagged commits and published release rec
   file contains a byte order mark.
 - Formatting preserves a compact collection's opening gap when the collection's
   indentation cannot be changed safely.
+- Restyling a collection no longer dedents a quoted scalar's final continuation
+  line that starts with `#` when the file has no final line break.
 - Formatting and lint fixes preserve ytt `#@` directives and their inline spacing
   instead of converting them into ordinary comments, and the `comments` rule no
   longer reports them.
