@@ -18,6 +18,10 @@ pub(crate) use target::Magic;
 
 pub const ID: &str = "comments";
 
+pub(crate) fn is_ytt_directive(comment_text: &str) -> bool {
+    comment_text.starts_with('@')
+}
+
 pub(crate) struct Trailing(Option<std::ops::Range<usize>>);
 
 impl Trailing {
@@ -158,7 +162,7 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Viol
     for comment in
         crate::rules::support::comments_scan::collect_comments_with_analysis(input)
     {
-        if comment.text.starts_with('@') {
+        if is_ytt_directive(&comment.text) {
             continue;
         }
         let line = comment.span.start.line();
@@ -238,7 +242,7 @@ pub(crate) fn edits(input: Analysis<'_>, cfg: &Config) -> Vec<Edit> {
     for comment in
         crate::rules::support::comments_scan::collect_comments_with_analysis(input)
     {
-        if comment.text.starts_with('@') {
+        if is_ytt_directive(&comment.text) {
             continue;
         }
         let byte_start = comment_byte_start(&comment);

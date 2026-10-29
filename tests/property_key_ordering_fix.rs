@@ -1,7 +1,7 @@
 //! Property tests for `key-ordering`'s `--fix` over the shapes its bail conditions
 //! guard: nested and sequence-item mappings, leading, trailing and loose comments,
 //! anchors and aliases, merge keys, same-key spellings, keep-chomping scalars, tags,
-//! explicit keys, flow mappings, and suppression directives.
+//! explicit keys, flow mappings, suppression directives, and ytt `#@` directives.
 //!
 //! Invariants, under a codepoint config, a locale-plus-`ignored-keys` config, and
 //! `orders` configs with either `unlisted` value:
@@ -9,6 +9,7 @@
 //!  * every line survives, so no text is lost or invented;
 //!  * each comment classified as leading (directly above a key at its column) or
 //!    trailing (indented deeper than the line above) keeps its anchor line;
+//!  * every own-line ytt `#@` directive keeps its line, since ytt reads it in place;
 //!  * the fixer never needs its verification backstop: every mapping still out of
 //!    order is named by `unfixed` with a bail reason, and when `unfixed` names none,
 //!    no `key-ordering` diagnostic remains.
@@ -98,6 +99,7 @@ fn arb_entry(map: BoxedStrategy<Map>) -> impl Strategy<Value = Entry> {
                 1 => Just("# ryl disable-line rule:key-ordering"),
                 1 => Just("# ryl disable rule:truthy"),
                 1 => Just("# ryl disable-line rule:truthy"),
+                1 => Just("#@overlay/match missing_ok=True"),
             ],
         ),
         prop_oneof![
@@ -113,6 +115,7 @@ fn arb_entry(map: BoxedStrategy<Map>) -> impl Strategy<Value = Entry> {
             0.2,
             prop_oneof![
                 5 => Just("# note"),
+                1 => Just("#@ value"),
                 1 => Just("# ryl disable-line rule:key-ordering"),
             ],
         ),
@@ -241,6 +244,13 @@ fn attachments(text: &str) -> Vec<(char, String, String)> {
     found
 }
 
+fn own_line_ytt_directives(text: &str) -> Vec<(usize, &str)> {
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| line.trim_start().starts_with("#@"))
+        .collect()
+}
+
 fn sorted_lines(text: &str) -> Vec<String> {
     let mut lines: Vec<String> =
         text.lines().map(|line| anchor(line).to_owned()).collect();
@@ -276,6 +286,11 @@ proptest! {
                 attachments(&fixed),
                 attachments(&input),
                 "a comment changed anchor; input {:?}; fixed {:?}", input, fixed
+            );
+            prop_assert_eq!(
+                own_line_ytt_directives(&fixed),
+                own_line_ytt_directives(&input),
+                "a ytt directive line moved; input {:?}; fixed {:?}", input, fixed
             );
             let rule = key_ordering::Config::resolve(cfg, path);
             let unfixed = key_ordering::unfixed(&fixed, &rule, &[]);
