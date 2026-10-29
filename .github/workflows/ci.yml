@@ -91,8 +91,8 @@ jobs:
       - name: Test the coverage gate helper
         run: uv run --no-project --python 3.15 --with pytest pytest -q .agents/skills/coverage/test_coverage_missing.py
 
-      - name: Test the release gate scripts
-        run: uv run --script tests/test_release_gates.py
+      - name: Test the Python scripts
+        run: for test in tests/test_*.py; do uv run --script "$test"; done
 
       - name: Run tests with coverage (nextest + cargo-llvm-cov)
         env:
