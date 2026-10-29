@@ -2091,47 +2091,39 @@ fn rename_is_disabled_for_markdown_documents() {
 }
 
 #[test]
-fn document_diagnostic_pull_reads_a_closed_file_only_in_workspace_mode() {
+fn document_diagnostic_pull_reports_open_and_disk_files() {
     let dir = project(TRAILING);
     let (mut client, _init) = Client::launch(None, None);
     let open = file_uri(dir.path(), "open.yaml");
     client.did_open(open.clone(), "a: 1 \n");
     let _ = client.diagnostics();
-    let pulled = |client: &mut Client, uri: &Uri| {
-        let DocumentDiagnosticReport::Full(report) = client.document_diagnostic(uri)
-        else {
-            panic!("expected a full report");
-        };
-        report.full_document_diagnostic_report.items.len()
+    let DocumentDiagnosticReport::Full(report) = client.document_diagnostic(&open)
+    else {
+        panic!("expected a full report");
     };
     assert_eq!(
-        pulled(&mut client, &open),
+        report.full_document_diagnostic_report.items.len(),
         1,
         "the open buffer is linted on pull"
     );
+    // A file only on disk is read and linted too.
     std::fs::write(dir.path().join("disk.yaml"), "b: 2 \n").expect("write disk file");
     let on_disk = file_uri(dir.path(), "disk.yaml");
+    let DocumentDiagnosticReport::Full(report) = client.document_diagnostic(&on_disk)
+    else {
+        panic!("expected a full report");
+    };
     assert_eq!(
-        pulled(&mut client, &on_disk),
-        0,
-        "openFilesOnly answers a closed file empty, clearing it as the client closes it"
-    );
-    client.notify(
-        "workspace/didChangeConfiguration",
-        json!({ "settings": workspace_mode() }),
-    );
-    assert_eq!(
-        pulled(&mut client, &on_disk),
+        report.full_document_diagnostic_report.items.len(),
         1,
-        "workspace mode reads a closed file from disk and lints it"
+        "a closed file is read from disk and linted"
     );
 }
 
 #[test]
 fn document_diagnostic_pull_is_empty_for_unreadable_targets() {
     let dir = project(TRAILING);
-    let (mut client, _init) =
-        Client::launch_with(None, None, true, None, false, Some(workspace_mode()));
+    let (mut client, _init) = Client::launch(None, None);
     let missing = file_uri(dir.path(), "nope.yaml");
     let DocumentDiagnosticReport::Full(report) = client.document_diagnostic(&missing)
     else {
@@ -2551,21 +2543,22 @@ fn a_dynamic_client_registers_workspace_diagnostics_only_in_workspace_mode() {
 }
 
 #[test]
-fn leaving_workspace_mode_clears_reported_files_then_holds_the_pull() {
+fn a_static_pull_client_has_a_closed_file_cleared_by_the_workspace_pull() {
     let dir = project(TRAILING);
     std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("write");
-    let (mut client, _init) = Client::launch_pull(Some(dir.path()), false);
-    let previous = previous_result_ids(&client.workspace_diagnostic());
-    assert_eq!(previous.len(), 1, "workspace mode reports the closed file");
+    let (mut client, _init) =
+        Client::launch_params(Client::pull_params(Some(dir.path()), false));
+    let bad = file_uri(dir.path(), "bad.yaml");
+    client.did_open(bad.clone(), "a: 1 \n");
+    let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    assert!(
+        client.response_within(&id).is_none(),
+        "openFilesOnly scans no files, so the pull is held open"
+    );
 
-    client.notify(
-        "workspace/didChangeConfiguration",
-        json!({ "settings": { "diagnosticMode": "openFilesOnly" } }),
-    );
-    let id = client.request(
-        "workspace/diagnostic",
-        json!({ "previousResultIds": previous }),
-    );
+    // vscode-languageclient keeps the report from its last document pull, made before
+    // `didClose`, until a workspace report replaces it.
+    client.did_close(bad.clone());
     let report: WorkspaceDiagnosticReport = serde_json::from_value(
         client.response(&id).response_result.expect("pull answered"),
     )
@@ -2573,13 +2566,13 @@ fn leaving_workspace_mode_clears_reported_files_then_holds_the_pull() {
     assert_matches!(
         report.items.as_slice(),
         [WorkspaceDocumentDiagnosticReport::Full(full)]
-            if full.full_document_diagnostic_report.items.is_empty(),
-        "the file reported under workspace mode is cleared"
+            if full.uri == bad && full.full_document_diagnostic_report.items.is_empty(),
+        "the closed file is cleared"
     );
     let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
     assert!(
         client.response_within(&id).is_none(),
-        "openFilesOnly scans no files, so the pull is held open"
+        "a closed file is cleared once, then the pull is held again"
     );
 }
 

@@ -166,6 +166,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         reported_messages: HashSet::new(),
         workers: Vec::new(),
         pull: None,
+        closed: HashSet::new(),
         revision: 0,
         scan_tx,
         scan_rx,
@@ -462,6 +463,10 @@ struct Server {
     /// The client's outstanding `workspace/diagnostic` pull; at most one, since the client
     /// sends the next only once this is answered.
     pull: Option<Pull>,
+    /// Files a static pull client closed in `openFilesOnly` mode, cleared by the next
+    /// answered workspace pull: `vscode-languageclient` makes its last document pull
+    /// before `didClose` and then keeps that report until a workspace one replaces it.
+    closed: HashSet<PathBuf>,
     /// Bumped by every notification that can change a lint, marking older scans stale.
     revision: u64,
     /// Scans report back here rather than answering, so the hold-or-respond decision is
@@ -605,6 +610,9 @@ impl Server {
                 if let Some(params) = parse::<DidOpenTextDocumentParams>(&params) =>
             {
                 let document = params.text_document;
+                if let Some(path) = uri_to_path(document.uri.as_str()) {
+                    self.closed.remove(&path);
+                }
                 self.update(connection, document.uri, document.version, document.text);
                 self.wake(connection);
             }
@@ -619,6 +627,12 @@ impl Server {
             {
                 let uri = params.text_document.uri;
                 self.documents.remove(uri.as_str());
+                if self.delivery == Delivery::Pull
+                    && !self.settings.reports_workspace()
+                    && let Some(path) = uri_to_path(uri.as_str())
+                {
+                    self.closed.insert(path);
+                }
                 self.push(connection, uri, None, Vec::new());
                 self.wake(connection);
             }
@@ -1087,9 +1101,15 @@ impl Server {
         &mut self,
         connection: &Connection,
         id: RequestId,
-        previous: PreviousIds,
+        mut previous: PreviousIds,
         token: Option<ProgressToken>,
     ) {
+        // Reported as uncovered, so the walk clears each one.
+        for path in &self.closed {
+            previous
+                .entry(path.clone())
+                .or_insert_with(|| (path_to_uri(path), String::new()));
+        }
         // A superseded scan's result is dropped as stale by `finish_scan`.
         self.cancel_workers();
         self.workers.retain(|worker| !worker.handle.is_finished());
@@ -1127,6 +1147,7 @@ impl Server {
         };
         match self.scan_answer(&pull, result) {
             Some(items) => {
+                self.closed.clear();
                 respond(connection, pull.id, WorkspaceDiagnosticReport { items });
             }
             None => self.pull = Some(pull),
@@ -1204,14 +1225,9 @@ impl Server {
         )
     }
 
-    /// The text to pull diagnostics for. `None` for a closed file in `openFilesOnly` mode,
-    /// so the pull a client makes as it closes a file clears that file.
     fn document_text(&self, uri: &str) -> Option<String> {
         if let Some(document) = self.documents.get(uri) {
             return Some(document.text.clone());
-        }
-        if !self.settings.reports_workspace() {
-            return None;
         }
         let path = uri_to_path(uri)?;
         crate::decoder::read_file(&path).ok()

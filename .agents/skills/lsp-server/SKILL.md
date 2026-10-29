@@ -34,8 +34,9 @@ client with `textDocument.diagnostic.dynamicRegistration` gets no static
 it. That registration is what makes VS Code stop pulling the workspace and clear a closed
 file itself (`vscode-languageclient`'s `forgetDocument` keeps a closed file's diagnostics
 while `workspaceDiagnostics` is on). A static client in `openFilesOnly` gets a scan of no
-roots (so earlier workspace reports are cleared, then the pull is held) and an empty
-document pull for an unopened file.
+roots (so earlier workspace reports are cleared, then the pull is held), plus
+`Server::closed`: each file it closes is fed into the next scan as an uncovered previous
+id, since its last document pull went out before `didClose`.
 
 Pull diagnostics are `textDocument/diagnostic` + `workspace/diagnostic`, the latter over
 a per-entry-cancellable `discover::gather_yaml_from_dir_cancellable` walk of every root,

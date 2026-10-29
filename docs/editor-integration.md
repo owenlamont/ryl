@@ -163,9 +163,9 @@ issue tracker: [owenlamont/ryl-vscode](https://github.com/owenlamont/ryl-vscode)
 - **Only open files are diagnosed by default.** In the default `openFilesOnly` mode a
   client that supports dynamic registration (VS Code does) is told not to pull
   `workspace/diagnostic` at all, so it clears a file's diagnostics when the file closes.
-  Any other client gets an empty answer to a workspace pull, held open, and an empty one
-  to a document pull for a file that is not open. A push client only ever gets open
-  documents, whatever the mode.
+  Any other pull client gets a workspace pull that walks no files and is held open,
+  answered only to clear a file the client has just closed. A push client only ever gets
+  open documents, whatever the mode.
 - **Workspace pull diagnostics**, with `diagnosticMode: "workspace"`, cover
   `*.yaml`/`*.yml` files under each workspace root (git-ignored files excluded); Markdown and files matched only by custom `[files]` globs
   are diagnosed when opened or pulled individually. The scan runs on a background thread
