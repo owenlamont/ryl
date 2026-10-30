@@ -191,3 +191,17 @@ fn named_jinja_template_is_refused() {
         assert!(out.contains("<stdin>: a Jinja template"), "{args:?}: {out}");
     }
 }
+
+#[test]
+fn named_template_is_refused_under_an_encoding_override() {
+    let td = tempdir().unwrap();
+    let path = td.path().join("t.yaml");
+    fs::write(&path, b"#!jinja|yaml\na: \"caf\xe9\"\n").unwrap();
+    let (code, out) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .env("HOME", td.path())
+        .env("YAMLLINT_FILE_ENCODING", "latin-1")
+        .arg("format")
+        .arg(&path));
+    assert_eq!(code, 2, "a Latin-1 template is refused: {out}");
+    assert!(out.contains("a Jinja template"), "{out}");
+}

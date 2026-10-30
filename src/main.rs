@@ -1563,12 +1563,15 @@ fn resolve_stdin_kind(
 }
 
 /// Whether the file opens with a Jinja renderer header; an unreadable file reads as not,
-/// so its read error surfaces where the file is linted. The encoding override is ignored
-/// so its warning prints once, where the file is read.
+/// so its read error surfaces where the file is linted. The encoding override is read
+/// directly so its warning prints once, where the file is read.
 fn has_jinja_header(path: &Path) -> bool {
+    let encoding = std::env::var("YAMLLINT_FILE_ENCODING").ok();
     std::fs::read(path)
         .ok()
-        .and_then(|bytes| decoder::decode_bytes_with_override(&bytes, None).ok())
+        .and_then(|bytes| {
+            decoder::decode_bytes_with_override(&bytes, encoding.as_deref()).ok()
+        })
         .is_some_and(|text| starts_with_jinja_header(&text))
 }
 

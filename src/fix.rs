@@ -962,7 +962,10 @@ pub fn decoded_diff_outcome(
     kind: SourceKind,
     rewrite: Rewrite,
 ) -> DiffOutcome {
-    if decoded.is_plain_utf8() || crate::directives::disables_file(decoded.content()) {
+    if decoded.is_plain_utf8()
+        || kind == SourceKind::Yaml
+            && crate::directives::disables_file(decoded.content())
+    {
         return diff_outcome(decoded.content(), cfg, path, base_dir, kind, rewrite);
     }
     let mut outcome =
