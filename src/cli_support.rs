@@ -27,6 +27,75 @@ pub fn small_file_batch(files: &[LintFile]) -> bool {
     }
 }
 
+/// `compute` each file on the rayon pool and hand the results to `emit` in input order,
+/// stopping at `emit`'s first error. The caller is not a pool worker, so it emits while
+/// every worker computes; tasks never block, so a nested `rayon::join` cannot deadlock.
+///
+/// # Errors
+///
+/// Returns the first error from `emit`.
+///
+/// # Panics
+///
+/// Re-raises a panic from `compute`.
+pub fn try_for_each_ordered<R: Send, E>(
+    files: &[LintFile],
+    compute: impl Fn(&LintFile) -> R + Sync,
+    mut emit: impl FnMut(usize, R) -> Result<(), E>,
+) -> Result<(), E> {
+    if small_file_batch(files) {
+        return files
+            .iter()
+            .enumerate()
+            .try_for_each(|(index, file)| emit(index, compute(file)));
+    }
+    // Several small files per task amortise the wakeup each spawn costs.
+    let threads = rayon::current_num_threads();
+    let chunk = (files.len() / (threads * 4)).clamp(1, 8);
+    // Tasks computed past the oldest unemitted one: enough to keep every worker busy past
+    // a slow file while memory stays flat in the file count.
+    let in_flight = threads * 8;
+    let chunks = files.len().div_ceil(chunk);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    rayon::in_place_scope_fifo(|scope| {
+        let spawn = |task: usize| {
+            let (sender, compute) = (sender.clone(), &compute);
+            scope.spawn_fifo(move |_| {
+                let start = task * chunk;
+                let batch = &files[start..files.len().min(start + chunk)];
+                let results =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        batch.iter().map(compute).collect::<Vec<_>>()
+                    }));
+                let _ = sender.send((task, results.ok()));
+            });
+        };
+        (0..chunks.min(in_flight)).for_each(spawn);
+        let mut ring: Vec<Option<Option<Vec<R>>>> =
+            std::iter::repeat_with(|| None).take(in_flight).collect();
+        for task in 0..chunks {
+            let results = loop {
+                if let Some(results) = ring[task % in_flight].take() {
+                    break results;
+                }
+                let (done, results) = receiver.recv().expect("a spawned task replies");
+                ring[done % in_flight] = Some(results);
+            };
+            if task + in_flight < chunks {
+                spawn(task + in_flight);
+            }
+            for (offset, result) in results
+                .expect("a file's worker panicked")
+                .into_iter()
+                .enumerate()
+            {
+                emit(task * chunk + offset, result)?;
+            }
+        }
+        Ok(())
+    })
+}
+
 mod stderr;
 pub(crate) use stderr::write_file_stderr;
 

@@ -52,21 +52,22 @@ keeps the default console target.
 
 ## Pipeline
 
-`collect_records` does the shared filter+tally once into format-agnostic
-`FileRecord{path,kept,error}`; `write_targets` renders each target via `render_target`
-(`render_streaming` + an `append_*` fn for console formats; `render_junit`/
-`render_gitlab` over `build_entries` for reports, built once and shared) and streams
-it to each `open_destination` through `OutputSink::commit`. Console formats write one
-file's block at a time through a `BufWriter`, so output never accumulates for the whole
-run; reports render in memory, since JUnit's root counts precede the body.
+`LintSummary::record` does the shared filter+tally once per file into a format-agnostic
+`FileRecord{path,kept,error,diff}`, and `RecordStream::push` renders it to every target
+as it arrives (`console_block` + an `append_*` fn for console formats). A `GitLab` array
+streams too: `GitlabState` carries fingerprint salts across entries only for a path
+prefix several entries share, since a salt key starts with its path. JUnit's root counts
+precede its body, so `JunitReport` holds the rendered body until `RecordStream::finish`
+writes the root. Each target's destination is truncated once, when the stream starts.
 
-A file is opened create+write **without** truncate, then truncated+written at commit, so
-an *existing* artifact survives a later target failing to open; a *freshly*-created
-destination may be left empty on a rejected run — cleaning it by path would race a
+A file is opened create+write **without** truncate, then truncated when its stream
+starts, so an *existing* artifact survives a later target failing to open; a
+*freshly*-created destination may be left empty on a rejected run, and an error that
+aborts a started run leaves a partial report — cleaning it by path would race a
 concurrent writer, so it is left for the failed run, gate CI artifact use on the exit
 code. `open_targets` opens all destinations before `--fix` mutates (unopenable `-o` fails
 fast). An empty/all-ignored input set still emits a valid empty report per target
-(`emit_targets` with empty records → `[]` / `<testsuites .../>`).
+(a `RecordStream` with no records → `[]` / `<testsuites ...>`).
 
 ## Guards (each exit 2)
 

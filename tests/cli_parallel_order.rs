@@ -255,3 +255,42 @@ fn cache_keeps_mixed_input_output_identical_in_each_order() {
         }
     }
 }
+
+#[test]
+fn check_keeps_input_order_past_one_window_and_cache_batch() {
+    // One worker keeps the in-flight window to eight tasks, so 300 files refill it and fill
+    // more than one lint-cache batch.
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    let files: Vec<_> = (0..300)
+        .map(|index| {
+            let name = format!("{index:03}.yaml");
+            fs::write(dir.path().join(&name), "key: value \n").unwrap();
+            name
+        })
+        .collect();
+    let check = || {
+        ryl(dir.path())
+            .current_dir(dir.path())
+            .env("RAYON_NUM_THREADS", "1")
+            .args(["check", "--output-format", "parsable"])
+            .args(files.iter().rev())
+            .output()
+            .unwrap()
+    };
+    let expected: String = files
+        .iter()
+        .rev()
+        .map(|name| format!("{name}:1:11: [error] trailing spaces (trailing-spaces)\n"))
+        .collect();
+
+    let cold = check();
+    assert_eq!(cold.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&cold.stderr), expected);
+    let warm = check();
+    assert_eq!(warm.stderr, cold.stderr, "cache hits keep input order");
+}

@@ -810,6 +810,34 @@ fn output_file_write_failure_is_reported() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn stdout_write_failure_is_reported_once_output_ends() {
+    // Stdout on `/dev/full` needs no truncation, so the failure surfaces only as the
+    // buffered output is flushed.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    for args in [
+        &["check", "--format", "parsable", "-o", "-"][..],
+        &["check", "--diff"],
+        &["format", "--diff"],
+    ] {
+        let full = fs::File::options().write(true).open("/dev/full").unwrap();
+        let (code, _stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .args(args)
+            .arg("-c")
+            .arg(&cfg)
+            .arg(&file)
+            .stdout(full));
+        assert_eq!(code, 2, "{args:?}: a failed write is a usage error");
+        assert!(
+            stderr.contains("failed to write output"),
+            "{args:?}: expected a write-failure message: {stderr}"
+        );
+    }
+}
+
 /// Spawn ryl reading `input` from stdin with the given args, returning (code, stdout, stderr).
 fn run_stdin(args: &[&str], input: &[u8]) -> (i32, String, String) {
     let exe = env!("CARGO_BIN_EXE_ryl");
