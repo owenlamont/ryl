@@ -63,7 +63,7 @@ class Sweep(StrEnum):
 
 FORMATTERS: Final = ("ryl", "yamlfmt", "dprint", "Prettier")
 SIZES_KIB: Final = (1, 4, 16, 64, 256, 1024, 2048, 10240)
-COUNTS: Final = (1, 10, 100, 1000)
+COUNTS: Final = (1, 10, 100, 1000, 10000)
 GNU_TIME: Final = "/usr/bin/time"
 RSS_RUNS: Final = 3
 TYPICAL_MAX_BYTES: Final = 16 * 1024
