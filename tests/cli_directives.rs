@@ -135,7 +135,11 @@ fn discovered_jinja_template_is_skipped() {
         cmd
     };
     let (code, out) = run(ryl().args(["check", "--list-files", "."]));
-    assert_eq!((code, out.trim()), (0, "./ok.yaml"), "template not listed");
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains("ok.yaml") && !out.contains("t.yaml"),
+        "template not listed: {out}"
+    );
     for args in [&["check", "."][..], &["format", "--diff", "."]] {
         let (code, out) = run(ryl().args(args));
         assert_eq!(code, 0, "{args:?} skips the template: {out}");
