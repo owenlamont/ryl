@@ -90,7 +90,7 @@ noyalib = "0.0.58"
 # A different diff implementation than `similar` (which produces the diff), so the
 # `--diff` round-trip property test validates the output is standard-compliant.
 diffy = { version = "0.5.0", default-features = false }
-jsonschema = "0.58.4"
+jsonschema = "0.60.0"
 proptest = "1.11.0"
 tempfile = "3"
 # Non-optional for the `lsp`-feature integration tests; keep versions matching the
