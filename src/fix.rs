@@ -1394,9 +1394,6 @@ pub(crate) fn rewrite<'a>(
 ) -> TextVersion<'static> {
     use crate::format::layout::Fallback;
     if crate::directives::disables_file(input) {
-        crate::format::layout::stats::count(
-            crate::format::layout::stats::Counter::Skip,
-        );
         return TextVersion::new(input.to_string());
     }
     let strict = tracking.strict_input.unwrap_or_else(|| {
