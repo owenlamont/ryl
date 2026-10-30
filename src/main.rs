@@ -966,8 +966,16 @@ impl<'a> RecordStream<'a> {
     ///
     /// Reports the first destination write failure.
     fn finish(mut self) -> Result<(), String> {
+        self.close();
+        std::mem::replace(&mut self.status, Ok(()))
+            .map_err(|err| write_output_error(&err))
+    }
+
+    /// Close each report and flush every target, once: draining the writers makes a second
+    /// call, from `drop` after `finish`, a no-op.
+    fn close(&mut self) {
         let junit = self.junit.take().map(JunitReport::finish);
-        for (target, writer) in self.targets.iter().zip(&mut self.writers) {
+        for (target, mut writer) in self.targets.iter().zip(self.writers.drain(..)) {
             let tail: [&[u8]; 2] = match target.format {
                 OutputFormat::Junit => {
                     let (root, body) = junit.as_ref().expect(JUNIT_REPORT_KEPT);
@@ -982,7 +990,13 @@ impl<'a> RecordStream<'a> {
                     .and_then(|()| writer.flush())
             });
         }
-        self.status.map_err(|err| write_output_error(&err))
+    }
+}
+
+/// A run that aborts mid-stream still leaves each report a complete document.
+impl Drop for RecordStream<'_> {
+    fn drop(&mut self) {
+        self.close();
     }
 }
 

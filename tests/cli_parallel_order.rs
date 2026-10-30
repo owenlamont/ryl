@@ -341,3 +341,32 @@ fn check_replays_each_files_stderr_before_its_diagnostics() {
     let piped = String::from_utf8_lossy(&piped.stderr);
     assert!(piped.replace(&*warning, "").is_empty(), "{piped}");
 }
+
+#[test]
+fn aborted_run_still_closes_its_gitlab_report() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[output.gitlab]\npath = \"report.json\"\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("unformatted.yaml"), "key:   value\n").unwrap();
+    fs::write(dir.path().join("unreadable.yaml"), b"key: \xff\n").unwrap();
+
+    let output = ryl(dir.path())
+        .current_dir(dir.path())
+        .env("YAMLLINT_FILE_ENCODING", "utf-8")
+        .args(["format", "--check", "--no-cache"])
+        .args(["unformatted.yaml", "unreadable.yaml"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let report = fs::read(dir.path().join("report.json")).unwrap();
+    let issues: serde_json::Value =
+        serde_json::from_slice(&report).expect("a complete JSON report");
+    assert_eq!(
+        issues[0]["location"]["path"], "unformatted.yaml",
+        "{issues}"
+    );
+}

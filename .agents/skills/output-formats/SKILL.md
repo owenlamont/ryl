@@ -62,10 +62,11 @@ writes the root. Each target's destination is truncated once, when the stream st
 
 A file is opened create+write **without** truncate, then truncated when its stream
 starts, so an *existing* artifact survives a later target failing to open; a
-*freshly*-created destination may be left empty on a rejected run, and an error that
-aborts a started run leaves a partial report — cleaning it by path would race a
-concurrent writer, so it is left for the failed run, gate CI artifact use on the exit
-code. `open_targets` opens all destinations before `--fix` mutates (unopenable `-o` fails
+*freshly*-created destination may be left empty on a rejected run — cleaning it by path
+would race a concurrent writer, so it is left for the failed run, gate CI artifact use on
+the exit code. An error that aborts a started run leaves a report of the files before it,
+still a complete document: `RecordStream`'s `Drop` closes each report. `open_targets`
+opens all destinations before `--fix` mutates (unopenable `-o` fails
 fast). An empty/all-ignored input set still emits a valid empty report per target
 (a `RecordStream` with no records → `[]` / `<testsuites ...>`).
 
