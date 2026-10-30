@@ -7,6 +7,7 @@ use ryl_yaml_parser::{
 };
 
 use crate::directives::directive_scope;
+use crate::rules::comments::is_ytt_directive;
 use crate::rules::support::key_path::Step;
 use crate::rules::support::line_syntax::split_lines_preserve_endings;
 use crate::yaml_dom::core_schema_suffix;
@@ -56,6 +57,7 @@ pub(crate) struct Layout<'a> {
     /// Lines of directive comments a moved line would detach, each flagged when it is
     /// an own-line `disable-line` (which targets the line below).
     pub(crate) directives: Vec<(usize, bool)>,
+    pub(crate) own_line_ytt_directives: Vec<usize>,
 }
 
 type End = Option<(usize, usize, bool)>;
@@ -71,6 +73,7 @@ impl<'a> Layout<'a> {
                 .collect(),
             mappings: Vec::new(),
             directives: Vec::new(),
+            own_line_ytt_directives: Vec::new(),
         };
         let mut iter = events.0.into_iter().peekable();
         while iter.peek().is_some() {
@@ -85,6 +88,9 @@ impl<'a> Layout<'a> {
                 TokenType::Alias(name) => names.push((line, name, false)),
                 TokenType::Comment(comment) => {
                     let own_line = comment.placement() != Placement::Right;
+                    if own_line && is_ytt_directive(comment.text()) {
+                        layout.own_line_ytt_directives.push(line);
+                    }
                     match directive_scope(comment.text()) {
                         Some(true) if !own_line => {}
                         Some(line_scoped) => {

@@ -161,6 +161,12 @@ fn leaves_unsafe_mappings_unsorted_with_a_reason() {
             "a suppression directive applies inside it",
         ),
         (
+            "#@ if x:\nb: 1\n#@ end\na: 2\n",
+            4,
+            1,
+            "an own-line ytt directive sits inside it",
+        ),
+        (
             "- d: 1\n  # about c\n  c: 2\n",
             3,
             3,

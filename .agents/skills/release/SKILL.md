@@ -172,6 +172,10 @@ description: >-
   `ryl_release` event to `owenlamont/ryl-vscode`, whose `bump-ryl` workflow opens a PR
   moving its bundled-binary pin to this release. That repo also polls weekly, so a
   failed dispatch delays the bump rather than losing it; nothing here needs re-running.
+- `notify-ryl-action` likewise dispatches `ryl_release` to `owenlamont/ryl-action`,
+  whose `mirror` workflow commits and tags the action pinned to this release. It reads
+  published GitHub releases, so it waits on `finalize-github-release`; its 4-hourly
+  schedule is the fallback.
 - Publishing uses Trusted Publishing on all registries (crates.io via GitHub OIDC, PyPI
   via `pypa/gh-action-pypi-publish`, NPM via `actions/setup-node` OIDC). GitHub release
   creation is deferred until after the binaries build, kept as a draft until

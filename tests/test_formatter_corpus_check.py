@@ -597,11 +597,11 @@ def test_quoted_to_typed_scalar_before_an_eof_block_scalar_still_fails() -> None
 def test_reference_events_keep_output_past_64_kib(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    parser = tmp_path / "yaml-parser"
-    script = 'process.stdout.write("=VAL :x\\n".repeat(20000)); process.exit(0);'
-    parser.write_text(script)
+    driver = tmp_path / "reference.cjs"
+    reply = 'JSON.stringify("=VAL :x\\n".repeat(20000))'
+    driver.write_text(f"process.stdout.write({reply}); process.exit(0);")
     events = sys.modules["reference_events"]
-    monkeypatch.setattr(events, "_PARSER", parser)
+    monkeypatch.setattr(events, "_DRIVER", driver)
     assert len(events._events("a: 1\n")) == 20000
 
 

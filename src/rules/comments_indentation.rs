@@ -309,9 +309,12 @@ pub(crate) fn classify_token(
 ) {
     // A token after a quoted scalar's closing quote, such as a flow `]`, makes its
     // line content again, as yamllint indents by each token's start line. yamllint's
-    // tokens exclude comments, so a trailing comment leaves the line a scalar body.
-    if !matches!(kind, LexicalKind::Comment { .. })
-        && let Some(line) = lines.get_mut(span.start.line() - 1)
+    // tokens exclude comments, so a trailing comment leaves the line a scalar body, as
+    // do the zero-width ends that land on the last line of a file with no final break.
+    if !matches!(
+        kind,
+        LexicalKind::Comment { .. } | LexicalKind::BlockEnd | LexicalKind::StreamEnd
+    ) && let Some(line) = lines.get_mut(span.start.line() - 1)
         && line.kind == LineKind::ScalarBody
     {
         line.kind = LineKind::Other;

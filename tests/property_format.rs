@@ -2146,7 +2146,23 @@ fn a_deliberately_broken_pass_fails_the_suite() {
             "renames an anchor",
         ),
     ];
-    let broken_spacing: [(&str, (&str, Broken, &str)); 2] = [
+    let broken_spacing: [(&str, (&str, Broken, &str)); 4] = [
+        (
+            "k: [a] #@ y\n",
+            (
+                "comment/anchor fidelity",
+                |s| s.replace("k: [a] #@ y", "k:  #@ y\n  - a"),
+                "moves a ytt directive off the flow collection it trails",
+            ),
+        ),
+        (
+            "#@ x\nk: v  #@ y\n",
+            (
+                "comment/anchor fidelity",
+                |s| s.replace("#@", "# @"),
+                "turns a ytt directive into a plain comment",
+            ),
+        ),
         (
             "k:\n    s: |2\n          lead\n        x\n",
             (

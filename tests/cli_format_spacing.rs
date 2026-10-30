@@ -14,6 +14,19 @@ const DIRTY: &str = "---\na :  1\nlist:\n  -   x\n";
 const COMPACT: &str = "---\nseq:\n  -   a: 1\n      b: 2\n? k\n:   - x\n    - y\n";
 const UNFOLLOWABLE: &str = "k:\n  a: 1\nj:\n    b: 1\n---\n: v\n";
 
+#[test]
+fn format_and_lint_fixes_preserve_ytt_directives() {
+    let input = "#@ name = \"web\"\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: #@ name\n";
+    for args in [
+        &["format", "--no-cache"][..],
+        &["check", "--fix", "--no-cache"],
+    ] {
+        let (code, _, stderr, output) =
+            ryl_on(Some("[lint.rules]\ncomments = 'enable'\n"), input, args);
+        assert_eq!((code, output.as_str()), (0, input), "{args:?}: {stderr}");
+    }
+}
+
 fn run_on(input: &str, args: &[&str]) -> (i32, String, String) {
     let (code, _, stderr, after) = ryl_on(None, input, args);
     (code, stderr, after)

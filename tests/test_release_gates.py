@@ -4,7 +4,6 @@
 #   "pytest", "pytest-mock", "typer", "packaging", "py-yaml12", "pyyaml",
 #   "platformdirs",
 #   "markdown-it-py", "matplotlib>=3.9,<4", "orjson>=3.11,<4",
-#   "polars>=1.30,<2", "tqdm>=4.67,<5",
 # ]
 # ///
 

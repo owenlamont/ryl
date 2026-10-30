@@ -1,5 +1,6 @@
 """Compare YAML 1.2 reference parser events after normalizing line breaks."""
 
+import json
 import os
 from pathlib import Path
 import re
@@ -8,13 +9,10 @@ import subprocess  # ruff: ignore[suspicious-subprocess-import]
 import tempfile
 
 
-_PARSER = Path(
-    os.environ.get(
-        "RYL_REFERENCE_PARSER",
-        Path.home()
-        / "Code/ryl_repos/yaml-reference-parser/parser-1.2/javascript/bin/yaml-parser",
-    )
-)
+_TESTS = Path(__file__).resolve().parent.parent / "tests"
+_PARSER = _TESTS / "yaml-reference-parser/parser-1.2/javascript"
+_DRIVER = _TESTS / "property_format/reference.cjs"
+_SHIMS = _TESTS / "property_format/node_shims"
 
 
 _SCALAR_STYLE = re.compile(r"^(=VAL (?:&\S+ )?(?:<[^>]*> )?)[:'\"|>]")
@@ -27,29 +25,30 @@ def _without_style(event: str) -> str:
 
 def _events(source: str) -> list[str] | None:
     node = shutil.which("node")
-    if not _PARSER.is_file() or node is None:
+    if not (_PARSER / "lib/parser.js").is_file() or node is None:
         return None
     source = source.replace("\r\n", "\n").replace("\r", "\n")
     # Node truncates piped stdout at 64 KiB when the CLI exits; a file gets all of it.
     try:
         with tempfile.TemporaryFile("w+", encoding="utf-8") as out:
-            proc = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
-                [node, str(_PARSER), "--events"],
-                input=source.encode("utf-8"),
+            subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+                [node, "-e", _DRIVER.read_text(encoding="utf-8"), str(_PARSER)],
+                input=f"{json.dumps(source)}\n".encode(),
                 stdout=out,
                 stderr=subprocess.DEVNULL,
+                env=os.environ | {"NODE_PATH": str(_SHIMS)},
                 timeout=10,
-                check=False,
+                check=True,
             )
             out.seek(0)
-            lines = out.read().split("\n")
-    except (OSError, subprocess.TimeoutExpired):
+            reply = json.loads(out.read() or "null")
+    except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    if proc.returncode:
+    if not isinstance(reply, str):
         return None
     return [
         line.split(" ", 1)[0] if line.startswith(("+DOC", "-DOC")) else line
-        for line in lines
+        for line in reply.split("\n")
         if line
     ]
 

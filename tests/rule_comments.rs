@@ -21,6 +21,20 @@ fn missing_space_reports_violation() {
 }
 
 #[test]
+fn ytt_directives_preserve_their_prefix_and_inline_gap() {
+    let cfg = build_toml_config(
+        "[lint.rules.comments]\nignore-shebangs = false\nmax-spaces-from-content = 2\n",
+    );
+    let input = "#@ name = \"web\"\nkey: value     #@overlay/match missing_ok=True\n";
+    assert!(comments::check(input, &cfg).is_empty());
+    assert_eq!(comments::fix(input, &cfg), None);
+    assert_eq!(
+        comments::fix("##@ordinary\n", &cfg).as_deref(),
+        Some("## @ordinary\n")
+    );
+}
+
+#[test]
 fn allows_hash_art_lines() {
     let resolved = build_config("rules:\n  comments: {}\n");
     let hits = comments::check("########################\n", &resolved);

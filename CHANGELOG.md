@@ -7,6 +7,11 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Changed
 
+- `ryl server` reports open files only by default, as ruff, rumdl and biome do. The new
+  `diagnosticMode` setting, named after ty's, restores the workspace-wide
+  `workspace/diagnostic` scan with `"workspace"`. A mistyped server setting is now
+  reported through `window/showMessage` instead of silently ignored.
+  ([#407](https://github.com/owenlamont/ryl/issues/407))
 - `ryl format --check` reports each file that would change as one `unformatted` finding
   at its first change, with the diff under it, as ruff does, instead of one finding per
   rule and line. `--check` and `--diff` end with a summary such as
@@ -34,6 +39,14 @@ summarize user-visible changes from the tagged commits and published release rec
   file contains a byte order mark.
 - Formatting preserves a compact collection's opening gap when the collection's
   indentation cannot be changed safely.
+- Restyling a collection no longer dedents a quoted scalar's final continuation
+  line that starts with `#` when the file has no final line break.
+- Formatting and lint fixes preserve ytt `#@` directives and their inline spacing
+  instead of converting them into ordinary comments, and the `comments` rule no
+  longer reports them.
+  Block collection style leaves a flow collection with a trailing directive as
+  written, and the `key-ordering` fix skips a mapping holding an own-line one.
+  ([#780](https://github.com/owenlamont/ryl/issues/780))
 
 ## v0.26.1
 

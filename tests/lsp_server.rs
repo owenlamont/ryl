@@ -44,10 +44,18 @@ const UNHANDLED_METHOD: &str = "ryl/internalUnhandledProbe";
 /// that the server is long-polling it rather than merely slow.
 const SUSPEND_GRACE: Duration = Duration::from_millis(500);
 
+/// How long any awaited message may take: far above a slow CI runner's scan of a test
+/// workspace, so tripping it means the server will never send the message.
+const RECV_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// The `didChangeWatchedFiles` payload a client sends when the project's config changed
 /// (`type: 2` is the spec's `Changed`).
 fn changed_config(dir: &Path) -> Value {
     json!({ "changes": [{ "uri": file_uri(dir, ".ryl.toml"), "type": 2 }] })
+}
+
+fn workspace_mode() -> Value {
+    json!({ "diagnosticMode": "workspace" })
 }
 
 /// What the client would send back as `previousResultIds` after `report`.
@@ -158,18 +166,35 @@ impl Client {
                     })
                     .collect(),
             ),
+            initialization_options: Some(workspace_mode()),
             ..Default::default()
         })
     }
 
     /// Launch advertising the LSP 3.17 pull-diagnostics client capability (plus versioned
-    /// edits, as a real pull client like VS Code does). The server must then rely on pull
-    /// and never push `publishDiagnostics`. `refresh_support` advertises
-    /// `workspace/diagnostic/refresh` so a config change can ask the client to re-pull.
+    /// edits, as a real pull client like VS Code does) in `workspace` diagnostic mode. The
+    /// server must then rely on pull and never push `publishDiagnostics`. `refresh_support`
+    /// advertises `workspace/diagnostic/refresh` so a config change can ask the client to
+    /// re-pull.
     fn launch_pull(
         root: Option<&Path>,
         refresh_support: bool,
     ) -> (Self, InitializeResult) {
+        let mut params = Self::pull_params(root, refresh_support);
+        params["initializationOptions"] = workspace_mode();
+        Self::launch_params(params)
+    }
+
+    /// Launch a pull client that takes `textDocument/diagnostic` by dynamic registration,
+    /// as VS Code does, in the default diagnostic mode.
+    fn launch_dynamic(root: &Path) -> (Self, InitializeResult) {
+        let mut params = Self::pull_params(Some(root), false);
+        params["capabilities"]["textDocument"]["diagnostic"]["dynamicRegistration"] =
+            json!(true);
+        Self::launch_params(params)
+    }
+
+    fn pull_params(root: Option<&Path>, refresh_support: bool) -> Value {
         let mut params = serde_json::to_value(InitializeParams {
             capabilities: ClientCapabilities {
                 text_document: Some(TextDocumentClientCapabilities {
@@ -202,7 +227,7 @@ impl Client {
             params["capabilities"]["workspace"]["diagnostics"] =
                 json!({ "refreshSupport": true });
         }
-        Self::launch_params(params)
+        params
     }
 
     /// Spawn a server thread and complete the `initialize`/`initialized` handshake with
@@ -297,10 +322,19 @@ impl Client {
         self.conn().sender.send(message).expect("send raw");
     }
 
+    /// The next server message; a server that has gone quiet fails the test rather than
+    /// hanging it.
+    fn recv(&self) -> Message {
+        self.conn()
+            .receiver
+            .recv_timeout(RECV_TIMEOUT)
+            .expect("the server sends the awaited message within RECV_TIMEOUT")
+    }
+
     /// Receive the response to `id`, skipping any notifications queued ahead of it.
     fn response(&self, id: &RequestId) -> Response {
         loop {
-            match self.conn().receiver.recv().expect("recv") {
+            match self.recv() {
                 Message::Response(response) if &response.id == id => return response,
                 _ => {}
             }
@@ -334,7 +368,7 @@ impl Client {
     ) -> (Vec<Notification>, Response) {
         let mut notifications = Vec::new();
         loop {
-            match self.conn().receiver.recv().expect("recv") {
+            match self.recv() {
                 Message::Response(response) if &response.id == id => {
                     return (notifications, response);
                 }
@@ -351,7 +385,7 @@ impl Client {
     fn messages_until_response(&self, id: &RequestId) -> (Vec<Message>, Response) {
         let mut messages = Vec::new();
         loop {
-            match self.conn().receiver.recv().expect("recv") {
+            match self.recv() {
                 Message::Response(response) if &response.id == id => {
                     return (messages, response);
                 }
@@ -368,8 +402,7 @@ impl Client {
     /// the version the diagnostics were computed against).
     fn publish_params(&self) -> PublishDiagnosticsParams {
         loop {
-            if let Message::Notification(note) =
-                self.conn().receiver.recv().expect("recv")
+            if let Message::Notification(note) = self.recv()
                 && note.method == "textDocument/publishDiagnostics"
             {
                 return serde_json::from_value(note.params)
@@ -383,7 +416,7 @@ impl Client {
     fn drain_to_publish(&self) -> Vec<Message> {
         let mut messages = Vec::new();
         loop {
-            let message = self.conn().receiver.recv().expect("recv");
+            let message = self.recv();
             let is_publish = matches!(
                 &message,
                 Message::Notification(note)
@@ -627,13 +660,11 @@ impl Client {
         );
     }
 
-    /// Receive the next server-to-client request, skipping notifications/responses.
     /// Block until the first `$/progress` carrying `token`, so a test can act on a scan
     /// that is provably past its directory walk.
     fn recv_progress(&self, token: &str) {
         loop {
-            if let Message::Notification(note) =
-                self.conn().receiver.recv().expect("recv")
+            if let Message::Notification(note) = self.recv()
                 && note.method == "$/progress"
                 && note.params["token"] == token
             {
@@ -642,11 +673,10 @@ impl Client {
         }
     }
 
+    /// Receive the next server-to-client request, skipping notifications/responses.
     fn recv_request(&self) -> Request {
         loop {
-            if let Message::Request(request) =
-                self.conn().receiver.recv().expect("recv")
-            {
+            if let Message::Request(request) = self.recv() {
                 return request;
             }
         }
@@ -2128,8 +2158,14 @@ fn workspace_diagnostic_pull_reports_repo_files() {
     let dir = project(TRAILING);
     std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("write bad");
     std::fs::write(dir.path().join("good.yaml"), "a: 1\n").expect("write good");
-    let (mut client, _init) =
-        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    let (mut client, _init) = Client::launch_with(
+        None,
+        Some(dir.path()),
+        true,
+        None,
+        false,
+        Some(workspace_mode()),
+    );
     let report = client.workspace_diagnostic();
     let bad = report
         .items
@@ -2206,8 +2242,14 @@ fn document_diagnostic_pull_surfaces_a_config_error() {
 fn workspace_diagnostic_pull_surfaces_a_config_error() {
     let dir = project("this is not valid toml = =\n");
     std::fs::write(dir.path().join("a.yaml"), "x: 1\n").expect("write");
-    let (mut client, _init) =
-        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    let (mut client, _init) = Client::launch_with(
+        None,
+        Some(dir.path()),
+        true,
+        None,
+        false,
+        Some(workspace_mode()),
+    );
     let report = client.workspace_diagnostic();
     let surfaced = report.items.iter().any(|item| match item {
         WorkspaceDocumentDiagnosticReport::Full(full) => full
@@ -2252,8 +2294,14 @@ fn workspace_diagnostic_pull_spans_multiple_roots_and_dedups() {
 fn workspace_diagnostic_can_be_cancelled() {
     let dir = project(TRAILING);
     std::fs::write(dir.path().join("a.yaml"), "a: 1 \n").expect("write");
-    let (mut client, _init) =
-        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    let (mut client, _init) = Client::launch_with(
+        None,
+        Some(dir.path()),
+        true,
+        None,
+        false,
+        Some(workspace_mode()),
+    );
     let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
     // Cancel by id. Depending on the race the worker answers with the report or a
     // RequestCancelled error, but the request is always answered (the loop never hangs).
@@ -2334,8 +2382,14 @@ fn a_new_pull_supersedes_an_in_flight_scan() {
 fn cancel_request_for_unknown_or_malformed_id_is_ignored() {
     let dir = project(TRAILING);
     std::fs::write(dir.path().join("a.yaml"), "a: 1 \n").expect("write");
-    let (mut client, _init) =
-        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    let (mut client, _init) = Client::launch_with(
+        None,
+        Some(dir.path()),
+        true,
+        None,
+        false,
+        Some(workspace_mode()),
+    );
     let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
     // A string id matches no in-flight scan; a malformed params is ignored entirely.
     client.notify("$/cancelRequest", json!({ "id": "no-such-request" }));
@@ -2350,8 +2404,14 @@ fn workspace_diagnostic_reaps_finished_workers() {
     // A flagged file, so each pull has something to report and is answered rather than
     // held open for long polling.
     std::fs::write(dir.path().join("a.yaml"), "a: 1 \n").expect("write");
-    let (mut client, _init) =
-        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    let (mut client, _init) = Client::launch_with(
+        None,
+        Some(dir.path()),
+        true,
+        None,
+        false,
+        Some(workspace_mode()),
+    );
     // Two sequential pulls: the second's spawn reaps the first's finished worker.
     let _ = client.workspace_diagnostic();
     let _ = client.workspace_diagnostic();
@@ -2427,6 +2487,101 @@ fn an_unchanged_workspace_pull_is_held_open_until_a_change() {
         [WorkspaceDocumentDiagnosticReport::Full(full)]
             if !full.full_document_diagnostic_report.items.is_empty(),
         "the resumed pull carries the new diagnostics"
+    );
+}
+
+#[test]
+fn a_dynamic_client_registers_workspace_diagnostics_only_in_workspace_mode() {
+    let dir = project(TRAILING);
+    let (mut client, init) = Client::launch_dynamic(dir.path());
+    assert!(
+        init.capabilities.diagnostic_provider.is_none(),
+        "pull diagnostics are registered after initialize, not advertised in it"
+    );
+    let register = client.recv_request();
+    let registration = &register.params["registrations"][0];
+    assert_eq!(registration["method"], "textDocument/diagnostic");
+    assert_eq!(
+        registration["registerOptions"]["workspaceDiagnostics"], false,
+        "openFilesOnly is the default"
+    );
+    let mut reconfigure = |settings: Value| {
+        client.notify(
+            "workspace/didChangeConfiguration",
+            json!({ "settings": { "ryl": settings } }),
+        );
+        let id = client.request(UNHANDLED_METHOD, Value::Null);
+        let (messages, _) = client.messages_until_response(&id);
+        let warnings: Vec<String> = messages.iter().filter_map(warning_text).collect();
+        let requests: Vec<Request> = messages
+            .into_iter()
+            .filter_map(|message| match message {
+                Message::Request(request) => Some(request),
+                _ => None,
+            })
+            .collect();
+        (requests, warnings)
+    };
+    let replaced = |requests: &[Request], workspace: bool| {
+        assert_matches!(
+            requests,
+            [unregister, register]
+                if unregister.method == "client/unregisterCapability"
+                    && unregister.params["unregisterations"][0]["id"] == registration["id"]
+                    && register.method == "client/registerCapability"
+                    && register.params["registrations"][0]["registerOptions"]
+                        ["workspaceDiagnostics"] == workspace,
+            "a mode change replaces the registration"
+        );
+    };
+
+    let (requests, _) = reconfigure(workspace_mode());
+    replaced(&requests, true);
+    let (requests, warnings) = reconfigure(json!({ "diagnosticMode": "everything" }));
+    replaced(&requests, false);
+    assert_matches!(
+        warnings.as_slice(),
+        [warning] if warning.contains("\"everything\""),
+        "an unknown mode is reported, then falls back to openFilesOnly"
+    );
+    let (requests, _) = reconfigure(json!({ "diagnosticMode": "openFilesOnly" }));
+    assert!(
+        requests.is_empty(),
+        "an unchanged mode keeps the registration"
+    );
+}
+
+#[test]
+fn a_static_pull_client_has_a_closed_file_cleared_by_the_workspace_pull() {
+    let dir = project(TRAILING);
+    std::fs::write(dir.path().join("bad.yaml"), "a: 1 \n").expect("write");
+    let (mut client, _init) =
+        Client::launch_params(Client::pull_params(Some(dir.path()), false));
+    let bad = file_uri(dir.path(), "bad.yaml");
+    client.did_open(bad.clone(), "a: 1 \n");
+    let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    assert!(
+        client.response_within(&id).is_none(),
+        "openFilesOnly scans no files, so the pull is held open"
+    );
+
+    // vscode-languageclient keeps the report from its last document pull, made before
+    // `didClose`, until a workspace report replaces it.
+    client.did_close(bad.clone());
+    let report: WorkspaceDiagnosticReport = serde_json::from_value(
+        client.response(&id).response_result.expect("pull answered"),
+    )
+    .expect("WorkspaceDiagnosticReport");
+    assert_matches!(
+        report.items.as_slice(),
+        [WorkspaceDocumentDiagnosticReport::Full(full)]
+            if full.uri == bad && full.full_document_diagnostic_report.items.is_empty(),
+        "the closed file is cleared"
+    );
+    let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
+    assert!(
+        client.response_within(&id).is_none(),
+        "a closed file is cleared once, then the pull is held again"
     );
 }
 
@@ -2699,8 +2854,14 @@ fn workspace_diagnostic_pull_handles_open_ignored_and_unreadable_files() {
     // A UTF-16 LE BOM followed by an odd byte count cannot be decoded.
     std::fs::write(dir.path().join("binary.yaml"), [0xFF, 0xFE, 0x41])
         .expect("undecodable");
-    let (mut client, _init) =
-        Client::launch_with(None, Some(dir.path()), true, None, false, None);
+    let (mut client, _init) = Client::launch_with(
+        None,
+        Some(dir.path()),
+        true,
+        None,
+        false,
+        Some(workspace_mode()),
+    );
     // Open one walked file (so the open-buffer text is used) and an untitled buffer (a
     // non-file URI the open map skips).
     client.did_open(file_uri(dir.path(), "bad.yaml"), "a: 1 \n");
@@ -2757,6 +2918,31 @@ fn malformed_did_change_configuration_is_ignored() {
         Value::String("bad".to_string()),
     );
     client.assert_alive();
+}
+
+#[test]
+fn mistyped_settings_are_reported_and_ignored() {
+    let dir = project(TRAILING);
+    let options = json!({ "enable": "no", "configPath": 3, "configData": null });
+    let (mut client, _init) =
+        Client::launch_with(None, Some(dir.path()), true, None, false, Some(options));
+    let id = client.request(UNHANDLED_METHOD, Value::Null);
+    let (messages, _) = client.messages_until_response(&id);
+    let warnings: Vec<String> = messages.iter().filter_map(warning_text).collect();
+    assert_eq!(
+        warnings,
+        [
+            "ryl: ignoring setting configPath = 3; expected a string",
+            "ryl: ignoring setting enable = \"no\"; expected true or false",
+        ],
+        "each mistyped setting is reported once; a null one counts as unset"
+    );
+    client.did_open(file_uri(dir.path(), "x.yaml"), "a: 1 \n");
+    assert_eq!(
+        client.diagnostics().len(),
+        1,
+        "the ignored settings keep their defaults, so linting stays on"
+    );
 }
 
 #[test]
@@ -3303,7 +3489,14 @@ fn lint_diagnostics_never_show_formatter_conflicts() {
         let (mut client, _) = if pull {
             Client::launch_pull(Some(dir.path()), false)
         } else {
-            Client::launch(None, Some(dir.path()))
+            Client::launch_with(
+                None,
+                Some(dir.path()),
+                true,
+                None,
+                false,
+                Some(workspace_mode()),
+            )
         };
         let doc = file_uri(dir.path(), "a.yaml");
         client.did_open(doc.clone(), "a: 1  # comment\n");
@@ -3538,7 +3731,7 @@ fn workspace_pull_without_open_documents_shows_the_yaml_deprecation() {
     std::fs::write(&config, "rules:\n  trailing-spaces: enable\n")
         .expect("write config");
     std::fs::write(root.path().join("a.yaml"), "a: 1 \n").expect("write yaml");
-    let options = json!({ "configPath": config });
+    let options = json!({ "configPath": config, "diagnosticMode": "workspace" });
     let (mut client, _init) =
         Client::launch_with(None, Some(root.path()), true, None, false, Some(options));
     let id = client.request("workspace/diagnostic", json!({ "previousResultIds": [] }));
