@@ -127,10 +127,6 @@ fn allows_overflow(line: &str, cfg: &Config) -> bool {
         idx = (idx + 1).min(bytes.len());
     }
 
-    if idx >= bytes.len() {
-        return false;
-    }
-
     let tail_bytes = &line.as_bytes()[idx..];
     if !tail_bytes.contains(&b' ') {
         return true;

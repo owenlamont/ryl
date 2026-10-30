@@ -330,7 +330,11 @@ fn arb_comment() -> impl Strategy<Value = Line> {
     (
         0u8..=4,
         0u8..=2,
-        prop_oneof![8 => arb_text(), 1 => Just("@ name".to_owned())],
+        prop_oneof![
+            8 => arb_text(),
+            1 => Just("@ name".to_owned()),
+            1 => Just("#".repeat(90)),
+        ],
     )
         .prop_map(|(indent, spaces_after_hash, text)| Line::Comment {
             indent,

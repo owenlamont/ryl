@@ -175,15 +175,12 @@ fn list_indicator_allows_long_word() {
 }
 
 #[test]
-fn dash_without_value_still_flags() {
+fn hash_only_and_bare_dash_lines_are_non_breakable_like_yamllint() {
     let resolved = build_config("rules:\n  line-length: {max: 1}\n");
-    let hits = line_length::check("- \n", &resolved);
-    assert_eq!(
-        hits.len(),
-        1,
-        "dash without content should not bypass limit"
-    );
-    assert_eq!(hits[0].column, 2);
+    for input in ["- \n", "####\n", "  ####\n"] {
+        let hits = line_length::check(input, &resolved);
+        assert!(hits.is_empty(), "{input:?} has no word to break: {hits:?}");
+    }
 }
 
 #[test]
