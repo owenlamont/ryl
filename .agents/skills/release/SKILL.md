@@ -13,6 +13,9 @@ description: >-
   - Cargo: update `Cargo.toml` `version`.
   - Python: update `pyproject.toml` `[project].version`.
   - NPM: update `package.json` `version`.
+  - GitHub Action: move every `owenlamont/ryl-action@vX.Y.Z` pin in the README,
+    `docs/` and `skills/ryl/SKILL.md` to the new version; `tests/ryl_action_pins.rs`
+    fails on a stale pin.
   - If the release first ships a config deprecation, set its `deprecated_since` in
     `config_schema::DEPRECATED_TOML_KEYS` (and the test pinning that table) to this
     version. The repo's own `.ryl.toml` keeps the old shape until the `ryl-pre-commit`
