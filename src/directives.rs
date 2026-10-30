@@ -50,7 +50,7 @@ pub fn disables_file(buffer: &str) -> bool {
     let first_line = split_lines_preserve_endings(buffer)
         .next()
         .map_or("", |(_, content, _)| content);
-    starts_with_jinja_header(first_line.as_bytes())
+    starts_with_jinja_header(first_line)
         || first_line.contains("disable-file")
             && (DISABLE_FILE.is_match(first_line)
                 || first_line.strip_prefix('#').is_some_and(|payload| {
@@ -60,26 +60,22 @@ pub fn disables_file(buffer: &str) -> bool {
                 }))
 }
 
-/// Whether `head`, a file's leading bytes after any UTF-8 BOM, opens with a Salt renderer
-/// header that runs Jinja (`#!jinja|yaml`, `#!yaml_jinja`), parsed as `template_shebang`
-/// in Salt's `salt/template.py` does: a single-token pipe may name a combined renderer.
+/// Whether decoded `text` opens with a Salt renderer header that runs Jinja
+/// (`#!jinja|yaml`, `#!yaml_jinja`), parsed as `template_shebang` in Salt's
+/// `salt/template.py` does: a single-token pipe may name a combined renderer.
 #[must_use]
-pub fn starts_with_jinja_header(head: &[u8]) -> bool {
-    let Some(rest) = head
-        .strip_prefix(b"\xEF\xBB\xBF")
-        .unwrap_or(head)
-        .strip_prefix(b"#!")
-        .filter(|rest| !rest.starts_with(b"/"))
+pub fn starts_with_jinja_header(text: &str) -> bool {
+    let Some(rest) = text
+        .strip_prefix("#!")
+        .filter(|rest| !rest.starts_with('/'))
     else {
         return false;
     };
-    let line = rest
-        .split(|&b| b == b'\n' || b == b'\r')
+    let pipe = rest
+        .split(['\n', '\r'])
         .next()
-        .unwrap_or_default();
-    let Ok(pipe) = std::str::from_utf8(line).map(str::trim_end) else {
-        return false;
-    };
+        .unwrap_or_default()
+        .trim_end();
     ["yaml_jinja", "json_jinja", "yamlex_jinja"].contains(&pipe)
         || pipe
             .split('|')

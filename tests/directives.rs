@@ -503,29 +503,27 @@ fn shared_comment_directive_applies_inside_embedded_markdown_region() {
 
 #[test]
 fn jinja_header_follows_salts_render_pipe() {
-    for head in [
-        &b"#!jinja|yaml\n"[..],
-        b"#! jinja | yaml | stateconf\r\n",
-        b"#!yaml_jinja\n",
-        b"\xEF\xBB\xBF#!jinja|yaml\n",
+    for text in [
+        "#!jinja|yaml\n",
+        "#! jinja | yaml | stateconf\r\n",
+        "#!yaml_jinja\n",
     ] {
         assert!(
-            ryl::directives::starts_with_jinja_header(head),
-            "a Jinja header: {head:?}"
+            ryl::directives::starts_with_jinja_header(text),
+            "a Jinja header: {text:?}"
         );
     }
-    for head in [
-        &b"#!yaml\n"[..],
-        b"#!mako|yaml\n",
-        b"#!/usr/bin/env jinja\n",
-        b"#! yaml_jinja\n",
-        b"# !jinja|yaml\n",
-        b"a: 1\n#!jinja|yaml\n",
-        b"#!jinja\xFF|yaml\n",
+    for text in [
+        "#!yaml\n",
+        "#!mako|yaml\n",
+        "#!/usr/bin/env jinja\n",
+        "#! yaml_jinja\n",
+        "# !jinja|yaml\n",
+        "a: 1\n#!jinja|yaml\n",
     ] {
         assert!(
-            !ryl::directives::starts_with_jinja_header(head),
-            "not a Jinja header: {head:?}"
+            !ryl::directives::starts_with_jinja_header(text),
+            "not a Jinja header: {text:?}"
         );
     }
 }

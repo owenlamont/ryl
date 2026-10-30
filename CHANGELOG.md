@@ -28,6 +28,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- A file or Markdown block opening with `# ryl disable-file` no longer prints a syntax
+  or encoding skip notice under `check --fix`/`--diff` or `ryl format`.
 - `ryl format` no longer panics on a document whose re-indentation is refused while a
   hyphen-spacing edit applies.
 - `sequence-style = 'flow'` converts a sequence whose items end in trailing whitespace,

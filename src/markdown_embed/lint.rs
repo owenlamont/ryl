@@ -42,7 +42,9 @@ pub fn markdown_region_problems(
     };
     let mut skips = Vec::new();
     for region in extract_regions(markdown, sources) {
-        if region.content.trim().is_empty() {
+        if region.content.trim().is_empty()
+            || crate::directives::disables_file(&region.content)
+        {
             continue;
         }
         let problems = region_problems(&region);

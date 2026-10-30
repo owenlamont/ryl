@@ -39,7 +39,8 @@ Meta-actions
   (`directives::starts_with_jinja_header`: `#!jinja|yaml`, `#!yaml_jinja`) is a
   template. Named, or on stdin under either kind resolution, it exits 2; walked, the
   content-level `disables_file` skips it in every read path (lint, fix, format, LSP) at
-  no extra I/O, and only `--list-files` peeks to omit it.
+  no extra I/O, and only `--list-files` peeks to omit it. Rewrite paths check
+  `disables_file` before their parse gate, so an unparsable template prints no skip.
 - Config exclusions and `--exclude` skip even explicitly named files; `--exclude`
   replaces config patterns and `exclude-from-file` with cwd-relative globs.
 - Inputs are de-duplicated: a file reached by two spellings (`ryl check . f.yaml`, `f.yaml`

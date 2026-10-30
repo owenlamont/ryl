@@ -233,6 +233,9 @@ pub fn rewrite_str(
     rewrite: Rewrite,
 ) -> (Option<String>, Vec<crate::lint::LintProblem>) {
     match kind {
+        SourceKind::Yaml if crate::directives::disables_file(content) => {
+            (None, Vec::new())
+        }
         SourceKind::Yaml => {
             let mut events = match rewrite_parse_gate(content, rewrite) {
                 Ok(events) => events,
@@ -605,6 +608,9 @@ fn diff_and_skips(
     cache: &mut FormatCache,
 ) -> DiffOutcome {
     match kind {
+        SourceKind::Yaml if crate::directives::disables_file(content) => {
+            DiffOutcome::default()
+        }
         SourceKind::Yaml => {
             let mut events = match rewrite_parse_gate(content, rewrite) {
                 Ok(events) => events,
@@ -726,9 +732,6 @@ fn unfixed_notices(
     rewrite: Rewrite,
     cache: &mut FormatCache,
 ) -> Vec<crate::lint::LintProblem> {
-    if crate::directives::disables_file(content) {
-        return Vec::new();
-    }
     if rewrite == Rewrite::Format {
         return crate::format::unfixed(content, cfg, cache);
     }
@@ -782,9 +785,6 @@ fn rewrite_parse_notice(
     fixed: &str,
     parsed: &ParsedInput,
 ) -> Option<crate::lint::LintProblem> {
-    if crate::directives::disables_file(original) {
-        return None;
-    }
     parsed.strict_error.clone().map(|mut problem| {
         if original != fixed {
             problem.level = crate::lint::Severity::Warning;
@@ -962,7 +962,7 @@ pub fn decoded_diff_outcome(
     kind: SourceKind,
     rewrite: Rewrite,
 ) -> DiffOutcome {
-    if decoded.is_plain_utf8() {
+    if decoded.is_plain_utf8() || crate::directives::disables_file(decoded.content()) {
         return diff_outcome(decoded.content(), cfg, path, base_dir, kind, rewrite);
     }
     let mut outcome =
@@ -1134,7 +1134,9 @@ fn fix_markdown_cached(
     let mut notices = Vec::new();
     let mut refusals = Vec::new();
     for region in &regions {
-        if region.content.trim().is_empty() {
+        if region.content.trim().is_empty()
+            || crate::directives::disables_file(&region.content)
+        {
             continue;
         }
         let mut parsed = rewrite_parse_gate(&region.content, rewrite);

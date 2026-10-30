@@ -1563,12 +1563,13 @@ fn resolve_stdin_kind(
 }
 
 /// Whether the file opens with a Jinja renderer header; an unreadable file reads as not,
-/// so its read error surfaces where the file is linted.
+/// so its read error surfaces where the file is linted. The encoding override is ignored
+/// so its warning prints once, where the file is read.
 fn has_jinja_header(path: &Path) -> bool {
-    let mut head = [0; 256];
-    File::open(path)
-        .and_then(|mut file| file.read(&mut head))
-        .is_ok_and(|len| starts_with_jinja_header(&head[..len]))
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| decoder::decode_bytes_with_override(&bytes, None).ok())
+        .is_some_and(|text| starts_with_jinja_header(&text))
 }
 
 fn jinja_template_error(path: &Path) -> String {
@@ -1592,12 +1593,15 @@ fn read_stdin_decoded(
     if let Err(err) = std::io::stdin().read_to_end(&mut buf) {
         return Ok(Err(read_error(err.to_string())));
     }
-    if kind == Some(SourceKind::Yaml) && starts_with_jinja_header(&buf) {
+    let decoded = decoder::decode_bytes_lossless(&buf);
+    if kind == Some(SourceKind::Yaml)
+        && decoded
+            .as_ref()
+            .is_ok_and(|content| starts_with_jinja_header(content.content()))
+    {
         return Err(jinja_template_error(path));
     }
-    Ok(decoder::decode_bytes_lossless(&buf)
-        .map(|content| (content, buf))
-        .map_err(read_error))
+    Ok(decoded.map(|content| (content, buf)).map_err(read_error))
 }
 
 fn stdin_diff_stats(
