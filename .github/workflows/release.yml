@@ -171,7 +171,7 @@ jobs:
           merge-multiple: true
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           save-cache: false
       - name: Install wheel and run CLI
@@ -283,7 +283,7 @@ jobs:
           merge-multiple: true
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           save-cache: false
       - name: Install wheel and run CLI
@@ -340,7 +340,7 @@ jobs:
           merge-multiple: true
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           save-cache: false
       - name: Install wheel and run CLI
@@ -421,7 +421,7 @@ jobs:
       # running `cargo install cross`, whose crates.io fetch is a transient-failure point.
       - name: Install cross
         if: startsWith(matrix.runner, 'ubuntu')
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91
         with:
           tool: cross
       # The action copies each include to the archive root by basename, so the parser's
@@ -478,7 +478,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           enable-cache: false
           save-cache: false
@@ -614,7 +614,7 @@ jobs:
       - name: Authenticate with crates.io (Trusted Publishing)
         if: steps.pending.outputs.crates != ''
         id: crates_io_auth
-        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9
       - name: Publish to crates.io
         if: steps.pending.outputs.crates != ''
         env:
@@ -692,7 +692,7 @@ jobs:
           subject-path: dist/*
       - name: Publish to PyPI (Trusted Publishing)
         if: steps.pypi_exists.outputs.already_published != 'true'
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086
         with:
           print-hash: true
           skip-existing: true
