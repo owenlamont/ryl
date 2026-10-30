@@ -9,11 +9,17 @@ pub(super) struct Start {
 }
 
 pub(super) fn starts(source: Analysis<'_>) -> impl Iterator<Item = Start> {
-    source.event_iter().filter_map(|(event, span)| {
+    source.event_iter().filter_map(move |(event, span)| {
         if let Event::DocumentStart(explicit, _) = event {
+            // A block scalar's span starts at its content, a line below the header that
+            // opens an implicit document.
+            let header = source
+                .headers()
+                .iter()
+                .find(|header| header.span.start == span.start);
             Some(Start {
                 explicit,
-                line: span.start.line(),
+                line: header.map_or(span.start.line(), |header| header.line),
                 column: span.start.col(),
             })
         } else {
