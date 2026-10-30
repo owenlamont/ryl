@@ -106,52 +106,22 @@ jobs:
           # instrumented binaries, which the report would otherwise count.
           cargo llvm-cov clean --workspace
           cargo llvm-cov nextest --workspace --no-report
-          echo '### Test Coverage (nextest + cargo-llvm-cov)' > coverage.md
-          echo '```text' >> coverage.md
-          cargo llvm-cov report --workspace --summary-only | tee -a coverage.md
-          echo '```' >> coverage.md
-          # Produce LCOV for detailed per-line/branch analysis
-          cargo llvm-cov report --workspace --lcov --output-path lcov.info
-          echo '' >> coverage.md
-          echo '#### Missed Lines (per file)' >> coverage.md
-          awk -F: '
-            /^SF:/ {f=$2}
-            /^DA:/ {split($2,a,","); if (a[2]==0) lines[f]=lines[f] a[1] ","}
-            END {
-              for (f in lines) {
-                gsub(/,$/, "", lines[f]);
-                printf("- %s: %s\n", f, lines[f]);
-              }
-            }
-          ' lcov.info | sort >> coverage.md || true
-          echo '' >> coverage.md
-          if grep -q '^BRDA:' lcov.info; then
-            echo '#### Missed Branches (per file)' >> coverage.md
-            awk -F: '
-              /^SF:/ {f=$2}
-              /^BRDA:/ {
-                split($2,a,",");
-                # a[4] is taken count; treat 0 or - as missed
-                if (a[4]=="-" || a[4]==0) {
-                  branches[f]=branches[f] sprintf("%s(b%s)", a[1], a[3]) ",";
-                }
-              }
-              END {
-                for (f in branches) {
-                  gsub(/,$/, "", branches[f]);
-                  printf("- %s: %s\n", f, branches[f]);
-                }
-              }
-            ' lcov.info | sort >> coverage.md || true
-          fi
+          cargo llvm-cov report --workspace --json --output-path coverage.json
+          # The comment shows what the next step gates: ryl per instantiation, the parser
+          # on union coverage.
+          {
+            printf '### Test Coverage (nextest + cargo-llvm-cov)\n\n#### ryl\n\n```text\n'
+            cargo llvm-cov report --workspace --summary-only \
+              --ignore-filename-regex 'crates/ryl-yaml-parser/'
+            printf '```\n\n'
+            uv run .agents/skills/coverage/coverage-missing.py --report-json coverage.json --markdown
+          } > coverage.md
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: coverage
-          path: |-
-            coverage.md
-            lcov.info
+          path: coverage.md
 
       - name: Enforce coverage thresholds
         run: |-
@@ -164,7 +134,6 @@ jobs:
             --fail-uncovered-lines 0 \
             --fail-uncovered-regions 0
           # ryl-yaml-parser is generic over Input, so no one instantiation reaches every region; gate it on union coverage.
-          cargo llvm-cov report --workspace --json --output-path coverage.json
           uv run .agents/skills/coverage/coverage-missing.py --report-json coverage.json
 
   platform-tests:
