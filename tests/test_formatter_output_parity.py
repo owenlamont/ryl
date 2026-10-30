@@ -129,3 +129,7 @@ def test_expected_refusal_notice_must_appear(tmp_path: Path, binary_factory) -> 
         expected_notice=notice,
     )
     assert present == []
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-q"]))

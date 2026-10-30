@@ -2,25 +2,32 @@
 # requires-python = ">=3.15"
 # dependencies = [
 #   "typer", "packaging", "py-yaml12", "pyyaml", "platformdirs", "markdown-it-py",
-#   "matplotlib>=3.9,<4", "orjson>=3.11,<4", "polars>=1.30,<2", "tqdm>=4.67,<5",
+#   "matplotlib>=3.9,<4", "orjson>=3.11,<4",
 # ]
 # ///
 
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from enum import StrEnum
+import itertools
 import math
 import os
 from pathlib import Path
-import shutil
 from statistics import mean, stdev
-import subprocess
 import tempfile
-from time import perf_counter
 import tomllib
 from typing import Annotated, Final
 
-import benchmark_yaml_tools as harness
+from benchmark_yaml_tools import (
+    corpus_files,
+    first_accepted,
+    load_average,
+    measure,
+    run_checked,
+    size_bounds,
+    stage,
+    Tool,
+)
 from changelog import release_notes
 from downstream_check import published_binary
 from markdown_it import MarkdownIt
@@ -53,6 +60,7 @@ class Result:
 
 
 _CARGO_MANIFEST: Final = Path("Cargo.toml")
+_ALLOWED_EXITS: Final = {_Mode.LINT: {0, 1}, _Mode.FORMAT: {0}}
 
 
 def _manifest_release() -> str:
@@ -101,54 +109,52 @@ def regressions(
     ]
 
 
-def _tool(*, binary: Path, name: str, config: Path) -> harness.Tool:
-    help_text = harness.run_checked([str(binary), "check", "--help"]).stdout
+def _require_idle_host() -> None:
+    cpus = os.cpu_count() or 1
+    if (load := load_average()) >= cpus / 2:
+        raise RuntimeError(
+            f"host load {load:.2f} is not below half of {cpus} CPUs; timing aborted"
+        )
+
+
+def _tools(*, binary: Path, name: str, config: Path) -> dict[_Mode, Tool]:
+    help_text = run_checked([str(binary), "check", "--help"])
     cache_flags = ("--no-cache",) if "--no-cache" in help_text else ()
-    return harness.Tool(
-        name=name,
-        binary=binary,
-        version=harness.run_checked([str(binary), "--version"]).stdout.strip(),
-        config="README: relaxed lint; default format; caches disabled",
-        lint_args=("check", *cache_flags, "-d", "extends: relaxed"),
-        format_args=("format", *cache_flags, "-c", str(config)),
-    )
+    argvs = {
+        _Mode.LINT: ("check", *cache_flags, "-d", "extends: relaxed"),
+        _Mode.FORMAT: ("format", *cache_flags, "-c", str(config)),
+    }
+    return {
+        mode: Tool(name=name, mode=mode, profile=None, argv=(str(binary), *argv))
+        for mode, argv in argvs.items()
+    }
 
 
 def _measure(
     *,
-    case: harness.Case,
-    mode: _Mode,
-    tools: Sequence[harness.Tool],
+    case: str,
+    files: Sequence[Path],
+    tools: Sequence[Tool],
     runs: int,
     warmup: int,
-    root: Path,
+    scratch: Path,
 ) -> Result:
     samples: dict[str, list[float]] = {tool.name: [] for tool in tools}
-    work = root / "work"
     for iteration in range(warmup + runs):
-        harness.require_idle_host()
-        order = tools if iteration % 2 == 0 else tuple(reversed(tools))
-        for tool in order:
-            if work.exists():
-                shutil.rmtree(work)
-            shutil.copytree(case.dataset_dir, work)
-            with tempfile.TemporaryDirectory(prefix="ryl-perf-cache-") as cache:
-                started = perf_counter()
-                subprocess.run(
-                    harness.tool_command(tool, mode, work),
-                    cwd=root,
-                    env=os.environ | {"XDG_CACHE_HOME": cache, "RYL_NO_CACHE": "1"},
-                    capture_output=True,
-                    check=True,
-                    timeout=300,
-                )
-                elapsed = perf_counter() - started
+        _require_idle_host()
+        for tool in tools if iteration % 2 == 0 else tools[::-1]:
+            work = stage(files, scratch / "work")
+            sample = measure(
+                tool.command(work), cwd=scratch, cache=stage([], scratch / "cache")
+            )
+            if sample.exit_code not in _ALLOWED_EXITS[tool.mode]:
+                raise RuntimeError(f"{tool} exited {sample.exit_code} on {case}")
             if iteration >= warmup:
-                samples[tool.name].append(elapsed)
-        harness.require_idle_host()
+                samples[tool.name].append(sample.wall_seconds)
+    _require_idle_host()
     previous, candidate = (samples[tool.name] for tool in tools)
     return Result(
-        case=f"{mode}/{case.file_count}x{case.file_size_kib}KiB",
+        case=case,
         previous_seconds=mean(previous),
         previous_sd=stdev(previous),
         candidate_seconds=mean(candidate),
@@ -192,12 +198,14 @@ def main(
     Raises:
         typer.BadParameter: Tolerance is not finite.
         typer.Exit: Status 1 indicates an unaccepted regression.
+        RuntimeError: The host is busy or the corpus lacks enough accepted files.
     """
     if not math.isfinite(tolerance):
         raise typer.BadParameter("tolerance must be finite")
-    harness.require_idle_host()
-    counts = harness.parse_int_list(file_counts)
-    sizes = harness.parse_int_list(file_sizes_kib)
+    _require_idle_host()
+    os.environ["RYL_NO_CACHE"] = "1"
+    counts = [int(value) for value in file_counts.split(",")]
+    sizes = [int(value) for value in file_sizes_kib.split(",")]
     accepted = accepted_slowdowns(
         changelog=changelog.read_text(), release=release or _manifest_release()
     )
@@ -206,7 +214,7 @@ def main(
         if previous_bin is None:
             version = (
                 previous_version
-                or harness.run_checked(
+                or run_checked(
                     [
                         "gh",
                         "release",
@@ -220,82 +228,90 @@ def main(
                         "--jq",
                         '[.[] | select(.tagName | startswith("v"))][0].tagName',
                     ]
-                ).stdout.strip()
+                ).strip()
             )
             previous_bin = published_binary(version=version, root=root)
         config = root / "format.toml"
         config.write_text("[format]\n")
-        tools = (
-            _tool(binary=previous_bin.resolve(), name="previous", config=config),
-            _tool(binary=ryl_bin.resolve(), name="candidate", config=config),
-        )
-        for tool in tools:
-            typer.echo(f"{tool.name}: {tool.version} ({tool.binary})", err=True)
-        runner = harness.write_runner(root)
-        typer.echo(
-            "Selecting shared dirty files from the pinned real-world corpus...",
-            err=True,
-        )
-        pool, pins, attempts = harness.real_world_pool(
-            seed=7331,
-            sizes=sizes,
-            count=max(counts),
-            root=root,
-            tools=list(tools),
-            runner=runner,
-        )
-        cases = harness.iter_cases(counts, sizes, root / "cases", "real-world")
+        binaries = {"previous": previous_bin.resolve(), "candidate": ryl_bin.resolve()}
+        versions = {
+            name: run_checked([str(binary), "--version"]).strip()
+            for name, binary in binaries.items()
+        }
+        for name, binary in binaries.items():
+            typer.echo(f"{name}: {versions[name]} ({binary})", err=True)
+        tools = [
+            _tools(binary=binary, name=name, config=config)
+            for name, binary in binaries.items()
+        ]
+        typer.echo("Selecting files every binary accepts from the corpus...", err=True)
+        corpus = {path: path.stat().st_size for path in corpus_files()}
+        pools = {
+            size: first_accepted(
+                (
+                    path
+                    for path, size_bytes in corpus.items()
+                    if size_bytes in size_bounds(size)
+                ),
+                max(counts),
+                [tool for pair in tools for tool in pair.values()],
+                root / "probe",
+            )
+            for size in sizes
+        }
+        if short := [size for size, pool in pools.items() if len(pool) < max(counts)]:
+            raise RuntimeError(f"fewer than {max(counts)} files at KiB sizes {short}")
         results: list[Result] = []
         typer.echo("| Case | Previous ms ± sd | Candidate ms ± sd | Delta | Verdict |")
         typer.echo("| --- | ---: | ---: | ---: | --- |")
-        for case in cases:
-            harness.materialize_real_case(case, pool)
-            for mode in _Mode:
-                result = _measure(
-                    case=case,
-                    mode=mode,
-                    tools=tools,
-                    runs=runs,
-                    warmup=warmup,
-                    root=root,
-                )
-                results.append(result)
-                failing = regressions(
-                    results=[result], tolerance=tolerance, accepted=accepted
-                )
-                noise = abs(
-                    result.candidate_seconds - result.previous_seconds
-                ) <= math.hypot(result.previous_sd, result.candidate_sd)
-                verdict = "FAIL" if failing else "PASS"
-                if result.case in accepted:
-                    verdict += f"; accepted: {accepted[result.case]}"
-                if noise:
-                    verdict += "; within sample noise"
-                typer.echo(
-                    f"| {result.case} | {result.previous_seconds * 1000:.3f} "
-                    f"± {result.previous_sd * 1000:.3f} | "
-                    f"{result.candidate_seconds * 1000:.3f} "
-                    f"± {result.candidate_sd * 1000:.3f} | "
-                    f"{result.delta_percent:+.2f}% | {verdict} |"
-                )
-                output.parent.mkdir(parents=True, exist_ok=True)
-                output.write_bytes(
-                    orjson.dumps(
-                        {
-                            "versions": [tool.version for tool in tools],
-                            "runs": runs,
-                            "warmup": warmup,
-                            "tolerance_percent": tolerance,
-                            "release": release,
-                            "accepted": accepted,
-                            "corpus_pins": pins,
-                            "corpus_attempts": attempts,
-                            "results": [asdict(row) for row in results],
+        for count, size, mode in itertools.product(counts, sizes, _Mode):
+            result = _measure(
+                case=f"{mode}/{count}x{size}KiB",
+                files=pools[size][:count],
+                tools=[pair[mode] for pair in tools],
+                runs=runs,
+                warmup=warmup,
+                scratch=root / "time",
+            )
+            results.append(result)
+            failing = regressions(
+                results=[result], tolerance=tolerance, accepted=accepted
+            )
+            noise = abs(
+                result.candidate_seconds - result.previous_seconds
+            ) <= math.hypot(result.previous_sd, result.candidate_sd)
+            verdict = "FAIL" if failing else "PASS"
+            if result.case in accepted:
+                verdict += f"; accepted: {accepted[result.case]}"
+            if noise:
+                verdict += "; within sample noise"
+            typer.echo(
+                f"| {result.case} | {result.previous_seconds * 1000:.3f} "
+                f"± {result.previous_sd * 1000:.3f} | "
+                f"{result.candidate_seconds * 1000:.3f} "
+                f"± {result.candidate_sd * 1000:.3f} | "
+                f"{result.delta_percent:+.2f}% | {verdict} |"
+            )
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(
+                orjson.dumps(
+                    {
+                        "versions": versions,
+                        "runs": runs,
+                        "warmup": warmup,
+                        "tolerance_percent": tolerance,
+                        "release": release,
+                        "accepted": accepted,
+                        "inputs": {
+                            f"{size}KiB": [str(path) for path in pool]
+                            for size, pool in pools.items()
                         },
-                        option=orjson.OPT_INDENT_2,
-                    )
-                    + b"\n"
+                        "results": [asdict(row) for row in results],
+                    },
+                    option=orjson.OPT_INDENT_2,
                 )
+                + b"\n"
+            )
     failures = regressions(results=results, tolerance=tolerance, accepted=accepted)
     typer.echo(f"Gate: {'FAIL: ' + ', '.join(failures) if failures else 'PASS'}")
     raise typer.Exit(int(bool(failures)))

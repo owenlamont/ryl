@@ -67,3 +67,7 @@ def test_prettier_receives_a_glob_and_other_tools_the_directory(tmp_path: Path):
 
     assert prettier.command(tmp_path) == ["p", str(tmp_path / "*.yaml")]
     assert yamlfmt.command(tmp_path) == ["y", str(tmp_path)]
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-q"]))
