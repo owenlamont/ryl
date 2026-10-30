@@ -859,6 +859,37 @@ fn stdout_write_failure_is_reported_once_output_ends() {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn failed_stdout_still_closes_the_report_files() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let (gitlab, junit) = (
+        dir.path().join("report.json"),
+        dir.path().join("report.xml"),
+    );
+    let full = fs::File::options().write(true).open("/dev/full").unwrap();
+
+    let (code, _stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args([
+            "check", "--format", "parsable", "-o", "-", "--format", "gitlab", "-o",
+        ])
+        .arg(&gitlab)
+        .args(["--format", "junit", "-o"])
+        .arg(&junit)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file)
+        .stdout(full));
+    assert_eq!(code, 2, "{stderr}");
+    let issues: serde_json::Value = serde_json::from_slice(&fs::read(&gitlab).unwrap())
+        .expect("a complete JSON report");
+    assert_eq!(issues.as_array().map(Vec::len), Some(1), "{issues}");
+    let xml = fs::read_to_string(&junit).unwrap();
+    assert!(xml.trim_end().ends_with("</testsuites>"), "{xml}");
+}
+
 /// Spawn ryl reading `input` from stdin with the given args, returning (code, stdout, stderr).
 fn run_stdin(args: &[&str], input: &[u8]) -> (i32, String, String) {
     let exe = env!("CARGO_BIN_EXE_ryl");

@@ -848,12 +848,14 @@ fn open_targets(targets: &[OutputTarget]) -> Result<Vec<OutputSink>, String> {
 /// [`RecordStream::finish`].
 struct RecordStream<'a> {
     targets: &'a [OutputTarget],
-    writers: Vec<Box<dyn Write>>,
+    /// Each target's writer with its first write failure, after which only that target's
+    /// writes are skipped.
+    writers: Vec<(Box<dyn Write>, std::io::Result<()>)>,
     junit: Option<JunitReport>,
     gitlab: Option<GitlabState>,
     errors_to_stderr: bool,
     project_root: PathBuf,
-    /// The first write failure, after which writes are skipped; `finish` reports it.
+    /// The first failure among the closed writers, which `finish` reports.
     status: std::io::Result<()>,
 }
 
@@ -871,13 +873,12 @@ impl<'a> RecordStream<'a> {
         let project_root = report_project_root();
         let mut writers: Vec<_> = sinks
             .into_iter()
-            .map(OutputSink::start)
+            .map(|sink| sink.start().map(|writer| (writer, Ok(()))))
             .collect::<std::io::Result<_>>()
             .map_err(|err| write_output_error(&err))?;
-        let mut status = Ok(());
-        for (target, writer) in targets.iter().zip(&mut writers) {
+        for (target, (writer, status)) in targets.iter().zip(&mut writers) {
             if target.format == OutputFormat::Gitlab {
-                then(&mut status, || writer.write_all(b"["));
+                then(status, || writer.write_all(b"["));
             }
         }
         Ok(Self {
@@ -902,7 +903,7 @@ impl<'a> RecordStream<'a> {
                     && matches!(&target.destination, Destination::Stderr)
             }),
             project_root,
-            status,
+            status: Ok(()),
         })
     }
 
@@ -928,7 +929,8 @@ impl<'a> RecordStream<'a> {
             .position(|target| target.destination == Destination::Stderr)
         {
             Some(index) => {
-                then(&mut self.status, || self.writers[index].write_all(bytes));
+                let (writer, status) = &mut self.writers[index];
+                then(status, || writer.write_all(bytes));
             }
             None => {
                 let _ = std::io::stderr().write_all(bytes);
@@ -950,7 +952,7 @@ impl<'a> RecordStream<'a> {
         if let Some(junit) = &mut self.junit {
             junit.append(&entry);
         }
-        for (target, writer) in self.targets.iter().zip(&mut self.writers) {
+        for (target, (writer, status)) in self.targets.iter().zip(&mut self.writers) {
             let console;
             let block: &[u8] = match target.format {
                 OutputFormat::Junit => continue,
@@ -960,7 +962,7 @@ impl<'a> RecordStream<'a> {
                     &console
                 }
             };
-            then(&mut self.status, || writer.write_all(block));
+            then(status, || writer.write_all(block));
         }
     }
 
@@ -979,7 +981,9 @@ impl<'a> RecordStream<'a> {
     /// call, from `drop` after `finish`, a no-op.
     fn close(&mut self) {
         let junit = self.junit.take().map(JunitReport::finish);
-        for (target, mut writer) in self.targets.iter().zip(self.writers.drain(..)) {
+        for (target, (mut writer, mut status)) in
+            self.targets.iter().zip(self.writers.drain(..))
+        {
             let tail: [&[u8]; 2] = match target.format {
                 OutputFormat::Junit => {
                     let (root, body) = junit.as_ref().expect(JUNIT_REPORT_KEPT);
@@ -988,11 +992,12 @@ impl<'a> RecordStream<'a> {
                 OutputFormat::Gitlab => [b"]\n", b""],
                 _ => [b"", b""],
             };
-            then(&mut self.status, || {
+            then(&mut status, || {
                 tail.iter()
                     .try_for_each(|bytes| writer.write_all(bytes))
                     .and_then(|()| writer.flush())
             });
+            self.status = std::mem::replace(&mut self.status, Ok(())).and(status);
         }
     }
 }
