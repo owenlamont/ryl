@@ -109,10 +109,12 @@ impl<'cfg, 'state> Planner<'cfg, 'state> {
         }
         let text = match self.config.required {
             RequiredMode::Always => {
-                self.fix_required_always(value, facts).map(Recipe::Text)
+                self.fix_required(value, facts, true).map(Recipe::Text)
             }
             RequiredMode::Never => {
-                self.fix_required_never(value, facts).map(Recipe::Text)
+                let quote_plain = facts.extra_required.get();
+                self.fix_required(value, facts, quote_plain)
+                    .map(Recipe::Text)
             }
             RequiredMode::OnlyWhenNeeded => {
                 self.fix_only_when_needed(&model, facts, initial)
@@ -121,50 +123,20 @@ impl<'cfg, 'state> Planner<'cfg, 'state> {
         text.map(Selected)
     }
 
-    fn fix_required_always(
+    fn fix_required(
         &mut self,
         value: &str,
         facts: ScalarQuoteFacts,
+        quote_plain: bool,
     ) -> Option<String> {
-        match facts.style {
-            None => {
-                let target = self.default_quote_style();
-                replacement_for_target(value, target)
+        let target = match facts.style {
+            None if quote_plain => self.default_quote_style(),
+            Some(style_kind) if self.mismatched_quote(style_kind, facts) => {
+                self.target_quote_style(style_kind)
             }
-            Some(style_kind) => {
-                if self.mismatched_quote(style_kind, facts) {
-                    let target = self.target_quote_style(style_kind);
-                    replacement_for_target(value, target)
-                } else {
-                    None
-                }
-            }
-        }
-    }
-
-    fn fix_required_never(
-        &mut self,
-        value: &str,
-        facts: ScalarQuoteFacts,
-    ) -> Option<String> {
-        match facts.style {
-            None => {
-                if facts.extra_required.get() {
-                    let target = self.default_quote_style();
-                    replacement_for_target(value, target)
-                } else {
-                    None
-                }
-            }
-            Some(style_kind) => {
-                if self.mismatched_quote(style_kind, facts) {
-                    let target = self.target_quote_style(style_kind);
-                    replacement_for_target(value, target)
-                } else {
-                    None
-                }
-            }
-        }
+            _ => return None,
+        };
+        replacement_for_target(value, target)
     }
 
     fn fix_only_when_needed(

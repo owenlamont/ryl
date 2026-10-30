@@ -170,6 +170,52 @@ fn strict_grammar_rejects_malformed_directives() {
 }
 
 #[test]
+fn every_accepted_directive_form_survives_the_keyword_prefix_check() {
+    let config = cfg(COLONS);
+    let tails = ["", " rule:colons", " rule:colons rule:truthy"];
+    let ends = ["", "  ", "\t"];
+    for keyword in ["ryl", "yamllint"] {
+        for tail in tails {
+            for end in ends {
+                let line = format!("a:  1  # {keyword} disable-line{tail}{end}\n");
+                assert!(
+                    rule_lines(&line, &config).is_empty(),
+                    "disable-line form must suppress: {line:?}"
+                );
+                let block = format!(
+                    "# {keyword} disable{tail}{end}\na:  1\n# {keyword} enable{tail}{end}\nb:  1\n"
+                );
+                assert_eq!(
+                    rule_lines(&block, &config),
+                    vec![(4, "colons".to_owned())],
+                    "disable/enable form must bracket the region: {block:?}"
+                );
+            }
+        }
+    }
+    assert!(
+        rule_lines("a:  1  # note # ryl disable-line rule:colons\n", &config)
+            .is_empty(),
+        "a `ryl` segment of a shared comment must suppress"
+    );
+    let inert = [
+        "a:  1  #ryl disable-line rule:colons\n",
+        "a:  1  #\tryl disable-line rule:colons\n",
+        "a:  1  # ryl\tdisable-line rule:colons\n",
+        "a:  1  # Ryl disable-line rule:colons\n",
+        "a:  1  # YAMLLINT disable-line rule:colons\n",
+        "a:  1  # note # yamllint disable-line rule:colons\n",
+    ];
+    for input in inert {
+        assert_eq!(
+            rule_lines(input, &config),
+            vec![(1, "colons".to_owned())],
+            "near-miss directive must stay inert: {input:?}"
+        );
+    }
+}
+
+#[test]
 fn hash_inside_quotes_is_not_a_directive() {
     let config = cfg(COLONS);
     // Both quote styles: the `#` is part of the scalar, not a comment, so colons

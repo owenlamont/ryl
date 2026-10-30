@@ -5,6 +5,13 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+## v0.27.0
+
+### Added
+
+- [ryl-action](https://github.com/marketplace/actions/ryl-action) runs ryl in GitHub
+  Actions, pinned per release as `owenlamont/ryl-action@v0.27.0`.
+
 ### Changed
 
 - `ryl server` reports open files only by default, as ruff, rumdl and biome do. The new
@@ -25,6 +32,8 @@ summarize user-visible changes from the tagged commits and published release rec
   `#!yaml_jinja`) is a template that ryl neither lints nor formats: a directory scan
   skips it, and naming it or piping it to stdin exits `2`.
   ([#781](https://github.com/owenlamont/ryl/issues/781))
+- Building ryl from source, as `cargo install ryl` does, needs Rust 1.99.1.
+  ([#876](https://github.com/owenlamont/ryl/pull/876))
 
 ### Fixed
 
@@ -52,7 +61,9 @@ summarize user-visible changes from the tagged commits and published release rec
   longer reports them.
   Block collection style leaves a flow collection with a trailing directive as
   written, and the `key-ordering` fix skips a mapping holding an own-line one.
-  ([#780](https://github.com/owenlamont/ryl/issues/780))
+  Contributed by [@samirhvbr](https://github.com/samirhvbr) in
+  [#877](https://github.com/owenlamont/ryl/pull/877), fixing
+  [#780](https://github.com/owenlamont/ryl/issues/780).
 
 ## v0.26.1
 

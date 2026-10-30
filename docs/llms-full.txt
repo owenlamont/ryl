@@ -54,6 +54,27 @@ Verify the install:
 ryl --version
 ```
 
+## GitHub Actions
+
+[ryl-action](https://github.com/marketplace/actions/ryl-action) installs the
+release binary on the runner, verifies its checksum and runs `ryl check .`:
+
+```yaml
+- uses: actions/checkout@v7
+- uses: owenlamont/ryl-action@v0.27.0
+- uses: owenlamont/ryl-action@v0.27.0
+  with:
+    args: format --check .
+```
+
+Each action tag installs the matching ryl release. ryl enables no rules without
+a config, so commit a `.ryl.toml` first. The other inputs are `version`, `config`
+(passed as `-c`), `config-data` (inline config, passed whole as `-d`) and
+`install-only`, which puts `ryl` on `PATH` for later steps. `args` splits on
+whitespace without quote handling, so pass inline config through `config-data`.
+See the [ryl-action README](https://github.com/owenlamont/ryl-action) for more
+examples.
+
 Set up tab-completion with [Shell completions](https://ryl-docs.pages.dev/getting-started/shell-completions/), or
 continue to the [Quick start](https://ryl-docs.pages.dev/getting-started/quickstart/) to run your first lint.
 

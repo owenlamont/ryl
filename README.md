@@ -56,6 +56,12 @@ winget install owenlamont.ryl       # winget (Windows)
 Building from source (`cargo install`, or a `pip` sdist) needs Rust 1.99.1 or
 newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
 
+In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-action):
+
+```yaml
+- uses: owenlamont/ryl-action@v0.27.0
+```
+
 ## Status and scope
 
 - `ryl format` formats YAML in place without enabling lint rules. Its `--check`

@@ -23,6 +23,8 @@ from benchmark_yaml_tools import (
     first_accepted,
     load_average,
     measure,
+    Profile,
+    PROFILE_CONFIGS,
     run_checked,
     size_bounds,
     stage,
@@ -43,6 +45,7 @@ app = typer.Typer(
 class _Mode(StrEnum):
     LINT = "lint"
     FORMAT = "format"
+    MAX_WORK = "max-work"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -60,7 +63,11 @@ class Result:
 
 
 _CARGO_MANIFEST: Final = Path("Cargo.toml")
-_ALLOWED_EXITS: Final = {_Mode.LINT: {0, 1}, _Mode.FORMAT: {0}}
+_ALLOWED_EXITS: Final = {_Mode.LINT: {0, 1}, _Mode.FORMAT: {0}, _Mode.MAX_WORK: {0}}
+_FORMAT_PROFILES: Final = {
+    _Mode.FORMAT: Profile.DEFAULTS,
+    _Mode.MAX_WORK: Profile.MAX_WORK,
+}
 
 
 def _manifest_release() -> str:
@@ -117,12 +124,17 @@ def _require_idle_host() -> None:
         )
 
 
-def _tools(*, binary: Path, name: str, config: Path) -> dict[_Mode, Tool]:
+def _tools(
+    *, binary: Path, name: str, configs: Mapping[_Mode, Path]
+) -> dict[_Mode, Tool]:
     help_text = run_checked([str(binary), "check", "--help"])
     cache_flags = ("--no-cache",) if "--no-cache" in help_text else ()
     argvs = {
         _Mode.LINT: ("check", *cache_flags, "-d", "extends: relaxed"),
-        _Mode.FORMAT: ("format", *cache_flags, "-c", str(config)),
+        **{
+            mode: ("format", *cache_flags, "-c", str(config))
+            for mode, config in configs.items()
+        },
     }
     return {
         mode: Tool(name=name, mode=mode, profile=None, argv=(str(binary), *argv))
@@ -191,7 +203,7 @@ def main(
     ] = None,
     output: Path = Path("manual_outputs/benchmarks/release-perf.json"),
 ) -> None:
-    """Gate README real-world lint/format cases with alternating A/B samples.
+    """Gate README real-world lint, format and max-work format cases with A/B samples.
 
     Acquire the machine's benchmark lock before invoking; keep the JSON as evidence.
 
@@ -231,8 +243,9 @@ def main(
                 ).strip()
             )
             previous_bin = published_binary(version=version, root=root)
-        config = root / "format.toml"
-        config.write_text("[format]\n")
+        configs = {mode: root / f"{mode}.toml" for mode in _FORMAT_PROFILES}
+        for mode, config in configs.items():
+            config.write_text(str(PROFILE_CONFIGS[_FORMAT_PROFILES[mode]]["ryl"]))
         binaries = {"previous": previous_bin.resolve(), "candidate": ryl_bin.resolve()}
         versions = {
             name: run_checked([str(binary), "--version"]).strip()
@@ -241,7 +254,7 @@ def main(
         for name, binary in binaries.items():
             typer.echo(f"{name}: {versions[name]} ({binary})", err=True)
         tools = [
-            _tools(binary=binary, name=name, config=config)
+            _tools(binary=binary, name=name, configs=configs)
             for name, binary in binaries.items()
         ]
         typer.echo("Selecting files every binary accepts from the corpus...", err=True)

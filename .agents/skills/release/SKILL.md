@@ -97,11 +97,13 @@ description: >-
 
     On a shared benchmark host, acquire the host's benchmark lock around the entire
     command (for example `flock /path/to/bench.lock uv run --script ...`). The gate
-    reuses the README harness's pinned real-world corpus, 5×5 cases, relaxed lint and
-    default formatter config. Each case alternates A/B order, with 3 warmups and 20
-    samples per binary; caches are disabled. The baseline is the exact release's PyPI
-    wheel installed into an isolated uv tool directory, keeping package-launch overhead
-    outside timing. Historical releases without a cache need no cache flag.
+    reuses the README harness's pinned real-world corpus and times 5×5 cases in three
+    modes: relaxed lint, the default formatter config, and the README's max-work
+    formatter config (`max-work/...`, which folds long lines). Each case alternates A/B
+    order, with 3 warmups and 20 samples per binary; caches are disabled. The baseline
+    is the exact release's PyPI wheel installed into an isolated uv tool directory,
+    keeping package-launch overhead outside timing. Historical releases without a
+    cache need no cache flag.
     `--previous-version vX.Y.Z` selects a published baseline explicitly;
     `--previous-bin /path/to/ryl` supports local release-binary comparisons.
     Preserve the per-case mean ± standard deviation and delta table, plus

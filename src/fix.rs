@@ -79,14 +79,6 @@ pub struct FixStats {
     pub errors: Vec<(usize, String)>,
 }
 
-/// One file's in-place fix result. Markdown can fix some regions while skipping others;
-/// YAML can apply key ordering while refusing unsafe block scalar edits.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct FixOutcome {
-    pub changed: bool,
-    pub skipped: Vec<crate::lint::LintProblem>,
-}
-
 /// The text transform a write-back or preview applies: the safe lint fixes or the formatter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rewrite {
