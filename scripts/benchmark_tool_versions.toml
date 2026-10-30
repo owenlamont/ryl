@@ -1,5 +1,5 @@
 yamllint = "1.38.0"
 yamlfmt = "0.21.0"
 prettier = "3.9.10"
-dprint = "0.63.0"
+dprint = "0.64.3"
 pretty_yaml = "0.6.0"

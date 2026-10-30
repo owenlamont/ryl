@@ -15,7 +15,8 @@ codes, machine-readable output, in-place edits, and stdin support.
 
 Install: `pip install ryl`, `cargo install ryl`, or `npm i -g @owenlamont/ryl`.
 Pre-commit via `owenlamont/ryl-pre-commit`: `ryl-check` and `ryl-format`, plus
-`ryl-check-markdown` and `ryl-format-markdown` for embedded YAML.
+`ryl-check-markdown` and `ryl-format-markdown` for embedded YAML. GitHub Actions:
+`owenlamont/ryl-action@v0.27.0` (default `args: check .`).
 
 ## Critical: ryl has no default-on rules
 
@@ -61,8 +62,9 @@ Exit codes from a plain lint run (`--fix`/`--diff` differ, see below):
 
 - `0`: no errors (warnings still exit `0` unless strict mode is enabled).
 - `1`: error-level findings, invalid YAML, or an unreadable path.
-- `2`: usage error (no inputs, bad flags), no rules enabled by config or `--enable`, or
-  strict mode with only warnings.
+- `2`: usage error (no inputs, bad flags), no rules enabled by config or `--enable`,
+  strict mode with only warnings, or a named Jinja template (first line `#!jinja|yaml`
+  or `#!yaml_jinja`), which a directory scan skips instead.
 
 Enable strict mode with `--strict` or TOML `[lint] strict = true` to make warnings
 fail (exit `2`). `--no-strict` overrides configuration; `--no-warnings` suppresses

@@ -103,6 +103,14 @@ fn parse_comment(text: &str) -> impl Iterator<Item = Parsed> + '_ {
 }
 
 fn parse_segment(text: &str) -> Option<Parsed> {
+    // Compiling the directive regexes costs more than formatting a small file, and the
+    // formatter asks about every comment it folds around.
+    if ![" yamllint ", " ryl "]
+        .iter()
+        .any(|prefix| text.starts_with(prefix))
+    {
+        return None;
+    }
     let action = if DISABLE_LINE.is_match(text) {
         Action::DisableLine
     } else if DISABLE.is_match(text) {

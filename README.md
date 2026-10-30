@@ -56,6 +56,12 @@ winget install owenlamont.ryl       # winget (Windows)
 Building from source (`cargo install`, or a `pip` sdist) needs Rust 1.99.1 or
 newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
 
+In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-action):
+
+```yaml
+- uses: owenlamont/ryl-action@v0.27.0
+```
+
 ## Status and scope
 
 - `ryl format` formats YAML in place without enabling lint rules. Its `--check`
@@ -141,22 +147,20 @@ do in common. Median of 10 runs; peak RSS is the median of 3 more:
 
 | Input | ryl | yamlfmt | dprint + pretty_yaml | Prettier |
 | --- | ---: | ---: | ---: | ---: |
-| 1 KiB file | 2.5 ms, 8.4 MiB | 2.4 ms, 5.5 MiB | 6.6 ms, 16 MiB | 106 ms, 64 MiB |
-| 16 KiB file | 3.4 ms, 8.6 MiB | 3.8 ms, 6.5 MiB | 9.6 ms, 16 MiB | 147 ms, 79 MiB |
-| 0.9 MiB file | 71 ms, 25 MiB | 133 ms, 71 MiB | 509 ms, 38 MiB | 1.20 s, 368 MiB |
-| 9.4 MiB file | 0.84 s, 191 MiB | 1.22 s, 690 MiB | 4.83 s, 240 MiB | 9.75 s, 1.8 GiB |
-| 1,000 files | 28 ms, 16 MiB | 236 ms, 18 MiB | 127 ms, 23 MiB | 3.52 s, 246 MiB |
+| 1 KiB file | 2.5 ms, 8.3 MiB | 2.7 ms, 5.5 MiB | 6.6 ms, 16 MiB | 107 ms, 64 MiB |
+| 16 KiB file | 3.8 ms, 8.7 MiB | 4.0 ms, 6.3 MiB | 9.4 ms, 17 MiB | 152 ms, 79 MiB |
+| 0.9 MiB file | 75 ms, 25 MiB | 138 ms, 70 MiB | 559 ms, 38 MiB | 1.33 s, 369 MiB |
+| 9.4 MiB file | 0.91 s, 191 MiB | 1.30 s, 674 MiB | 5.08 s, 241 MiB | 10.1 s, 1.8 GiB |
+| 1,000 files | 30 ms, 16 MiB | 247 ms, 18 MiB | 147 ms, 23 MiB | 3.78 s, 246 MiB |
 
 | Lint, `extends: default` | 1 KiB | 9.4 MiB | 1,000 files |
 | --- | ---: | ---: | ---: |
-| ryl | 2.3 ms | 0.62 s | 24 ms |
-| yamllint | 70 ms | 29.8 s | 5.19 s |
+| ryl | 2.8 ms | 0.63 s | 27 ms |
+| yamllint | 75 ms | 31.2 s | 5.67 s |
 
-ryl formats faster than the other three at every size and file count, except a
-single 1 KiB file, where it ties yamlfmt (within 1%, mostly process startup).
-yamlfmt uses less memory up to 16 KiB (5.5–6.5 MiB against ryl's 8.4–8.6 MiB).
-The same holds under the other two profiles, where a lone 1 KiB file is up to 5%
-slower than yamlfmt.
+ryl formats faster than the other three at every size and file count, under all
+three profiles. yamlfmt uses less memory up to 16 KiB (5.5–6.3 MiB against ryl's
+8.3–8.7 MiB).
 
 Profiles and what they cannot equalise:
 
@@ -187,11 +191,11 @@ Each size point is a different file, so content varies along that axis.
 
 | Tool | Version |
 | --- | --- |
-| ryl | 0.26.1 |
+| ryl | 0.27.0 |
 | yamllint | 1.38.0 |
 | yamlfmt | 0.21.0 |
 | Prettier | 3.9.10 |
-| dprint + pretty_yaml | 0.63.0 + 0.6.0 |
+| dprint + pretty_yaml | 0.64.3 + 0.6.0 |
 
 The [benchmark script](scripts/benchmark_yaml_tools.py) reruns everything and draws
 the chart; `--tool-versions latest` uses the newest release of each tool instead of

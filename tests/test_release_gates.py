@@ -21,7 +21,28 @@ if TYPE_CHECKING:
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from downstream_check import read_pin
-from release_perf_gate import accepted_slowdowns, regressions, Result
+from release_perf_gate import (
+    _FORMAT_PROFILES,
+    _Mode,
+    _tools,
+    accepted_slowdowns,
+    PROFILE_CONFIGS,
+    regressions,
+    Result,
+)
+
+
+def test_gate_times_every_mode_with_its_profile_config(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    mocker.patch("release_perf_gate.run_checked", return_value="--no-cache")
+    configs = {mode: tmp_path / f"{mode}.toml" for mode in _FORMAT_PROFILES}
+    tools = _tools(binary=Path("ryl"), name="candidate", configs=configs)
+    assert set(tools) == set(_Mode)
+    for mode, config in configs.items():
+        assert tools[mode].argv[-2:] == ("-c", str(config))
+    max_work = PROFILE_CONFIGS[_FORMAT_PROFILES[_Mode.MAX_WORK]]["ryl"]
+    assert "fold-long-lines = true" in str(max_work)
 
 
 @pytest.mark.parametrize(
