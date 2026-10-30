@@ -784,6 +784,27 @@ fn gitlab_format_reads_stdin_with_filename() {
     );
 }
 
+#[test]
+fn every_gitlab_target_gets_every_issue() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let (one, two) = (dir.path().join("one.json"), dir.path().join("two.json"));
+
+    let (code, _stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "--format", "gitlab", "-o"])
+        .arg(&one)
+        .args(["--format", "gitlab", "-o"])
+        .arg(&two)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "{stderr}");
+    let one = fs::read_to_string(&one).unwrap();
+    assert!(one.contains("new-line-at-end-of-file"), "{one}");
+    assert_eq!(fs::read_to_string(&two).unwrap(), one);
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn output_file_write_failure_is_reported() {

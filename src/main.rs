@@ -951,12 +951,16 @@ impl<'a> RecordStream<'a> {
             junit.append(&entry);
         }
         for (target, writer) in self.targets.iter().zip(&mut self.writers) {
-            let block = match target.format {
+            let console;
+            let block: &[u8] = match target.format {
                 OutputFormat::Junit => continue,
-                OutputFormat::Gitlab => std::mem::take(&mut gitlab),
-                format => console_block(format, record),
+                OutputFormat::Gitlab => &gitlab,
+                format => {
+                    console = console_block(format, record);
+                    &console
+                }
             };
-            then(&mut self.status, || writer.write_all(&block));
+            then(&mut self.status, || writer.write_all(block));
         }
     }
 
