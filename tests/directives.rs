@@ -500,3 +500,30 @@ fn shared_comment_directive_applies_inside_embedded_markdown_region() {
     let lines: Vec<usize> = problems.iter().map(|p| p.line).collect();
     assert_eq!(lines, vec![3], "only the undirected region line reports");
 }
+
+#[test]
+fn jinja_header_follows_salts_render_pipe() {
+    for text in [
+        "#!jinja|yaml\n",
+        "#! jinja | yaml | stateconf\r\n",
+        "#!yaml_jinja\n",
+    ] {
+        assert!(
+            ryl::directives::starts_with_jinja_header(text),
+            "a Jinja header: {text:?}"
+        );
+    }
+    for text in [
+        "#!yaml\n",
+        "#!mako|yaml\n",
+        "#!/usr/bin/env jinja\n",
+        "#! yaml_jinja\n",
+        "# !jinja|yaml\n",
+        "a: 1\n#!jinja|yaml\n",
+    ] {
+        assert!(
+            !ryl::directives::starts_with_jinja_header(text),
+            "not a Jinja header: {text:?}"
+        );
+    }
+}

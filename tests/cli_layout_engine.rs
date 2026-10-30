@@ -1637,14 +1637,6 @@ fn suppressed_blank_runs_merge_removed_lines() {
 }
 
 #[test]
-fn disabled_files_count_a_skip() {
-    let input = "# ryl disable-file\ncafé:   1\n";
-    let (output, statistics) = format_with_statistics(input, "[format]\n");
-    assert_eq!(output, input);
-    assert_eq!(statistics["skips"], 1, "{statistics}");
-}
-
-#[test]
 fn repair_reindents_alongside_inconsistent_mappings() {
     let (output, statistics) = format_with_statistics(
         "a:\n  b: 1\nc:\n    d: 2\ncafé: [x,\ny]\n",

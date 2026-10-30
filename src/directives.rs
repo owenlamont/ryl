@@ -40,22 +40,46 @@ static RULE_TOKEN: LazyLock<Regex> =
 static DISABLE_FILE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^#\s*(?:yamllint|ryl) disable-file\s*$").unwrap());
 
-/// Whether the buffer's first line is a `disable-file` directive, which skips the whole
-/// buffer (no diagnostics, not even syntax errors, no `--fix`), matching yamllint. For
-/// embedded Markdown the buffer is one region, so this disables the region opening with it.
+/// Whether the buffer's first line is a `disable-file` directive, matching yamllint, or a
+/// Jinja renderer header; either skips the whole buffer (no diagnostics, not even syntax
+/// errors, no `--fix`). For embedded Markdown the buffer is one region, so this disables
+/// the region opening with it.
 #[must_use]
 pub fn disables_file(buffer: &str) -> bool {
     // First line on the YAML 1.2 break set, so a bare-`\r`-terminated directive is seen.
     let first_line = split_lines_preserve_endings(buffer)
         .next()
         .map_or("", |(_, content, _)| content);
-    first_line.contains("disable-file")
-        && (DISABLE_FILE.is_match(first_line)
-            || first_line.strip_prefix('#').is_some_and(|payload| {
-                SEGMENT_BREAK
-                    .split(payload)
-                    .any(|segment| segment.trim_end() == " ryl disable-file")
-            }))
+    starts_with_jinja_header(first_line)
+        || first_line.contains("disable-file")
+            && (DISABLE_FILE.is_match(first_line)
+                || first_line.strip_prefix('#').is_some_and(|payload| {
+                    SEGMENT_BREAK
+                        .split(payload)
+                        .any(|segment| segment.trim_end() == " ryl disable-file")
+                }))
+}
+
+/// Whether decoded `text` opens with a Salt renderer header that runs Jinja
+/// (`#!jinja|yaml`, `#!yaml_jinja`), parsed as `template_shebang` in Salt's
+/// `salt/template.py` does: a single-token pipe may name a combined renderer.
+#[must_use]
+pub fn starts_with_jinja_header(text: &str) -> bool {
+    let Some(rest) = text
+        .strip_prefix("#!")
+        .filter(|rest| !rest.starts_with('/'))
+    else {
+        return false;
+    };
+    let pipe = rest
+        .split(['\n', '\r'])
+        .next()
+        .unwrap_or_default()
+        .trim_end();
+    ["yaml_jinja", "json_jinja", "yamlex_jinja"].contains(&pipe)
+        || pipe
+            .split('|')
+            .any(|part| part.trim().split(' ').next() == Some("jinja"))
 }
 
 enum Action {

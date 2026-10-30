@@ -58,6 +58,8 @@ this:   file: is: not: linted
 
 It must be the first line, with no `rule:` tokens. The `#`
 may be followed by any spacing (`#ryl disable-file` is accepted too).
+A first-line Jinja renderer header such as `#!jinja|yaml` skips a file the same way; see
+[Jinja templates](formatter.md#jinja-templates).
 
 ### Targeting rules
 

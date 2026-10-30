@@ -21,9 +21,15 @@ summarize user-visible changes from the tagged commits and published release rec
   `--check` and `--diff`, unless it reports a repair or a `not fixed` notice. Debug
   builds no longer re-check formatter output.
   ([#843](https://github.com/owenlamont/ryl/issues/843))
+- A file whose first line is a Salt Jinja renderer header (`#!jinja|yaml`,
+  `#!yaml_jinja`) is a template that ryl neither lints nor formats: a directory scan
+  skips it, and naming it or piping it to stdin exits `2`.
+  ([#781](https://github.com/owenlamont/ryl/issues/781))
 
 ### Fixed
 
+- A file or Markdown block opening with `# ryl disable-file` no longer prints a syntax
+  or encoding skip notice under `check --fix`/`--diff` or `ryl format`.
 - `ryl format` no longer panics on a document whose re-indentation is refused while a
   hyphen-spacing edit applies.
 - `sequence-style = 'flow'` converts a sequence whose items end in trailing whitespace,

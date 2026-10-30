@@ -7,6 +7,8 @@ use std::process::{Command, Stdio};
 
 use tempfile::tempdir;
 
+use crate::common;
+
 fn run(cmd: &mut Command) -> (i32, String) {
     let out = cmd.output().expect("process");
     let code = out.status.code().unwrap_or(-1);
@@ -115,4 +117,91 @@ fn stdin_honours_directive_beside_a_version_comment() {
         let (code, out) = run_stdin(&input, &["--config-data", "{extends: default}"]);
         assert_eq!(code, 0, "{comment:?} should suppress line-length: {out}");
     }
+}
+
+const TEMPLATE: &str = "#!jinja|yaml\n{% set v = 1 %}\na:  \"{{ v }}\"\n";
+
+#[test]
+fn discovered_jinja_template_is_skipped() {
+    let td = tempdir().unwrap();
+    fs::write(
+        td.path().join(".ryl.toml"),
+        "[files]\nmarkdown = [\"*.md\"]\n[lint.rules]\ncolons = \"enable\"\n",
+    )
+    .unwrap();
+    fs::write(td.path().join("t.yaml"), TEMPLATE).unwrap();
+    fs::write(td.path().join("b.yaml"), format!("\u{feff}{TEMPLATE}")).unwrap();
+    fs::write(
+        td.path().join("doc.md"),
+        format!("```yaml\n{TEMPLATE}```\n"),
+    )
+    .unwrap();
+    fs::write(td.path().join("ok.yaml"), "a: 1\n").unwrap();
+    let ryl = || {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_ryl"));
+        cmd.current_dir(td.path());
+        cmd
+    };
+    let (code, out) = run(ryl().args(["check", "--list-files", "."]));
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        out.contains("ok.yaml") && !out.contains("t.yaml") && !out.contains("b.yaml"),
+        "template not listed: {out}"
+    );
+    for args in [
+        &["check", "."][..],
+        &["check", "--diff", "."],
+        &["format", "--diff", "."],
+    ] {
+        let (code, out) = run(ryl().args(args));
+        assert_eq!(code, 0, "{args:?} skips the template: {out}");
+        assert!(
+            ["t.yaml", "b.yaml", "doc.md"]
+                .iter()
+                .all(|name| !out.contains(name)),
+            "{args:?} skips the template: {out}"
+        );
+    }
+}
+
+#[test]
+fn named_jinja_template_is_refused() {
+    let td = tempdir().unwrap();
+    let path = td.path().join("t.yaml");
+    let header = format!("#!yaml{}|jinja\n", " ".repeat(300));
+    fs::write(&path, common::encoding::encoded(&header, 2, true, true)).unwrap();
+    for args in [
+        &["check", "-d", "[lint.rules]\ncolons = \"enable\""][..],
+        &["format"],
+    ] {
+        let (code, out) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .env("HOME", td.path())
+            .args(args)
+            .arg(&path));
+        assert_eq!(code, 2, "{args:?} refuses a named template: {out}");
+        assert!(out.contains("a Jinja template"), "{args:?}: {out}");
+    }
+    for args in [
+        &["check", "-d", "[lint.rules]\ncolons = \"enable\""][..],
+        &["format", "--diff"],
+        &["format"],
+    ] {
+        let (code, out) = run_stdin(TEMPLATE, args);
+        assert_eq!(code, 2, "{args:?} refuses a template on stdin: {out}");
+        assert!(out.contains("<stdin>: a Jinja template"), "{args:?}: {out}");
+    }
+}
+
+#[test]
+fn named_template_is_refused_under_an_encoding_override() {
+    let td = tempdir().unwrap();
+    let path = td.path().join("t.yaml");
+    fs::write(&path, b"#!jinja|yaml\na: \"caf\xe9\"\n").unwrap();
+    let (code, out) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .env("HOME", td.path())
+        .env("YAMLLINT_FILE_ENCODING", "latin-1")
+        .arg("format")
+        .arg(&path));
+    assert_eq!(code, 2, "a Latin-1 template is refused: {out}");
+    assert!(out.contains("a Jinja template"), "{out}");
 }

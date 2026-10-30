@@ -30,6 +30,7 @@ use ryl::config_schema::{
     OutputDestination, OutputTable, schema_string_pretty, yaml_schema_string_pretty,
 };
 use ryl::decoder;
+use ryl::directives::starts_with_jinja_header;
 use ryl::fix::{
     DiffStats, Rewrite, SAFE_FIX_RULE_IDS, decoded_diff_outcome, diff_files,
     diff_files_with_notices, rewrite_files, rewrite_str, skip_notice,
@@ -1261,7 +1262,10 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     let (global_cfg, files, ruleless_config_found) = collect_files(args)?;
 
     if args.lint.compatibility.list_files {
-        for (path, ..) in &files {
+        for (path, .., kind) in &files {
+            if *kind == SourceKind::Yaml && has_jinja_header(path) {
+                continue;
+            }
             println!("{}", sanitize_control(&path.display().to_string()));
         }
         return Ok(ExitCode::SUCCESS);
@@ -1509,7 +1513,13 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
         return Ok(emit_diff(&stats, Preview::Diff));
     }
 
-    let outcome = read_and_lint_stdin(&path, &base_dir, &cfg, kind);
+    let outcome =
+        read_stdin_decoded(&path, Some(kind))?.map(|(content, _)| match kind {
+            SourceKind::Markdown => {
+                lint_markdown_str(content.content(), &path, &cfg, &base_dir)
+            }
+            SourceKind::Yaml => lint_str(content.content(), &path, &cfg, &base_dir),
+        });
     let strict = args.lint.compatibility.strict(cfg.strict());
 
     let files = vec![(path, base_dir, Arc::new(cfg), kind)];
@@ -1552,29 +1562,49 @@ fn resolve_stdin_kind(
     }
 }
 
-fn read_stdin_decoded(path: &Path) -> Result<(decoder::DecodedFile, Vec<u8>), String> {
-    let mut buf = Vec::new();
-    std::io::stdin()
-        .read_to_end(&mut buf)
-        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let content = decoder::decode_bytes_lossless(&buf)
-        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    Ok((content, buf))
+/// Whether the file opens with a Jinja renderer header; an unreadable file reads as not,
+/// so its read error surfaces where the file is linted. The encoding override is read
+/// directly so its warning prints once, where the file is read.
+fn has_jinja_header(path: &Path) -> bool {
+    let encoding = std::env::var("YAMLLINT_FILE_ENCODING").ok();
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| {
+            decoder::decode_bytes_with_override(&bytes, encoding.as_deref()).ok()
+        })
+        .is_some_and(|text| starts_with_jinja_header(&text))
 }
 
-fn read_and_lint_stdin(
+fn jinja_template_error(path: &Path) -> String {
+    format!(
+        "{}: a Jinja template (`#!` renderer header); ryl does not lint or format \
+         templates",
+        path.display()
+    )
+}
+
+type StdinRead = Result<(decoder::DecodedFile, Vec<u8>), String>;
+
+/// Read and decode stdin; the outer error refuses a YAML Jinja template, the inner one is
+/// a read or decode failure.
+fn read_stdin_decoded(
     path: &Path,
-    base_dir: &Path,
-    cfg: &YamlLintConfig,
-    kind: SourceKind,
-) -> Result<Vec<LintProblem>, String> {
-    let (content, _) = read_stdin_decoded(path)?;
-    Ok(match kind {
-        SourceKind::Markdown => {
-            lint_markdown_str(content.content(), path, cfg, base_dir)
-        }
-        SourceKind::Yaml => lint_str(content.content(), path, cfg, base_dir),
-    })
+    kind: Option<SourceKind>,
+) -> Result<StdinRead, String> {
+    let read_error = |err: String| format!("failed to read {}: {err}", path.display());
+    let mut buf = Vec::new();
+    if let Err(err) = std::io::stdin().read_to_end(&mut buf) {
+        return Ok(Err(read_error(err.to_string())));
+    }
+    let decoded = decoder::decode_bytes_lossless(&buf);
+    if kind == Some(SourceKind::Yaml)
+        && decoded
+            .as_ref()
+            .is_ok_and(|content| starts_with_jinja_header(content.content()))
+    {
+        return Err(jinja_template_error(path));
+    }
+    Ok(decoded.map(|content| (content, buf)).map_err(read_error))
 }
 
 fn stdin_diff_stats(
@@ -1585,7 +1615,7 @@ fn stdin_diff_stats(
     rewrite: Rewrite,
     preview: Preview,
 ) -> Result<DiffStats, String> {
-    let (decoded, _) = read_stdin_decoded(path)?;
+    let (decoded, _) = read_stdin_decoded(path, Some(kind))??;
     let mut stats = DiffStats::default();
     stats.record(
         path,
@@ -1889,7 +1919,7 @@ fn run_stdin_format(
         };
         return emit_format_preview(&stats, (preview, 0), &targets);
     }
-    let (content, raw) = read_stdin_decoded(&path)?;
+    let (content, raw) = read_stdin_decoded(&path, kind)??;
     let (formatted, skipped) = kind.map_or((None, Vec::new()), |kind| {
         rewrite_str(
             content.content(),
@@ -2080,6 +2110,9 @@ fn gather_lint_files(
             }
             None => continue,
         };
+        if explicit && kind == SourceKind::Yaml && has_jinja_header(path) {
+            return Err(jinja_template_error(path));
+        }
         if !seen.insert(lexical_abspath(path)) {
             continue;
         }

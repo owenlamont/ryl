@@ -686,12 +686,12 @@ fn encoded_diff_detects_fixes_in_yaml_and_markdown_files_and_stdin() {
                 assert_encoded_diff(
                     run(command().arg(&path)),
                     expected,
-                    width != 1 || bom,
+                    (width != 1 || bom) && text != disabled,
                 );
                 assert_encoded_diff(
                     run_with_stdin(command().arg("-"), &bytes),
                     expected,
-                    width != 1 || bom,
+                    (width != 1 || bom) && text != disabled,
                 );
                 assert_eq!(fs::read(&path).unwrap(), bytes);
             }
