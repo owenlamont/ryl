@@ -35,6 +35,11 @@ Meta-actions
   (TOML) or `yaml-files` (YAML); files matching no kind are skipped.
 - Files named explicitly are linted as their resolved source kind; one that matches no
   `[files]` kind is rejected with an error (rather than silently treated as YAML).
+- A YAML-kind file whose first line is a Salt Jinja renderer header
+  (`directives::starts_with_jinja_header`: `#!jinja|yaml`, `#!yaml_jinja`) is a
+  template. Named, or on stdin under either kind resolution, it exits 2; walked, the
+  content-level `disables_file` skips it in every read path (lint, fix, format, LSP) at
+  no extra I/O, and only `--list-files` peeks to omit it.
 - Config exclusions and `--exclude` skip even explicitly named files; `--exclude`
   replaces config patterns and `exclude-from-file` with cwd-relative globs.
 - Inputs are de-duplicated: a file reached by two spellings (`ryl check . f.yaml`, `f.yaml`

@@ -40,22 +40,50 @@ static RULE_TOKEN: LazyLock<Regex> =
 static DISABLE_FILE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^#\s*(?:yamllint|ryl) disable-file\s*$").unwrap());
 
-/// Whether the buffer's first line is a `disable-file` directive, which skips the whole
-/// buffer (no diagnostics, not even syntax errors, no `--fix`), matching yamllint. For
-/// embedded Markdown the buffer is one region, so this disables the region opening with it.
+/// Whether the buffer's first line is a `disable-file` directive, matching yamllint, or a
+/// Jinja renderer header; either skips the whole buffer (no diagnostics, not even syntax
+/// errors, no `--fix`). For embedded Markdown the buffer is one region, so this disables
+/// the region opening with it.
 #[must_use]
 pub fn disables_file(buffer: &str) -> bool {
     // First line on the YAML 1.2 break set, so a bare-`\r`-terminated directive is seen.
     let first_line = split_lines_preserve_endings(buffer)
         .next()
         .map_or("", |(_, content, _)| content);
-    first_line.contains("disable-file")
-        && (DISABLE_FILE.is_match(first_line)
-            || first_line.strip_prefix('#').is_some_and(|payload| {
-                SEGMENT_BREAK
-                    .split(payload)
-                    .any(|segment| segment.trim_end() == " ryl disable-file")
-            }))
+    starts_with_jinja_header(first_line.as_bytes())
+        || first_line.contains("disable-file")
+            && (DISABLE_FILE.is_match(first_line)
+                || first_line.strip_prefix('#').is_some_and(|payload| {
+                    SEGMENT_BREAK
+                        .split(payload)
+                        .any(|segment| segment.trim_end() == " ryl disable-file")
+                }))
+}
+
+/// Whether `head`, a file's leading bytes after any UTF-8 BOM, opens with a Salt renderer
+/// header that runs Jinja (`#!jinja|yaml`, `#!yaml_jinja`), parsed as `template_shebang`
+/// in Salt's `salt/template.py` does: a single-token pipe may name a combined renderer.
+#[must_use]
+pub fn starts_with_jinja_header(head: &[u8]) -> bool {
+    let Some(rest) = head
+        .strip_prefix(b"\xEF\xBB\xBF")
+        .unwrap_or(head)
+        .strip_prefix(b"#!")
+        .filter(|rest| !rest.starts_with(b"/"))
+    else {
+        return false;
+    };
+    let line = rest
+        .split(|&b| b == b'\n' || b == b'\r')
+        .next()
+        .unwrap_or_default();
+    let Ok(pipe) = std::str::from_utf8(line).map(str::trim_end) else {
+        return false;
+    };
+    ["yaml_jinja", "json_jinja", "yamlex_jinja"].contains(&pipe)
+        || pipe
+            .split('|')
+            .any(|part| part.trim().split(' ').next() == Some("jinja"))
 }
 
 enum Action {

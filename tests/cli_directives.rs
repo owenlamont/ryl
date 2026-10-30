@@ -116,3 +116,59 @@ fn stdin_honours_directive_beside_a_version_comment() {
         assert_eq!(code, 0, "{comment:?} should suppress line-length: {out}");
     }
 }
+
+const TEMPLATE: &str = "#!jinja|yaml\na:  \"{{ v }}\"\n";
+
+#[test]
+fn discovered_jinja_template_is_skipped() {
+    let td = tempdir().unwrap();
+    fs::write(
+        td.path().join(".ryl.toml"),
+        "[lint.rules]\ncolons = \"enable\"\n",
+    )
+    .unwrap();
+    fs::write(td.path().join("t.yaml"), TEMPLATE).unwrap();
+    fs::write(td.path().join("ok.yaml"), "a: 1\n").unwrap();
+    let ryl = || {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_ryl"));
+        cmd.current_dir(td.path());
+        cmd
+    };
+    let (code, out) = run(ryl().args(["check", "--list-files", "."]));
+    assert_eq!((code, out.trim()), (0, "./ok.yaml"), "template not listed");
+    for args in [&["check", "."][..], &["format", "--diff", "."]] {
+        let (code, out) = run(ryl().args(args));
+        assert_eq!(code, 0, "{args:?} skips the template: {out}");
+        assert!(
+            !out.contains("t.yaml"),
+            "{args:?} skips the template: {out}"
+        );
+    }
+}
+
+#[test]
+fn named_jinja_template_is_refused() {
+    let td = tempdir().unwrap();
+    let path = td.path().join("t.yaml");
+    fs::write(&path, TEMPLATE).unwrap();
+    for args in [
+        &["check", "-d", "[lint.rules]\ncolons = \"enable\""][..],
+        &["format"],
+    ] {
+        let (code, out) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .env("HOME", td.path())
+            .args(args)
+            .arg(&path));
+        assert_eq!(code, 2, "{args:?} refuses a named template: {out}");
+        assert!(out.contains("a Jinja template"), "{args:?}: {out}");
+    }
+    for args in [
+        &["check", "-d", "[lint.rules]\ncolons = \"enable\""][..],
+        &["format", "--diff"],
+        &["format"],
+    ] {
+        let (code, out) = run_stdin(TEMPLATE, args);
+        assert_eq!(code, 2, "{args:?} refuses a template on stdin: {out}");
+        assert!(out.contains("<stdin>: a Jinja template"), "{args:?}: {out}");
+    }
+}

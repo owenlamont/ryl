@@ -1876,6 +1876,14 @@ count a document-prefix BOM that remains in the source text.
 The same exit behavior applies when a patch is skipped because the YAML ends in a
 bare carriage return or the filename cannot be represented in a diff header.
 
+### Jinja templates
+
+ryl neither formats nor lints a Jinja template, since the rendered values can break
+quotes ryl chose. A template is a file whose first line is a Salt renderer header that
+runs Jinja, such as `#!jinja|yaml` or `#!yaml_jinja`. A directory scan skips one
+silently, as it skips a `.j2` file; naming one, or piping one to stdin, exits `2`. A
+file without the header is YAML, `{{ }}` included.
+
 ## Configuration
 
 `ryl format` reads the `[format]` table of the same `.ryl.toml`, `ryl.toml` or
@@ -2280,7 +2288,7 @@ relying on the check that ran before formatting.
 | :--- | :--- | :--- |
 | `0` | Files formatted, or nothing to do | No file would change; a symlinked input is refused on stderr but still exits `0` |
 | `1` | Not used | At least one file would change, a mixed-newline Markdown region needs formatting, or a ragged Markdown region retains layout findings |
-| `2` | A usage or config error, an unreadable or unwritable file, or a file no `[files]` glob matches | A usage or config error, an unreadable file, or a file no `[files]` glob matches |
+| `2` | A usage or config error, an unreadable or unwritable file, a file no `[files]` glob matches, or a [Jinja template](#jinja-templates) | A usage or config error, an unreadable file, a file no `[files]` glob matches, or a Jinja template |
 
 A failed write names the file on stderr; formatting continues with the remaining files.
 A file skipped for a syntax error does not change the exit code.
@@ -2495,6 +2503,8 @@ this:   file: is: not: linted
 
 It must be the first line, with no `rule:` tokens. The `#`
 may be followed by any spacing (`#ryl disable-file` is accepted too).
+A first-line Jinja renderer header such as `#!jinja|yaml` skips a file the same way; see
+[Jinja templates](https://ryl-docs.pages.dev/formatter/#jinja-templates).
 
 ### Targeting rules
 
