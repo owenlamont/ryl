@@ -38,7 +38,8 @@ pub fn small_file_batch(files: &[LintFile]) -> bool {
 ///
 /// # Panics
 ///
-/// Re-raises a panic from `compute`.
+/// Panics with a message of its own when `compute` panics; the panic hook has already
+/// printed the original.
 pub fn try_for_each_ordered<R: Send, E>(
     files: &[LintFile],
     compute: impl Fn(&LintFile) -> R + Sync,
