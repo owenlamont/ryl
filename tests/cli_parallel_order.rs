@@ -294,3 +294,50 @@ fn check_keeps_input_order_past_one_window_and_cache_batch() {
     let warm = check();
     assert_eq!(warm.stderr, cold.stderr, "cache hits keep input order");
 }
+
+#[test]
+fn check_replays_each_files_stderr_before_its_diagnostics() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    let files: Vec<_> = (0..40)
+        .map(|index| {
+            let name = format!("{index:02}.yaml");
+            fs::write(dir.path().join(&name), "key: value \n").unwrap();
+            name
+        })
+        .collect();
+    let warning = String::from_utf8_lossy(ryl::decoder::ENCODING_OVERRIDE_WARNING);
+    let line = |name: &String| {
+        format!("{name}:1:11: [error] trailing spaces (trailing-spaces)\n")
+    };
+    let check = |extra: &[&str]| {
+        ryl(dir.path())
+            .current_dir(dir.path())
+            .env("YAMLLINT_FILE_ENCODING", "utf-8")
+            .args(["check", "--no-cache", "--output-format", "parsable"])
+            .args(extra)
+            .args(&files)
+            .output()
+            .unwrap()
+    };
+
+    let console = check(&[]);
+    let interleaved: String = files
+        .iter()
+        .map(|name| format!("{warning}{}", line(name)))
+        .collect();
+    let console = String::from_utf8_lossy(&console.stderr);
+    assert!(console.ends_with(&interleaved), "{console}");
+
+    let piped = check(&["-o", "-"]);
+    assert_eq!(
+        String::from_utf8_lossy(&piped.stdout),
+        files.iter().map(line).collect::<String>()
+    );
+    let piped = String::from_utf8_lossy(&piped.stderr);
+    assert!(piped.replace(&*warning, "").is_empty(), "{piped}");
+}

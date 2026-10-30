@@ -348,8 +348,8 @@ fn hard_link_batches(files: &[LintFile]) -> Vec<std::ops::Range<usize>> {
     batches
 }
 
-/// Never reads a symlink; pairs each result with its stderr and hands both to `emit` in
-/// input order, for ordered replay.
+/// Never reads a symlink; hands each result and its stderr to `emit` in input order, for
+/// ordered replay.
 fn read_in_order<T: Send>(
     files: &[LintFile],
     compute: impl Fn(decoder::DecodedFile, &LintFile) -> Result<T, String> + Sync,
@@ -358,14 +358,12 @@ fn read_in_order<T: Send>(
     crate::cli_support::try_for_each_ordered(
         files,
         |file| {
-            crate::cli_support::capture_file_stderr(|| {
-                if is_symlink(&file.0) {
-                    Err(format!("skipped symlink {}", file.0.display()))
-                } else {
-                    decoder::read_file_lossless(&file.0)
-                        .and_then(|decoded| compute(decoded, file))
-                }
-            })
+            if is_symlink(&file.0) {
+                Err(format!("skipped symlink {}", file.0.display()))
+            } else {
+                decoder::read_file_lossless(&file.0)
+                    .and_then(|decoded| compute(decoded, file))
+            }
         },
         emit,
     )

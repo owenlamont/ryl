@@ -27,9 +27,10 @@ pub fn small_file_batch(files: &[LintFile]) -> bool {
     }
 }
 
-/// `compute` each file on the rayon pool and hand the results to `emit` in input order,
-/// stopping at `emit`'s first error. The caller is not a pool worker, so it emits while
-/// every worker computes; tasks never block, so a nested `rayon::join` cannot deadlock.
+/// `compute` each file on the rayon pool and hand each result, with the stderr it wrote, to
+/// `emit` in input order, stopping at `emit`'s first error. The caller is not a pool
+/// worker, so it emits while every worker computes; tasks never block, so a nested
+/// `rayon::join` cannot deadlock.
 ///
 /// # Errors
 ///
@@ -41,8 +42,9 @@ pub fn small_file_batch(files: &[LintFile]) -> bool {
 pub fn try_for_each_ordered<R: Send, E>(
     files: &[LintFile],
     compute: impl Fn(&LintFile) -> R + Sync,
-    mut emit: impl FnMut(usize, R) -> Result<(), E>,
+    mut emit: impl FnMut(usize, (R, Vec<u8>)) -> Result<(), E>,
 ) -> Result<(), E> {
+    let compute = |file: &LintFile| capture_file_stderr(|| compute(file));
     if small_file_batch(files) {
         return files
             .iter()
@@ -71,7 +73,7 @@ pub fn try_for_each_ordered<R: Send, E>(
             });
         };
         (0..chunks.min(in_flight)).for_each(spawn);
-        let mut ring: Vec<Option<Option<Vec<R>>>> =
+        let mut ring: Vec<Option<Option<Vec<_>>>> =
             std::iter::repeat_with(|| None).take(in_flight).collect();
         for task in 0..chunks {
             let results = loop {

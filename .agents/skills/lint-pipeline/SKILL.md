@@ -134,7 +134,9 @@ order, so memory stays flat in the file count. Tasks never block, so a nested
 `rayon::join` cannot deadlock against the window, and a worker panic is re-raised on the
 caller. `check` renders each record to its targets from that callback, `diff_files`
 streams each diff and `format` finding, and lint-cache misses are stored every
-`CACHE_BATCH` files. An error that aborts the run leaves the files before it already
+`CACHE_BATCH` files. The helper captures each file's stderr for `emit` to replay, through
+the console target when it owns stderr. An error that aborts the run leaves the files
+before it already
 written. `rewrite_files` writes each file from the task that rewrote it, so
 no file's text outlives its task; hard-link batches keep two paths to one file in separate
 passes. A sole pending input of at

@@ -9,10 +9,11 @@ summarize user-visible changes from the tagged commits and published release rec
 
 - `ryl check` and `ryl format --check`/`--diff` write each file's results in input
   order as the run goes, so peak memory no longer grows with the file count. At
-  20,000 files, `check --enable ALL` peaks at 44 MiB (was 203 MiB), GitLab output at
+  20,000 files, `check --enable ALL` peaks at 44 MiB (was 202 MiB), GitLab output at
   42 MiB (was 966 MiB) and `format --check` at 33 MiB (was 94 MiB). JUnit output still
-  holds its body until the end, now at 286 MiB (was 447 MiB). A run that aborts on an
-  error now leaves the output of the files before it.
+  holds its body until the end, now at 286 MiB (was 448 MiB). A run that aborts on an
+  error now leaves the output of the files before it, and with `YAMLLINT_FILE_ENCODING`
+  set, each file's warning now precedes its diagnostics.
   ([#830](https://github.com/owenlamont/ryl/issues/830))
 
 ## v0.27.0

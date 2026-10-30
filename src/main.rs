@@ -919,6 +919,23 @@ impl<'a> RecordStream<'a> {
         Self::start(targets, open_targets(targets)?, paths)
     }
 
+    /// Replay a file's captured stderr, through the console target when it owns stderr so
+    /// the two stay in order.
+    fn replay_stderr(&mut self, bytes: &[u8]) {
+        match self
+            .targets
+            .iter()
+            .position(|target| target.destination == Destination::Stderr)
+        {
+            Some(index) => {
+                then(&mut self.status, || self.writers[index].write_all(bytes));
+            }
+            None => {
+                let _ = std::io::stderr().write_all(bytes);
+            }
+        }
+    }
+
     fn push(&mut self, record: &FileRecord) {
         if self.errors_to_stderr
             && let Some(message) = &record.error
@@ -1444,7 +1461,7 @@ fn lint_and_exit(
     let mut stream = RecordStream::start(targets, sinks, file_paths(files))?;
     let mut summary = LintSummary::default();
     let mut fixed = 0;
-    let emit = |idx: usize, outcome: LintOutcome| {
+    let emit = |idx: usize, (outcome, stderr): (LintOutcome, Vec<u8>)| {
         let (path, ..) = &files[idx];
         let outcome = match &before_fix {
             Some((before, errors)) => {
@@ -1460,6 +1477,7 @@ fn lint_and_exit(
             }
             None => outcome,
         };
+        stream.replay_stderr(&stderr);
         stream.push(&summary.record(path, outcome, no_warnings));
     };
     if before_fix.is_some() {
@@ -1496,7 +1514,8 @@ fn lint_and_exit(
 ///
 fn apply_fixes_reporting_skips(files: &[LintFile], no_warnings: bool) -> FixBaseline {
     let mut before = Vec::with_capacity(files.len());
-    lint_files(files, |_, outcome| {
+    lint_files(files, |_, (outcome, stderr)| {
+        let _ = std::io::stderr().write_all(&stderr);
         before.push(safe_fix_rule_counts(&outcome, no_warnings));
     });
     let fix_stats = rewrite_files(files, Rewrite::Fix);
@@ -2058,15 +2077,15 @@ fn emit_notices(notices: &[String], no_warnings: bool) {
 }
 
 /// Lint `files` in parallel, handing each outcome to `emit` in input order.
-fn lint_files(files: &[LintFile], mut emit: impl FnMut(usize, LintOutcome)) {
+fn lint_files(files: &[LintFile], mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>))) {
     let Ok(()) = ryl::cli_support::try_for_each_ordered(
         files,
         |(path, base_dir, cfg, kind)| match kind {
             SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
             SourceKind::Yaml => lint_file(path, cfg, base_dir),
         },
-        |idx, outcome| {
-            emit(idx, outcome);
+        |idx, result| {
+            emit(idx, result);
             Ok::<(), std::convert::Infallible>(())
         },
     );
@@ -2083,7 +2102,7 @@ const CACHE_BATCH: usize = 256;
 fn lint_files_cached(
     files: &[LintFile],
     settings: &cache::Settings,
-    mut emit: impl FnMut(usize, LintOutcome),
+    mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>)),
 ) -> Result<(), String> {
     let compute = |(path, base_dir, cfg, kind): &LintFile| -> Result<_, String> {
         let entry = settings.entry(path, base_dir, cfg, *kind, "check")?;
@@ -2120,7 +2139,7 @@ fn lint_files_cached(
         )
     };
     let mut stored = Ok(());
-    ryl::cli_support::try_for_each_ordered(files, compute, |idx, result| {
+    ryl::cli_support::try_for_each_ordered(files, compute, |idx, (result, stderr)| {
         let (outcome, entry) = result?;
         if let (Some(entry), Ok(problems)) = (entry, &outcome) {
             misses.push((entry, problems.clone()));
@@ -2129,7 +2148,7 @@ fn lint_files_cached(
                     .and_then(|()| store(&mut misses));
             }
         }
-        emit(idx, outcome);
+        emit(idx, (outcome, stderr));
         Ok::<(), String>(())
     })?;
     stored.and_then(|()| store(&mut misses))
