@@ -352,21 +352,28 @@ fn aborted_run_still_closes_its_gitlab_report() {
     .unwrap();
     fs::write(dir.path().join("unformatted.yaml"), "key:   value\n").unwrap();
     fs::write(dir.path().join("unreadable.yaml"), b"key: \xff\n").unwrap();
+    let format_check = |extra: &[&str]| {
+        let output = ryl(dir.path())
+            .current_dir(dir.path())
+            .env("YAMLLINT_FILE_ENCODING", "utf-8")
+            .args(["format", "--check", "--no-cache"])
+            .args(extra)
+            .args(["unformatted.yaml", "unreadable.yaml"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{output:?}");
+        output.stdout
+    };
 
-    let output = ryl(dir.path())
-        .current_dir(dir.path())
-        .env("YAMLLINT_FILE_ENCODING", "utf-8")
-        .args(["format", "--check", "--no-cache"])
-        .args(["unformatted.yaml", "unreadable.yaml"])
-        .output()
-        .unwrap();
-
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let report = fs::read(dir.path().join("report.json")).unwrap();
-    let issues: serde_json::Value =
-        serde_json::from_slice(&report).expect("a complete JSON report");
-    assert_eq!(
-        issues[0]["location"]["path"], "unformatted.yaml",
-        "{issues}"
-    );
+    format_check(&[]);
+    let file = fs::read(dir.path().join("report.json")).unwrap();
+    let stdout = format_check(&["--output-format", "gitlab"]);
+    for report in [file, stdout] {
+        let issues: serde_json::Value =
+            serde_json::from_slice(&report).expect("a complete JSON report");
+        assert_eq!(
+            issues[0]["location"]["path"], "unformatted.yaml",
+            "{issues}"
+        );
+    }
 }
