@@ -142,8 +142,7 @@ impl Tokens {
         self.records.iter().map(|&[start, end, code, _]| {
             let (start, end) = if start == WIDE {
                 let span = self.wide[end as usize];
-                let byte =
-                    |marker: Marker| marker.byte_offset().expect("scanner byte offset");
+                let byte = |marker: Marker| marker.byte_offset().unwrap_or(usize::MAX);
                 (byte(span.start), byte(span.end))
             } else {
                 (start as usize, end as usize)

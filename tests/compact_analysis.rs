@@ -171,9 +171,9 @@ fn wide_spans_preserve_sentinel_and_large_offsets() {
             let mut tokens = lexical::Tokens::default();
             tokens.push(&span, ryl_yaml_parser::TokenKind::Key);
             assert_span_eq(tokens.iter("").next().unwrap().0, span);
-            if let Some(byte) = span.start.byte_offset() {
-                assert_eq!(tokens.bytes().next().unwrap().0, byte);
-            }
+            let byte = |marker: Marker| marker.byte_offset().unwrap_or(usize::MAX);
+            let (start, end, _) = tokens.bytes().next().unwrap();
+            assert_eq!((start, end), (byte(span.start), byte(span.end)));
         }
     }
 }
