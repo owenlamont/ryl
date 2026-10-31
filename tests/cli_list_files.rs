@@ -90,11 +90,11 @@ fn list_files_skips_vcs_directories_unless_named() {
         fs::create_dir(dir.path().join(vcs)).unwrap();
         fs::write(dir.path().join(vcs).join("x.yaml"), "ok: 1\n").unwrap();
     }
-    let workflows = dir.path().join(".github/workflows");
+    let workflows = dir.path().join(".github").join("workflows");
     fs::create_dir_all(&workflows).unwrap();
     let workflow = workflows.join("ci.yaml");
     fs::write(&workflow, "ok: 1\n").unwrap();
-    let git_file = dir.path().join(".git/x.yaml");
+    let git_file = dir.path().join(".git").join("x.yaml");
 
     let list = |input: &std::path::Path| {
         let (code, stdout, stderr) =

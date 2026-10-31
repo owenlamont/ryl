@@ -339,8 +339,8 @@ yamllint walks into them and lints any YAML there. Naming one as an input
 (`ryl check .git`) or naming a file inside one still lints it.
 
 **Why ryl differs:** a VCS directory holds the tool's own state, never project YAML,
-and walking a large `.git` costs time. ruff skips the same directories. Other hidden
-directories, such as `.github`, are still walked.
+and walking a large `.git` costs time. ruff skips `.git`, `.hg` and `.svn`; ryl also
+skips `.jj`. Other hidden directories, such as `.github`, are still walked.
 
 ### Bare carriage-return (`\r`) line breaks
 
