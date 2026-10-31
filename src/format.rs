@@ -108,9 +108,9 @@ impl Passes<'static> {
                     .into_owned(),
                 )
             }),
-            quoted_strings: quote_style
-                .filter(|_| on(quoted_strings::ID))
-                .map(quoted_strings::Config::ladder),
+            quoted_strings: quote_style.filter(|_| on(quoted_strings::ID)).map(
+                |style| quoted_strings::Config::ladder(style, cfg.target_version()),
+            ),
             trailing_spaces: on(trailing_spaces::ID),
             document_start: (table.document_start == MarkerTarget::Add
                 && on(document_start::ID))
@@ -125,6 +125,7 @@ impl Passes<'static> {
             )),
             truthy: None,
             key_ordering: None,
+            yaml_directive: None,
             line_length: (table.fold_long_lines && on(line_length::ID)).then(|| {
                 line_length::Fold {
                     width: line_length(cfg),

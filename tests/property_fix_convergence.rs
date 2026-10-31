@@ -22,7 +22,7 @@ use ryl::fix::{
 use ryl::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, hyphens, key_ordering, new_line_at_end_of_file,
-    new_lines, quoted_strings, trailing_spaces, truthy,
+    new_lines, quoted_strings, trailing_spaces, truthy, yaml_directive,
 };
 use ryl_yaml_parser::{Scanner, StrInput, TokenType};
 
@@ -58,6 +58,7 @@ fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
     let truthy_cfg = truthy::Config::resolve(cfg);
     let key_ordering_cfg =
         key_ordering::Config::resolve(cfg, std::path::Path::new("t.yaml"));
+    let yaml_directive_cfg = yaml_directive::Config::resolve(cfg);
     vec![
         (
             new_lines::ID,
@@ -133,6 +134,10 @@ fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
         (
             key_ordering::ID,
             Box::new(move |buffer| key_ordering::fix(buffer, &key_ordering_cfg, &[])),
+        ),
+        (
+            yaml_directive::ID,
+            Box::new(move |buffer| yaml_directive::fix(buffer, &yaml_directive_cfg)),
         ),
     ]
 }

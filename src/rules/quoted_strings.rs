@@ -37,13 +37,14 @@ use ryl_yaml_parser::{
     Event, Marker, Parser, ScalarStyle, Span, SpannedEventReceiver, StructureStyle, Tag,
 };
 
+use crate::config::TargetVersion;
 use crate::config::YamlLintConfig;
 use crate::rules::support::collection_style::RetainedContext;
 use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
-use crate::rules::support::yaml_version::{Version, event_version};
+use crate::rules::support::yaml_version::{Readers, Version, event_version};
 use crate::rules::{colons, indentation};
 
 pub const ID: &str = "quoted-strings";
@@ -119,6 +120,7 @@ pub struct Config {
     allow_double_quotes_for_escaping: bool,
     avoid_escapes: Option<QuoteStyle>,
     pub check_keys: bool,
+    target: TargetVersion,
 }
 
 impl Config {
@@ -204,6 +206,7 @@ impl Config {
             allow_double_quotes_for_escaping,
             avoid_escapes: None,
             check_keys,
+            target: cfg.target_version(),
         }
     }
 
@@ -221,7 +224,7 @@ impl Config {
     /// Quotes only where `required = "only-when-needed"` lint needs them, in whichever
     /// quotes avoid an escape, else in `style`; keys included.
     #[must_use]
-    pub const fn ladder(style: QuoteStyle) -> Self {
+    pub const fn ladder(style: QuoteStyle, target: TargetVersion) -> Self {
         let (quote_type, quote_type_label) = match style {
             QuoteStyle::Single => (QuoteType::Single, "single"),
             QuoteStyle::Double => (QuoteType::Double, "double"),
@@ -236,6 +239,7 @@ impl Config {
             allow_double_quotes_for_escaping: true,
             avoid_escapes: Some(style),
             check_keys: true,
+            target,
         }
     }
 }
@@ -316,7 +320,7 @@ struct QuotedStringsState<'cfg> {
     buffer: &'cfg str,
     walker: Walker<(), RetainedContext>,
     consistent_quote_style: Option<QuoteStyle>,
-    current_version: Option<Version>,
+    current_readers: Readers,
     plain_scalar_cache: HashMap<String, Option<bool>>,
 }
 
@@ -327,7 +331,7 @@ impl<'cfg> QuotedStringsState<'cfg> {
             buffer,
             walker: Walker::new(),
             consistent_quote_style: None,
-            current_version: None,
+            current_readers: Readers::of(None, config.target),
             plain_scalar_cache: HashMap::new(),
         }
     }
@@ -335,12 +339,12 @@ impl<'cfg> QuotedStringsState<'cfg> {
     fn reset_stream(&mut self) {
         self.walker.reset();
         self.consistent_quote_style = None;
-        self.current_version = None;
+        self.current_readers = Readers::of(None, self.config.target);
     }
 
     fn document_start(&mut self, version: Option<Version>) {
         self.walker.reset();
-        self.current_version = version;
+        self.current_readers = Readers::of(version, self.config.target);
     }
 
     fn document_end(&mut self) {
@@ -375,7 +379,7 @@ impl<'cfg> QuotedStringsState<'cfg> {
     ) {
         let context = self.walker.begin_node();
         let active_key = context.active();
-        let model = scalar_model(value, tag, active_key, self.current_version);
+        let model = scalar_model(value, tag, active_key, self.current_readers);
         if target::skip_scalar(self.config, style, &model) {
             self.walker.finish_node(context);
             return;
@@ -937,7 +941,7 @@ struct FixState<'cfg> {
     walker: Walker<(), RetainedContext>,
     seeded_consistent_quote_style: target::ConsistentStyle,
     consistent_quote_style: target::ConsistentStyle,
-    current_version: Option<Version>,
+    current_readers: Readers,
     plain_scalar_cache: HashMap<String, Option<bool>>,
     spaced_colon: Option<&'cfg colons::Guarantees<'cfg>>,
     projected: Option<&'cfg dyn ConvertedLayout>,
@@ -983,7 +987,7 @@ impl<'cfg> FixState<'cfg> {
         }
         std::mem::swap(&mut local.plain_scalar_cache, &mut self.plain_scalar_cache);
         let next = local.compute_fix(
-            scalar_model(value, None, active_key, self.current_version),
+            scalar_model(value, None, active_key, self.current_readers),
             style,
             &span,
             target::Mode::Fix,
@@ -1049,7 +1053,7 @@ impl<'cfg> FixState<'cfg> {
             walker: Walker::new(),
             seeded_consistent_quote_style: consistent_quote_style,
             consistent_quote_style,
-            current_version: None,
+            current_readers: Readers::of(None, config.target),
             plain_scalar_cache: HashMap::new(),
             spaced_colon: None,
             projected: None,
@@ -1059,12 +1063,12 @@ impl<'cfg> FixState<'cfg> {
     fn reset_stream(&mut self) {
         self.walker.reset();
         self.consistent_quote_style = self.seeded_consistent_quote_style;
-        self.current_version = None;
+        self.current_readers = Readers::of(None, self.config.target);
     }
 
     fn document_start(&mut self, version: Option<Version>) {
         self.walker.reset();
-        self.current_version = version;
+        self.current_readers = Readers::of(version, self.config.target);
     }
 
     fn document_end(&mut self) {
@@ -1104,7 +1108,7 @@ impl<'cfg> FixState<'cfg> {
     ) -> Option<Replacement> {
         let context = self.walker.begin_node();
         let active_key = context.active();
-        let model = scalar_model(value, tag, active_key, self.current_version);
+        let model = scalar_model(value, tag, active_key, self.current_readers);
         let mode = if format {
             target::Mode::Format
         } else {
@@ -1132,7 +1136,7 @@ impl<'cfg> FixState<'cfg> {
         let active_key = context.active();
         self.consistent_quote_style.observe(
             self.config,
-            &scalar_model(value, tag, active_key, self.current_version),
+            &scalar_model(value, tag, active_key, self.current_readers),
             scalar_initial(self.buffer, style, span),
         );
         self.walker.finish_node(context);
@@ -1189,10 +1193,10 @@ fn scalar_model<'a>(
     value: &'a str,
     tag: Option<&'a Tag>,
     active_key: bool,
-    version: Option<Version>,
+    readers: Readers,
 ) -> ScalarModel<'a> {
     let role = if active_key { Role::Key } else { Role::Value };
-    ScalarModel::new(value, tag, role, version)
+    ScalarModel::new(value, tag, role, readers)
 }
 
 fn value_needs_double_quotes_for_content(value: &str) -> bool {

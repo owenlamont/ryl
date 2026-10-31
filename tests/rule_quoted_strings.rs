@@ -831,6 +831,10 @@ fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
         "1_000",
         "1:30",
         "2002-12-14",
+        "08",
+        "008",
+        "1e5",
+        "-.5",
     ] {
         let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
         assert!(
@@ -847,7 +851,7 @@ fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
 #[test]
 fn strips_unambiguous_string_quotes_even_under_explicit_yaml_1_1() {
     let cfg = only_when_needed();
-    for value in ["hello", "_", "_1", "._", "1.2.3", "08", "-.5"] {
+    for value in ["hello", "_", "_1", "._", "1.2.3"] {
         let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
         assert_eq!(quoted_strings::check(&input, &cfg).len(), 1, "{input:?}");
         assert_eq!(
@@ -882,25 +886,27 @@ fn required_true_leaves_a_yaml_1_1_boolean_plain_without_a_directive() {
 fn keeps_yaml_1_1_word_quotes_without_a_1_1_directive() {
     let cfg = only_when_needed();
     // Dropping these quotes would turn the value into a boolean for a YAML 1.1 reader
-    // such as yamllint's, so they are kept whatever the directive.
-    for prefix in ["", "%YAML 1.2\n---\n"] {
-        for input in [
-            format!("{prefix}key: 'no'\n"),
-            format!("{prefix}key: 'on'\n"),
-            format!("{prefix}key: 'yes'\n"),
-            format!("{prefix}key: 'y'\n"),
-            format!("{prefix}key: \"N\"\n"),
-        ] {
-            assert!(quoted_strings::check(&input, &cfg).is_empty(), "{input:?}");
-            assert!(quoted_strings::fix(&input, &cfg).is_none(), "{input:?}");
-        }
-        let keys = build_config(
-            "rules:\n  quoted-strings:\n    required: only-when-needed\n    check-keys: true\n",
+    // such as yamllint's; an explicit `%YAML 1.2` declares that reader out.
+    for value in ["no", "on", "yes", "y", "N"] {
+        let input = format!("key: '{value}'\n");
+        assert!(quoted_strings::check(&input, &cfg).is_empty(), "{input:?}");
+        assert!(quoted_strings::fix(&input, &cfg).is_none(), "{input:?}");
+        let declared = format!("%YAML 1.2\n---\n{input}");
+        assert_eq!(
+            quoted_strings::check(&declared, &cfg).len(),
+            1,
+            "{declared:?}"
         );
-        let input = format!("{prefix}'n': 1\n");
-        assert!(quoted_strings::check(&input, &keys).is_empty(), "{input:?}");
-        assert!(quoted_strings::fix(&input, &keys).is_none(), "{input:?}");
+        assert_eq!(
+            quoted_strings::fix(&declared, &cfg),
+            Some(format!("%YAML 1.2\n---\nkey: {value}\n")),
+        );
     }
+    let keys = build_config(
+        "rules:\n  quoted-strings:\n    required: only-when-needed\n    check-keys: true\n",
+    );
+    assert!(quoted_strings::check("'n': 1\n", &keys).is_empty());
+    assert!(quoted_strings::fix("'n': 1\n", &keys).is_none());
 }
 
 #[test]

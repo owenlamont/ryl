@@ -8,6 +8,7 @@ use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
 mod input;
 mod target;
+pub(crate) use input::starts;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::line_syntax::buffer_newline;

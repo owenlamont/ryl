@@ -4,7 +4,7 @@
 //! Loading to plain values loses tags, aliases and duplicate keys, so
 //! [`representation`] keeps the parser's event stream, correcting block scalar values
 //! where the parser differs from the reference parser. It resolves each scalar against
-//! the version its document declares (or under YAML 1.1 throughout, for
+//! the version its document declares (or under YAML 1.1 where none is declared, for
 //! [`yaml_1_1_representation`]) and drops layout-only details (scalar style, the
 //! `---` marker, collection style).
 //! [`annotations`] separately records each comment, keyed to the data event it sits
@@ -214,10 +214,9 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
                 return;
             }
             Event::DocumentStart(_, version) => {
-                self.yaml_1_1 = self.assume_yaml_1_1
-                    || version.is_some_and(|version| {
-                        (version.major, version.minor) <= (1, 1)
-                    });
+                self.yaml_1_1 = version.map_or(self.assume_yaml_1_1, |version| {
+                    (version.major, version.minor) <= (1, 1)
+                });
                 Node::DocumentStart
             }
             Event::DocumentEnd => Node::DocumentEnd,
@@ -386,8 +385,8 @@ pub fn representation(content: &str) -> Option<Vec<Node>> {
     value_representation(content, false)
 }
 
-/// [`representation`] as a YAML 1.1 reader such as PyYAML sees it, whatever the
-/// document's `%YAML` directive.
+/// [`representation`] as a YAML 1.1 reader such as PyYAML sees a document with no
+/// `%YAML` directive; a declared version still decides.
 pub fn yaml_1_1_representation(content: &str) -> Option<Vec<Node>> {
     value_representation(content, true)
 }

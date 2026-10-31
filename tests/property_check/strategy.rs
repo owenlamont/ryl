@@ -219,6 +219,13 @@ fn arb_bare_value() -> impl Strategy<Value = String> {
         Just("1e3".to_string()),
         Just(".inf".to_string()),
         Just(".nan".to_string()),
+        // Plain scalars YAML 1.1 and 1.2 read differently (`schema-dependent-values`).
+        Just("2026-10-10".to_string()),
+        Just("22:22".to_string()),
+        Just("1_000".to_string()),
+        Just("0b1010".to_string()),
+        Just("-08".to_string()),
+        Just("y".to_string()),
         Just("'plain'".to_string()),
         Just("\"plain\"".to_string()),
         Just("[a , b]".to_string()),

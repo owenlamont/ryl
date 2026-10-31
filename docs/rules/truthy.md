@@ -103,8 +103,10 @@ visible: no
 
 The rule honours an explicit [`%YAML` directive](../yaml-version.md): under
 `%YAML 1.2` the barewords resolve to plain strings, so only `true`/`false`
-spellings are flagged; under `%YAML 1.1` (or no directive) the full 1.1
-truthy word list is flagged.
+spellings are flagged; under `%YAML 1.1` the full 1.1 truthy word list is
+flagged. A document with no directive follows the top-level
+[`target-version`](../yaml-version.md#how-ryl-handles-yaml-versions): the 1.1
+list by default, the 1.2 one under `target-version = "1.2"`.
 
 ## Automatic fixing
 

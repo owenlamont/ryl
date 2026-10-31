@@ -1,6 +1,6 @@
 use std::fs;
 
-use ryl::config::YamlLintConfig;
+use ryl::config::{TargetVersion, YamlLintConfig};
 use ryl::config_schema::{
     parse_toml_config_str, schema_value, toml_config_to_value, yaml_schema_value,
 };
@@ -159,6 +159,8 @@ fn out_of_range_or_mistyped_shared_keys_are_rejected() {
         "line-length = 0",
         "line-length = 70000",
         "line-len = 100",
+        "target-version = \"1.3\"",
+        "target-version = 1.2",
     ] {
         let err = YamlLintConfig::from_toml_str(&format!(
             "{config}\n[lint.rules]\nindentation = \"enable\"\n"
@@ -167,6 +169,26 @@ fn out_of_range_or_mistyped_shared_keys_are_rejected() {
         let key = config.split(' ').next().unwrap();
         assert!(err.contains(key), "{config}: {err}");
     }
+}
+
+#[test]
+fn target_version_defaults_to_1_1_and_only_toml_sets_it() {
+    assert_eq!(toml("[format]").target_version(), TargetVersion::Yaml11);
+    assert_eq!(
+        toml("target-version = \"1.2\"\n[format]").target_version(),
+        TargetVersion::Yaml12
+    );
+    let yaml = YamlLintConfig::from_yaml_str("target-version: '1.2'\n").unwrap();
+    assert_eq!(yaml.target_version(), TargetVersion::Yaml11);
+    assert!(
+        yaml_schema_value()["properties"]
+            .get("target-version")
+            .is_none()
+    );
+    assert_eq!(
+        schema_value()["$defs"]["TargetVersion"]["enum"],
+        serde_json::json!(["1.1", "1.2"])
+    );
 }
 
 #[test]

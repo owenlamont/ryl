@@ -26,7 +26,7 @@ use crate::format::FormatSettings;
 
 pub(crate) mod legacy_yaml;
 
-pub use crate::config_schema::{FixRuleName as FixRule, RuleLevel};
+pub use crate::config_schema::{FixRuleName as FixRule, RuleLevel, TargetVersion};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind {
@@ -229,6 +229,7 @@ pub struct YamlLintConfig {
     source: Option<PathBuf>,
     line_length: Option<NonZeroU16>,
     indent_width: Option<NonZeroU8>,
+    target_version: Option<TargetVersion>,
     locale: Option<String>,
     fix: FixConfig,
     deprecated_keys: Vec<DeprecatedKeyUse>,
@@ -528,6 +529,7 @@ impl FixRule {
             "quoted-strings" => Some(Self::QuotedStrings),
             "trailing-spaces" => Some(Self::TrailingSpaces),
             "truthy" => Some(Self::Truthy),
+            "yaml-directive" => Some(Self::YamlDirective),
             _ => None,
         }
     }
@@ -613,6 +615,7 @@ impl Default for YamlLintConfig {
             source: None,
             line_length: None,
             indent_width: None,
+            target_version: None,
             locale: None,
             fix: FixConfig::default(),
             deprecated_keys: Vec::new(),
@@ -984,6 +987,11 @@ impl YamlLintConfig {
         self.indent_width
     }
 
+    #[must_use]
+    pub fn target_version(&self) -> TargetVersion {
+        self.target_version.unwrap_or_default()
+    }
+
     fn from_toml_str_with_env(
         s: &str,
         envx: Option<&dyn Env>,
@@ -1091,6 +1099,7 @@ impl YamlLintConfig {
 
         self.line_length = normalized.line_length;
         self.indent_width = normalized.indent_width;
+        self.target_version = normalized.target_version;
 
         if let Some(fix) = normalized.fix.as_ref() {
             self.fix = typed_fix_config(fix);
@@ -1127,6 +1136,16 @@ impl YamlLintConfig {
             .find(|name| !crate::rules::ALL_RULE_IDS.contains(&name.as_str()))
         {
             return Err(format!("invalid config: no such rule: \"{unknown}\""));
+        }
+        if self.rule_level(crate::rules::yaml_directive::ID).is_some()
+            && self.rule_level(crate::rules::document_start::ID).is_some()
+            && !crate::rules::document_start::Config::resolve(self).requires_marker()
+        {
+            return Err(
+                "invalid config: yaml-directive needs the document start \"---\" \
+                 that document-start forbids with present: false"
+                    .to_string(),
+            );
         }
 
         let (matcher, extra_patterns) = build_ignore_matcher(
@@ -1437,6 +1456,9 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
             TomlFixableRuleSelector::TrailingSpaces
         }
         FixRuleSelector::Rule(FixRule::Truthy) => TomlFixableRuleSelector::Truthy,
+        FixRuleSelector::Rule(FixRule::YamlDirective) => {
+            TomlFixableRuleSelector::YamlDirective
+        }
     }
 }
 
@@ -1466,6 +1488,7 @@ fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
         locale: config.locale.clone(),
         line_length: config.line_length,
         indent_width: config.indent_width,
+        target_version: config.target_version,
         fix: normalized_fix_config(&config.fix),
         rules: config
             .rules
@@ -1510,6 +1533,9 @@ fn typed_fix_selector(selector: TomlFixableRuleSelector) -> FixRuleSelector {
             FixRuleSelector::Rule(FixRule::TrailingSpaces)
         }
         TomlFixableRuleSelector::Truthy => FixRuleSelector::Rule(FixRule::Truthy),
+        TomlFixableRuleSelector::YamlDirective => {
+            FixRuleSelector::Rule(FixRule::YamlDirective)
+        }
     }
 }
 

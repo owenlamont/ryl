@@ -304,9 +304,11 @@ fn normalize_toml_config_preserves_all_per_file_ignore_rule_names() {
     "new-lines",
     "octal-values",
     "quoted-strings",
+    "schema-dependent-values",
     "trailing-spaces",
     "truthy",
     "unicode-line-breaks",
+    "yaml-directive",
 ]
 "#,
         false,
@@ -342,9 +344,11 @@ fn normalize_toml_config_preserves_all_per_file_ignore_rule_names() {
             "new-lines",
             "octal-values",
             "quoted-strings",
+            "schema-dependent-values",
             "trailing-spaces",
             "truthy",
             "unicode-line-breaks",
+            "yaml-directive",
         ]
     );
 }

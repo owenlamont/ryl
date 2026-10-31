@@ -106,7 +106,11 @@ fn arb_markdown() -> impl Strategy<Value = String> {
     })
 }
 
-fn verify_preserved(original: &str, formatted: &str) -> Result<(), TestCaseError> {
+fn verify_preserved(
+    original: &str,
+    formatted: &str,
+    yaml_1_1_readers: bool,
+) -> Result<(), TestCaseError> {
     let sources = MarkdownSources {
         front_matter: true,
         fenced_blocks: true,
@@ -124,8 +128,10 @@ fn verify_preserved(original: &str, formatted: &str) -> Result<(), TestCaseError
             "non-YAML Markdown changed"
         );
         check_values(&before.content, &after.content).map_err(TestCaseError::fail)?;
-        check_yaml_1_1_preserved(&before.content, &after.content)
-            .map_err(TestCaseError::fail)?;
+        if yaml_1_1_readers {
+            check_yaml_1_1_preserved(&before.content, &after.content)
+                .map_err(TestCaseError::fail)?;
+        }
         check_annotations(&before.content, &after.content)
             .map_err(TestCaseError::fail)?;
         original_cursor = before.raw_span.end;
@@ -156,7 +162,8 @@ fn check_config(
     cfg: &ryl::config::YamlLintConfig,
 ) -> Result<(), TestCaseError> {
     let once = format(markdown, cfg);
-    verify_preserved(markdown, &once).map_err(|error| {
+    let yaml_1_1_readers = cfg.target_version() == ryl::config::TargetVersion::Yaml11;
+    verify_preserved(markdown, &once, yaml_1_1_readers).map_err(|error| {
         TestCaseError::fail(format!("{name} on {markdown:?}: {error}"))
     })?;
     prop_assert_eq!(
@@ -352,7 +359,7 @@ fn host_oracle_rejects_value_annotation_and_prose_changes() {
         input.replace("---\na", "---\n- a"),
     ] {
         assert!(
-            verify_preserved(input, &broken).is_err(),
+            verify_preserved(input, &broken, true).is_err(),
             "oracle accepted {broken:?}"
         );
     }
@@ -433,7 +440,7 @@ fn check_fence_bodies(
             "```yaml\nb:   2\n```\n\n{prefix}{fence}yaml\n{body}{prefix}{fence}\n\n```yaml\na:   1\n```\n"
         );
         let output = format(&input, cfg);
-        verify_preserved(&input, &output).unwrap();
+        verify_preserved(&input, &output, true).unwrap();
         assert!(
             output.ends_with("```yaml\na: 1\n```\n"),
             "safe sibling must format"

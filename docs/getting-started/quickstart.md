@@ -224,7 +224,7 @@ nothing exits `2` without `--enable` rather than silently linting nothing.
 
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. Settings shared by
 every pass (`[files]`, `exclude`/`exclude-from-file`, `[markdown]`, `locale`,
-`[output]`, `line-length`, `indent-width`) sit at the top level; linter settings sit under `[lint]`
+`[output]`, `line-length`, `indent-width`, `target-version`) sit at the top level; linter settings sit under `[lint]`
 (`strict`, `[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
 `[[lint.per-line-ignores]]`); `[format]` holds the [formatter's](../formatter.md)
 settings. Copy the
@@ -257,6 +257,10 @@ these top-level keys.
 line-length = 100
 indent-width = 4
 ```
+
+The top-level `target-version` (`"1.1"`, the default, or `"1.2"`) names the oldest
+YAML version whose readers must load `ryl format` and `--fix` output to the same
+values. See [YAML version compatibility](../yaml-version.md#how-ryl-handles-yaml-versions).
 
 YAML configuration (`.yamllint`) is deprecated: ryl still discovers it, and its
 `extends:` can still merge in a preset, but each use warns. Convert it to

@@ -5,8 +5,28 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Added
+
+- The top-level TOML setting `target-version = "1.1" | "1.2"` names the oldest YAML
+  version whose readers must load `ryl format` and `--fix` output to the same values.
+  The default `"1.1"` keeps today's behaviour; `"1.2"` drops the quotes only a YAML 1.1
+  reader needs (`'no'`, `'1_000'`) and makes `truthy` flag only the 1.2 booleans.
+  ([#576](https://github.com/owenlamont/ryl/issues/576))
+- The ryl-only `yaml-directive` rule requires a `%YAML` directive on every document.
+  Its safe fix stamps `%YAML 1.2` under `target-version = "1.2"`; go-yaml and
+  Kubernetes reject such files, so the rule page warns against enabling it for them.
+  ([#576](https://github.com/owenlamont/ryl/issues/576))
+- The ryl-only `schema-dependent-values` rule flags plain scalars that YAML 1.1 and 1.2
+  read differently: timestamps, sexagesimal numbers, underscored and `0b` numbers,
+  `08`-style leading zeros, and `y`/`n`. It reports only in documents with no
+  `%YAML` directive under `target-version = "1.1"`.
+  ([#600](https://github.com/owenlamont/ryl/issues/600))
+
 ### Changed
 
+- A document that declares `%YAML 1.2` now drops the quotes only a YAML 1.1 reader
+  needs, under `quoted-strings` and `ryl format`, whatever `target-version` says.
+  ([#576](https://github.com/owenlamont/ryl/issues/576))
 - `ryl check` and `ryl format --check`/`--diff` write each file's results in input
   order as the run goes, so peak memory no longer grows with the file count. At
   20,000 files, `check --enable ALL` peaks at 44 MiB (was 202 MiB), GitLab output at
@@ -48,6 +68,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- Under `%YAML 1.1`, `quoted-strings` and `ryl format` keep the quotes on `'08'`,
+  `'008'`, `'1e5'` and `'-.5'`, which go-yaml reads as floats.
+  ([#576](https://github.com/owenlamont/ryl/issues/576))
 - `braces`, `brackets` and `format` no longer read a `#` inside a verbatim tag such as
   `!<tag:foo#bar>` as a comment, so spaces before the closing `]` or `}` are now
   flagged and removed. ([#898](https://github.com/owenlamont/ryl/pull/898))

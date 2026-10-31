@@ -304,7 +304,9 @@ double quotes: conversion to single quotes preserves the continuation lines and 
 lines, including their YAML folding. A string that YAML 1.1 loads
 as a boolean, such as `"yes"`, `"NO"` or `"on"`, keeps its quotes, so `truthy` stays
 clean. So do `"y"`, `"Y"`, `"n"` and `"N"`, which go-yaml v2, and so Kubernetes, loads
-as booleans. Mapping keys follow the same rules.
+as booleans. Mapping keys follow the same rules. A document that declares `%YAML 1.2`,
+or any document under the top-level `target-version = "1.2"`, drops those 1.1-only
+quotes; see [YAML version compatibility](yaml-version.md#how-ryl-handles-yaml-versions).
 
 ## Preview style
 

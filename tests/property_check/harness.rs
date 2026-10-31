@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::rules::{
     block_scalar_chomping, key_ordering, merge_keys, new_line_at_end_of_file,
-    new_lines, trailing_spaces, unicode_line_breaks,
+    new_lines, trailing_spaces, unicode_line_breaks, yaml_directive,
 };
 
 #[derive(Debug, Clone)]
@@ -269,6 +269,7 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     collect_standard!(spans, cfg, content, ryl::rules::line_length);
     collect_standard!(spans, cfg, content, ryl::rules::octal_values);
     collect_standard!(spans, cfg, content, ryl::rules::quoted_strings);
+    collect_standard!(spans, cfg, content, ryl::rules::schema_dependent_values);
     collect_standard!(spans, tags_config(), content, ryl::rules::tags);
     collect_standard!(spans, cfg, content, ryl::rules::truthy);
 
@@ -306,6 +307,13 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     for violation in merge_keys::check(content) {
         spans.push(Span {
             rule: merge_keys::ID,
+            line: violation.line,
+            column: violation.column,
+        });
+    }
+    for violation in yaml_directive::check(content) {
+        spans.push(Span {
+            rule: yaml_directive::ID,
             line: violation.line,
             column: violation.column,
         });

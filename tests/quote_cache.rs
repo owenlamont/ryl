@@ -8,7 +8,8 @@ pub fn assert_cached_quote_matches_fresh(value: &str) {
         ryl_yaml_parser::Parser::new_from_str(&repeated).all(|event| event.is_ok())
     );
 
-    let config = Config::ladder(QuoteStyle::Double);
+    let config =
+        Config::ladder(QuoteStyle::Double, ryl::config::TargetVersion::default());
     let fresh = quoted_strings::check(&single, &config);
     let cached = quoted_strings::check(&repeated, &config);
     assert_eq!(cached.len(), fresh.len() * 2, "{value:?}");

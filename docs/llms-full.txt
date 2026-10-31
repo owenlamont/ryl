@@ -388,7 +388,7 @@ nothing exits `2` without `--enable` rather than silently linting nothing.
 
 Drop a `.ryl.toml` (or `ryl.toml`) at the root of your repo. Settings shared by
 every pass (`[files]`, `exclude`/`exclude-from-file`, `[markdown]`, `locale`,
-`[output]`, `line-length`, `indent-width`) sit at the top level; linter settings sit under `[lint]`
+`[output]`, `line-length`, `indent-width`, `target-version`) sit at the top level; linter settings sit under `[lint]`
 (`strict`, `[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
 `[[lint.per-line-ignores]]`); `[format]` holds the [formatter's](https://ryl-docs.pages.dev/formatter/)
 settings. Copy the
@@ -421,6 +421,10 @@ these top-level keys.
 line-length = 100
 indent-width = 4
 ```
+
+The top-level `target-version` (`"1.1"`, the default, or `"1.2"`) names the oldest
+YAML version whose readers must load `ryl format` and `--fix` output to the same
+values. See [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/#how-ryl-handles-yaml-versions).
 
 YAML configuration (`.yamllint`) is deprecated: ryl still discovers it, and its
 `extends:` can still merge in a preset, but each use warns. Convert it to
@@ -843,8 +847,8 @@ output. The complete list:
 
 ### Rules with no yamllint equivalent
 
-`block-scalar-chomping`, `merge-keys`, `tags` and `unicode-line-breaks` are ryl's own
-rules. They are configurable only in TOML; a YAML config that names one is rejected.
+`block-scalar-chomping`, `merge-keys`, `schema-dependent-values`, `tags`,
+`unicode-line-breaks` and `yaml-directive` are ryl's own rules. They are configurable only in TOML; a YAML config that names one is rejected.
 
 ### No implicit default configuration
 
@@ -1152,20 +1156,26 @@ the directive, so the two disagree:
 | Input | ryl | yamllint |
 | :--- | :--- | :--- |
 | `'+.5'` with no directive, `quoted-strings: only-when-needed` | kept (1.2 float) | redundant (1.1 string) |
-| `'no'` under any directive, same rule | kept (1.1 boolean) | kept |
-| `'y'` under any directive, same rule | kept (go-yaml v2 boolean) | redundant (PyYAML string) |
+| `'no'` without `%YAML 1.2`, same rule | kept (1.1 boolean) | kept |
+| `'no'` under `%YAML 1.2` or `target-version = "1.2"`, same rule | redundant (1.2 string) | kept |
+| `'y'` without `%YAML 1.2`, same rule | kept (go-yaml v2 boolean) | redundant (PyYAML string) |
+| `'08'` under `%YAML 1.1`, same rule | kept (go-yaml float) | redundant (PyYAML string) |
+| plain `yes` under `target-version = "1.2"`, `truthy` | no diagnostic (1.2 string) | flagged |
 | `%YAML 1.3` document | warning, processed as 1.2 | no diagnostic |
 | `%YAML 2.0` document | rejected (`syntax`) | rejected (`syntax`) |
 
 **Why ryl differs:** the spec is the authority. It assigns a directive-less
 document to 1.2, directs a 1.2 processor to honour `%YAML 1.1`, and mandates
-rejecting a higher major version. `quoted-strings` uses PyYAML's 1.1 set
-under every directive, so `--fix` never strips quotes a 1.1 reader needs, nor,
-without a directive, quotes a 1.2 reader needs. ryl adds `y`, `Y`, `n` and `N`
-to that set: PyYAML loads them as strings, but go-yaml v2, which Kubernetes,
-Helm and kubectl use, loads them as booleans, as the YAML 1.1 spec does. So
-`'y'` keeps its quotes, and `required: true` leaves a plain `y` alone as it
-does a plain `no`.
+rejecting a higher major version. Unless a document declares `%YAML 1.2` or
+`target-version = "1.2"` is set, `quoted-strings` keeps PyYAML's 1.1 set, so
+`--fix` never strips quotes a 1.1 reader needs, nor quotes a 1.2 reader needs.
+ryl adds `y`, `Y`, `n` and `N` to that set: PyYAML loads them as strings, but
+go-yaml v2, which Kubernetes, Helm and kubectl use, loads them as booleans, as
+the YAML 1.1 spec does. So `'y'` keeps its quotes, and `required: true` leaves a
+plain `y` alone as it does a plain `no`. go-yaml's float spellings (`08`, `1e5`,
+`-.5`) join the set the same way. `target-version = "1.2"` declares the 1.1
+readers out, so `truthy` then flags only the 1.2 booleans; yamllint has no such
+setting.
 
 ### ytt directives
 
@@ -1689,7 +1699,7 @@ Source: https://ryl-docs.pages.dev/rules/
 
 ## Introduction
 
-ryl implements 27 rules for checking YAML files. This page is a categorised
+ryl implements 29 rules for checking YAML files. This page is a categorised
 index of every rule with a brief description and a link to its detailed
 documentation. Each rule page covers what the rule does, why it matters,
 configuration options, and (where applicable) automatic fix behaviour.
@@ -1741,6 +1751,7 @@ conflict with it.
 | [`key-ordering`](https://ryl-docs.pages.dev/rules/key-ordering/) | Alphabetical or configured ordering of mapping keys. | :wrench: |
 | [`merge-keys`](https://ryl-docs.pages.dev/rules/merge-keys/) | The `<<` merge key (a YAML 1.1 feature removed in 1.2). |  |
 | [`tags`](https://ryl-docs.pages.dev/rules/tags/) | Unsafe and non-portable YAML tags. |  |
+| [`yaml-directive`](https://ryl-docs.pages.dev/rules/yaml-directive/) | A `%YAML` version directive on every document. | :wrench: |
 
 ## Comments
 
@@ -1756,6 +1767,7 @@ conflict with it.
 | [`float-values`](https://ryl-docs.pages.dev/rules/float-values/) | Float value formats. |  |
 | [`octal-values`](https://ryl-docs.pages.dev/rules/octal-values/) | Octal value formats. |  |
 | [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) | Quoted string styles and when to require quotes. | :wrench: |
+| [`schema-dependent-values`](https://ryl-docs.pages.dev/rules/schema-dependent-values/) | Plain values YAML 1.1 and 1.2 read differently (`2026-10-10`, `22:22`, `1_000`). |  |
 | [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) | Truthy values like `yes`, `no`, `on`, `off`. | :wrench: |
 
 ## Severity levels
@@ -2151,7 +2163,9 @@ double quotes: conversion to single quotes preserves the continuation lines and 
 lines, including their YAML folding. A string that YAML 1.1 loads
 as a boolean, such as `"yes"`, `"NO"` or `"on"`, keeps its quotes, so `truthy` stays
 clean. So do `"y"`, `"Y"`, `"n"` and `"N"`, which go-yaml v2, and so Kubernetes, loads
-as booleans. Mapping keys follow the same rules.
+as booleans. Mapping keys follow the same rules. A document that declares `%YAML 1.2`,
+or any document under the top-level `target-version = "1.2"`, drops those 1.1-only
+quotes; see [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/#how-ryl-handles-yaml-versions).
 
 ## Preview style
 
@@ -3600,22 +3614,34 @@ Source: https://ryl-docs.pages.dev/yaml-version/
 
 # YAML version compatibility
 
-## ryl targets YAML 1.2 by default
+## How ryl handles YAML versions
 
-ryl parses YAML with its own fork of [granit-parser][granit]. A
-document with no version directive is resolved per the YAML 1.2 core schema,
-matching the spec, which assumes a directive-less document conforms to 1.2.
-Implicit type resolution can differ from tools built on YAML 1.1 loaders such
-as [PyYAML][pyyaml].
+ryl parses YAML with its own fork of [granit-parser][granit]. It resolves a
+document with no `%YAML` directive under the YAML 1.2 core schema, as the spec
+directs. By default (`target-version = "1.1"`), `ryl format` and `--fix` write
+output that YAML 1.1 readers such as [PyYAML][pyyaml] and go-yaml load to the
+same values, and the value rules flag plain scalars whose meaning differs
+between the two versions, so files drift toward spellings both read alike. Set
+`target-version = "1.2"` once every consumer is a YAML 1.2 reader.
 
-Most YAML files do not exercise the parts of the language where the two
-versions disagree, so in practice the difference rarely shows up. The two
-places it matters in ryl are:
+```toml
+target-version = "1.2"
+```
 
-- The [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) rule when used with
-  `required: "only-when-needed"`.
-- Parsing of `.yamllint` / `.yamllint.yaml` / `.yamllint.yml`
-  configuration files.
+`target-version` is a top-level TOML setting (`[tool.ryl]` in
+`pyproject.toml`); YAML configs cannot set it. It names the oldest YAML version
+whose readers must load ryl's output to the same values, as ruff's
+`target-version` names the oldest Python the code must run on. Under `"1.2"`:
+
+- `quoted-strings` and `ryl format` drop quotes only a 1.1 reader needs
+  (`'no'` becomes `no`, `'1_000'` becomes `1_000`).
+- `truthy` flags only the 1.2 booleans (`True`, `FALSE`), not `yes` or `on`.
+- [`schema-dependent-values`](https://ryl-docs.pages.dev/rules/schema-dependent-values/) goes quiet.
+- [`yaml-directive`](https://ryl-docs.pages.dev/rules/yaml-directive/) offers its `%YAML 1.2` fix.
+
+Some readers called YAML 1.2 still resolve 1.1 types: ruamel.yaml's default
+loader and go-yaml v3 read `1_000`, `0b1010` and `2026-10-10` as non-strings.
+Keep the default if such a reader loads your files.
 
   [granit]: https://github.com/bourumir-wyngs/granit-parser
   [pyyaml]: https://pyyaml.org/
@@ -3623,12 +3649,12 @@ places it matters in ryl are:
 ## Respecting the `%YAML` version directive
 
 The `%YAML` directive is part of the YAML specification (1.2.2 §6.8.1), so
-ryl honours it per document:
+ryl honours it per document, and it overrides `target-version`:
 
 | Directive | ryl behaviour |
 | :--- | :--- |
-| none | Resolved as YAML 1.2 (the spec's default for a directive-less document). |
-| `%YAML 1.2` | Resolved as YAML 1.2. |
+| none | Resolved as YAML 1.2; output also kept safe for 1.1 readers unless `target-version = "1.2"`. |
+| `%YAML 1.2` | Resolved as YAML 1.2, for 1.2 readers only. |
 | `%YAML 1.1` (or `1.0`) | Resolved as YAML 1.1, so scalars that 1.1 reads as a non-string keep that meaning. |
 | `%YAML 1.3`+ (higher minor) | Processed as YAML 1.2 with a warning, as the spec directs. |
 | `%YAML 2.0`+ (higher major) | Rejected as an error; the spec requires rejecting a higher major version. |
@@ -3641,23 +3667,37 @@ flags the 1.1 boolean words. ryl never rewrites a `%YAML 1.1` document to
 *declared* version. The `truthy` fix only re-cases `True`/`FALSE` and the
 like, which are the same boolean under both versions.
 
-Whatever the directive, `quoted-strings` and `ryl format` keep the quotes on
-any scalar YAML 1.1 reads as a non-string (`'no'`, `'on'`, `'yes'`,
-`'1_000'`), so the output means the same to a 1.1 consumer such as PyYAML.
-The set is PyYAML's 1.1 resolver plus `0o` octal and `y`, `Y`, `n`, and `N`,
-which go-yaml v2 (used by Kubernetes) loads as
-booleans although PyYAML does not.
-Unless the document declares `%YAML 1.1`, quotes a 1.2 reader needs (`'+.5'`,
-`'008'`) are kept too.
+Unless a document declares `%YAML 1.2` or `target-version = "1.2"` is set,
+`quoted-strings` and `ryl format` keep the quotes on any scalar YAML 1.1 reads
+as a non-string (`'no'`, `'on'`, `'yes'`, `'1_000'`), so the output means the
+same to a 1.1 consumer such as PyYAML. The set is PyYAML's 1.1 resolver plus
+`0o` octal, `y`, `Y`, `n` and `N`, which go-yaml v2 (used by Kubernetes) loads
+as booleans, and go-yaml's float spellings (`'08'`, `'1e5'`, `'-.5'`), which
+PyYAML reads as strings.
+
+### What `%YAML 1.2` does for each reader
+
+Declaring `%YAML 1.2` does not make every reader follow 1.2:
+
+| Reader | `%YAML 1.2` |
+| :--- | :--- |
+| PyYAML | Ignored: still reads `yes` as `True`. |
+| ruamel.yaml, goccy/go-yaml | Accepted. |
+| go-yaml v2, v3 and v4, `sigs.k8s.io/yaml` | The whole file is rejected (`found incompatible YAML document`), so Kubernetes, Helm and Docker Compose cannot load it. |
 
 ## What is different in YAML 1.2
 
 | Literal | YAML 1.1 | YAML 1.2 |
 | :--- | :--- | :--- |
 | `yes`, `no`, `on`, `off` and case variants (`Yes`, `No`, `ON`, ...) | Booleans | Plain strings |
+| `y`, `Y`, `n`, `N` | Booleans | Plain strings |
 | `true`, `True`, `TRUE`, `false`, `False`, `FALSE` | Booleans | Booleans |
 | `null`, `Null`, `NULL`, `~` | Null | Null |
 | `0755` (leading zero integer) | Octal | Decimal |
+| `08` (leading zero, not octal) | String | Decimal |
+| `22:22` (sexagesimal) | Integer 1342 | Plain string |
+| `1_000`, `0b1010` | Integers | Plain strings |
+| `2026-10-10` | Timestamp | Plain string |
 
 ryl applies YAML 1.2 semantics to both linted files and configuration
 files.
@@ -3666,9 +3706,9 @@ files.
 
 With `quote-type: double, required: only-when-needed`, ryl considers
 `"yes"` to need quoting because the bareword would parse as a boolean in
-1.1. The safeguard applies whatever the directive, since removing the
-quotes would change the value for a 1.1
-consumer.
+1.1. The safeguard applies unless the document declares `%YAML 1.2` or
+`target-version = "1.2"` is set, since removing the quotes would change the
+value for a 1.1 consumer.
 
 ## Implications for configuration files
 
@@ -3709,6 +3749,11 @@ input as YAML 1.2 (an explicit `%YAML 1.1` shifts the value-resolving rules to
   decimal `755`; the rule can still report it for ambiguity reasons.
 - [`float-values`](https://ryl-docs.pages.dev/rules/float-values/) &mdash; numeric formats follow
   the 1.2 spec.
+- [`schema-dependent-values`](https://ryl-docs.pages.dev/rules/schema-dependent-values/) &mdash;
+  flags the other plain scalars the two versions read differently, such as
+  `2026-10-10`, `22:22` and `1_000`.
+- [`yaml-directive`](https://ryl-docs.pages.dev/rules/yaml-directive/) &mdash; requires each document
+  to declare its version, so no reader has to guess.
 
 For documents that need to be portable between 1.1 and 1.2 consumers,
 the safest pattern is to quote any bareword that 1.1 would coerce.
@@ -6149,14 +6194,16 @@ unfixable = ["quoted-strings"]
 
 ## YAML 1.1 values with `required = "only-when-needed"`
 
-Whatever the document's `%YAML` directive, a quoted scalar that YAML 1.1
-reads as a non-string is not redundantly quoted: `'no'`,
+Unless the document declares `%YAML 1.2` or
+[`target-version = "1.2"`](https://ryl-docs.pages.dev/yaml-version/#how-ryl-handles-yaml-versions) is set,
+a quoted scalar that YAML 1.1 reads as a non-string is not redundantly quoted: `'no'`,
 `'on'`, `'yes'` and their case variants, 1.1 integers, floats, sexagesimals
 and timestamps keep their quotes, and `--fix` leaves them in place, since
 stripping them would change the value for a 1.1 consumer such as PyYAML.
 `'y'`, `'Y'`, `'n'` and `'N'` keep their quotes too, since
-go-yaml v2, used by Kubernetes, loads them as booleans. Unless the document declares `%YAML 1.1`, quotes a YAML 1.2 reader
-needs (`'+.5'`, `'008'`) are kept too. `ryl format` keeps the same quotes. See
+go-yaml v2, used by Kubernetes, loads them as booleans, and so do go-yaml's float
+spellings (`'08'`, `'1e5'`, `'-.5'`). Quotes a YAML 1.2 reader needs are kept
+under every version. `ryl format` keeps the same quotes. See
 [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/) for more context.
 
 ## Related rules
@@ -6165,6 +6212,105 @@ needs (`'+.5'`, `'008'`) are kept too. `ryl format` keeps the same quotes. See
   bareword booleans that would otherwise need quoting.
 - [`empty-values`](https://ryl-docs.pages.dev/rules/empty-values/) &mdash; controls how missing values are
   written, which interacts with whether nulls should be quoted.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/schema-dependent-values/
+
+# schema-dependent-values
+
+## What this rule does
+
+Reports plain scalars that YAML 1.1 and the YAML 1.2 core schema read as
+different values, in a document with no `%YAML` directive.
+
+| Option | Kind | Example | YAML 1.2 | YAML 1.1 |
+| :--- | :--- | :--- | :--- | :--- |
+| `forbid-timestamps` | Dates and timestamps | `2026-10-10` | string | timestamp |
+| `forbid-sexagesimal` | Base-60 numbers | `22:22` | string | integer 1342 |
+| `forbid-underscored-numbers` | Numbers with `_` or `0b` | `1_000`, `0b1010` | string | integer |
+| `forbid-leading-zero-decimals` | A leading zero before `8` or `9` | `08` | integer 8 | string |
+| `forbid-single-letter-booleans` | `y`, `Y`, `n`, `N` | `y` | string | boolean |
+
+Keys are checked as well as values. Quoted and tagged scalars are never
+reported.
+
+Other rules own the rest of the divergent spellings:
+[`truthy`](https://ryl-docs.pages.dev/rules/truthy/) (`yes`, `no`, `on`, `off`),
+[`octal-values`](https://ryl-docs.pages.dev/rules/octal-values/) (`0777`, `0o777`) and
+[`float-values`](https://ryl-docs.pages.dev/rules/float-values/) (`1e5`, with `forbid-scientific-notation`).
+
+## Why this matters
+
+ryl reads a directive-less document as YAML 1.2, but PyYAML, ruamel.yaml's
+`%YAML 1.1` mode and go-yaml read some of these spellings as YAML 1.1 types:
+
+| Scalar | PyYAML | ruamel.yaml (default) | go-yaml v2 | go-yaml v3 |
+| :--- | :--- | :--- | :--- | :--- |
+| `2026-10-10` | date | date | string | `time.Time` |
+| `22:22` | 1342 | string | string | string |
+| `1_000` | 1000 | 1000 | 1000 | 1000 |
+| `08` | string | 8 | float 8 | float 8 |
+| `y` | string | string | boolean | string |
+
+Quote the value if it is a string, or rewrite it to a spelling both versions read
+alike.
+
+## Configuration
+
+`schema-dependent-values` is configured **only in TOML** &mdash;
+`[lint.rules.schema-dependent-values]` in `.ryl.toml`/`ryl.toml` or
+`[tool.ryl.lint.rules.schema-dependent-values]` in `pyproject.toml`. YAML config
+(including `-d` data) rejects it.
+
+```toml
+[lint.rules.schema-dependent-values]
+level = "error"
+forbid-timestamps = true
+forbid-sexagesimal = true
+forbid-underscored-numbers = true
+forbid-leading-zero-decimals = true
+forbid-single-letter-booleans = true
+```
+
+Every option defaults to `true`.
+
+The rule reports only where a document must mean the same to both versions: it
+is quiet under [`target-version = "1.2"`](https://ryl-docs.pages.dev/yaml-version/#how-ryl-handles-yaml-versions)
+and in a document that declares `%YAML 1.1` or `%YAML 1.2`, which names one
+version. These are the same scalars `ryl format` keeps quoted by default, so
+formatting and this rule never disagree.
+
+## Examples
+
+```console
+$ cat config.yaml
+released: 2026-10-10
+port: 22:22
+budget: 1_000
+zone: 08
+enabled: y
+$ ryl check config.yaml
+config.yaml
+  1:11      error    plain "2026-10-10" is a string in YAML 1.2 but a timestamp in YAML 1.1  (schema-dependent-values)
+  2:7       error    plain "22:22" is a string in YAML 1.2 but a sexagesimal number in YAML 1.1  (schema-dependent-values)
+  3:9       error    plain "1_000" is a string in YAML 1.2 but a number in YAML 1.1  (schema-dependent-values)
+  4:7       error    plain "08" is an integer in YAML 1.2 but a string in YAML 1.1  (schema-dependent-values)
+  5:10      error    plain "y" is a string in YAML 1.2 but a boolean in YAML 1.1  (schema-dependent-values)
+```
+
+## Automatic fixing
+
+None. Quoting, retyping or rewriting the value each needs the author's intent:
+`22:22` may be a time of day or a port mapping, and `08` a zero-padded string or the
+number 8.
+
+## Related rules
+
+- [`truthy`](https://ryl-docs.pages.dev/rules/truthy/), [`octal-values`](https://ryl-docs.pages.dev/rules/octal-values/),
+  [`float-values`](https://ryl-docs.pages.dev/rules/float-values/) &mdash; the other spellings that differ.
+- [`yaml-directive`](https://ryl-docs.pages.dev/rules/yaml-directive/) &mdash; requires a directive, after which
+  each document names its own version.
 
 ---
 
@@ -6187,7 +6333,7 @@ checks, all **off by default**; enable only the ones your project needs.
   `safe_load`; authoring YAML that depends on such tags is a recognised
   anti-pattern.
 - **Removed YAML 1.1 types.** `!!omap`, `!!pairs`, `!!set`, `!!timestamp`, and
-  `!!binary` were removed in YAML 1.2. ryl targets YAML 1.2, so flagging them
+  `!!binary` were removed in YAML 1.2. ryl reads YAML as 1.2, so flagging them
   keeps documents portable.
 - **Local / non-core tags.** Local tags such as `!env` or `!include` are
   application-specific and "may even have different semantics in different
@@ -6471,8 +6617,10 @@ visible: no
 
 The rule honours an explicit [`%YAML` directive](https://ryl-docs.pages.dev/yaml-version/): under
 `%YAML 1.2` the barewords resolve to plain strings, so only `true`/`false`
-spellings are flagged; under `%YAML 1.1` (or no directive) the full 1.1
-truthy word list is flagged.
+spellings are flagged; under `%YAML 1.1` the full 1.1 truthy word list is
+flagged. A document with no directive follows the top-level
+[`target-version`](https://ryl-docs.pages.dev/yaml-version/#how-ryl-handles-yaml-versions): the 1.1
+list by default, the 1.2 one under `target-version = "1.2"`.
 
 ## Automatic fixing
 
@@ -6523,7 +6671,7 @@ it appears — inside a scalar, a key, or a comment.
 YAML 1.1 treated a broad Unicode set as line breaks, including NEL, LS, and PS.
 YAML 1.2 narrowed line breaks to just line feed (`\n`) and carriage return
 (`\r`), and the 1.2.2 changes page records that these three characters "are no
-longer considered line-break characters." ryl targets YAML 1.2.
+longer considered line-break characters." ryl reads YAML as 1.2.
 
 This makes a raw occurrence a portability trap: a YAML 1.1 parser splits the
 line where a 1.2 parser keeps the character as ordinary scalar content, so the
@@ -6591,3 +6739,95 @@ no single rewrite is universally safe.
   (LF vs CRLF) for the real line breaks.
 - [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) &mdash; governs the quoting style you
   need in order to write a `\L`/`\N`/`\P` escape.
+
+---
+
+Source: https://ryl-docs.pages.dev/rules/yaml-directive/
+
+# yaml-directive
+
+## What this rule does
+
+Requires a `%YAML` version directive before every document, so each document
+declares which YAML version its plain scalars resolve under.
+
+## Why this matters
+
+- **No guessing.** A document with no directive is YAML 1.2 to a 1.2 reader and
+  YAML 1.1 to PyYAML, so `yes`, `22:22` or `2026-10-10` can load differently. A
+  directive states the author's version once.
+- **Per document.** A directive binds only the document it precedes (YAML 1.2.2
+  §6.8.1), so every document in a stream needs its own.
+
+!!! warning "Not for Go consumers"
+
+    go-yaml v2, v3 and v4, and `sigs.k8s.io/yaml`, reject any file containing
+    `%YAML 1.2` (`found incompatible YAML document`). Do not enable this rule for
+    files that Kubernetes, Helm, Docker Compose or another Go program loads.
+    PyYAML accepts the directive but ignores it. See
+    [What `%YAML 1.2` does for each reader](https://ryl-docs.pages.dev/yaml-version/#what-yaml-12-does-for-each-reader).
+
+## Configuration
+
+`yaml-directive` is configured **only in TOML** &mdash; `[lint.rules.yaml-directive]`
+in `.ryl.toml`/`ryl.toml` or `[tool.ryl.lint.rules.yaml-directive]` in
+`pyproject.toml`. YAML config (including `-d` data) rejects it. It has no options.
+
+```toml
+target-version = "1.2"
+
+[lint.rules.yaml-directive]
+level = "error"
+```
+
+Enabling it beside `document-start` with `present = false` is a configuration
+error (exit `2`): a directive needs the `---` that setting forbids.
+
+## Examples
+
+```console
+$ cat config.yaml
+name: web
+---
+name: db
+$ ryl check config.yaml
+config.yaml
+  1:1       error    missing version directive "%YAML"  (yaml-directive)
+  2:1       error    missing version directive "%YAML"  (yaml-directive)
+```
+
+### :wrench: After `ryl check --fix` (with `target-version = "1.2"`)
+
+```yaml
+%YAML 1.2
+---
+name: web
+...
+%YAML 1.2
+---
+name: db
+```
+
+## Automatic fixing
+
+`ryl check --fix` stamps `%YAML 1.2`, the version ryl already reads an undeclared
+document as, so no value changes for ryl. It adds `---` where the document has no
+start marker, keeps a shebang or `#cloud-config` first line in place, and ends an
+open previous document with `...`, since a directive may only follow one.
+
+The fix runs only under
+[`target-version = "1.2"`](https://ryl-docs.pages.dev/yaml-version/#how-ryl-handles-yaml-versions). Under
+the default `"1.1"`, `ryl format` keeps quotes a YAML 1.1 reader needs in an
+undeclared document; stamping `%YAML 1.2` would drop them, so the rule reports
+without fixing. Beside `document-end` with `present = false`, the fix skips a
+document that would need a `...` and the diagnostic stays.
+
+The rule is suppressed in YAML embedded in Markdown, which is not a standalone
+file.
+
+## Related rules
+
+- [`document-start`](https://ryl-docs.pages.dev/rules/document-start/) &mdash; requires the `---` marker a
+  directive needs.
+- [`schema-dependent-values`](https://ryl-docs.pages.dev/rules/schema-dependent-values/) &mdash; flags the plain
+  scalars whose value depends on the version.

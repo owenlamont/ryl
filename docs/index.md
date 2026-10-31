@@ -71,10 +71,10 @@ ryl format .
 
 ## YAML version compatibility
 
-ryl targets **YAML 1.2** by default: it parses with
-its own fork of
+ryl reads YAML as **1.2**: it parses with its own fork of
 [granit-parser](https://github.com/bourumir-wyngs/granit-parser) and resolves a directive-less document per the YAML 1.2
-core schema, while honouring an explicit `%YAML` version directive.
+core schema, while honouring an explicit `%YAML` version directive. By default it
+writes output a YAML 1.1 reader also understands; `target-version = "1.2"` drops that.
 See [YAML version compatibility](yaml-version.md) for how version directives
 and implicit types affect linting and formatting.
 
