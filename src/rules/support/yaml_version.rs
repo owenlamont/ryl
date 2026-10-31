@@ -95,12 +95,17 @@ pub fn first_higher_minor(buffer: &str) -> Option<Directive> {
 #[must_use]
 pub fn resolves_to_nonstring_in_yaml_1_1(value: &str) -> bool {
     YAML_1_1_NONSTRING.is_match(value)
-        || (value
-            .starts_with(|c: char| c.is_ascii_digit() || matches!(c, '-' | '+' | '.'))
-            && GO_YAML_FLOAT.is_match(&value.replace('_', "")))
+        || match value.chars().next() {
+            Some('.') => GO_YAML_FLOAT.is_match(value),
+            Some(c) if c.is_ascii_digit() || matches!(c, '-' | '+') => {
+                GO_YAML_FLOAT.is_match(&value.replace('_', ""))
+            }
+            _ => false,
+        }
 }
 
-// go-yaml drops every `_` before matching this, so `0_8` and `1_0e5` load as floats.
+// go-yaml drops every `_` before matching this unless the value starts with `.`, so `0_8`
+// and `1_0e5` load as floats but `.5_e2` stays a string.
 static GO_YAML_FLOAT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\A[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?\z")
         .expect("go-yaml float regex is valid")

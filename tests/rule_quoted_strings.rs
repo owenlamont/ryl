@@ -837,6 +837,7 @@ fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
         "-.5",
         "0_8",
         "1_0e5",
+        ".5e5",
     ] {
         let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
         assert!(
@@ -853,7 +854,7 @@ fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
 #[test]
 fn strips_unambiguous_string_quotes_even_under_explicit_yaml_1_1() {
     let cfg = only_when_needed();
-    for value in ["hello", "_", "_1", "._", "1.2.3"] {
+    for value in ["hello", "_", "_1", "._", "1.2.3", ".5_e2"] {
         let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
         assert_eq!(quoted_strings::check(&input, &cfg).len(), 1, "{input:?}");
         assert_eq!(
