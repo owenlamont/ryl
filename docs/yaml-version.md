@@ -71,6 +71,13 @@ Declaring `%YAML 1.2` does not make every reader follow 1.2:
 | ruamel.yaml, goccy/go-yaml | Accepted. |
 | go-yaml v2, v3 and v4, `sigs.k8s.io/yaml` | The whole file is rejected (`found incompatible YAML document`), so Kubernetes, Helm and Docker Compose cannot load it. |
 
+The go-yaml rejection breaks both specs. YAML 1.2.2
+[§6.8.1](https://yaml.org/spec/1.2.2/#681-yaml-directives) says a 1.2 processor
+*must* accept `%YAML 1.2`, and YAML 1.1
+[§7.1.1](https://yaml.org/spec/1.1/#id895631) says a 1.1 processor *should*
+process a higher minor version with a warning. go-yaml accepts exactly `1.1` and
+rejects every other version, although its README claims most of YAML 1.2.
+
 ## What is different in YAML 1.2
 
 | Literal | YAML 1.1 | YAML 1.2 |
