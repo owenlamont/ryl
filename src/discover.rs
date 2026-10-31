@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "lsp")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ignore::{Walk, WalkBuilder};
+use ignore::{DirEntry, Walk, WalkBuilder};
 
 pub fn is_yaml_path(path: &Path) -> bool {
     path.extension().and_then(OsStr::to_str).is_some_and(|ext| {
@@ -13,9 +13,13 @@ pub fn is_yaml_path(path: &Path) -> bool {
     })
 }
 
-/// Shared walker (git ignore/exclude, includes hidden files, no symlink follow) so the
-/// plain and cancellable gatherers cannot drift apart.
-fn yaml_walker(dir: &Path) -> Walk {
+const VCS_DIRECTORIES: [&str; 4] = [".git", ".hg", ".svn", ".jj"];
+
+/// The directory walk shared by the CLI and the LSP: git ignore/exclude, hidden files
+/// included, no symlink follow, and VCS directories pruned. The walker never filters
+/// its root, so a VCS directory named as an input is still walked.
+#[must_use]
+pub fn walk_dir(dir: &Path) -> Walk {
     WalkBuilder::new(dir)
         .hidden(false)
         .ignore(true)
@@ -23,16 +27,28 @@ fn yaml_walker(dir: &Path) -> Walk {
         .git_global(true)
         .git_exclude(true)
         .follow_links(false)
+        .filter_entry(|entry| {
+            !(entry.file_type().is_some_and(|t| t.is_dir())
+                && VCS_DIRECTORIES.iter().any(|vcs| entry.file_name() == *vcs))
+        })
         .build()
+}
+
+/// A regular file, or a symlink to one: `file_type` describes the link itself without
+/// a `stat`, so only links pay for following.
+#[must_use]
+pub fn is_walked_file(entry: &DirEntry) -> bool {
+    entry
+        .file_type()
+        .is_some_and(|t| t.is_file() || (t.is_symlink() && entry.path().is_file()))
 }
 
 #[must_use]
 pub fn gather_yaml_from_dir(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for entry in yaml_walker(dir).flatten() {
-        let p = entry.path();
-        if p.is_file() && is_yaml_path(p) {
-            files.push(p.to_path_buf());
+    for entry in walk_dir(dir).flatten() {
+        if is_yaml_path(entry.path()) && is_walked_file(&entry) {
+            files.push(entry.into_path());
         }
     }
     files
@@ -46,13 +62,12 @@ pub(crate) fn gather_yaml_from_dir_cancellable(
     cancel: &AtomicBool,
 ) -> Option<Vec<PathBuf>> {
     let mut files = Vec::new();
-    for entry in yaml_walker(dir).flatten() {
+    for entry in walk_dir(dir).flatten() {
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
-        let p = entry.path();
-        if p.is_file() && is_yaml_path(p) {
-            files.push(p.to_path_buf());
+        if is_yaml_path(entry.path()) && is_walked_file(&entry) {
+            files.push(entry.into_path());
         }
     }
     Some(files)

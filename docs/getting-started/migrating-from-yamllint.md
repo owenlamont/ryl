@@ -332,6 +332,16 @@ block fails to apply on the second copy. ryl normalizes each input path (lexical
 without resolving symlinks, so a symlink and its target stay distinct) and skips a
 file it has already selected.
 
+### Version control directories
+
+A directory walk skips any `.git`, `.hg`, `.svn` or `.jj` directory below the input.
+yamllint walks into them and lints any YAML there. Naming one as an input
+(`ryl check .git`) or naming a file inside one still lints it.
+
+**Why ryl differs:** a VCS directory holds the tool's own state, never project YAML,
+and walking a large `.git` costs time. ruff skips `.git`, `.hg` and `.svn`; ryl also
+skips `.jj`. Other hidden directories, such as `.github`, are still walked.
+
 ### Bare carriage-return (`\r`) line breaks
 
 YAML 1.2.2 §5.4 defines a line break as `( CR LF ) | CR | LF`, so a **bare `\r`**

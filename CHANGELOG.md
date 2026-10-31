@@ -18,6 +18,12 @@ summarize user-visible changes from the tagged commits and published release rec
 - On Windows and macOS, ryl uses mimalloc as its allocator, making `check` and
   `format` 3-27% faster beyond a single small file, for up to twice the peak memory.
   Linux keeps the system allocator. ([#886](https://github.com/owenlamont/ryl/issues/886))
+- A directory walk skips `.git`, `.hg`, `.svn` and `.jj` directories; ruff skips `.git`,
+  `.hg` and `.svn`, and yamllint lints YAML inside all four. A VCS directory or file
+  named as an input is still linted. Walking reads each entry's type without a `stat`,
+  so `check` on a 31,000-file Kubernetes clone takes 1.10 s (was 1.30 s), or 1.17 s
+  (was 1.21 s) without `.git`.
+  ([#888](https://github.com/owenlamont/ryl/issues/888))
 
 ## v0.27.0
 

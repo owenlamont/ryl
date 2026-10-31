@@ -21,7 +21,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
-use ignore::WalkBuilder;
+use ryl::discover::{is_walked_file, walk_dir};
 
 use ryl::cli_support::{
     CliConfigFlags, ConfigCache, LintFile, ResolvedConfig, github_escape,
@@ -78,20 +78,12 @@ fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut candidates = Vec::new();
     for p in inputs {
         if p.is_dir() {
-            let walker = WalkBuilder::new(p)
-                .hidden(false)
-                .ignore(true)
-                .git_ignore(true)
-                .git_global(true)
-                .git_exclude(true)
-                .follow_links(false)
-                .build();
-            for e in walker.flatten() {
-                let fp = e.path().to_path_buf();
-                if fp.is_file() {
-                    candidates.push(fp);
-                }
-            }
+            candidates.extend(
+                walk_dir(p)
+                    .flatten()
+                    .filter(is_walked_file)
+                    .map(ignore::DirEntry::into_path),
+            );
         } else {
             explicit_files.push(p.clone());
         }
