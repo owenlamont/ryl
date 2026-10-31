@@ -300,6 +300,18 @@ settings such as `key-ordering` `orders`. Deterministic siblings pin empty-confi
 billion-laughs, and rich-valid cases. When a rule gains a config-compiled regex or typed
 option, add its key(s) to `CATALOG` in `strategy.rs`.
 
+## Scaling Check
+
+`uv run --no-project scripts/scaling_check.py` times the release binary on growing
+inputs (0.5-8 MiB and 100-10,000 files) and flags any series whose log-log slope
+of time against size exceeds 1.2. It covers each rule alone on input dense with its
+violations, each rule option at a non-default value, and `check`, `check --fix`,
+`format` and `format --markdown` on clean, unformatted and structural stress inputs.
+A full run takes about 30 minutes; `--only <substring>` reruns one series. Run it
+before a release and after changing a per-token or per-region loop. Most superlinear
+paths found so far were a whole-line or whole-document rescan repeated per violation
+or per region.
+
 ## Rules Without A Safe `--fix`
 
 These rules are intentionally not part of `SAFE_FIX_RULES`. Each entry is the

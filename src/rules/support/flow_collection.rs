@@ -13,7 +13,7 @@ pub(crate) const fn retained_closing(
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    byte_line_and_column, skip_comment, template_double_curly_end,
+    Columns, skip_comment, template_double_curly_end,
 };
 use crate::rules::support::span_utils::containing_byte_scalar_range;
 
@@ -370,7 +370,7 @@ pub fn check(
     let scalar_ranges = super::punctuation::byte_scalar_ranges(input);
 
     let bytes = buffer.as_bytes();
-    let line_starts = input.byte_line_starts();
+    let columns = Columns::new(bytes, input.byte_line_starts());
 
     let mut range_idx = 0usize;
     let mut idx = 0usize;
@@ -401,25 +401,9 @@ pub fn check(
             if let Some(state) = stack.last_mut() {
                 state.is_empty = false;
             }
-            handle_open(
-                cfg,
-                desc,
-                bytes,
-                idx,
-                line_starts,
-                &mut stack,
-                &mut violations,
-            );
+            handle_open(cfg, desc, bytes, idx, &columns, &mut stack, &mut violations);
         } else if ch == desc.close {
-            handle_close(
-                cfg,
-                desc,
-                bytes,
-                idx,
-                line_starts,
-                &mut stack,
-                &mut violations,
-            );
+            handle_close(cfg, desc, bytes, idx, &columns, &mut stack, &mut violations);
         } else {
             match ch {
                 b'#' => {
@@ -479,11 +463,11 @@ fn handle_open(
     desc: &FlowCollectionDescriptor,
     bytes: &[u8],
     idx: usize,
-    line_starts: &[usize],
+    columns: &Columns<'_>,
     stack: &mut Vec<CollectionState>,
     violations: &mut Vec<Violation>,
 ) {
-    let (line, column) = byte_line_and_column(bytes, line_starts, idx);
+    let (line, column) = columns.at(idx);
     let next_significant = next_significant_index(bytes, idx);
 
     let mut skip_open_check = false;
@@ -518,7 +502,7 @@ fn handle_open(
         && let AfterResult::SameLine { spaces, next_idx } =
             compute_spaces_after_open(bytes, idx)
     {
-        let (line, next_column) = byte_line_and_column(bytes, line_starts, next_idx);
+        let (line, next_column) = columns.at(next_idx);
         if state.is_empty && bytes[next_idx] == desc.close {
             record_after_spacing(
                 cfg.effective_min_empty(),
@@ -557,7 +541,7 @@ fn handle_close(
     desc: &FlowCollectionDescriptor,
     bytes: &[u8],
     idx: usize,
-    line_starts: &[usize],
+    columns: &Columns<'_>,
     stack: &mut Vec<CollectionState>,
     violations: &mut Vec<Violation>,
 ) {
@@ -571,7 +555,7 @@ fn handle_close(
 
     if let Some((spaces, _start_idx)) = compute_spaces_before_close(bytes, idx) {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-        let (line, close_column) = byte_line_and_column(bytes, line_starts, idx);
+        let (line, close_column) = columns.at(idx);
         if cfg.max_spaces_inside() >= 0 && spaces_i64 > cfg.max_spaces_inside() {
             let highlight = close_column.saturating_sub(1).max(1);
             violations.push(Violation {

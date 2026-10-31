@@ -59,7 +59,7 @@ pub enum RegionKind {
 
 /// A slice of YAML lifted out of a markdown document, with the offsets needed to
 /// translate region-local diagnostic positions back to the host file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddedRegion {
     pub kind: RegionKind,
     /// Newlines before the region's first content line: region line 1 maps to host line

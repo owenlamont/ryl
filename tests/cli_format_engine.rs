@@ -943,3 +943,24 @@ fn keeps_quotes_on_y_and_n_which_go_yaml_v2_loads_as_booleans() {
         );
     }
 }
+
+#[test]
+fn fence_boundary_change_still_formats_a_later_list_fence() {
+    let breaker = "```yaml\nk:\n    v: a\n     ```\n    w:   1\n```\n";
+    let input = format!("{breaker}\n- item\n\n  ```yaml\n  b:   1\n  ```\n");
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, &input).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path())
+        .args(["format", "--markdown", "-d", "indent-width = 2"])
+        .arg(&file));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stderr.contains("would change Markdown fence boundaries"),
+        "{stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        format!("{breaker}\n- item\n\n  ```yaml\n  b: 1\n  ```\n")
+    );
+}

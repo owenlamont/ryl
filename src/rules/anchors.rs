@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use crate::text_version::{Analysis, TextVersion, lexical::Kind};
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::byte_line_and_column;
+use crate::rules::support::punctuation::Columns;
 use crate::rules::support::span_utils::marker_byte_offset;
 
 pub const ID: &str = "anchors";
@@ -117,7 +117,7 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 
 pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Violation> {
     let buffer = input.text();
-    let line_starts = input.byte_line_starts();
+    let columns = Columns::new(buffer.as_bytes(), input.byte_line_starts());
     let mut doc = DocState::new();
     let mut violations = Vec::new();
 
@@ -131,8 +131,7 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Viola
                 let start = marker_byte_offset(span.start).get();
                 let end = marker_byte_offset(span.end).get();
                 let name = &buffer[start + 1..end];
-                let (line, column) =
-                    byte_line_and_column(buffer.as_bytes(), line_starts, start);
+                let (line, column) = columns.at(start);
                 if cfg.forbid_anchors_and_aliases {
                     violations.push(Violation {
                         line,
@@ -160,8 +159,7 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Viola
                 let start = marker_byte_offset(span.start).get();
                 let end = marker_byte_offset(span.end).get();
                 let name = &buffer[start + 1..end];
-                let (line, column) =
-                    byte_line_and_column(buffer.as_bytes(), line_starts, start);
+                let (line, column) = columns.at(start);
                 if cfg.forbid_anchors_and_aliases {
                     violations.push(Violation {
                         line,

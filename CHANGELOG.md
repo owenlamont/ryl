@@ -33,6 +33,11 @@ summarize user-visible changes from the tagged commits and published release rec
 - `empty-values` no longer slows quadratically on large files with many violations:
   `check --enable ALL` on a 9.4 MiB file takes 0.87 s (was 5.7 s).
   ([#890](https://github.com/owenlamont/ryl/issues/890))
+- `check` no longer slows quadratically on a long line holding many flow-collection
+  entries: `check --enable ALL` on a 0.5 MiB one-line flow sequence takes 0.23 s (was
+  50 s). `format --markdown` no longer re-parses the whole document for every rewritten
+  YAML fence: 4 MiB of fences formats in 0.74 s (was 33 s).
+  ([#897](https://github.com/owenlamont/ryl/pull/897))
 
 ## v0.27.0
 

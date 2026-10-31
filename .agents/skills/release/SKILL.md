@@ -92,6 +92,8 @@ description: >-
 - Release-candidate gates, **after the version bump and before tagging**:
   - Build the release candidate with `cargo build --release`. The full corpus runs
     are not a release gate.
+  - Run the scaling check (property-tests skill, *Scaling Check*); fix any flagged
+    series before tagging.
   - Run the performance gate against the newest published stable `v*` release:
 
     ```sh

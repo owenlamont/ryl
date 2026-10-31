@@ -18,6 +18,7 @@ use crate::markdown_embed::{
 };
 use crate::rules::support::collection_style;
 use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
+use crate::rules::support::span_utils::BytePos;
 use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, hyphens, indentation, key_ordering, line_length,
@@ -1103,12 +1104,80 @@ fn fix_markdown_cached(
     };
     let mut regions = extract_regions(markdown, sources);
     regions.sort_by_key(|region| std::cmp::Reverse(region.raw_span.start));
+    let mut run = |verify| {
+        rewrite_regions(
+            markdown,
+            &regions,
+            (path, cfg, base_dir),
+            (sources, rewrite, verify),
+            refusal_lines_in_output,
+            cache,
+        )
+    };
+    let (out, problems, written) = run(false);
+    if regions_hold(
+        out.as_deref().unwrap_or(markdown),
+        &regions,
+        &written,
+        sources,
+    ) {
+        return (out, problems);
+    }
+    let (out, problems, _) = run(true);
+    (out, problems)
+}
 
+/// A region's rewrite, spanning its replacement text alone, and the lines it adds.
+type Written = Option<(EmbeddedRegion, isize)>;
+
+/// Whether `out` holds exactly `regions` (last first), with each `written` one in place
+/// and every region shifted past the rewrites before it.
+fn regions_hold(
+    out: &str,
+    regions: &[EmbeddedRegion],
+    written: &[Written],
+    sources: MarkdownSources,
+) -> bool {
+    let (mut bytes, mut lines) = (0, 0);
+    let expected = regions
+        .iter()
+        .zip(written)
+        .rev()
+        .map(|(original, written)| {
+            let mut region = written
+                .as_ref()
+                .map_or(original, |(region, _)| region)
+                .clone();
+            let start = original.raw_span.start.strict_add_signed(bytes);
+            region.raw_span = start..start + region.raw_span.len();
+            region.line_offset = region.line_offset.strict_add_signed(lines);
+            if let Some((updated, line_delta)) = written {
+                bytes += updated.raw_span.len().cast_signed()
+                    - original.raw_span.len().cast_signed();
+                lines += line_delta;
+            }
+            region
+        });
+    extract_regions(out, sources).into_iter().eq(expected)
+}
+
+/// The rewritten document, its notices, and per region its rewrite and added lines;
+/// without `verify`, a rewrite is not re-parsed, so [`regions_hold`] must check them all.
+fn rewrite_regions(
+    markdown: &str,
+    regions: &[EmbeddedRegion],
+    (path, cfg, base_dir): (&Path, &YamlLintConfig, &Path),
+    (sources, rewrite, verify): (MarkdownSources, Rewrite, bool),
+    refusal_lines_in_output: bool,
+    cache: &mut FormatCache,
+) -> (Option<String>, Vec<MarkdownRefusal>, Vec<Written>) {
     let mut out = markdown.to_string();
-    let mut changed = false;
+    let mut edits = Vec::new();
     let mut notices = Vec::new();
     let mut refusals = Vec::new();
-    for region in &regions {
+    let mut written_regions = Vec::with_capacity(regions.len());
+    for region in regions {
+        written_regions.push(None);
         if region.content.trim().is_empty()
             || crate::directives::disables_file(&region.content)
         {
@@ -1129,7 +1198,13 @@ fn fix_markdown_cached(
             .as_ref()
             .filter(|fixed| **fixed != region.content)
             .and_then(|fixed| {
-                write_region(&out, region, fixed, (sources, rewrite), &mut refusals)
+                write_region(
+                    &out,
+                    region,
+                    fixed,
+                    (sources, rewrite, verify),
+                    &mut refusals,
+                )
             });
         if refusal_lines_in_output || rewrite == Rewrite::Format {
             if let Some((_, _, line_delta)) =
@@ -1155,7 +1230,7 @@ fn fix_markdown_cached(
                     .splice(0..0, crate::markdown_embed::in_host(host, shown, skips));
             }
         }
-        let (Some((candidate, ..)), Ok(parsed), Some(fixed)) =
+        let (Some((replacement, updated, line_delta)), Ok(parsed), Some(fixed)) =
             (written, &parsed, &fixed)
         else {
             continue;
@@ -1169,8 +1244,17 @@ fn fix_markdown_cached(
                 blocks_preview: false,
             });
         }
-        out = candidate;
-        changed = true;
+        if verify {
+            out.replace_range(region.raw_span.clone(), &replacement);
+        }
+        let span = &region.raw_span;
+        edits.push((
+            BytePos::new(span.start),
+            BytePos::new(span.end),
+            replacement,
+        ));
+        *written_regions.last_mut().expect("pushed for this region") =
+            Some((updated, line_delta));
     }
     let mut problems: Vec<_> = notices
         .into_iter()
@@ -1180,7 +1264,11 @@ fn fix_markdown_cached(
         })
         .collect();
     problems.extend(refusals);
-    (changed.then_some(out), problems)
+    (
+        crate::text_version::edits::render(markdown, edits),
+        problems,
+        written_regions,
+    )
 }
 
 /// The host and region `region`'s notices are read from, with the strict parse error that
@@ -1223,7 +1311,7 @@ fn write_region(
     out: &str,
     region: &EmbeddedRegion,
     fixed: &str,
-    (sources, rewrite): (MarkdownSources, Rewrite),
+    (sources, rewrite, verify): (MarkdownSources, Rewrite, bool),
     refusals: &mut Vec<MarkdownRefusal>,
 ) -> Option<(String, EmbeddedRegion, isize)> {
     let Some((prefix, newline)) = region_prefix(out, region) else {
@@ -1240,11 +1328,11 @@ fn write_region(
         return None;
     };
     let replacement = reindent(fixed, &prefix, newline);
-    let mut candidate = out.to_owned();
-    candidate.replace_range(region.raw_span.clone(), &replacement);
-    let expected_span =
-        region.raw_span.start..region.raw_span.start + replacement.len();
-    let Some(updated) =
+    let updated = if verify {
+        let mut candidate = out.to_owned();
+        candidate.replace_range(region.raw_span.clone(), &replacement);
+        let expected_span =
+            region.raw_span.start..region.raw_span.start + replacement.len();
         extract_regions(&candidate, sources)
             .into_iter()
             .find(|updated| {
@@ -1253,7 +1341,14 @@ fn write_region(
                     && updated.content.replace("\r\n", "\n")
                         == fixed.replace("\r\n", "\n")
             })
-    else {
+    } else {
+        Some(EmbeddedRegion {
+            content: fixed.to_owned(),
+            raw_span: 0..0,
+            ..*region
+        })
+    };
+    let Some(mut updated) = updated else {
         if rewrite == Rewrite::Format {
             refusals.push(markdown_refusal(
                 region,
@@ -1263,12 +1358,13 @@ fn write_region(
         }
         return None;
     };
+    updated.raw_span = 0..replacement.len();
     let line_delta = replacement.matches('\n').count().cast_signed()
         - out[region.raw_span.clone()]
             .matches('\n')
             .count()
             .cast_signed();
-    Some((candidate, updated, line_delta))
+    Some((replacement, updated, line_delta))
 }
 
 /// The prefix the parser stripped from each line of `region` and the host's line ending, or
