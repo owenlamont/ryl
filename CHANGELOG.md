@@ -42,6 +42,9 @@ summarize user-visible changes from the tagged commits and published release rec
   rescanning the text or copying the tokens, making it 18-23% faster with 23-30% lower
   peak memory on 2-10 MiB files; `format` is 7-8% faster.
   ([#872](https://github.com/owenlamont/ryl/issues/872))
+- The token tape stores 16 bytes per token instead of 36, cutting peak memory by 6-15%
+  on 2-10 MiB files at the same speed.
+  ([#899](https://github.com/owenlamont/ryl/pull/899))
 
 ### Fixed
 

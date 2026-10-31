@@ -48,17 +48,6 @@ impl Spans {
     }
 
     #[inline]
-    pub(super) fn bytes(&self, span: StoredSpan) -> (usize, usize) {
-        let values = span.0;
-        if values[0] == u32::MAX {
-            let span = self.wide[values[1] as usize];
-            let byte = |marker: Marker| marker.byte_offset().unwrap_or(usize::MAX);
-            return (byte(span.start), byte(span.end));
-        }
-        (values[1] as usize, values[5] as usize)
-    }
-
-    #[inline]
     pub(super) fn get(&self, span: StoredSpan) -> Span {
         let values = span.0;
         if values[0] == u32::MAX {

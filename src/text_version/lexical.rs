@@ -1,4 +1,6 @@
-use ryl_yaml_parser::{Placement, ScalarStyle, Scanner, Span, StrInput, TokenKind};
+use ryl_yaml_parser::{
+    Marker, Placement, ScalarStyle, Scanner, Span, StrInput, TokenKind,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind<'text> {
@@ -31,10 +33,20 @@ pub(crate) enum Kind<'text> {
     Other,
 }
 
+const WIDE: u32 = u32::MAX;
+const EXTRA: u32 = 0x80;
+
+/// 16 bytes per token: start and end byte, start line above an 8-bit kind code, and start
+/// column. A token's character index is its byte less the UTF-8 continuation bytes before
+/// it, `delta`, which only a token flagged `EXTRA` changes; such a token, spanning lines,
+/// holding a multibyte character or carrying an indent, also stores its end line, end
+/// column, indent and end delta. Anything else stores its whole span in `wide`.
 #[derive(Default)]
 pub(crate) struct Tokens {
-    records: Vec<(super::spans::StoredSpan, u32)>,
-    spans: super::spans::Spans,
+    records: Vec<[u32; 4]>,
+    extras: Vec<[u32; 4]>,
+    wide: Vec<Span>,
+    delta: u32,
 }
 
 impl Tokens {
@@ -79,16 +91,63 @@ impl Tokens {
             }
             _ => 18,
         };
-        self.records.push((self.spans.store(span), index));
+        let (start, end) = (span.start, span.end);
+        let (a, b) = (
+            start.byte_offset().unwrap_or(usize::MAX),
+            end.byte_offset().unwrap_or(usize::MAX),
+        );
+        let (delta, to) = (char_delta(start), char_delta(end));
+        let widest = [a, b, delta, to, start.col(), end.line(), end.col()]
+            .into_iter()
+            .fold(span.indent.unwrap_or(0), usize::max);
+        let narrow = |value: usize| u32::try_from(value).unwrap_or(WIDE);
+        if (widest >= WIDE as usize)
+            | (start.line() >= 1 << 24)
+            | span.tag_start.is_some()
+            | (narrow(delta) != self.delta)
+        {
+            self.delta = narrow(to);
+            self.records.push([WIDE, narrow(self.wide.len()), index, 0]);
+            self.wide.push(*span);
+            return;
+        }
+        let line = narrow(start.line());
+        let mut record = [narrow(a), narrow(b), line << 8 | index, narrow(start.col())];
+        let extra = [
+            narrow(end.line()),
+            narrow(end.col()),
+            span.indent.map_or(WIDE, narrow),
+            narrow(to),
+        ];
+        let [a, b, code, column] = record;
+        if extra
+            != [
+                code >> 8,
+                column.wrapping_add(b.wrapping_sub(a)),
+                WIDE,
+                self.delta,
+            ]
+        {
+            record[2] |= EXTRA;
+            self.extras.push(extra);
+            self.delta = extra[3];
+        }
+        self.records.push(record);
     }
 
     /// Byte ranges and kinds; comment text is left empty.
     pub(crate) fn bytes(
         &self,
     ) -> impl Iterator<Item = (usize, usize, Kind<'static>)> + '_ {
-        self.records.iter().map(|&(span, kind)| {
-            let (start, end) = self.spans.bytes(span);
-            (start, end, decode(kind))
+        self.records.iter().map(|&[start, end, code, _]| {
+            let (start, end) = if start == WIDE {
+                let span = self.wide[end as usize];
+                let byte = |marker: Marker| marker.byte_offset().unwrap_or(usize::MAX);
+                (byte(span.start), byte(span.end))
+            } else {
+                (start as usize, end as usize)
+            };
+            (start, end, decode(code))
         })
     }
 
@@ -96,11 +155,43 @@ impl Tokens {
         &'a self,
         source: &'a str,
     ) -> impl Iterator<Item = (Span, Kind<'a>)> {
-        self.records.iter().map(move |&(span, kind)| {
-            let span = self.spans.get(span);
-            (span, decode(kind).with_source(source, &span))
+        let mut extras = self.extras.iter();
+        let mut delta = 0;
+        self.records.iter().map(move |&[start, end, code, column]| {
+            if start == WIDE {
+                let span = self.wide[end as usize];
+                delta = char_delta(span.end);
+                return (span, decode(code).with_source(source, &span));
+            }
+            let (start, end, line) =
+                (start as usize, end as usize, (code >> 8) as usize);
+            let from = start - delta;
+            let (end_line, end_column, indent) = if code & EXTRA == 0 {
+                (line, column as usize + end - start, None)
+            } else {
+                let &[line, column, indent, to] =
+                    extras.next().expect("flagged extra is stored");
+                delta = to as usize;
+                let indent = (indent != WIDE).then_some(indent as usize);
+                (line as usize, column as usize, indent)
+            };
+            let span = Span::new(
+                Marker::new(from, line, column as usize).with_byte_offset(Some(start)),
+                Marker::new(end - delta, end_line, end_column)
+                    .with_byte_offset(Some(end)),
+            )
+            .with_indent(indent);
+            (span, decode(code).with_source(source, &span))
         })
     }
+}
+
+/// Continuation bytes before `marker`, the gap between its byte offset and character index.
+fn char_delta(marker: Marker) -> usize {
+    marker
+        .byte_offset()
+        .unwrap_or(usize::MAX)
+        .wrapping_sub(marker.index())
 }
 
 impl<'text> Kind<'text> {
@@ -121,7 +212,8 @@ impl<'text> Kind<'text> {
     }
 }
 
-fn decode(kind: u32) -> Kind<'static> {
+fn decode(code: u32) -> Kind<'static> {
+    let kind = code & 0x7f;
     if kind < 19 {
         COMMON[kind as usize]
     } else if kind < 29 {
