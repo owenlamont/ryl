@@ -16,7 +16,7 @@ codes, machine-readable output, in-place edits, and stdin support.
 Install: `pip install ryl`, `cargo install ryl`, or `npm i -g @owenlamont/ryl`.
 Pre-commit via `owenlamont/ryl-pre-commit`: `ryl-check` and `ryl-format`, plus
 `ryl-check-markdown` and `ryl-format-markdown` for embedded YAML. GitHub Actions:
-`owenlamont/ryl-action@v0.27.0` (default `args: check .`).
+`owenlamont/ryl-action@v0.28.0` (default `args: check .`).
 
 ## Critical: ryl has no default-on rules
 

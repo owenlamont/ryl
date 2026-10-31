@@ -60,7 +60,7 @@ newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
 In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-action):
 
 ```yaml
-- uses: owenlamont/ryl-action@v0.27.0
+- uses: owenlamont/ryl-action@v0.28.0
 ```
 
 ## Status and scope
