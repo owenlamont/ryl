@@ -37,6 +37,7 @@ unsafe_code = "forbid"
 [profile.release]
 lto = "fat"
 codegen-units = 1
+strip = true
 
 [[bin]]
 name = "ryl"

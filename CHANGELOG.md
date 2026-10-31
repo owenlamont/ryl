@@ -24,6 +24,9 @@ summarize user-visible changes from the tagged commits and published release rec
   so `check` on a 31,000-file Kubernetes clone takes 1.10 s (was 1.30 s), or 1.17 s
   (was 1.21 s) without `.git`.
   ([#888](https://github.com/owenlamont/ryl/issues/888))
+- Release binaries and wheels ship with symbols stripped, as ruff's do, cutting the
+  x86_64 Linux binary from 9.9 MB to 8.7 MB.
+  ([#887](https://github.com/owenlamont/ryl/issues/887))
 
 ## v0.27.0
 
