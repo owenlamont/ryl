@@ -6,10 +6,17 @@
     clippy::cognitive_complexity
 )]
 
-// Windows only: on Linux, glibc's allocator beat both mimalloc and jemalloc.
-#[cfg(windows)]
+#[cfg(feature = "alloc-mimalloc")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+#[cfg(all(
+    feature = "alloc-jemalloc",
+    not(feature = "alloc-mimalloc"),
+    not(windows)
+))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod cache;
 

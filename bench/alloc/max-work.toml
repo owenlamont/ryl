@@ -1,0 +1,7 @@
+[format]
+quote-style = "single"
+max-blank-lines = 1
+comment-spacing = 1
+comment-starting-space = "preserve"
+brace-spacing = true
+fold-long-lines = true
