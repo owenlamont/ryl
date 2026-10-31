@@ -7,7 +7,7 @@ use crate::text_version::edits::Edit;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::{
-    byte_line_and_column, collect_scalar_ranges, skip_comment,
+    Columns, collect_scalar_ranges, skip_comment,
 };
 use crate::rules::support::span_utils::{BytePos, apply_replacements};
 use crate::text_version::{Analysis, TextVersion};
@@ -107,10 +107,10 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 }
 
 pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
-    let line_starts = input.byte_line_starts();
+    let columns = Columns::new(input.text().as_bytes(), input.byte_line_starts());
     let mut violations = Vec::new();
     scan_commas(input, |bytes, i| {
-        evaluate_comma(cfg, &mut violations, bytes, i, line_starts);
+        evaluate_comma(cfg, &mut violations, bytes, i, &columns);
     });
     violations
 }
@@ -158,7 +158,7 @@ fn evaluate_comma(
     violations: &mut Vec<Violation>,
     bytes: &[u8],
     comma_idx: usize,
-    line_starts: &[usize],
+    columns: &Columns<'_>,
 ) {
     if let BeforeResult::SameLine { spaces, .. } =
         compute_spaces_before(bytes, comma_idx)
@@ -166,7 +166,7 @@ fn evaluate_comma(
     {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
         if spaces_i64 > cfg.max_spaces_before {
-            let (line, column) = byte_line_and_column(bytes, line_starts, comma_idx);
+            let (line, column) = columns.at(comma_idx);
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {
                 line,
@@ -180,7 +180,7 @@ fn evaluate_comma(
         compute_spaces_after(bytes, comma_idx)
     {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-        let (line, column) = byte_line_and_column(bytes, line_starts, next_char);
+        let (line, column) = columns.at(next_char);
         if cfg.max_spaces_after >= 0 && spaces_i64 > cfg.max_spaces_after {
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {

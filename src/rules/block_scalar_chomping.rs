@@ -15,7 +15,7 @@
 use crate::text_version::lexical::Kind as LexicalKind;
 use ryl_yaml_parser::{ScalarStyle, Span};
 
-use crate::rules::support::punctuation::byte_line_and_column;
+use crate::rules::support::punctuation::Columns;
 use crate::rules::support::span_utils::marker_byte_offset;
 use crate::text_version::{Analysis, TextVersion};
 
@@ -62,7 +62,7 @@ pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
 
 pub(crate) struct Headers<'a> {
     chars: &'a str,
-    starts: &'a [usize],
+    columns: Columns<'a>,
     previous_end: usize,
     found: Vec<Header>,
 }
@@ -71,7 +71,7 @@ impl<'a> Headers<'a> {
     pub(crate) fn new(input: Analysis<'a>) -> Self {
         Self {
             chars: input.text(),
-            starts: input.byte_line_starts(),
+            columns: Columns::new(input.text().as_bytes(), input.byte_line_starts()),
             previous_end: 0,
             found: Vec::new(),
         }
@@ -90,8 +90,7 @@ impl<'a> Headers<'a> {
                 ..
             } => {
                 let marker = header_marker(chars, self.previous_end);
-                let (line, column) =
-                    byte_line_and_column(chars.as_bytes(), self.starts, marker);
+                let (line, column) = self.columns.at(marker);
                 self.found.push(Header {
                     span,
                     line,

@@ -9,7 +9,7 @@ use std::ops::Range;
 
 use crate::text_version::lexical::Kind as LexicalKind;
 
-use crate::rules::support::punctuation::byte_line_and_column;
+use crate::rules::support::punctuation::Columns;
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 
 mod input;
@@ -177,7 +177,10 @@ impl<'a> Sites<'a> {
         Self {
             walk: Walk {
                 buffer: input.text(),
-                line_starts: input.byte_line_starts(),
+                columns: Columns::new(
+                    input.text().as_bytes(),
+                    input.byte_line_starts(),
+                ),
                 sparse: false,
             },
             found: Vec::new(),
@@ -291,7 +294,7 @@ fn site_edit(mode: Mode, site: &Site, tolerance: i64) -> Option<Edit> {
 
 struct Walk<'a> {
     buffer: &'a str,
-    line_starts: &'a [usize],
+    columns: Columns<'a>,
     sparse: bool,
 }
 
@@ -317,8 +320,7 @@ impl Walk<'_> {
         if self.sparse && ws.len() == min && !self.buffer[ws.clone()].contains('\t') {
             return None;
         }
-        let (line, column) =
-            byte_line_and_column(self.buffer.as_bytes(), self.line_starts, ws.end);
+        let (line, column) = self.columns.at(ws.end);
         Some(Site {
             indicator,
             before,

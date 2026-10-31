@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::ops::Range;
 
 #[cfg(feature = "lsp")]
@@ -158,17 +159,42 @@ pub(crate) fn build_line_starts(chars: &[(usize, char)]) -> Vec<CharPos> {
     starts
 }
 
-pub(crate) fn byte_line_and_column(
-    text: &[u8],
-    starts: &[usize],
-    byte: usize,
-) -> (usize, usize) {
-    let line = starts
-        .partition_point(|&start| start <= byte)
-        .saturating_sub(1);
-    let prefix = &text[starts[line]..byte];
-    let column = prefix.iter().filter(|&&byte| byte & 0xc0 != 0x80).count();
-    (line + 1, column + 1)
+/// 1-based `(line, column)` of byte offsets, counting on from the previous lookup when it
+/// sits earlier on the same line, so ascending lookups along one long line stay linear.
+pub(crate) struct Columns<'a> {
+    text: &'a [u8],
+    starts: &'a [usize],
+    last: Cell<(usize, usize)>,
+}
+
+impl<'a> Columns<'a> {
+    pub(crate) const fn new(text: &'a [u8], starts: &'a [usize]) -> Self {
+        Self {
+            text,
+            starts,
+            last: Cell::new((0, 0)),
+        }
+    }
+
+    pub(crate) fn at(&self, byte: usize) -> (usize, usize) {
+        let line = self
+            .starts
+            .partition_point(|&start| start <= byte)
+            .saturating_sub(1);
+        let (last, chars) = self.last.get();
+        let (from, counted) = if (self.starts[line]..=byte).contains(&last) {
+            (last, chars)
+        } else {
+            (self.starts[line], 0)
+        };
+        let column = counted
+            + self.text[from..byte]
+                .iter()
+                .filter(|&&byte| byte & 0xc0 != 0x80)
+                .count();
+        self.last.set((byte, column));
+        (line + 1, column + 1)
+    }
 }
 
 /// A `CharPos` as a 1-indexed `(line, column)`. The `CharPos` parameter (not a raw
