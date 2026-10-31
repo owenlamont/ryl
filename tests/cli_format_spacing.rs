@@ -324,3 +324,22 @@ fn tab_refusals_skip_tabs_that_spacing_replaces() {
         );
     }
 }
+
+#[test]
+fn verbatim_tag_hash_is_not_a_comment_inside_flow_collections() {
+    let input = "a: [ !<tag:foo#bar>  ]\nb: { k: !<tag:foo#bar>  }\n";
+    let config = "[lint.rules]\nbraces = 'enable'\nbrackets = 'enable'\n";
+    let (_, _, diagnostics, _) = ryl_on(Some(config), input, &["check", "--no-cache"]);
+    for close in ["1:21", "2:24"] {
+        assert!(
+            diagnostics.contains(close),
+            "missing {close}: {diagnostics}"
+        );
+    }
+    let (code, stderr, formatted) = run_on(input, &["format", "--no-cache"]);
+    assert_eq!(
+        (code, formatted.as_str()),
+        (0, "a: [!<tag:foo#bar>]\nb: {k: !<tag:foo#bar>}\n"),
+        "{stderr}"
+    );
+}

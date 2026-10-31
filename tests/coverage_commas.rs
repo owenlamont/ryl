@@ -1,6 +1,6 @@
 use ryl::rules::commas::{
     Config, check, coverage_compute_spaces_before, coverage_overlapping_replacements,
-    coverage_skip_comment_crlf, coverage_skip_zero_length_span,
+    coverage_skip_comment_crlf,
 };
 
 #[test]
@@ -16,11 +16,6 @@ fn leading_space_before_comma_counts_correctly() {
 #[test]
 fn newline_before_comma_is_ignored() {
     assert_eq!(coverage_compute_spaces_before("\n,", 1), None);
-}
-
-#[test]
-fn zero_length_scalar_span_is_ignored() {
-    assert_eq!(coverage_skip_zero_length_span(), 0);
 }
 
 #[test]

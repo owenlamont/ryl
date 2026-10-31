@@ -12,10 +12,7 @@ pub(crate) const fn retained_closing(
 }
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::{
-    Columns, skip_comment, template_double_curly_end,
-};
-use crate::rules::support::span_utils::containing_byte_scalar_range;
+use crate::rules::support::punctuation::{Columns, skip_comment};
 
 macro_rules! define_rule {
     (
@@ -356,6 +353,17 @@ struct SpacingMessages<'a> {
     max: &'a str,
 }
 
+fn sites<'a>(
+    input: crate::text_version::Analysis<'a>,
+    desc: &FlowCollectionDescriptor,
+) -> std::borrow::Cow<'a, [(usize, u8)]> {
+    if desc.open == b'[' && input.text().contains("{{") {
+        std::borrow::Cow::Owned(super::punctuation::flow_sites(input, false))
+    } else {
+        std::borrow::Cow::Borrowed(input.flow_sites())
+    }
+}
+
 #[must_use]
 pub fn check(
     input: crate::text_version::Analysis<'_>,
@@ -367,66 +375,24 @@ pub fn check(
         return Vec::new();
     }
 
-    let scalar_ranges = super::punctuation::byte_scalar_ranges(input);
-
     let bytes = buffer.as_bytes();
     let columns = Columns::new(bytes, input.byte_line_starts());
-
-    let mut range_idx = 0usize;
-    let mut idx = 0usize;
     let mut stack: Vec<CollectionState> = Vec::new();
     let mut violations = Vec::new();
-
-    while idx < bytes.len() {
-        if let Some(range) =
-            containing_byte_scalar_range(&scalar_ranges, &mut range_idx, idx)
-        {
-            if idx == range.start.get()
-                && let Some(state) = stack.last_mut()
-            {
-                state.is_empty = false;
-            }
-            idx = range.end.get();
+    for &(idx, ch) in sites(input, desc).iter() {
+        if ch == desc.close {
+            handle_close(cfg, desc, bytes, idx, &columns, &mut stack, &mut violations);
             continue;
         }
-
-        let ch = bytes[idx];
-        if desc.open == b'{'
-            && let Some(next_idx) = template_double_curly_end(bytes, idx)
+        if ch != b','
+            && let Some(state) = stack.last_mut()
         {
-            idx = next_idx;
-            continue;
+            state.is_empty = false;
         }
         if ch == desc.open {
-            if let Some(state) = stack.last_mut() {
-                state.is_empty = false;
-            }
             handle_open(cfg, desc, bytes, idx, &columns, &mut stack, &mut violations);
-        } else if ch == desc.close {
-            handle_close(cfg, desc, bytes, idx, &columns, &mut stack, &mut violations);
-        } else {
-            match ch {
-                b'#' => {
-                    idx = skip_comment(bytes, idx);
-                    continue;
-                }
-                b',' | b' ' | b'\t' | b'\n' => {}
-                b'\r' => {
-                    if idx + 1 < bytes.len() && bytes[idx + 1] == b'\n' {
-                        idx += 1;
-                    }
-                }
-                _ => {
-                    if let Some(state) = stack.last_mut() {
-                        state.is_empty = false;
-                    }
-                }
-            }
         }
-
-        idx += 1;
     }
-
     violations
 }
 
@@ -441,14 +407,7 @@ pub(crate) fn edits(
         return Vec::new();
     };
 
-    let legacy;
-    let sites = if desc.open == b'[' && buffer.contains("{{") {
-        legacy = super::punctuation::flow_sites(input, false);
-        &legacy
-    } else {
-        input.flow_sites()
-    };
-    for &(idx, ch) in sites {
+    for &(idx, ch) in sites(input, desc).iter() {
         edits.push(idx, ch);
     }
     edits
@@ -604,14 +563,14 @@ fn record_after_spacing(
 fn compute_spaces_after_open(bytes: &[u8], open_idx: usize) -> AfterResult {
     let mut spaces = 0usize;
     let mut idx = open_idx + 1;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b' ' | b'\t' => {
+    loop {
+        match bytes.get(idx) {
+            Some(b' ' | b'\t') => {
                 spaces += 1;
                 idx += 1;
             }
-            b'\n' | b'\r' | b'#' => return AfterResult::Ignored,
-            _ => {
+            None | Some(b'\n' | b'\r' | b'#') => return AfterResult::Ignored,
+            Some(_) => {
                 return AfterResult::SameLine {
                     spaces,
                     next_idx: idx,
@@ -619,7 +578,6 @@ fn compute_spaces_after_open(bytes: &[u8], open_idx: usize) -> AfterResult {
             }
         }
     }
-    AfterResult::Ignored
 }
 
 fn compute_spaces_before_close(
@@ -652,13 +610,7 @@ fn next_significant_index(bytes: &[u8], open_idx: usize) -> Option<usize> {
                     idx += 1;
                 }
             }
-            b'#' => {
-                idx = skip_comment(bytes, idx);
-                if idx >= bytes.len() {
-                    continue;
-                }
-                idx += 1;
-            }
+            b'#' => idx = skip_comment(bytes, idx) + 1,
             _ => return Some(idx),
         }
     }

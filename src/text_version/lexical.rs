@@ -13,6 +13,7 @@ pub(crate) enum Kind<'text> {
     FlowSequenceEnd,
     FlowMappingStart,
     FlowMappingEnd,
+    FlowEntry,
     BlockEntry,
     Key,
     Value,
@@ -57,8 +58,9 @@ impl Tokens {
             TokenKind::Alias => 14,
             TokenKind::Anchor => 15,
             TokenKind::Tag => 16,
+            TokenKind::FlowEntry => 17,
             TokenKind::Scalar { style, value } => {
-                18 + 2 * match style {
+                19 + 2 * match style {
                     ScalarStyle::Plain => 0,
                     ScalarStyle::SingleQuoted => 1,
                     ScalarStyle::DoubleQuoted => 2,
@@ -67,7 +69,7 @@ impl Tokens {
                 } + u32::from(value.is_empty())
             }
             TokenKind::Comment { placement, .. } => {
-                28 + u32::try_from(
+                29 + u32::try_from(
                     PLACEMENTS
                         .iter()
                         .position(|&value| value == placement)
@@ -75,9 +77,19 @@ impl Tokens {
                 )
                 .expect("placement index fits u32")
             }
-            _ => 17,
+            _ => 18,
         };
         self.records.push((self.spans.store(span), index));
+    }
+
+    /// Byte ranges and kinds; comment text is left empty.
+    pub(crate) fn bytes(
+        &self,
+    ) -> impl Iterator<Item = (usize, usize, Kind<'static>)> + '_ {
+        self.records.iter().map(|&(span, kind)| {
+            let (start, end) = self.spans.bytes(span);
+            (start, end, decode(kind))
+        })
     }
 
     pub(crate) fn iter<'a>(
@@ -86,20 +98,7 @@ impl Tokens {
     ) -> impl Iterator<Item = (Span, Kind<'a>)> {
         self.records.iter().map(move |&(span, kind)| {
             let span = self.spans.get(span);
-            let kind = if kind < 18 {
-                COMMON[kind as usize]
-            } else if kind < 28 {
-                Kind::Scalar {
-                    style: STYLES[((kind - 18) / 2) as usize],
-                    empty: kind % 2 != 0,
-                }
-            } else {
-                Kind::Comment {
-                    text: "",
-                    placement: PLACEMENTS[(kind - 28) as usize],
-                }
-            };
-            (span, kind.with_source(source, &span))
+            (span, decode(kind).with_source(source, &span))
         })
     }
 }
@@ -119,6 +118,22 @@ impl<'text> Kind<'text> {
             *text = &source[start..end];
         }
         self
+    }
+}
+
+fn decode(kind: u32) -> Kind<'static> {
+    if kind < 19 {
+        COMMON[kind as usize]
+    } else if kind < 29 {
+        Kind::Scalar {
+            style: STYLES[((kind - 19) / 2) as usize],
+            empty: !(kind - 19).is_multiple_of(2),
+        }
+    } else {
+        Kind::Comment {
+            text: "",
+            placement: PLACEMENTS[(kind - 29) as usize],
+        }
     }
 }
 
@@ -148,6 +163,7 @@ static COMMON: &[Kind<'static>] = &[
     Kind::Alias,
     Kind::Anchor,
     Kind::Tag,
+    Kind::FlowEntry,
     Kind::Other,
 ];
 

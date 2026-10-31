@@ -292,7 +292,7 @@ impl Frame {
         let normalized;
         let starts = if input.text().contains('\u{feff}') {
             normalized = crate::rules::indentation::normalized_line_starts(input);
-            normalized.as_slice()
+            &normalized
         } else {
             starts
         };
