@@ -15,7 +15,7 @@ checks, all **off by default**; enable only the ones your project needs.
   `safe_load`; authoring YAML that depends on such tags is a recognised
   anti-pattern.
 - **Removed YAML 1.1 types.** `!!omap`, `!!pairs`, `!!set`, `!!timestamp`, and
-  `!!binary` were removed in YAML 1.2. ryl targets YAML 1.2, so flagging them
+  `!!binary` were removed in YAML 1.2. ryl reads YAML as 1.2, so flagging them
   keeps documents portable.
 - **Local / non-core tags.** Local tags such as `!env` or `!include` are
   application-specific and "may even have different semantics in different

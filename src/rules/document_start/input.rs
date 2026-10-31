@@ -2,19 +2,28 @@ use crate::rules::{comments, document_end};
 use crate::text_version::Analysis;
 use ryl_yaml_parser::{Event, ScalarStyle, Span};
 
-pub(super) struct Start {
-    pub(super) explicit: bool,
-    pub(super) line: usize,
-    pub(super) column: usize,
+pub(crate) struct Start {
+    pub(crate) explicit: bool,
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) declared: bool,
+    pub(crate) offset: usize,
+    pub(crate) follows_end_marker: bool,
 }
 
-pub(super) fn starts(source: Analysis<'_>) -> impl Iterator<Item = Start> {
+pub(crate) fn starts(source: Analysis<'_>) -> impl Iterator<Item = Start> {
     let mut events = source.event_iter().peekable();
+    let mut follows_end_marker = true;
     std::iter::from_fn(move || {
         loop {
             let (event, span) = events.next()?;
-            let Event::DocumentStart(explicit, _) = event else {
-                continue;
+            let (explicit, version) = match event {
+                Event::DocumentStart(explicit, version) => (explicit, version),
+                Event::DocumentEnd => {
+                    follows_end_marker = !span.is_empty();
+                    continue;
+                }
+                _ => continue,
             };
             // A block scalar's span starts at its content, a line below the header that
             // opens an implicit document.
@@ -39,6 +48,12 @@ pub(super) fn starts(source: Analysis<'_>) -> impl Iterator<Item = Start> {
                 explicit,
                 line,
                 column: span.start.col(),
+                declared: version.is_some(),
+                offset: crate::rules::support::span_utils::marker_byte_offset(
+                    span.start,
+                )
+                .get(),
+                follows_end_marker,
             });
         }
     })

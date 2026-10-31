@@ -4,7 +4,7 @@ use std::process::Command;
 use tempfile::tempdir;
 
 use crate::common;
-use common::cli::{command_output, run};
+use common::cli::{command_output, run, ryl};
 
 fn run_with_config(config: &str, content: &str, extra: &[&str]) -> (i32, String) {
     let dir = tempdir().unwrap();
@@ -122,12 +122,12 @@ fn directive_like_block_scalar_content_is_not_a_directive() {
 
 #[test]
 fn a_directive_does_not_leak_into_a_later_document() {
-    // The `%YAML 1.1` is block-scalar content in document 1, so document 2 resolves as
-    // 1.2, where `1e5` is a float and its quotes are needed; 1.1 would read a string.
+    // The `%YAML 1.2` is block-scalar content in document 1, so document 2 declares no
+    // version and keeps the quotes a YAML 1.1 reader needs.
     let config = "rules:\n  quoted-strings:\n    required: only-when-needed\n";
     let (code, output) =
-        run_with_config(config, "first: |\n  %YAML 1.1\n---\nkey: '1e5'\n", &[]);
-    assert_eq!(code, 0, "document 2 must resolve as 1.2: {output}");
+        run_with_config(config, "first: |\n  %YAML 1.2\n---\nkey: 'no'\n", &[]);
+    assert_eq!(code, 0, "document 2 must keep its 1.1 quotes: {output}");
 }
 
 #[test]
@@ -145,4 +145,48 @@ fn rules_agree_under_explicit_yaml_1_1() {
         !output.contains("redundantly quoted"),
         "quoted-strings must keep the 1.1-ambiguous quote: {output}"
     );
+}
+
+fn format_with_toml(toml: &str, content: &str) -> String {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".ryl.toml"), toml).unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, content).unwrap();
+    let (code, stdout, stderr) = run(ryl(dir.path()).arg("format").arg(&file));
+    assert_eq!(code, 0, "{}", command_output(&stdout, &stderr));
+    fs::read_to_string(&file).unwrap()
+}
+
+#[test]
+fn target_1_2_or_an_explicit_1_2_drops_the_quotes_only_yaml_1_1_needs() {
+    let quoted = "a: 'no'\nb: '1_000'\nc: '2026-10-10'\n";
+    let plain = "a: no\nb: 1_000\nc: 2026-10-10\n";
+    assert_eq!(format_with_toml("[format]\n", quoted), quoted);
+    assert_eq!(
+        format_with_toml("target-version = \"1.2\"\n[format]\n", quoted),
+        plain
+    );
+    let declared = format!("%YAML 1.2\n---\n{quoted}");
+    assert_eq!(
+        format_with_toml("[format]\n", &declared),
+        format!("%YAML 1.2\n---\n{plain}")
+    );
+}
+
+#[test]
+fn truthy_reads_yaml_1_2_words_under_target_1_2() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "target-version = \"1.2\"\n[lint.rules]\ntruthy = \"enable\"\n",
+    )
+    .unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "a: yes\nb: True\n...\n%YAML 1.1\n---\nc: yes\n").unwrap();
+    let (code, stdout, stderr) = run(ryl(dir.path()).arg("check").arg(&file));
+    let output = command_output(&stdout, &stderr);
+    assert_eq!(code, 1, "{output}");
+    assert!(!output.contains("1:4"), "`yes` is a 1.2 string: {output}");
+    assert!(output.contains("2:4"), "`True` is a 1.2 boolean: {output}");
+    assert!(output.contains("6:4"), "`%YAML 1.1` reads `yes`: {output}");
 }

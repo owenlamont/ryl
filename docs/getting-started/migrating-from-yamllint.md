@@ -218,8 +218,8 @@ output. The complete list:
 
 ### Rules with no yamllint equivalent
 
-`block-scalar-chomping`, `merge-keys`, `tags` and `unicode-line-breaks` are ryl's own
-rules. They are configurable only in TOML; a YAML config that names one is rejected.
+`block-scalar-chomping`, `merge-keys`, `schema-dependent-values`, `tags`,
+`unicode-line-breaks` and `yaml-directive` are ryl's own rules. They are configurable only in TOML; a YAML config that names one is rejected.
 
 ### No implicit default configuration
 
@@ -527,20 +527,26 @@ the directive, so the two disagree:
 | Input | ryl | yamllint |
 | :--- | :--- | :--- |
 | `'+.5'` with no directive, `quoted-strings: only-when-needed` | kept (1.2 float) | redundant (1.1 string) |
-| `'no'` under any directive, same rule | kept (1.1 boolean) | kept |
-| `'y'` under any directive, same rule | kept (go-yaml v2 boolean) | redundant (PyYAML string) |
+| `'no'` without `%YAML 1.2`, same rule | kept (1.1 boolean) | kept |
+| `'no'` under `%YAML 1.2` or `target-version = "1.2"`, same rule | redundant (1.2 string) | kept |
+| `'y'` without `%YAML 1.2`, same rule | kept (go-yaml v2 boolean) | redundant (PyYAML string) |
+| `'08'` under `%YAML 1.1`, same rule | kept (go-yaml float) | redundant (PyYAML string) |
+| plain `yes` under `target-version = "1.2"`, `truthy` | no diagnostic (1.2 string) | flagged |
 | `%YAML 1.3` document | warning, processed as 1.2 | no diagnostic |
 | `%YAML 2.0` document | rejected (`syntax`) | rejected (`syntax`) |
 
 **Why ryl differs:** the spec is the authority. It assigns a directive-less
 document to 1.2, directs a 1.2 processor to honour `%YAML 1.1`, and mandates
-rejecting a higher major version. `quoted-strings` uses PyYAML's 1.1 set
-under every directive, so `--fix` never strips quotes a 1.1 reader needs, nor,
-without a directive, quotes a 1.2 reader needs. ryl adds `y`, `Y`, `n` and `N`
-to that set: PyYAML loads them as strings, but go-yaml v2, which Kubernetes,
-Helm and kubectl use, loads them as booleans, as the YAML 1.1 spec does. So
-`'y'` keeps its quotes, and `required: true` leaves a plain `y` alone as it
-does a plain `no`.
+rejecting a higher major version. Unless a document declares `%YAML 1.2` or
+`target-version = "1.2"` is set, `quoted-strings` keeps PyYAML's 1.1 set, so
+`--fix` never strips quotes a 1.1 reader needs, nor quotes a 1.2 reader needs.
+ryl adds `y`, `Y`, `n` and `N` to that set: PyYAML loads them as strings, but
+go-yaml v2, which Kubernetes, Helm and kubectl use, loads them as booleans, as
+the YAML 1.1 spec does. So `'y'` keeps its quotes, and `required: true` leaves a
+plain `y` alone as it does a plain `no`. go-yaml's float spellings (`08`, `1e5`,
+`-.5`) join the set the same way. `target-version = "1.2"` declares the 1.1
+readers out, so `truthy` then flags only the 1.2 booleans; yamllint has no such
+setting.
 
 ### ytt directives
 

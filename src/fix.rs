@@ -23,6 +23,7 @@ use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, hyphens, indentation, key_ordering, line_length,
     new_line_at_end_of_file, new_lines, quoted_strings, trailing_spaces, truthy,
+    yaml_directive,
 };
 use crate::text_version::{Analysis, ParsedFacts, TextVersion};
 
@@ -34,11 +35,12 @@ pub const FIX_PIPELINE_MAX_PASSES: usize = 100;
 
 /// File-shape rules suppressed in embedded markdown regions (not standalone files, so `--fix`
 /// never injects `---`/`...` or a trailing newline); shared by the check and fix paths.
-const SUPPRESSED: [&str; 4] = [
+const SUPPRESSED: [&str; 5] = [
     document_start::ID,
     document_end::ID,
     new_line_at_end_of_file::ID,
     new_lines::ID,
+    yaml_directive::ID,
 ];
 
 #[must_use]
@@ -49,7 +51,7 @@ pub fn suppressed_rules() -> &'static [&'static str] {
 /// Every rule with a safe `--fix`, in application order; extend together with `Passes::lint`
 /// and the layout planner when adding a safe fixer. The LSP drives per-rule
 /// "Fix all `<rule>`" actions off this list.
-pub const SAFE_FIX_RULE_IDS: [&str; 16] = [
+pub const SAFE_FIX_RULE_IDS: [&str; 17] = [
     new_lines::ID,
     comments::ID,
     comments_indentation::ID,
@@ -66,6 +68,7 @@ pub const SAFE_FIX_RULE_IDS: [&str; 16] = [
     empty_lines::ID,
     truthy::ID,
     key_ordering::ID,
+    yaml_directive::ID,
 ];
 
 #[derive(Debug, Clone, Default)]
@@ -1512,8 +1515,17 @@ pub(crate) fn rewrite<'a>(
             tracking.edited,
             |text, cfg| key_ordering::fix(text, cfg, &passes.per_line),
         );
+        let declared = !ambiguous
+            && fix_rule(
+                &mut output,
+                yaml_directive::ID,
+                passes.yaml_directive.as_ref(),
+                passes,
+                tracking.edited,
+                yaml_directive::fix,
+            );
         current = output;
-        if !truthy && !ordered {
+        if !truthy && !ordered && !declared {
             break;
         }
     }
@@ -1608,6 +1620,7 @@ pub(crate) struct Passes<'a> {
     pub(crate) empty_lines: Option<empty_lines::Config>,
     pub(crate) truthy: Option<truthy::Config>,
     pub(crate) key_ordering: Option<key_ordering::Config>,
+    pub(crate) yaml_directive: Option<yaml_directive::Config>,
     pub(crate) line_length: Option<line_length::Fold>,
     pub(crate) collection_style: Option<collection_style::Config>,
     /// Config `per-line-ignores` for this file; re-applied on each guarded re-parse since a
@@ -1673,6 +1686,8 @@ impl<'a> Passes<'a> {
             truthy: on(truthy::ID).then(|| truthy::Config::resolve(cfg)),
             key_ordering: on(key_ordering::ID)
                 .then(|| key_ordering::Config::resolve(cfg, path)),
+            yaml_directive: on(yaml_directive::ID)
+                .then(|| yaml_directive::Config::resolve(cfg)),
             line_length: None,
             collection_style: None,
             per_line: cfg.per_line_applies(path),

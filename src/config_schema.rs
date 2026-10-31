@@ -47,6 +47,10 @@ pub struct TomlConfig {
     /// The formatter's indent width, and the default for `[lint.rules.indentation] spaces`.
     #[serde(rename = "indent-width")]
     pub indent_width: Option<NonZeroU8>,
+    /// The oldest YAML version whose readers must load `ryl format` and `--fix` output
+    /// to the same values (default `"1.1"`).
+    #[serde(rename = "target-version")]
+    pub target_version: Option<TargetVersion>,
     /// Linter settings: rule configuration, fix policy, and rule ignores.
     pub lint: Option<LintTable>,
     /// Formatter settings.
@@ -164,6 +168,17 @@ pub enum LineEndingTarget {
     CrLf,
     Native,
     Auto,
+}
+
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema,
+)]
+pub enum TargetVersion {
+    #[default]
+    #[serde(rename = "1.1")]
+    Yaml11,
+    #[serde(rename = "1.2")]
+    Yaml12,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
@@ -623,6 +638,8 @@ pub enum FixableRuleSelector {
     TrailingSpaces,
     #[serde(rename = "truthy")]
     Truthy,
+    #[serde(rename = "yaml-directive")]
+    YamlDirective,
 }
 
 /// A fixable rule name accepted by `lint.unfixable`.
@@ -660,6 +677,8 @@ pub enum FixRuleName {
     TrailingSpaces,
     #[serde(rename = "truthy")]
     Truthy,
+    #[serde(rename = "yaml-directive")]
+    YamlDirective,
 }
 
 /// A rule id, or `ALL` for every rule.
@@ -713,6 +732,8 @@ pub enum RuleSelector {
     OctalValues,
     #[serde(rename = "quoted-strings")]
     QuotedStrings,
+    #[serde(rename = "schema-dependent-values")]
+    SchemaDependentValues,
     #[serde(rename = "tags")]
     Tags,
     #[serde(rename = "trailing-spaces")]
@@ -721,6 +742,8 @@ pub enum RuleSelector {
     Truthy,
     #[serde(rename = "unicode-line-breaks")]
     UnicodeLineBreaks,
+    #[serde(rename = "yaml-directive")]
+    YamlDirective,
 }
 
 impl RuleSelector {
@@ -751,10 +774,12 @@ impl RuleSelector {
             Self::NewLines => "new-lines",
             Self::OctalValues => "octal-values",
             Self::QuotedStrings => "quoted-strings",
+            Self::SchemaDependentValues => "schema-dependent-values",
             Self::Tags => "tags",
             Self::TrailingSpaces => "trailing-spaces",
             Self::Truthy => "truthy",
             Self::UnicodeLineBreaks => "unicode-line-breaks",
+            Self::YamlDirective => "yaml-directive",
         }
     }
 }
@@ -823,12 +848,16 @@ pub struct RulesTable<
     pub octal_values: Option<RuleEntry<OctalValuesOptions>>,
     #[serde(rename = "quoted-strings")]
     pub quoted_strings: Option<RuleEntry<Q>>,
+    #[serde(rename = "schema-dependent-values")]
+    pub schema_dependent_values: Option<RuleEntry<SchemaDependentValuesOptions>>,
     pub tags: Option<RuleEntry<TagsOptions>>,
     #[serde(rename = "trailing-spaces")]
     pub trailing_spaces: Option<RuleEntry<NoOptions>>,
     pub truthy: Option<RuleEntry<TruthyOptions>>,
     #[serde(rename = "unicode-line-breaks")]
     pub unicode_line_breaks: Option<RuleEntry<NoOptions>>,
+    #[serde(rename = "yaml-directive")]
+    pub yaml_directive: Option<RuleEntry<NoOptions>>,
     #[serde(flatten, default)]
     #[schemars(skip)]
     extra: BTreeMap<String, toml::Value>,
@@ -1142,6 +1171,16 @@ pub struct OctalValuesOptions {
     pub forbid_implicit_octal: Option<bool>,
     #[serde(rename = "forbid-explicit-octal")]
     pub forbid_explicit_octal: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct SchemaDependentValuesOptions {
+    pub forbid_timestamps: Option<bool>,
+    pub forbid_sexagesimal: Option<bool>,
+    pub forbid_underscored_numbers: Option<bool>,
+    pub forbid_leading_zero_decimals: Option<bool>,
+    pub forbid_single_letter_booleans: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -1574,6 +1613,7 @@ pub struct NormalizedConfig {
     pub locale: Option<String>,
     pub line_length: Option<NonZeroU16>,
     pub indent_width: Option<NonZeroU8>,
+    pub target_version: Option<TargetVersion>,
     pub fix: Option<NormalizedFixConfig>,
     pub rules: BTreeMap<String, YamlOwned>,
 }

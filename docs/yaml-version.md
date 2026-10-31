@@ -1,21 +1,33 @@
 # YAML version compatibility
 
-## ryl targets YAML 1.2 by default
+## How ryl handles YAML versions
 
-ryl parses YAML with its own fork of [granit-parser][granit]. A
-document with no version directive is resolved per the YAML 1.2 core schema,
-matching the spec, which assumes a directive-less document conforms to 1.2.
-Implicit type resolution can differ from tools built on YAML 1.1 loaders such
-as [PyYAML][pyyaml].
+ryl parses YAML with its own fork of [granit-parser][granit]. It resolves a
+document with no `%YAML` directive under the YAML 1.2 core schema, as the spec
+directs. By default (`target-version = "1.1"`), `ryl format` and `--fix` write
+output that YAML 1.1 readers such as [PyYAML][pyyaml] and go-yaml load to the
+same values, and the value rules flag plain scalars whose meaning differs
+between the two versions, so files drift toward spellings both read alike. Set
+`target-version = "1.2"` once every consumer is a YAML 1.2 reader.
 
-Most YAML files do not exercise the parts of the language where the two
-versions disagree, so in practice the difference rarely shows up. The two
-places it matters in ryl are:
+```toml
+target-version = "1.2"
+```
 
-- The [`quoted-strings`](rules/quoted-strings.md) rule when used with
-  `required: "only-when-needed"`.
-- Parsing of `.yamllint` / `.yamllint.yaml` / `.yamllint.yml`
-  configuration files.
+`target-version` is a top-level TOML setting (`[tool.ryl]` in
+`pyproject.toml`); YAML configs cannot set it. It names the oldest YAML version
+whose readers must load ryl's output to the same values, as ruff's
+`target-version` names the oldest Python the code must run on. Under `"1.2"`:
+
+- `quoted-strings` and `ryl format` drop quotes only a 1.1 reader needs
+  (`'no'` becomes `no`, `'1_000'` becomes `1_000`).
+- `truthy` flags only the 1.2 booleans (`True`, `FALSE`), not `yes` or `on`.
+- [`schema-dependent-values`](rules/schema-dependent-values.md) goes quiet.
+- [`yaml-directive`](rules/yaml-directive.md) offers its `%YAML 1.2` fix.
+
+Some readers called YAML 1.2 still resolve 1.1 types: ruamel.yaml's default
+loader and go-yaml v3 read `1_000`, `0b1010` and `2026-10-10` as non-strings.
+Keep the default if such a reader loads your files.
 
   [granit]: https://github.com/bourumir-wyngs/granit-parser
   [pyyaml]: https://pyyaml.org/
@@ -23,12 +35,12 @@ places it matters in ryl are:
 ## Respecting the `%YAML` version directive
 
 The `%YAML` directive is part of the YAML specification (1.2.2 §6.8.1), so
-ryl honours it per document:
+ryl honours it per document, and it overrides `target-version`:
 
 | Directive | ryl behaviour |
 | :--- | :--- |
-| none | Resolved as YAML 1.2 (the spec's default for a directive-less document). |
-| `%YAML 1.2` | Resolved as YAML 1.2. |
+| none | Resolved as YAML 1.2; output also kept safe for 1.1 readers unless `target-version = "1.2"`. |
+| `%YAML 1.2` | Resolved as YAML 1.2, for 1.2 readers only. |
 | `%YAML 1.1` (or `1.0`) | Resolved as YAML 1.1, so scalars that 1.1 reads as a non-string keep that meaning. |
 | `%YAML 1.3`+ (higher minor) | Processed as YAML 1.2 with a warning, as the spec directs. |
 | `%YAML 2.0`+ (higher major) | Rejected as an error; the spec requires rejecting a higher major version. |
@@ -41,23 +53,37 @@ flags the 1.1 boolean words. ryl never rewrites a `%YAML 1.1` document to
 *declared* version. The `truthy` fix only re-cases `True`/`FALSE` and the
 like, which are the same boolean under both versions.
 
-Whatever the directive, `quoted-strings` and `ryl format` keep the quotes on
-any scalar YAML 1.1 reads as a non-string (`'no'`, `'on'`, `'yes'`,
-`'1_000'`), so the output means the same to a 1.1 consumer such as PyYAML.
-The set is PyYAML's 1.1 resolver plus `0o` octal and `y`, `Y`, `n`, and `N`,
-which go-yaml v2 (used by Kubernetes) loads as
-booleans although PyYAML does not.
-Unless the document declares `%YAML 1.1`, quotes a 1.2 reader needs (`'+.5'`,
-`'008'`) are kept too.
+Unless a document declares `%YAML 1.2` or `target-version = "1.2"` is set,
+`quoted-strings` and `ryl format` keep the quotes on any scalar YAML 1.1 reads
+as a non-string (`'no'`, `'on'`, `'yes'`, `'1_000'`), so the output means the
+same to a 1.1 consumer such as PyYAML. The set is PyYAML's 1.1 resolver plus
+`0o` octal, `y`, `Y`, `n` and `N`, which go-yaml v2 (used by Kubernetes) loads
+as booleans, and go-yaml's float spellings (`'08'`, `'1e5'`, `'-.5'`, `'0_8'`),
+which PyYAML reads as strings.
+
+### What `%YAML 1.2` does for each reader
+
+Declaring `%YAML 1.2` does not make every reader follow 1.2:
+
+| Reader | `%YAML 1.2` |
+| :--- | :--- |
+| PyYAML | Ignored: still reads `yes` as `True`. |
+| ruamel.yaml, goccy/go-yaml | Accepted. |
+| go-yaml v2, v3 and v4, `sigs.k8s.io/yaml` | The whole file is rejected (`found incompatible YAML document`), so Kubernetes, Helm and Docker Compose cannot load it. |
 
 ## What is different in YAML 1.2
 
 | Literal | YAML 1.1 | YAML 1.2 |
 | :--- | :--- | :--- |
 | `yes`, `no`, `on`, `off` and case variants (`Yes`, `No`, `ON`, ...) | Booleans | Plain strings |
+| `y`, `Y`, `n`, `N` | Booleans | Plain strings |
 | `true`, `True`, `TRUE`, `false`, `False`, `FALSE` | Booleans | Booleans |
 | `null`, `Null`, `NULL`, `~` | Null | Null |
 | `0755` (leading zero integer) | Octal | Decimal |
+| `08` (leading zero, not octal) | String | Decimal |
+| `22:22` (sexagesimal) | Integer 1342 | Plain string |
+| `1_000`, `0b1010` | Integers | Plain strings |
+| `2026-10-10` | Timestamp | Plain string |
 
 ryl applies YAML 1.2 semantics to both linted files and configuration
 files.
@@ -66,9 +92,9 @@ files.
 
 With `quote-type: double, required: only-when-needed`, ryl considers
 `"yes"` to need quoting because the bareword would parse as a boolean in
-1.1. The safeguard applies whatever the directive, since removing the
-quotes would change the value for a 1.1
-consumer.
+1.1. The safeguard applies unless the document declares `%YAML 1.2` or
+`target-version = "1.2"` is set, since removing the quotes would change the
+value for a 1.1 consumer.
 
 ## Implications for configuration files
 
@@ -109,6 +135,11 @@ input as YAML 1.2 (an explicit `%YAML 1.1` shifts the value-resolving rules to
   decimal `755`; the rule can still report it for ambiguity reasons.
 - [`float-values`](rules/float-values.md) &mdash; numeric formats follow
   the 1.2 spec.
+- [`schema-dependent-values`](rules/schema-dependent-values.md) &mdash;
+  flags the other plain scalars the two versions read differently, such as
+  `2026-10-10`, `22:22` and `1_000`.
+- [`yaml-directive`](rules/yaml-directive.md) &mdash; requires each document
+  to declare its version, so no reader has to guess.
 
 For documents that need to be portable between 1.1 and 1.2 consumers,
 the safest pattern is to quote any bareword that 1.1 would coerce.

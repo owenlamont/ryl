@@ -3,6 +3,7 @@ vendor/**
 generated/**
 """
 locale = "en_US.UTF-8"
+target-version = "1.1"
 
 [files]
 yaml = ["*.yaml", "*.yml", ".yamllint"]
@@ -146,6 +147,14 @@ allow-quoted-quotes = true
 allow-double-quotes-for-escaping = false
 check-keys = true
 
+[lint.rules.schema-dependent-values]
+level = "warning"
+forbid-timestamps = true
+forbid-sexagesimal = true
+forbid-underscored-numbers = true
+forbid-leading-zero-decimals = true
+forbid-single-letter-booleans = false
+
 [lint.rules.tags]
 level = "warning"
 forbid-unsafe-tags = true
@@ -161,4 +170,7 @@ allowed-values = ["true", "false", "yes", "no"]
 check-keys = false
 
 [lint.rules.unicode-line-breaks]
+level = "warning"
+
+[lint.rules.yaml-directive]
 level = "warning"

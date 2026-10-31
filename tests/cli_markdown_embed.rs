@@ -545,3 +545,22 @@ fn fix_skips_a_bare_cr_markdown_host_and_leaves_it_unchanged() {
         "a bare-CR markdown host must be left byte-for-byte unchanged"
     );
 }
+
+#[test]
+fn yaml_directive_is_suppressed_and_schema_dependent_values_fires_in_regions() {
+    let cfg = "files = { markdown = [\"*.md\"] }\ntarget-version = \"1.1\"\n[lint.rules]\n\
+               yaml-directive = \"enable\"\nschema-dependent-values = \"enable\"\n";
+    let body = "---\nwhen: 2026-10-10\n---\n\n```yaml\nport: 22:22\n```\n";
+    let (_dir, file) = project(cfg, "doc.md", body);
+
+    let (code, _out, err) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .arg("check")
+        .arg(&file));
+
+    assert_eq!(code, 1, "{err}");
+    assert!(err.contains("2:7") && err.contains("6:7"), "{err}");
+    assert!(
+        !err.contains("yaml-directive"),
+        "a region is not a file: {err}"
+    );
+}

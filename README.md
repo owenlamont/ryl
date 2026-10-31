@@ -6,7 +6,8 @@ today, but edge-case behaviour is still maturing.
 
 Full documentation lives at <https://ryl-docs.pages.dev/>.
 
-ryl targets YAML 1.2. See [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/)
+ryl reads YAML as 1.2 and, by default, writes output a YAML 1.1 reader also
+understands. See [YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/)
 for how version directives and implicit types affect linting and formatting.
 
 Coming from yamllint? See the [migration guide](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/).
@@ -67,14 +68,16 @@ In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-a
 - `ryl format` formats YAML in place without enabling lint rules. Its `--check`
   and `--diff` modes preview changes without writing; `[format]` in TOML controls
   the style. It also formats embedded YAML in Markdown with `--markdown`.
-- ryl includes 27 rules, including `tags`, `merge-keys`,
-  `block-scalar-chomping`, and `unicode-line-breaks`. The rule reference
+- ryl includes 29 rules, including `tags`, `merge-keys`,
+  `block-scalar-chomping`, `unicode-line-breaks`, `yaml-directive` and
+  `schema-dependent-values`. The rule reference
   and per-rule pages are at <https://ryl-docs.pages.dev/rules/>.
 - Auto-fixing (`--fix`) is supported for `braces`, `brackets`, `colons`,
   `commas`, `comments`, `comments-indentation`, `document-end`,
   `document-start`, `empty-lines`, `hyphens`, `key-ordering`,
   `new-line-at-end-of-file`, `new-lines`, `quoted-strings`, `trailing-spaces`,
-  and `truthy` (case only, e.g. `True` to `true`). The set of rules that may
+  `truthy` (case only, e.g. `True` to `true`), and `yaml-directive` (under
+  `target-version = "1.2"`). The set of rules that may
   apply fixes is configurable via the TOML `lint.fixable`/`lint.unfixable`
   keys.
 - `--diff` previews those safe fixes as a unified diff on stdout instead

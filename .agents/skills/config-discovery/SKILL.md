@@ -62,6 +62,8 @@ parsing lives in `config::legacy_yaml`, whose `load` is the migrator's only read
 The top-level `line-length`/`indent-width` are TOML-only and never deprecated: an
 explicit `[lint.rules.<rule>]` option beats them, and they beat the rule's built-in
 default (`indentation.spaces` stays `consistent` when `indent-width` is unset).
+`target-version` is TOML-only too; rules read it through `YamlLintConfig::target_version`
+(default `"1.1"`), and a document's `%YAML` directive overrides it (`yaml_version::Readers`).
 
 ## Nothing is enabled implicitly
 

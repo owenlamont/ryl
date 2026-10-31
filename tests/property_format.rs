@@ -24,7 +24,7 @@ use std::collections::BTreeSet;
 
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
-use ryl::config::YamlLintConfig;
+use ryl::config::{TargetVersion, YamlLintConfig};
 use ryl::fix::apply_safe_fixes;
 use ryl::lint::lint_str;
 use ryl::rules::indentation::{self, IndentSequencesSetting, SpacesSetting};
@@ -605,7 +605,12 @@ fn check_yaml_1_1_values(
 
 fn check_pass(pass: &FormatPass, input: &str) -> Result<(), String> {
     check_invariants(&pass.format, input)
-        .and_then(|()| check_yaml_1_1_values(&pass.format, input))
+        .and_then(|()| {
+            if pass.cfg.target_version() == TargetVersion::Yaml12 {
+                return Ok(());
+            }
+            check_yaml_1_1_values(&pass.format, input)
+        })
         .map_err(|violation| format!("pass '{}' on {input:?}: {violation}", pass.name))
 }
 
@@ -1332,9 +1337,9 @@ fn quote_ladder_unquotes_only_when_the_plain_scalar_is_the_same_string() {
 }
 
 /// The formatter keeps quotes any YAML 1.1 reader needs, so its output means the same to
-/// PyYAML and Docker Compose.
+/// PyYAML and Docker Compose, until a `%YAML 1.2` directive declares those readers out.
 #[test]
-fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
+fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_unless_declared_1_2() {
     let pass = named_pass("format/default");
     let kept = [
         "no",
@@ -1350,8 +1355,20 @@ fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
         "=",
         "y",
         "N",
+        "1e3",
+        "-1E+3",
+        "008",
+        "+.5",
+        "-.5",
     ];
-    for prelude in ["", "%YAML 1.2\n---\n", "%YAML 1.1\n---\n"] {
+    for value in ["no", "1_000", "2001-12-14", "y"] {
+        let output = (pass.format)(&format!("%YAML 1.2\n---\nk: \"{value}\"\n"));
+        assert!(
+            format!("\n{output}").contains(&format!("\nk: {value}\n")),
+            "{value:?} is a string to every YAML 1.2 reader, got {output:?}"
+        );
+    }
+    for prelude in ["", "%YAML 1.1\n---\n"] {
         for value in kept {
             for (input, expected) in [
                 (
@@ -1375,40 +1392,6 @@ fn format_ladder_keeps_quotes_a_yaml_1_1_reader_needs_whatever_the_directive() {
             assert!(
                 format!("\n{output}").contains(&format!("\nk: {value}\n")),
                 "'{value}' is a string to every reader, got {output:?}"
-            );
-        }
-    }
-}
-
-/// Under `%YAML 1.1` the ladder drops quotes only a YAML 1.2 reader needs, as
-/// `quoted-strings` does, so formatted output passes that rule.
-#[test]
-fn format_ladder_follows_a_declared_yaml_1_1_as_quoted_strings_does() {
-    for (pass_name, quote_type) in [
-        ("format/default", "single"),
-        ("format/quote-double", "double"),
-    ] {
-        let pass = named_pass(pass_name);
-        let cfg = YamlLintConfig::from_yaml_str(&format!(
-            "rules:\n  quoted-strings:\n    quote-type: {quote_type}\n    \
-             required: only-when-needed\n    check-keys: true\n"
-        ))
-        .expect("quoted-strings config parses");
-        for value in ["1e3", "-1E+3", "008", "+.5", "-.5"] {
-            let input = format!("%YAML 1.1\n---\nk: \"{value}\"\n\"{value}\": 1\n");
-            check_pass(pass, &input).unwrap_or_else(|violation| panic!("{violation}"));
-            let output = (pass.format)(&input);
-            assert!(
-                format!("\n{output}").contains(&format!("\nk: {value}\n{value}: 1\n")),
-                "pass '{pass_name}' must unquote {value:?} under YAML 1.1, got {output:?}"
-            );
-            let problems =
-                lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-            assert!(problems.is_empty(), "{output:?} fails lint: {problems:?}");
-            let output = (pass.format)(&format!("k: \"{value}\"\n"));
-            assert!(
-                !format!("\n{output}").contains(&format!("\nk: {value}\n")),
-                "{value:?} is not a string to a YAML 1.2 reader, got {output:?}"
             );
         }
     }

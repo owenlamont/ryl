@@ -19,7 +19,7 @@ it appears — inside a scalar, a key, or a comment.
 YAML 1.1 treated a broad Unicode set as line breaks, including NEL, LS, and PS.
 YAML 1.2 narrowed line breaks to just line feed (`\n`) and carriage return
 (`\r`), and the 1.2.2 changes page records that these three characters "are no
-longer considered line-break characters." ryl targets YAML 1.2.
+longer considered line-break characters." ryl reads YAML as 1.2.
 
 This makes a raw occurrence a portability trap: a YAML 1.1 parser splits the
 line where a 1.2 parser keeps the character as ordinary scalar content, so the

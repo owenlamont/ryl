@@ -110,6 +110,7 @@ pub const SAFE_FIX_RULES: &[&str] = &[
     "empty-lines",
     "truthy",
     "key-ordering",
+    "yaml-directive",
 ];
 
 const COMMON_SAFE_FIX_RULES_TOML: &str = "locale = 'en_US.UTF-8'
@@ -185,14 +186,20 @@ static SAFE_FIX_CONFIGS: LazyLock<Vec<PreparedConfig>> = LazyLock::new(|| {
         })
         .collect();
 
-    for (name, comments) in COMMENTS_TOML_VARIANTS {
+    let target_1_2 = format!(
+        "target-version = '1.2'\n{COMMON_SAFE_FIX_RULES_TOML}\n[rules.comments]\n\
+         [rules.yaml-directive]\n"
+    );
+    let tomls = COMMENTS_TOML_VARIANTS
+        .iter()
+        .map(|(name, comments)| {
+            (*name, format!("{COMMON_SAFE_FIX_RULES_TOML}\n{comments}"))
+        })
+        .chain([("target-1.2-toml", target_1_2)]);
+    for (name, toml) in tomls {
         let dir = TempDir::new().expect("create tempdir for TOML config");
         let toml_path = dir.path().join(".ryl.toml");
-        fs::write(
-            &toml_path,
-            format!("{COMMON_SAFE_FIX_RULES_TOML}\n{comments}"),
-        )
-        .expect("write TOML config");
+        fs::write(&toml_path, toml).expect("write TOML config");
         let overrides = Overrides {
             config_file: Some(toml_path),
             config_data: None,

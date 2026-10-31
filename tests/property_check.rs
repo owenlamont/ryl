@@ -153,10 +153,12 @@ const RULE_TRIGGERS: &[(&str, &str)] = &[
     ("new-lines", "a: 1\r\n"),
     ("octal-values", "a: 010\n"),
     ("quoted-strings", "a: 'plain'\n"),
+    ("schema-dependent-values", "a: 22:22\n"),
     ("tags", "a: !!omap []\n"),
     ("trailing-spaces", "a: 1   \n"),
     ("truthy", "a: Yes\n"),
     ("unicode-line-breaks", "a: \"x\u{2028}y\"\n"),
+    ("yaml-directive", "a: 1\n"),
 ];
 
 /// Guards the hand-maintained `rules::ALL_RULE_IDS` (which a bare `# ryl disable`
