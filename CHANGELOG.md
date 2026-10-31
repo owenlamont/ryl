@@ -43,6 +43,12 @@ summarize user-visible changes from the tagged commits and published release rec
   peak memory on 2-10 MiB files; `format` is 7-8% faster.
   ([#872](https://github.com/owenlamont/ryl/issues/872))
 
+### Fixed
+
+- `braces`, `brackets` and `format` no longer read a `#` inside a verbatim tag such as
+  `!<tag:foo#bar>` as a comment, so spaces before the closing `]` or `}` are now
+  flagged and removed. ([#898](https://github.com/owenlamont/ryl/pull/898))
+
 ## v0.27.0
 
 ### Added
