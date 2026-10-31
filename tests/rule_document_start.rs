@@ -76,3 +76,14 @@ fn reports_missing_marker_at_a_root_block_scalar_header() {
         );
     }
 }
+
+#[test]
+fn forbidden_marker_after_an_empty_block_scalar_keeps_its_line() {
+    let hits = document_start::check("|\n---\nvalue\n", &Config::new(false));
+    assert_eq!(
+        hits.iter()
+            .map(|hit| (hit.line, hit.column, hit.message.as_str()))
+            .collect::<Vec<_>>(),
+        [(2, 1, FORBIDDEN_MESSAGE)]
+    );
+}
