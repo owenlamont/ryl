@@ -68,8 +68,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
-- Under `%YAML 1.1`, `quoted-strings` and `ryl format` keep the quotes on `'08'`,
-  `'008'`, `'1e5'` and `'-.5'`, which go-yaml reads as floats.
+- `quoted-strings` and `ryl format` keep the quotes on spellings go-yaml reads as
+  floats: `'08'`, `'1e5'` and `'-.5'` under `%YAML 1.1`, and `'0_8'` and `'1_0e5'`
+  under any version but 1.2.
   ([#576](https://github.com/owenlamont/ryl/issues/576))
 - `braces`, `brackets` and `format` no longer read a `#` inside a verbatim tag such as
   `!<tag:foo#bar>` as a comment, so spaces before the closing `]` or `}` are now

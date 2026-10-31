@@ -225,6 +225,7 @@ fn arb_bare_value() -> impl Strategy<Value = String> {
         Just("1_000".to_string()),
         Just("0b1010".to_string()),
         Just("-08".to_string()),
+        Just("1_0e5".to_string()),
         Just("y".to_string()),
         Just("'plain'".to_string()),
         Just("\"plain\"".to_string()),

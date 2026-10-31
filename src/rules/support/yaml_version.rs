@@ -95,21 +95,28 @@ pub fn first_higher_minor(buffer: &str) -> Option<Directive> {
 #[must_use]
 pub fn resolves_to_nonstring_in_yaml_1_1(value: &str) -> bool {
     YAML_1_1_NONSTRING.is_match(value)
+        || (value
+            .starts_with(|c: char| c.is_ascii_digit() || matches!(c, '-' | '+' | '.'))
+            && GO_YAML_FLOAT.is_match(&value.replace('_', "")))
 }
+
+// go-yaml drops every `_` before matching this, so `0_8` and `1_0e5` load as floats.
+static GO_YAML_FLOAT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\A[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?\z")
+        .expect("go-yaml float regex is valid")
+});
 
 static YAML_1_1_NONSTRING: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(YAML_1_1_NONSTRING_PATTERN)
         .expect("YAML 1.1 implicit-type regex is valid")
 });
 
-// PyYAML's 1.1 resolvers plus yamllint's `0o` octal and go-yaml's `y`/`n` booleans and
-// float spellings (`08`, `1e5`, `-.5`).
+// PyYAML's 1.1 resolvers plus yamllint's `0o` octal and go-yaml v2's `y`/`n` booleans.
 const YAML_1_1_NONSTRING_PATTERN: &str = concat!(
     r"\A(?:",
     r"y|Y|n|N|yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",
     r"|[-+]?[0-9][0-9_]*\.[0-9_]*(?:[eE][-+][0-9]+)?|\.[0-9][0-9_]*(?:[eE][-+][0-9]+)?",
     r"|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN)",
-    r"|[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?",
     r"|[-+]?0b[0-1_]+|[-+]?0o?[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+",
     r"|[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+",
     r"|<<|~|null|Null|NULL|",

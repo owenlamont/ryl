@@ -3672,8 +3672,8 @@ Unless a document declares `%YAML 1.2` or `target-version = "1.2"` is set,
 as a non-string (`'no'`, `'on'`, `'yes'`, `'1_000'`), so the output means the
 same to a 1.1 consumer such as PyYAML. The set is PyYAML's 1.1 resolver plus
 `0o` octal, `y`, `Y`, `n` and `N`, which go-yaml v2 (used by Kubernetes) loads
-as booleans, and go-yaml's float spellings (`'08'`, `'1e5'`, `'-.5'`), which
-PyYAML reads as strings.
+as booleans, and go-yaml's float spellings (`'08'`, `'1e5'`, `'-.5'`, `'0_8'`),
+which PyYAML reads as strings.
 
 ### What `%YAML 1.2` does for each reader
 

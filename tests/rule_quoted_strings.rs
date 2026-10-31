@@ -835,6 +835,8 @@ fn keeps_quotes_on_yaml_1_1_ambiguous_scalars_under_explicit_1_1() {
         "008",
         "1e5",
         "-.5",
+        "0_8",
+        "1_0e5",
     ] {
         let input = format!("%YAML 1.1\n---\nkey: '{value}'\n");
         assert!(
