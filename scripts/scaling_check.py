@@ -237,8 +237,8 @@ def timed(
     """Minimum wall time of `command` over fresh copies of `inputs`.
 
     Returns:
-        Seconds; `limit` once a run reaches it; `nan` when the command rejects its
-        configuration.
+        Seconds; `inf` once a run reaches `limit`; `nan` when the command rejects
+        its configuration.
 
     Raises:
         RuntimeError: when the command exits with a code it never returns normally.
@@ -260,7 +260,7 @@ def timed(
                 timeout=limit,
             )
         except subprocess.TimeoutExpired:
-            return limit
+            return math.inf
         if result.returncode == 2:
             return math.nan
         if result.returncode not in allowed:
@@ -318,24 +318,33 @@ def main(
             config = Path(scratch) / "ryl.toml"
             config.write_text(spec.config or "[lint]\n")
             command = [*spec.command[:2], "-c", str(config), *spec.command[2:]]
-            timings = []
+            timings, timed_out = [], None
             for point in points:
                 seconds = timed(command, work, spec.inputs(point), runs, max_seconds)
-                if math.isnan(seconds):
+                if math.isinf(seconds):
+                    timed_out = point
+                if not math.isfinite(seconds):
                     break
                 timings.append((point, seconds))
-                if seconds >= max_seconds:
-                    break
-            if not timings:
+            if not timings and timed_out is None:
                 typer.echo(f"skip  {spec.name}: config rejected")
                 continue
-            fitted = slope(timings) if len(timings) > 1 else math.inf
-            results.append({"series": spec.name, "slope": fitted, "timings": timings})
-            mark = "FLAG" if fitted > max_slope else "ok  "
-            if fitted > max_slope:
+            fitted = slope(timings) if len(timings) > 1 else math.nan
+            results.append(
+                {
+                    "series": spec.name,
+                    "slope": fitted,
+                    "timings": timings,
+                    "timed_out": timed_out,
+                }
+            )
+            failed = timed_out is not None or fitted > max_slope
+            if failed:
                 flagged.append(spec.name)
             cells = " ".join(f"{p:g}:{s * 1000:.0f}ms" for p, s in timings)
-            typer.echo(f"{mark} {fitted:5.2f} {spec.name}  [{cells}]")
+            note = "" if timed_out is None else f" timed out at {timed_out:g}"
+            mark = "FLAG" if failed else "ok  "
+            typer.echo(f"{mark} {fitted:5.2f} {spec.name}  [{cells}]{note}")
     if report:
         report.write_text(json.dumps(results, indent=2))
     typer.echo(f"{len(flagged)} flagged of {len(results)} series")
