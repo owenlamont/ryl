@@ -126,17 +126,27 @@ alias is still not a lint syntax error (the `anchors` rule reports it, matching
 yamllint); only rewrites require resolved aliases, through the in-place and per-region
 Markdown paths.
 
-`fix::rewrite_files` and `fix::diff_files` read and rewrite files in parallel
-(`read_in_parallel`). `rewrite_files` writes each file from the task that rewrote it, so
+Every multi-file pass (`lint_files`, `lint_files_cached`, and `fix::rewrite_files` and
+`fix::diff_files` through `read_in_order`) runs on `cli_support::try_for_each_ordered`.
+The calling thread spawns chunks of files on the rayon pool, at most `IN_FLIGHT` chunks
+past the oldest unemitted one, and hands each result to its `emit` callback in input
+order, so memory stays flat in the file count. Tasks never block, so a nested
+`rayon::join` cannot deadlock against the window, and a worker panic is re-raised on the
+caller. `check` renders each record to its targets from that callback, `diff_files`
+streams each diff and `format` finding, and lint-cache misses are stored every
+`CACHE_BATCH` files. The helper captures each file's stderr for `emit` to replay, through
+the console target when it owns stderr. An error that aborts the run leaves the files
+before it already
+written. `rewrite_files` writes each file from the task that rewrote it, so
 no file's text outlives its task; hard-link batches keep two paths to one file in separate
-passes. Notices are still assembled in input order. A sole pending input of at
-most 64 KiB runs on the calling thread (`cli_support::small_file_batch`, also used by
-the lint batches); larger inputs, batches and metadata failures stay parallel. Symlink
+passes. A sole pending input of at
+most 64 KiB runs on the calling thread (`cli_support::small_file_batch`); larger inputs,
+batches and metadata failures stay parallel. Symlink
 skips, captured stderr
 (`cli_support::capture_file_stderr`) and skip notices enter one ordered `notices`
-buffer. `format` adds read and write errors to that buffer; `check --fix` leaves errors
-for the ordered lint report after the notice block. `diff_files` flushes notices before
-returning a read error.
+buffer, printed once the run ends. `format` adds read and write errors to that buffer;
+`check --fix` leaves errors for the ordered lint report after the notice block.
+`diff_files` flushes notices before returning a read error.
 Lexical de-duplication
 keeps hard links distinct, so `rewrite_files` splits inputs sharing a file identity into
 separate batches: the later path reads the earlier path's write, as a serial run would.

@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use ignore::WalkBuilder;
-use rayon::prelude::*;
+
 use ryl::cli_support::{
     CliConfigFlags, ConfigCache, LintFile, ResolvedConfig, github_escape,
     lexical_abspath, report_display_path, resolve_ctx, sanitize_control,
@@ -32,15 +32,15 @@ use ryl::config_schema::{
 use ryl::decoder;
 use ryl::directives::starts_with_jinja_header;
 use ryl::fix::{
-    DiffStats, Rewrite, SAFE_FIX_RULE_IDS, decoded_diff_outcome, diff_files,
-    diff_files_with_notices, rewrite_files, rewrite_str, skip_notice,
+    DiffOutcome, DiffStats, Rewrite, SAFE_FIX_RULE_IDS, decoded_diff_outcome,
+    diff_files, rewrite_files, rewrite_str, skip_notice,
 };
 use ryl::lint::lint_str_with_repair_help;
 use ryl::migrate::{
     MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup,
     UserConfigMigration, WriteMode, migrate_configs,
 };
-use ryl::report::{ReportEntry, render_gitlab, render_junit};
+use ryl::report::{GitlabState, JunitReport, ReportEntry};
 use ryl::rules::ALL_RULE_IDS;
 use ryl::{
     LintProblem, Severity, lint_file, lint_markdown_file, lint_markdown_str, lint_str,
@@ -767,31 +767,25 @@ fn detect_output_format(choice: CliFormat) -> OutputFormat {
 }
 
 /// An opened output destination. A file is opened create+write but **not** truncate, so its
-/// contents survive until [`OutputSink::commit`] truncates and rewrites it: a later target
-/// failing to open then cannot destroy an existing artifact (a freshly created one may be
-/// left empty if a later target aborts; see [`open_destination`]).
+/// contents survive until [`OutputSink::start`] truncates it: a later target failing to
+/// open then cannot destroy an existing artifact (a freshly created one may be left empty
+/// if a later target aborts; see [`open_destination`]).
 enum OutputSink {
     /// Buffered stdout or stderr.
     Stream(Box<dyn Write>),
-    /// A `--output-file` target, truncated then written at commit time.
+    /// A `--output-file` target, truncated when the output starts.
     File(File),
 }
 
 impl OutputSink {
-    /// Stream `render`'s output as this sink's complete contents (a file is truncated first,
-    /// clearing any prior artifact). Truncate, write and flush are chained into one coverable
-    /// error.
-    fn commit(
-        &mut self,
-        render: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
-    ) -> std::io::Result<()> {
+    /// The writer for this sink's complete contents, a file truncated first to clear any
+    /// prior artifact.
+    fn start(self) -> std::io::Result<Box<dyn Write>> {
         match self {
-            Self::Stream(writer) => render(&mut **writer).and_then(|()| writer.flush()),
+            Self::Stream(writer) => Ok(writer),
             Self::File(file) => {
-                let mut writer = BufWriter::new(&*file);
-                file.set_len(0)
-                    .and_then(|()| render(&mut writer))
-                    .and_then(|()| writer.flush())
+                file.set_len(0)?;
+                Ok(Box::new(BufWriter::new(file)))
             }
         }
     }
@@ -799,7 +793,7 @@ impl OutputSink {
 
 /// Open one destination for writing. A file is opened create+write but **not** truncate, so
 /// an unopenable `--output-file` fails fast (before `--fix` mutates anything) yet an existing
-/// destination survives until [`OutputSink::commit`] rewrites it. A freshly-created
+/// destination survives until [`OutputSink::start`] truncates it. A freshly-created
 /// destination may be left empty if a later target/collision aborts the run (cleaning it by
 /// path would race a concurrent writer); gate CI artifact use on the exit code.
 ///
@@ -849,108 +843,204 @@ fn open_targets(targets: &[OutputTarget]) -> Result<Vec<OutputSink>, String> {
     Ok(sinks)
 }
 
-/// Render `records` for each target and write to its sink. Report entries are built once and
-/// shared across any report targets.
-///
-/// # Errors
-///
-/// Propagates the first destination write failure.
-fn write_targets(
-    targets: &[OutputTarget],
-    sinks: &mut [OutputSink],
-    records: &[FileRecord],
-) -> Result<(), String> {
-    if !targets.iter().any(|target| {
-        target.format.is_streaming()
-            && matches!(&target.destination, Destination::Stderr)
-    }) {
-        for record in records {
-            if let Some(message) = &record.error {
-                eprintln!("error: {message}");
+/// Renders each file's [`FileRecord`] to every target as it arrives, so output never waits
+/// for the whole run. `JUnit`'s root counts precede its body, so its body is held until
+/// [`RecordStream::finish`].
+struct RecordStream<'a> {
+    targets: &'a [OutputTarget],
+    /// Each target's writer with its first write failure, after which only that target's
+    /// writes are skipped.
+    writers: Vec<(Box<dyn Write>, std::io::Result<()>)>,
+    junit: Option<JunitReport>,
+    gitlab: Option<GitlabState>,
+    errors_to_stderr: bool,
+    project_root: PathBuf,
+    /// The first failure among the closed writers, which `finish` reports.
+    status: std::io::Result<()>,
+}
+
+impl<'a> RecordStream<'a> {
+    /// Truncate every sink and open each `GitLab` array, for records of `paths`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the first truncation failure.
+    fn start<'p>(
+        targets: &'a [OutputTarget],
+        sinks: Vec<OutputSink>,
+        paths: impl IntoIterator<Item = &'p Path>,
+    ) -> Result<Self, String> {
+        let project_root = report_project_root();
+        let mut writers: Vec<_> = sinks
+            .into_iter()
+            .map(|sink| sink.start().map(|writer| (writer, Ok(()))))
+            .collect::<std::io::Result<_>>()
+            .map_err(|err| write_output_error(&err))?;
+        for (target, (writer, status)) in targets.iter().zip(&mut writers) {
+            if target.format == OutputFormat::Gitlab {
+                then(status, || writer.write_all(b"["));
+            }
+        }
+        Ok(Self {
+            targets,
+            writers,
+            junit: targets
+                .iter()
+                .any(|target| target.format == OutputFormat::Junit)
+                .then(JunitReport::default),
+            gitlab: targets
+                .iter()
+                .any(|target| target.format == OutputFormat::Gitlab)
+                .then(|| {
+                    let paths: Vec<_> = paths
+                        .into_iter()
+                        .map(|path| report_display_path(path, &project_root))
+                        .collect();
+                    GitlabState::new(paths.iter().map(String::as_str))
+                }),
+            errors_to_stderr: !targets.iter().any(|target| {
+                target.format.is_streaming()
+                    && matches!(&target.destination, Destination::Stderr)
+            }),
+            project_root,
+            status: Ok(()),
+        })
+    }
+
+    /// Open then start every target. For paths with no `--fix` ordering constraint (empty
+    /// input and the format previews); `check` opens early via [`open_targets`].
+    ///
+    /// # Errors
+    ///
+    /// Propagates an open or truncation failure.
+    fn open<'p>(
+        targets: &'a [OutputTarget],
+        paths: impl IntoIterator<Item = &'p Path>,
+    ) -> Result<Self, String> {
+        Self::start(targets, open_targets(targets)?, paths)
+    }
+
+    /// Replay a file's captured stderr, through the console target when it owns stderr so
+    /// the two stay in order.
+    fn replay_stderr(&mut self, bytes: &[u8]) {
+        match self
+            .targets
+            .iter()
+            .position(|target| target.destination == Destination::Stderr)
+        {
+            Some(index) => {
+                let (writer, status) = &mut self.writers[index];
+                then(status, || writer.write_all(bytes));
+            }
+            None => {
+                let _ = std::io::stderr().write_all(bytes);
             }
         }
     }
-    let project_root = report_project_root();
-    let entries = targets
-        .iter()
-        .any(|target| !target.format.is_streaming())
-        .then(|| build_entries(records, &project_root));
-    for (target, sink) in targets.iter().zip(sinks.iter_mut()) {
-        sink.commit(|out| {
-            render_target(target.format, records, entries.as_deref(), out)
-        })
-        .map_err(|err| write_output_error(&err))?;
+
+    fn push(&mut self, record: &FileRecord) {
+        if self.errors_to_stderr
+            && let Some(message) = &record.error
+        {
+            eprintln!("error: {message}");
+        }
+        let entry = report_entry(record, &self.project_root);
+        let mut gitlab = Vec::new();
+        if let Some(state) = &mut self.gitlab {
+            state.append(&mut gitlab, &entry);
+        }
+        if let Some(junit) = &mut self.junit {
+            junit.append(&entry);
+        }
+        for (target, (writer, status)) in self.targets.iter().zip(&mut self.writers) {
+            let console;
+            let block: &[u8] = match target.format {
+                OutputFormat::Junit => continue,
+                OutputFormat::Gitlab => &gitlab,
+                format => {
+                    console = console_block(format, record);
+                    &console
+                }
+            };
+            then(status, || writer.write_all(block));
+        }
     }
-    Ok(())
+
+    /// Close each report and flush every target.
+    ///
+    /// # Errors
+    ///
+    /// Reports the first destination write failure.
+    fn finish(mut self) -> Result<(), String> {
+        self.close();
+        std::mem::replace(&mut self.status, Ok(()))
+            .map_err(|err| write_output_error(&err))
+    }
+
+    /// Close each report and flush every target, once: draining the writers makes a second
+    /// call, from `drop` after `finish`, a no-op.
+    fn close(&mut self) {
+        let junit = self.junit.take().map(JunitReport::finish);
+        for (target, (mut writer, mut status)) in
+            self.targets.iter().zip(self.writers.drain(..))
+        {
+            let tail: [&[u8]; 2] = match target.format {
+                OutputFormat::Junit => {
+                    let (root, body) = junit.as_ref().expect(JUNIT_REPORT_KEPT);
+                    [root, body]
+                }
+                OutputFormat::Gitlab => [b"]\n", b""],
+                _ => [b"", b""],
+            };
+            then(&mut status, || {
+                tail.iter()
+                    .try_for_each(|bytes| writer.write_all(bytes))
+                    .and_then(|()| writer.flush())
+            });
+            self.status = std::mem::replace(&mut self.status, Ok(())).and(status);
+        }
+    }
 }
 
-/// Open then render and write `records` to each target. For paths with no `--fix` ordering
-/// constraint (empty-input and stdin); the `--fix` path opens early via [`open_targets`].
-///
-/// # Errors
-///
-/// Propagates an open or write failure.
-fn emit_targets(
-    targets: &[OutputTarget],
-    records: &[FileRecord],
-) -> Result<(), String> {
-    let mut sinks = open_targets(targets)?;
-    write_targets(targets, &mut sinks, records)
+/// A run that aborts mid-stream still leaves each report a complete document.
+impl Drop for RecordStream<'_> {
+    fn drop(&mut self) {
+        self.close();
+    }
 }
 
-/// Render `records` to `out` in `format`. The report arms serialize the pre-built `entries`,
-/// always `Some` when a report target is present (see [`write_targets`]).
-fn render_target(
-    format: OutputFormat,
-    records: &[FileRecord],
-    entries: Option<&[ReportEntry]>,
-    out: &mut dyn Write,
-) -> std::io::Result<()> {
+/// Run `write` unless an earlier write in `status` failed, keeping the first failure.
+fn then(status: &mut std::io::Result<()>, write: impl FnOnce() -> std::io::Result<()>) {
+    *status = std::mem::replace(status, Ok(())).and_then(|()| write());
+}
+
+// A JUnit target means its report is kept, so `finish` only sees `Some`; the `expect` pins
+// that invariant rather than leaving an uncovered `None` arm.
+const JUNIT_REPORT_KEPT: &str = "the report is kept when a JUnit target is present";
+
+/// One record's block in a console `format`: nothing for a clean file, its
+/// (already-sanitized) message line for a processing error.
+fn console_block(format: OutputFormat, record: &FileRecord) -> Vec<u8> {
     let append: fn(&mut Vec<u8>, &Path, &[LintProblem]) = match format {
-        OutputFormat::Standard => append_standard,
         OutputFormat::Colored => append_colored,
         OutputFormat::Github => append_github,
         OutputFormat::Parsable => append_parsable,
-        OutputFormat::Junit => {
-            return out.write_all(&render_junit(entries.expect(REPORT_ENTRIES_BUILT)));
-        }
-        OutputFormat::Gitlab => {
-            return out.write_all(&render_gitlab(entries.expect(REPORT_ENTRIES_BUILT)));
-        }
+        _ => append_standard,
     };
-    let diffs = matches!(format, OutputFormat::Standard | OutputFormat::Colored)
-        .then_some(format == OutputFormat::Colored);
-    render_streaming(records, append, diffs, out)
-}
-
-// A report target means entries are built, so the junit/gitlab arms only see `Some`; the
-// `expect` pins that invariant rather than leaving an uncovered `None` arm.
-const REPORT_ENTRIES_BUILT: &str =
-    "report entries are built when a report target is present";
-
-/// Write each record's per-file block via `append`, skipping clean files; a processing-error
-/// record contributes its (already-sanitized) message line.
-fn render_streaming(
-    records: &[FileRecord],
-    append: fn(&mut Vec<u8>, &Path, &[LintProblem]),
-    diffs: Option<bool>,
-    out: &mut dyn Write,
-) -> std::io::Result<()> {
-    let mut block: Vec<u8> = Vec::new();
-    records.iter().try_for_each(|record| {
-        block.clear();
-        if let Some(message) = &record.error {
-            writeln!(block, "error: {message}").expect(OUTPUT_INFALLIBLE);
-        } else if !record.kept.is_empty() {
-            append(&mut block, record.path, &record.kept);
-            if let (Some(colored), Some(diff)) = (diffs, record.diff) {
-                block.pop();
-                append_diff(&mut block, diff, colored);
-                writeln!(block).expect(OUTPUT_INFALLIBLE);
-            }
+    let mut block = Vec::new();
+    if let Some(message) = &record.error {
+        writeln!(block, "error: {message}").expect(OUTPUT_INFALLIBLE);
+    } else if !record.kept.is_empty() {
+        append(&mut block, record.path, &record.kept);
+        if matches!(format, OutputFormat::Standard | OutputFormat::Colored)
+            && let Some(diff) = &record.diff
+        {
+            block.pop();
+            append_diff(&mut block, diff, format == OutputFormat::Colored);
+            writeln!(block).expect(OUTPUT_INFALLIBLE);
         }
-        out.write_all(&block)
-    })
+    }
+    block
 }
 
 /// `diff`'s hunks, indented under a file's finding as ruff shows what `--check` would
@@ -977,20 +1067,18 @@ fn append_diff(out: &mut Vec<u8>, diff: &str, colored: bool) {
     }
 }
 
-/// Convert every record (clean files included) into a [`ReportEntry`] with a project-root
-/// relative display path; the report emitters decide how to render a clean file.
-fn build_entries<'a>(
-    records: &'a [FileRecord],
-    project_root: &Path,
-) -> Vec<ReportEntry<'a>> {
-    records
-        .iter()
-        .map(|record| ReportEntry {
-            path: report_display_path(record.path, project_root),
-            problems: &record.kept,
-            error: record.error.as_deref(),
-        })
-        .collect()
+/// A record (clean files included) as a [`ReportEntry`] with a project-root relative
+/// display path; the report emitters decide how to render a clean file.
+fn report_entry<'a>(record: &'a FileRecord, project_root: &Path) -> ReportEntry<'a> {
+    ReportEntry {
+        path: report_display_path(record.path, project_root),
+        problems: &record.kept,
+        error: record.error.as_deref(),
+    }
+}
+
+fn file_paths(files: &[LintFile]) -> impl Iterator<Item = &Path> {
+    files.iter().map(|(path, ..)| path.as_path())
 }
 
 fn output_file_paths(targets: &[OutputTarget]) -> impl Iterator<Item = &Path> {
@@ -1283,13 +1371,14 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     validate_targets(&targets, args.lint.fix.diff)?;
     let targets = &targets;
 
-    reject_input_collisions(targets, files.iter().map(|(path, ..)| path.as_path()))?;
+    reject_input_collisions(targets, file_paths(&files))?;
 
     if files.is_empty() {
         // Still emit a valid empty report per target, so CI artifact ingestion sees
         // `[]` / `<testsuites .../>` rather than a missing file.
-        emit_targets(targets, &[])?;
-        return Ok(ExitCode::SUCCESS);
+        return RecordStream::open(targets, [])?
+            .finish()
+            .map(|()| ExitCode::SUCCESS);
     }
 
     if let Some(config_found) = ruleless_config_found {
@@ -1297,10 +1386,16 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     }
 
     if args.lint.fix.diff {
-        return Ok(emit_diff(
-            &diff_files(&files, Rewrite::Fix, Preview::Diff.flag())?,
-            Preview::Diff,
-        ));
+        let mut out = PreviewOutput::new(Preview::Diff, None);
+        let stats = diff_files(
+            &files,
+            (Rewrite::Fix, "--diff"),
+            &[],
+            &mut |path, outcome| {
+                out.push(path, outcome);
+            },
+        )?;
+        return out.finish(&stats, 0);
     }
 
     lint_and_exit(&files, args, targets, config_strict)
@@ -1377,71 +1472,75 @@ fn lint_and_exit(
     targets: &[OutputTarget],
     config_strict: bool,
 ) -> Result<ExitCode, String> {
-    let mut sinks = open_targets(targets)?;
+    let sinks = open_targets(targets)?;
 
     let no_warnings = args.lint.compatibility.no_warnings;
-    let before_fix = if args.lint.fix.fix {
-        Some(apply_fixes_reporting_skips(files, no_warnings))
-    } else {
-        None
-    };
+    let before_fix = args
+        .lint
+        .fix
+        .fix
+        .then(|| apply_fixes_reporting_skips(files, no_warnings));
 
-    let mut results = if args.lint.fix.fix {
-        lint_files(files)
-    } else {
-        lint_files_cached(files, &args.source.cache_settings())?
+    let mut stream = RecordStream::start(targets, sinks, file_paths(files))?;
+    let mut summary = LintSummary::default();
+    let mut fixed = 0;
+    let emit = |idx: usize, (outcome, stderr): (LintOutcome, Vec<u8>)| {
+        let (path, ..) = &files[idx];
+        let outcome = match &before_fix {
+            Some((before, errors)) => {
+                fixed += before[idx]
+                    .iter()
+                    .zip(safe_fix_rule_counts(&outcome, no_warnings))
+                    .map(|(before, after)| before.saturating_sub(after))
+                    .sum::<usize>();
+                match errors.iter().find(|(index, _)| *index == idx) {
+                    Some((_, error)) => Err(error.clone()),
+                    None => outcome,
+                }
+            }
+            None => outcome,
+        };
+        stream.replay_stderr(&stderr);
+        stream.push(&summary.record(path, outcome, no_warnings));
     };
-    if let Some((_, errors)) = &before_fix {
-        for (index, error) in errors {
-            results[*index].1 = Err(error.clone());
+    if before_fix.is_some() {
+        lint_files(files, emit);
+    } else {
+        lint_files_cached(files, &args.source.cache_settings(), emit)?;
+    }
+    stream.finish().map(|()| {
+        if before_fix.is_some()
+            && let found = fixed + summary.problem_count
+            && found > 0
+        {
+            eprintln!(
+                "Found {} {} ({} fixed, {} remaining).",
+                found,
+                pluralize("problem", found),
+                fixed,
+                summary.problem_count
+            );
         }
-    }
-    let fixed = before_fix.as_ref().map(|(before, _)| {
-        let after = safe_fix_rule_counts(&results, no_warnings);
-        before
-            .iter()
-            .zip(&after)
-            .flat_map(|(before, after)| before.iter().zip(after))
-            .map(|(before, after)| before.saturating_sub(*after))
-            .sum::<usize>()
-    });
-    let (summary, records) = collect_records(files, results, no_warnings);
-    write_targets(targets, &mut sinks, &records)?;
-
-    if let Some(fixed) = fixed
-        && let found = fixed + summary.problem_count
-        && found > 0
-    {
-        eprintln!(
-            "Found {} {} ({} fixed, {} remaining).",
-            found,
-            pluralize("problem", found),
-            fixed,
-            summary.problem_count
-        );
-    }
-
-    if before_fix
-        .as_ref()
-        .is_none_or(|(_, errors)| errors.is_empty())
-    {
-        Ok(summary_to_exit(
-            &summary,
-            args.lint.compatibility.strict(config_strict),
-        ))
-    } else {
-        Ok(ExitCode::from(2))
-    }
+        if before_fix
+            .as_ref()
+            .is_none_or(|(_, errors)| errors.is_empty())
+        {
+            summary_to_exit(&summary, args.lint.compatibility.strict(config_strict))
+        } else {
+            ExitCode::from(2)
+        }
+    })
 }
 
 /// Apply safe fixes in place and report skips, returning pre-fix rule counts and
 /// file errors for the shared report records.
 ///
-fn apply_fixes_reporting_skips(
-    files: &[LintFile],
-    no_warnings: bool,
-) -> (Vec<SafeFixRuleCounts>, Vec<(usize, String)>) {
-    let mut before = safe_fix_rule_counts(&lint_files(files), no_warnings);
+fn apply_fixes_reporting_skips(files: &[LintFile], no_warnings: bool) -> FixBaseline {
+    let mut before = Vec::with_capacity(files.len());
+    lint_files(files, |_, (outcome, stderr)| {
+        let _ = std::io::stderr().write_all(&stderr);
+        before.push(safe_fix_rule_counts(&outcome, no_warnings));
+    });
     let fix_stats = rewrite_files(files, Rewrite::Fix);
     let _ = std::io::stderr().write_all(&fix_stats.notices);
     for (index, _) in &fix_stats.errors {
@@ -1488,8 +1587,9 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
     else {
         // An ignored stdin filename is an empty input set: still emit a valid empty
         // report per target so CI artifact ingestion does not see a missing file.
-        emit_targets(targets, &[])?;
-        return Ok(ExitCode::SUCCESS);
+        return RecordStream::open(targets, [])?
+            .finish()
+            .map(|()| ExitCode::SUCCESS);
     };
 
     if args.lint.compatibility.list_files {
@@ -1502,15 +1602,10 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
     }
 
     if args.lint.fix.diff {
-        let stats = stdin_diff_stats(
-            &path,
-            &base_dir,
-            &cfg,
-            kind,
-            Rewrite::Fix,
-            Preview::Diff,
-        )?;
-        return Ok(emit_diff(&stats, Preview::Diff));
+        let mut out = PreviewOutput::new(Preview::Diff, None);
+        let stats =
+            stdin_preview(&path, &base_dir, &cfg, (kind, Rewrite::Fix), &mut out)?;
+        return out.finish(&stats, 0);
     }
 
     let outcome =
@@ -1522,14 +1617,10 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
         });
     let strict = args.lint.compatibility.strict(cfg.strict());
 
-    let files = vec![(path, base_dir, Arc::new(cfg), kind)];
-    let results = vec![(0usize, outcome)];
-
-    let mut sinks = open_targets(targets)?;
-    let (summary, records) =
-        collect_records(&files, results, args.lint.compatibility.no_warnings);
-    write_targets(targets, &mut sinks, &records)?;
-    Ok(summary_to_exit(&summary, strict))
+    let mut summary = LintSummary::default();
+    let mut stream = RecordStream::open(targets, [path.as_path()])?;
+    stream.push(&summary.record(&path, outcome, args.lint.compatibility.no_warnings));
+    stream.finish().map(|()| summary_to_exit(&summary, strict))
 }
 
 /// Resolve the source kind for stdin, or `None` to skip an ignored `--stdin-filename`.
@@ -1607,21 +1698,18 @@ fn read_stdin_decoded(
     Ok(decoded.map(|content| (content, buf)).map_err(read_error))
 }
 
-fn stdin_diff_stats(
-    path: &Path,
+fn stdin_preview<'a>(
+    path: &'a Path,
     base_dir: &Path,
     cfg: &YamlLintConfig,
-    kind: SourceKind,
-    rewrite: Rewrite,
-    preview: Preview,
+    (kind, rewrite): (SourceKind, Rewrite),
+    out: &mut PreviewOutput<'a>,
 ) -> Result<DiffStats, String> {
     let (decoded, _) = read_stdin_decoded(path, Some(kind))??;
+    let outcome = decoded_diff_outcome(&decoded, cfg, path, base_dir, kind, rewrite);
     let mut stats = DiffStats::default();
-    stats.record(
-        path,
-        decoded_diff_outcome(&decoded, cfg, path, base_dir, kind, rewrite),
-        preview.flag(),
-    );
+    stats.record(path, &outcome, out.preview.flag());
+    out.push(path, outcome);
     Ok(stats)
 }
 
@@ -1640,16 +1728,73 @@ impl Preview {
     }
 }
 
-fn emit_diff(stats: &DiffStats, preview: Preview) -> ExitCode {
-    let _ = std::io::stderr().write_all(&stats.notices);
-    if preview == Preview::Diff {
-        // Each diff already carries its trailing newline, so concatenate and print once.
-        print!("{}", stats.diffs.concat());
+/// Streams a rewrite preview: each changed file's diff to stdout under `--diff`, and each
+/// `ryl format` finding to its targets. Skip notices print once the run ends.
+struct PreviewOutput<'a> {
+    preview: Preview,
+    diffs: BufWriter<std::io::Stdout>,
+    status: std::io::Result<()>,
+    findings: Option<RecordStream<'a>>,
+}
+
+impl<'a> PreviewOutput<'a> {
+    fn new(preview: Preview, findings: Option<RecordStream<'a>>) -> Self {
+        Self {
+            preview,
+            diffs: BufWriter::new(std::io::stdout()),
+            status: Ok(()),
+            findings,
+        }
     }
-    if stats.changed_files == 0 {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
+
+    fn push(&mut self, path: &'a Path, outcome: DiffOutcome) {
+        let check = self.preview == Preview::Check;
+        if let Some(diff) = outcome.diff.as_ref().filter(|_| !check) {
+            then(&mut self.status, || self.diffs.write_all(diff.as_bytes()));
+        }
+        if let Some(findings) = &mut self.findings
+            && !outcome.problems.is_empty()
+        {
+            findings.push(&FileRecord {
+                path,
+                // `--diff` shows the change itself, as ruff does, rather than a finding.
+                kept: outcome
+                    .problems
+                    .into_iter()
+                    .filter(|problem| check || problem.rule != Some("unformatted"))
+                    .collect(),
+                error: None,
+                diff: outcome.diff.filter(|_| check),
+            });
+        }
+    }
+
+    /// Flush the diffs and findings, then print the skip notices and, for `ryl format`,
+    /// ruff's closing line.
+    ///
+    /// # Errors
+    ///
+    /// Reports the first write failure.
+    fn finish(mut self, stats: &DiffStats, cached: usize) -> Result<ExitCode, String> {
+        then(&mut self.status, || self.diffs.flush());
+        let format = self.findings.is_some();
+        self.status
+            .map_err(|err| write_output_error(&err))
+            .and_then(|()| self.findings.map_or(Ok(()), RecordStream::finish))
+            .map(|()| {
+                let _ = std::io::stderr().write_all(&stats.notices);
+                if format
+                    && let Some(summary) =
+                        format_summary(stats.changed_files, stats.unchanged + cached)
+                {
+                    eprintln!("{summary}");
+                }
+                if stats.changed_files == 0 {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::from(1)
+                }
+            })
     }
 }
 
@@ -1711,16 +1856,15 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         };
         let targets =
             format_targets(preview, format.output_format, output_config.as_ref())?;
-        reject_input_collisions(
-            &targets,
-            files.iter().map(|(path, ..)| path.as_path()),
-        )?;
+        reject_input_collisions(&targets, file_paths(&files))?;
         let prefixes = cache_notice_prefixes(&cache_hits);
-        let stats = diff_files_with_notices(
+        let findings = RecordStream::open(&targets, file_paths(&pending))?;
+        let mut out = PreviewOutput::new(preview, Some(findings));
+        let stats = diff_files(
             &pending,
-            Rewrite::Format,
-            preview.flag(),
+            (Rewrite::Format, preview.flag()),
             &prefixes,
+            &mut |path, outcome| out.push(path, outcome),
         )?;
         if preview == Preview::Check
             && stats.changed_files == 0
@@ -1730,8 +1874,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
                 cache::mark_clean(&entry)?;
             }
         }
-        let cached = cache_hits.iter().filter(|hit| **hit).count();
-        return emit_format_preview(&stats, (preview, cached), &targets);
+        return out.finish(&stats, cache_hits.iter().filter(|hit| **hit).count());
     }
     let mut stats = rewrite_files(&pending, Rewrite::Format);
     for (index, entry) in entries.into_iter().enumerate() {
@@ -1841,37 +1984,6 @@ fn warn_format_conflicts<'a>(
     }
 }
 
-fn emit_format_preview(
-    stats: &DiffStats,
-    (preview, cached): (Preview, usize),
-    targets: &[OutputTarget],
-) -> Result<ExitCode, String> {
-    let records: Vec<FileRecord> = stats
-        .problems
-        .iter()
-        .map(|(path, problems, diff)| FileRecord {
-            path,
-            // `--diff` shows the change itself, as ruff does, rather than a finding for it.
-            kept: problems
-                .iter()
-                .filter(|problem| {
-                    preview == Preview::Check || problem.rule != Some("unformatted")
-                })
-                .cloned()
-                .collect(),
-            error: None,
-            diff: diff.as_deref().filter(|_| preview == Preview::Check),
-        })
-        .collect();
-    emit_targets(targets, &records)?;
-    let code = emit_diff(stats, preview);
-    if let Some(summary) = format_summary(stats.changed_files, stats.unchanged + cached)
-    {
-        eprintln!("{summary}");
-    }
-    Ok(code)
-}
-
 /// ruff's closing line for a format preview.
 fn format_summary(changed: usize, unchanged: usize) -> Option<String> {
     let files = |count: usize| {
@@ -1906,18 +2018,19 @@ fn run_stdin_format(
     if let Some(preview) = preview {
         let targets = format_targets(preview, output_format, cfg.output())?;
         reject_input_collisions(&targets, std::iter::once(path.as_path()))?;
+        let findings = RecordStream::open(&targets, [path.as_path()])?;
+        let mut out = PreviewOutput::new(preview, Some(findings));
         let stats = match kind {
-            Some(kind) => stdin_diff_stats(
+            Some(kind) => stdin_preview(
                 &path,
                 &base_dir,
                 &cfg,
-                kind,
-                Rewrite::Format,
-                preview,
+                (kind, Rewrite::Format),
+                &mut out,
             )?,
             None => DiffStats::default(),
         };
-        return emit_format_preview(&stats, (preview, 0), &targets);
+        return out.finish(&stats, 0);
     }
     let (content, raw) = read_stdin_decoded(&path, kind)??;
     let (formatted, skipped) = kind.map_or((None, Vec::new()), |kind| {
@@ -1986,36 +2099,41 @@ fn emit_notices(notices: &[String], no_warnings: bool) {
     }
 }
 
-type IndexedLintResults = Vec<(usize, Result<Vec<LintProblem>, String>)>;
-
-fn lint_files(files: &[LintFile]) -> IndexedLintResults {
-    let compute = |(idx, (path, base_dir, cfg, kind)): (usize, &LintFile)| {
-        let result = match kind {
+/// Lint `files` in parallel, handing each outcome to `emit` in input order.
+fn lint_files(files: &[LintFile], mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>))) {
+    let Ok(()) = ryl::cli_support::try_for_each_ordered(
+        files,
+        |(path, base_dir, cfg, kind)| match kind {
             SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
             SourceKind::Yaml => lint_file(path, cfg, base_dir),
-        };
-        (idx, result)
-    };
-    let mut results: IndexedLintResults = if ryl::cli_support::small_file_batch(files) {
-        files.iter().enumerate().map(compute).collect()
-    } else {
-        files.par_iter().enumerate().map(compute).collect()
-    };
-    results.sort_by_key(|(idx, _)| *idx);
-    results
+        },
+        |idx, result| {
+            emit(idx, result);
+            Ok::<(), std::convert::Infallible>(())
+        },
+    );
 }
 
+/// Cache misses stored per batch file, so the pending entries stay bounded.
+const CACHE_BATCH: usize = 256;
+
+/// As [`lint_files`], serving hits from the lint cache and storing misses.
+///
+/// # Errors
+///
+/// Propagates the first cache error.
 fn lint_files_cached(
     files: &[LintFile],
     settings: &cache::Settings,
-) -> Result<IndexedLintResults, String> {
-    let compute = |(idx, (path, base_dir, cfg, kind)): (usize, &LintFile)| {
+    mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>)),
+) -> Result<(), String> {
+    let compute = |(path, base_dir, cfg, kind): &LintFile| -> Result<_, String> {
         let entry = settings.entry(path, base_dir, cfg, *kind, "check")?;
         if let Some(problems) =
             entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
         {
             warn_cached_encoding_override();
-            return Ok((idx, Ok(problems), None));
+            return Ok((Ok(problems), None));
         }
         let outcome = match entry.as_ref() {
             Some((_, bytes)) => ryl::decoder::decode_bytes(bytes)
@@ -2033,29 +2151,30 @@ fn lint_files_cached(
                 SourceKind::Yaml => lint_file(path, cfg, base_dir),
             },
         };
-        Ok((idx, outcome, entry.map(|(path, _)| path)))
+        Ok((outcome, entry.map(|(path, _)| path)))
     };
-    let mut results: Vec<_> = if ryl::cli_support::small_file_batch(files) {
-        files
-            .iter()
-            .enumerate()
-            .map(compute)
-            .collect::<Result<_, String>>()?
-    } else {
-        files
-            .par_iter()
-            .enumerate()
-            .map(compute)
-            .collect::<Result<_, String>>()?
+    let mut misses: Vec<(PathBuf, Vec<LintProblem>)> = Vec::new();
+    let store = |misses: &mut Vec<(PathBuf, Vec<LintProblem>)>| {
+        cache::store_lint_batch(
+            std::mem::take(misses)
+                .iter()
+                .map(|(path, problems)| (path.as_path(), problems.as_slice())),
+        )
     };
-    cache::store_lint_batch(results.iter().filter_map(|(_, outcome, entry)| {
-        Some((entry.as_deref()?, outcome.as_ref().ok()?.as_slice()))
-    }))?;
-    results.sort_by_key(|(idx, ..)| *idx);
-    Ok(results
-        .into_iter()
-        .map(|(idx, outcome, _)| (idx, outcome))
-        .collect())
+    let mut stored = Ok(());
+    ryl::cli_support::try_for_each_ordered(files, compute, |idx, (result, stderr)| {
+        let (outcome, entry) = result?;
+        if let (Some(entry), Ok(problems)) = (entry, &outcome) {
+            misses.push((entry, problems.clone()));
+            if misses.len() == CACHE_BATCH {
+                stored = std::mem::replace(&mut stored, Ok(()))
+                    .and_then(|()| store(&mut misses));
+            }
+        }
+        emit(idx, (outcome, stderr));
+        Ok::<(), String>(())
+    })?;
+    stored.and_then(|()| store(&mut misses))
 }
 
 fn warn_cached_encoding_override() {
@@ -2126,68 +2245,19 @@ fn gather_lint_files(
 }
 
 /// One linted file's format-agnostic outcome: kept diagnostics or a processing-error message
-/// (mutually exclusive; a clean file has neither). Every target renders the same records, so
+/// (mutually exclusive; a clean file has neither). Every target renders the same record, so
 /// the filter+tally pass runs once.
 struct FileRecord<'a> {
     path: &'a Path,
     kept: Vec<LintProblem>,
     error: Option<String>,
     /// The diff `ryl format --check` shows under the file's finding.
-    diff: Option<&'a str>,
+    diff: Option<String>,
 }
 
-/// Filter and tally every lint result into [`FileRecord`]s in file order. The returned
-/// [`LintSummary`] (and exit code) is independent of which formats render the records.
-/// `no_warnings` drops warning-level diagnostics before they are kept or counted.
-fn collect_records<'a>(
-    files: &'a [LintFile],
-    results: Vec<(usize, Result<Vec<LintProblem>, String>)>,
-    no_warnings: bool,
-) -> (LintSummary, Vec<FileRecord<'a>>) {
-    let mut summary = LintSummary::default();
-    let mut records: Vec<FileRecord<'a>> = Vec::with_capacity(results.len());
+type LintOutcome = Result<Vec<LintProblem>, String>;
 
-    for (idx, outcome) in results {
-        let (path, ..) = &files[idx];
-        match outcome {
-            Err(message) => {
-                // Sanitize: a crafted filename could otherwise inject terminal escapes or
-                // (via a newline) a GitHub workflow command. Safe for every format because it
-                // neutralises the newline injection needs.
-                let message = sanitize_control(&message).into_owned();
-                summary.has_error = true;
-                summary.problem_count += 1;
-                records.push(FileRecord {
-                    path,
-                    kept: Vec::new(),
-                    error: Some(message),
-                    diff: None,
-                });
-            }
-            Ok(mut kept) => {
-                kept.retain(|problem| {
-                    !(no_warnings && problem.level == Severity::Warning)
-                });
-                for problem in &kept {
-                    match problem.level {
-                        Severity::Error => summary.has_error = true,
-                        Severity::Warning => summary.has_warning = true,
-                    }
-                }
-                summary.problem_count += kept.len();
-                records.push(FileRecord {
-                    path,
-                    kept,
-                    error: None,
-                    diff: None,
-                });
-            }
-        }
-    }
-
-    (summary, records)
-}
-
+/// The tally behind the exit code, independent of which formats render the records.
 #[derive(Default)]
 struct LintSummary {
     has_error: bool,
@@ -2195,30 +2265,65 @@ struct LintSummary {
     problem_count: usize,
 }
 
+impl LintSummary {
+    /// Filter and tally one lint outcome into its [`FileRecord`]. `no_warnings` drops
+    /// warning-level diagnostics before they are kept or counted.
+    fn record<'a>(
+        &mut self,
+        path: &'a Path,
+        outcome: LintOutcome,
+        no_warnings: bool,
+    ) -> FileRecord<'a> {
+        let (kept, error) = match outcome {
+            // A crafted filename could otherwise inject terminal escapes or, via a newline, a
+            // GitHub workflow command.
+            Err(message) => {
+                self.has_error = true;
+                self.problem_count += 1;
+                (Vec::new(), Some(sanitize_control(&message).into_owned()))
+            }
+            Ok(mut kept) => {
+                kept.retain(|problem| {
+                    !(no_warnings && problem.level == Severity::Warning)
+                });
+                for problem in &kept {
+                    match problem.level {
+                        Severity::Error => self.has_error = true,
+                        Severity::Warning => self.has_warning = true,
+                    }
+                }
+                self.problem_count += kept.len();
+                (kept, None)
+            }
+        };
+        FileRecord {
+            path,
+            kept,
+            error,
+            diff: None,
+        }
+    }
+}
+
 type SafeFixRuleCounts = [usize; SAFE_FIX_RULE_IDS.len()];
 
-/// Each file's reported problems per safe-fix rule, so a fix that adds another rule's problem
+/// Each file's pre-fix safe-fix counts, and the files `--fix` failed to write.
+type FixBaseline = (Vec<SafeFixRuleCounts>, Vec<(usize, String)>);
+
+/// A file's reported problems per safe-fix rule, so a fix that adds another rule's problem
 /// cannot cancel one it cleared.
-fn safe_fix_rule_counts(
-    results: &[(usize, Result<Vec<LintProblem>, String>)],
-    no_warnings: bool,
-) -> Vec<SafeFixRuleCounts> {
-    results
-        .iter()
-        .map(|(_, outcome)| {
-            let mut counts = [0; SAFE_FIX_RULE_IDS.len()];
-            for problem in outcome.iter().flatten() {
-                if !(no_warnings && problem.level == Severity::Warning)
-                    && let Some(idx) = SAFE_FIX_RULE_IDS
-                        .iter()
-                        .position(|id| problem.rule == Some(*id))
-                {
-                    counts[idx] += 1;
-                }
-            }
-            counts
-        })
-        .collect()
+fn safe_fix_rule_counts(outcome: &LintOutcome, no_warnings: bool) -> SafeFixRuleCounts {
+    let mut counts = [0; SAFE_FIX_RULE_IDS.len()];
+    for problem in outcome.iter().flatten() {
+        if !(no_warnings && problem.level == Severity::Warning)
+            && let Some(idx) = SAFE_FIX_RULE_IDS
+                .iter()
+                .position(|id| problem.rule == Some(*id))
+        {
+            counts[idx] += 1;
+        }
+    }
+    counts
 }
 
 fn pluralize(singular: &str, count: usize) -> &str {

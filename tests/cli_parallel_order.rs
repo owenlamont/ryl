@@ -255,3 +255,125 @@ fn cache_keeps_mixed_input_output_identical_in_each_order() {
         }
     }
 }
+
+#[test]
+fn check_keeps_input_order_past_one_window_and_cache_batch() {
+    // One worker keeps the in-flight window to eight tasks, so 300 files refill it and fill
+    // more than one lint-cache batch.
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    let files: Vec<_> = (0..300)
+        .map(|index| {
+            let name = format!("{index:03}.yaml");
+            fs::write(dir.path().join(&name), "key: value \n").unwrap();
+            name
+        })
+        .collect();
+    let check = || {
+        ryl(dir.path())
+            .current_dir(dir.path())
+            .env("RAYON_NUM_THREADS", "1")
+            .args(["check", "--output-format", "parsable"])
+            .args(files.iter().rev())
+            .output()
+            .unwrap()
+    };
+    let expected: String = files
+        .iter()
+        .rev()
+        .map(|name| format!("{name}:1:11: [error] trailing spaces (trailing-spaces)\n"))
+        .collect();
+
+    let cold = check();
+    assert_eq!(cold.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&cold.stderr), expected);
+    let warm = check();
+    assert_eq!(warm.stderr, cold.stderr, "cache hits keep input order");
+}
+
+#[test]
+fn check_replays_each_files_stderr_before_its_diagnostics() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ntrailing-spaces = 'enable'\n",
+    )
+    .unwrap();
+    let files: Vec<_> = (0..40)
+        .map(|index| {
+            let name = format!("{index:02}.yaml");
+            fs::write(dir.path().join(&name), "key: value \n").unwrap();
+            name
+        })
+        .collect();
+    let warning = String::from_utf8_lossy(ryl::decoder::ENCODING_OVERRIDE_WARNING);
+    let line = |name: &String| {
+        format!("{name}:1:11: [error] trailing spaces (trailing-spaces)\n")
+    };
+    let check = |extra: &[&str]| {
+        ryl(dir.path())
+            .current_dir(dir.path())
+            .env("YAMLLINT_FILE_ENCODING", "utf-8")
+            .args(["check", "--no-cache", "--output-format", "parsable"])
+            .args(extra)
+            .args(&files)
+            .output()
+            .unwrap()
+    };
+
+    let console = check(&[]);
+    let interleaved: String = files
+        .iter()
+        .map(|name| format!("{warning}{}", line(name)))
+        .collect();
+    let console = String::from_utf8_lossy(&console.stderr);
+    assert!(console.ends_with(&interleaved), "{console}");
+
+    let piped = check(&["-o", "-"]);
+    assert_eq!(
+        String::from_utf8_lossy(&piped.stdout),
+        files.iter().map(line).collect::<String>()
+    );
+    let piped = String::from_utf8_lossy(&piped.stderr);
+    assert!(piped.replace(&*warning, "").is_empty(), "{piped}");
+}
+
+#[test]
+fn aborted_run_still_closes_its_gitlab_report() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[output.gitlab]\npath = \"report.json\"\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("unformatted.yaml"), "key:   value\n").unwrap();
+    fs::write(dir.path().join("unreadable.yaml"), b"key: \xff\n").unwrap();
+    let format_check = |extra: &[&str]| {
+        let output = ryl(dir.path())
+            .current_dir(dir.path())
+            .env("YAMLLINT_FILE_ENCODING", "utf-8")
+            .args(["format", "--check", "--no-cache"])
+            .args(extra)
+            .args(["unformatted.yaml", "unreadable.yaml"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{output:?}");
+        output.stdout
+    };
+
+    format_check(&[]);
+    let file = fs::read(dir.path().join("report.json")).unwrap();
+    let stdout = format_check(&["--output-format", "gitlab"]);
+    for report in [file, stdout] {
+        let issues: serde_json::Value =
+            serde_json::from_slice(&report).expect("a complete JSON report");
+        assert_eq!(
+            issues[0]["location"]["path"], "unformatted.yaml",
+            "{issues}"
+        );
+    }
+}

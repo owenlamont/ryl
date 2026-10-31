@@ -784,6 +784,27 @@ fn gitlab_format_reads_stdin_with_filename() {
     );
 }
 
+#[test]
+fn every_gitlab_target_gets_every_issue() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let (one, two) = (dir.path().join("one.json"), dir.path().join("two.json"));
+
+    let (code, _stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "--format", "gitlab", "-o"])
+        .arg(&one)
+        .args(["--format", "gitlab", "-o"])
+        .arg(&two)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file));
+    assert_eq!(code, 1, "{stderr}");
+    let one = fs::read_to_string(&one).unwrap();
+    assert!(one.contains("new-line-at-end-of-file"), "{one}");
+    assert_eq!(fs::read_to_string(&two).unwrap(), one);
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn output_file_write_failure_is_reported() {
@@ -808,6 +829,65 @@ fn output_file_write_failure_is_reported() {
         stderr.contains("failed to write output"),
         "expected a write-failure message: {stderr}"
     );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn stdout_write_failure_is_reported_once_output_ends() {
+    // Stdout on `/dev/full` needs no truncation, so the failure surfaces only as the
+    // buffered output is flushed.
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    for args in [
+        &["check", "--format", "parsable", "-o", "-"][..],
+        &["check", "--diff"],
+        &["format", "--diff"],
+    ] {
+        let full = fs::File::options().write(true).open("/dev/full").unwrap();
+        let (code, _stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .args(args)
+            .arg("-c")
+            .arg(&cfg)
+            .arg(&file)
+            .stdout(full));
+        assert_eq!(code, 2, "{args:?}: a failed write is a usage error");
+        assert!(
+            stderr.contains("failed to write output"),
+            "{args:?}: expected a write-failure message: {stderr}"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn failed_stdout_still_closes_the_report_files() {
+    let dir = tempdir().unwrap();
+    let cfg = disable_doc_start_config(dir.path());
+    let file = dirty_yaml(dir.path());
+    let (gitlab, junit) = (
+        dir.path().join("report.json"),
+        dir.path().join("report.xml"),
+    );
+    let full = fs::File::options().write(true).open("/dev/full").unwrap();
+
+    let (code, _stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args([
+            "check", "--format", "parsable", "-o", "-", "--format", "gitlab", "-o",
+        ])
+        .arg(&gitlab)
+        .args(["--format", "junit", "-o"])
+        .arg(&junit)
+        .arg("-c")
+        .arg(&cfg)
+        .arg(&file)
+        .stdout(full));
+    assert_eq!(code, 2, "{stderr}");
+    let issues: serde_json::Value = serde_json::from_slice(&fs::read(&gitlab).unwrap())
+        .expect("a complete JSON report");
+    assert_eq!(issues.as_array().map(Vec::len), Some(1), "{issues}");
+    let xml = fs::read_to_string(&junit).unwrap();
+    assert!(xml.trim_end().ends_with("</testsuites>"), "{xml}");
 }
 
 /// Spawn ryl reading `input` from stdin with the given args, returning (code, stdout, stderr).

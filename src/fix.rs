@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use rayon::prelude::*;
 use ryl_yaml_parser::Event;
 #[cfg(not(unix))]
 use same_file::Handle;
@@ -273,7 +272,7 @@ pub fn rewrite_str(
 pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
     let mut stats = FixStats::default();
     for batch in hard_link_batches(files) {
-        let results = read_in_parallel(
+        let _ = read_in_order(
             &files[batch.clone()],
             |decoded, (path, base_dir, cfg, kind)| {
                 let (rewritten, skipped) =
@@ -283,45 +282,47 @@ pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
                 }
                 Ok((rewritten.is_some(), skipped))
             },
-        );
-        for (index, (result, stderr)) in batch.zip(results) {
-            let notice_start = stats.notices.len();
-            let path = &files[index].0;
-            if let Some(notice) = symlink_notice(path, rewrite.flag()) {
-                stats.notices.extend_from_slice(notice.as_bytes());
+            |offset, (result, stderr)| {
+                let index = batch.start + offset;
+                let notice_start = stats.notices.len();
+                let path = &files[index].0;
+                if let Some(notice) = symlink_notice(path, rewrite.flag()) {
+                    stats.notices.extend_from_slice(notice.as_bytes());
+                    stats
+                        .file_notices
+                        .push(stats.notices[notice_start..].to_vec());
+                    stats.skipped.push(index);
+                    return Ok(());
+                }
+                stats.notices.extend(stderr);
+                match result {
+                    Ok((changed, skipped)) => {
+                        stats.changed_files += usize::from(changed);
+                        if !skipped.is_empty() {
+                            stats.skipped.push(index);
+                        }
+                        for problem in &skipped {
+                            stats.notices.extend_from_slice(
+                                skip_notice(path, problem, rewrite.flag()).as_bytes(),
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        if rewrite == Rewrite::Format {
+                            let notice = crate::cli_support::sanitize_control(&error);
+                            stats.notices.extend_from_slice(
+                                format!("error: {notice}\n").as_bytes(),
+                            );
+                        }
+                        stats.errors.push((index, error));
+                    }
+                }
                 stats
                     .file_notices
                     .push(stats.notices[notice_start..].to_vec());
-                stats.skipped.push(index);
-                continue;
-            }
-            stats.notices.extend(stderr);
-            match result {
-                Ok((changed, skipped)) => {
-                    stats.changed_files += usize::from(changed);
-                    if !skipped.is_empty() {
-                        stats.skipped.push(index);
-                    }
-                    for problem in &skipped {
-                        stats.notices.extend_from_slice(
-                            skip_notice(path, problem, rewrite.flag()).as_bytes(),
-                        );
-                    }
-                }
-                Err(error) => {
-                    if rewrite == Rewrite::Format {
-                        let notice = crate::cli_support::sanitize_control(&error);
-                        stats
-                            .notices
-                            .extend_from_slice(format!("error: {notice}\n").as_bytes());
-                    }
-                    stats.errors.push((index, error));
-                }
-            }
-            stats
-                .file_notices
-                .push(stats.notices[notice_start..].to_vec());
-        }
+                Ok(())
+            },
+        );
     }
     stats
 }
@@ -347,26 +348,25 @@ fn hard_link_batches(files: &[LintFile]) -> Vec<std::ops::Range<usize>> {
     batches
 }
 
-/// Never reads a symlink; pairs each result with stderr for ordered replay.
-fn read_in_parallel<T: Send>(
+/// Never reads a symlink; hands each result and its stderr to `emit` in input order, for
+/// ordered replay.
+fn read_in_order<T: Send>(
     files: &[LintFile],
     compute: impl Fn(decoder::DecodedFile, &LintFile) -> Result<T, String> + Sync,
-) -> Vec<(Result<T, String>, Vec<u8>)> {
-    let compute_file = |file: &LintFile| {
-        crate::cli_support::capture_file_stderr(|| {
+    emit: impl FnMut(usize, (Result<T, String>, Vec<u8>)) -> Result<(), String>,
+) -> Result<(), String> {
+    crate::cli_support::try_for_each_ordered(
+        files,
+        |file| {
             if is_symlink(&file.0) {
                 Err(format!("skipped symlink {}", file.0.display()))
             } else {
                 decoder::read_file_lossless(&file.0)
                     .and_then(|decoded| compute(decoded, file))
             }
-        })
-    };
-    if crate::cli_support::small_file_batch(files) {
-        files.iter().map(compute_file).collect()
-    } else {
-        files.par_iter().map(compute_file).collect()
-    }
+        },
+        emit,
+    )
 }
 
 /// A rewrite preview; formatting changes can have no applicable text diff.
@@ -386,31 +386,20 @@ pub struct DiffStats {
     pub notices: Vec<u8>,
     pub file_notices: Vec<Vec<u8>>,
     pub skipped: Vec<PathBuf>,
-    /// Unified diffs for files that would change, in input order.
-    pub diffs: Vec<String>,
-    /// Each changed file's findings and diff.
-    pub problems: Vec<(PathBuf, Vec<crate::lint::LintProblem>, Option<String>)>,
     /// Files read that would not change and drew no skip.
     pub unchanged: usize,
 }
 
 impl DiffStats {
-    pub fn record(&mut self, path: &Path, outcome: DiffOutcome, flag: &str) {
+    pub fn record(&mut self, path: &Path, outcome: &DiffOutcome, flag: &str) {
         self.changed_files += usize::from(outcome.changed);
         self.unchanged += usize::from(!outcome.changed && outcome.skipped.is_empty());
         if !outcome.skipped.is_empty() {
             self.skipped.push(path.to_path_buf());
         }
-        if let Some(diff) = &outcome.diff {
-            self.diffs.push(diff.clone());
-        }
         for problem in &outcome.skipped {
             self.notices
                 .extend_from_slice(skip_notice(path, problem, flag).as_bytes());
-        }
-        if !outcome.problems.is_empty() {
-            self.problems
-                .push((path.to_path_buf(), outcome.problems, outcome.diff));
         }
     }
 }
@@ -981,65 +970,56 @@ fn path_unrepresentable_in_diff(path: &Path) -> bool {
     name.to_str().is_none() || name.to_string_lossy().contains(char::is_control)
 }
 
-/// Unified diffs for each file's `rewrite`, reading from disk and never writing. A symlinked
-/// input is skipped with a warning naming `flag` (parity with `--fix`); other un-diffable inputs (non-UTF-8/
-/// BOM content, unparsable, or an unrepresentable name) are skipped via [`diff_outcome`].
+/// Unified diffs for each file's `rewrite`, reading from disk and never writing, each
+/// outcome handed to `emit` in input order. A symlinked input is skipped with a warning
+/// naming `flag` (parity with `--fix`); other un-diffable inputs (non-UTF-8/BOM content,
+/// unparsable, or an unrepresentable name) are skipped via [`diff_outcome`].
+/// `preceding_notices` are the notices for omitted cached files before each input and
+/// after the final input.
 ///
 /// # Errors
 ///
 /// Returns an error if any file cannot be read.
-pub fn diff_files(
-    files: &[LintFile],
-    rewrite: Rewrite,
-    flag: &str,
-) -> Result<DiffStats, String> {
-    diff_files_with_notices(files, rewrite, flag, &[])
-}
-
-/// As [`diff_files`], with notices for omitted cached files before each input and after
-/// the final input.
-///
-/// # Errors
-///
-/// Returns an error if any file cannot be read.
-pub fn diff_files_with_notices(
-    files: &[LintFile],
-    rewrite: Rewrite,
-    flag: &str,
+pub fn diff_files<'a>(
+    files: &'a [LintFile],
+    (rewrite, flag): (Rewrite, &str),
     preceding_notices: &[Vec<u8>],
+    emit: &mut dyn FnMut(&'a Path, DiffOutcome),
 ) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
-    let results = read_in_parallel(files, |decoded, (path, base_dir, cfg, kind)| {
-        Ok(decoded_diff_outcome(
-            &decoded, cfg, path, base_dir, *kind, rewrite,
-        ))
-    });
-    for (index, ((path, ..), (result, stderr))) in files.iter().zip(results).enumerate()
-    {
-        if let Some(notices) = preceding_notices.get(index) {
-            stats.notices.extend_from_slice(notices);
-        }
-        let notice_start = stats.notices.len();
-        if let Some(notice) = symlink_notice(path, flag) {
-            stats.notices.extend_from_slice(notice.as_bytes());
+    read_in_order(
+        files,
+        |decoded, (path, base_dir, cfg, kind)| {
+            Ok(decoded_diff_outcome(
+                &decoded, cfg, path, base_dir, *kind, rewrite,
+            ))
+        },
+        |index, (result, stderr)| {
+            let path = &files[index].0;
+            if let Some(notices) = preceding_notices.get(index) {
+                stats.notices.extend_from_slice(notices);
+            }
+            let notice_start = stats.notices.len();
+            if let Some(notice) = symlink_notice(path, flag) {
+                stats.notices.extend_from_slice(notice.as_bytes());
+                stats
+                    .file_notices
+                    .push(stats.notices[notice_start..].to_vec());
+                stats.skipped.push(path.clone());
+                return Ok(());
+            }
+            stats.notices.extend(stderr);
+            let outcome = result.inspect_err(|_| {
+                let _ = std::io::stderr().write_all(&stats.notices);
+            })?;
+            stats.record(path, &outcome, flag);
             stats
                 .file_notices
                 .push(stats.notices[notice_start..].to_vec());
-            stats.skipped.push(path.clone());
-            continue;
-        }
-        stats.notices.extend(stderr);
-        match result {
-            Ok(outcome) => stats.record(path, outcome, flag),
-            Err(error) => {
-                let _ = std::io::stderr().write_all(&stats.notices);
-                return Err(error);
-            }
-        }
-        stats
-            .file_notices
-            .push(stats.notices[notice_start..].to_vec());
-    }
+            emit(path, outcome);
+            Ok(())
+        },
+    )?;
     if let Some(notices) = preceding_notices.get(files.len()) {
         stats.notices.extend_from_slice(notices);
     }

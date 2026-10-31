@@ -6,7 +6,6 @@ use super::{
 pub(super) struct Trailing<'a> {
     lines: super::RetainedLines<'a>,
     own: super::input::Projected<'a>,
-    previous: isize,
     reference: isize,
     first: usize,
 }
@@ -34,14 +33,13 @@ impl<'a> Trailing<'a> {
         lines: super::RetainedLines<'a>,
         mut columns: impl DoubleEndedIterator<Item = crate::rules::indentation::Column>,
     ) -> Self {
-        let previous = columns
+        let reference = columns
             .rfind(|column| lines.kind(column.origin()) == Some(LineKind::Other))
             .map_or(0, |column| column.current());
         Self {
             lines,
             own: admission.own,
-            previous,
-            reference: previous,
+            reference,
             first: admission.last + 1,
         }
     }
@@ -58,24 +56,17 @@ impl<'a> Trailing<'a> {
         if !self.own.comment(index) {
             return None;
         }
-        match self.lines.kind(column.origin()) {
-            Some(LineKind::Comment) => {
-                let aligned = if column.current() == 0 {
-                    0
-                } else {
-                    self.reference
-                };
-                self.reference = aligned;
-                Some(column.delta_to(aligned))
-            }
-            Some(LineKind::ScalarTrailingComment) => {
-                self.reference = column.current();
-                None
-            }
-            _ => {
-                self.reference = self.previous;
-                None
-            }
+        if self.lines.kind(column.origin()) == Some(LineKind::Comment) {
+            let aligned = if column.current() == 0 {
+                0
+            } else {
+                self.reference
+            };
+            self.reference = aligned;
+            Some(column.delta_to(aligned))
+        } else {
+            self.reference = column.current();
+            None
         }
     }
 }
@@ -126,7 +117,7 @@ impl<'a> Planner<'a> {
                 self.last_comment = Some(line.indent);
                 None
             }
-            LineKind::Other | LineKind::DirectiveComment => {
+            LineKind::Other | LineKind::MagicFirstLine => {
                 self.last_comment = None;
                 None
             }

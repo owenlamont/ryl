@@ -134,7 +134,7 @@ documentation, see the docs site.
 ## Performance
 
 The chart times ryl against yamllint and three formatters on pinned real-world
-YAML: single files from 1 KiB to 9.4 MiB, and 1 to 1,000 files of under 16 KiB
+YAML: single files from 1 KiB to 9.4 MiB, and 1 to 10,000 files of under 16 KiB
 (98% of the 76,000 YAML files in the 40 pinned repos are under 16 KiB). Both axes
 are logarithmic.
 
@@ -147,39 +147,43 @@ do in common. Median of 10 runs; peak RSS is the median of 3 more:
 
 | Input | ryl | yamlfmt | dprint + pretty_yaml | Prettier |
 | --- | ---: | ---: | ---: | ---: |
-| 1 KiB file | 2.5 ms, 8.3 MiB | 2.7 ms, 5.5 MiB | 6.6 ms, 16 MiB | 107 ms, 64 MiB |
-| 16 KiB file | 3.8 ms, 8.7 MiB | 4.0 ms, 6.3 MiB | 9.4 ms, 17 MiB | 152 ms, 79 MiB |
-| 0.9 MiB file | 75 ms, 25 MiB | 138 ms, 70 MiB | 559 ms, 38 MiB | 1.33 s, 369 MiB |
-| 9.4 MiB file | 0.91 s, 191 MiB | 1.30 s, 674 MiB | 5.08 s, 241 MiB | 10.1 s, 1.8 GiB |
-| 1,000 files | 30 ms, 16 MiB | 247 ms, 18 MiB | 147 ms, 23 MiB | 3.78 s, 246 MiB |
+| 1 KiB file | 2.0 ms, 8.9 MiB | 2.5 ms, 5.6 MiB | 6.0 ms, 16 MiB | 101 ms, 64 MiB |
+| 16 KiB file | 3.2 ms, 9.3 MiB | 3.8 ms, 6.5 MiB | 8.9 ms, 17 MiB | 142 ms, 79 MiB |
+| 0.9 MiB file | 68 ms, 27 MiB | 125 ms, 71 MiB | 503 ms, 38 MiB | 1.17 s, 368 MiB |
+| 9.4 MiB file | 0.83 s, 192 MiB | 1.18 s, 655 MiB | 4.73 s, 240 MiB | 9.36 s, 1.8 GiB |
+| 1,000 files | 25 ms, 16 MiB | 230 ms, 18 MiB | 118 ms, 23 MiB | 3.32 s, 260 MiB |
+| 10,000 files | 220 ms, 27 MiB | 2.05 s, 94 MiB | 1.21 s, 45 MiB | 28.1 s, 288 MiB |
 
-| Lint, `extends: default` | 1 KiB | 9.4 MiB | 1,000 files |
-| --- | ---: | ---: | ---: |
-| ryl | 2.8 ms | 0.63 s | 27 ms |
-| yamllint | 75 ms | 31.2 s | 5.67 s |
+| Lint, `extends: default` | 1 KiB | 9.4 MiB | 1,000 files | 10,000 files |
+| --- | ---: | ---: | ---: | ---: |
+| ryl | 2.1 ms | 0.60 s | 22 ms | 180 ms |
+| yamllint | 67 ms | 29.3 s | 5.10 s | 49.5 s |
 
 ryl formats faster than the other three at every size and file count, under all
-three profiles. yamlfmt uses less memory up to 16 KiB (5.5–6.3 MiB against ryl's
-8.3–8.7 MiB).
+three profiles. yamlfmt uses less memory up to 16 KiB and up to 100 files (5.6–11.1 MiB
+against ryl's 8.9–11.5 MiB).
 
 Profiles and what they cannot equalise:
 
 - **Max common work** (charted): aligned configs plus single quotes and folding at
-  80 columns; 91–96% identical lines, as each tool folds differently.
+  80 columns; 89–95% identical lines, as each tool folds differently.
 - **Aligned configs**: each formatter set up to produce output as close
   to the others' as its options allow. ryl `quote-style = "double"`,
   `max-blank-lines = 1`, `comment-spacing = 1`, `comment-starting-space =
   "preserve"`, `brace-spacing = true`; yamlfmt `retain_line_breaks_single`, double quotes,
   `pad_line_comments: 1`, `trim_trailing_whitespace`; dprint and Prettier defaults.
-  Pairwise identical lines are 94–98%. The rest: ryl's double quote style also
+  Pairwise identical lines are 95–98%. The rest: ryl's double quote style also
   removes quotes no value needs, yamlfmt drops `---`, dprint keeps inline comment
   alignment, and dprint and Prettier wrap long strings at 80 columns.
 - **Defaults**: each tool with no configuration, so each does different work.
 - **Lint**: yamllint reads `extends: default` and ryl reads the TOML that
   `ryl --migrate-configs` writes from the same file. On the benchmark inputs they
-  share 43,569 diagnostics; yamllint alone reports 36 (20 `braces` inside Jinja
-  `{{ }}`, 10 `trailing-spaces` inside block scalars, 6 `comments`,
-  `comments-indentation` and `document-start`) and ryl alone 2 (`document-start`).
+  share 87,479 diagnostics. yamllint alone reports 233: 128 `trailing-spaces` and
+  `empty-lines` inside block scalars, 73 `braces` and `commas` inside Jinja `{{ }}`,
+  18 `comments` on `#cloud-config`, 11 `comments-indentation` in files without a
+  final newline, and 3 others the migration guide lists. ryl alone reports 8: 5
+  `comments` after a block scalar header, and 3 from the same tab and end-of-file
+  differences.
 
 Every run gets a fresh copy of its inputs and an empty cache directory, with
 ryl's and Prettier's caches off and dprint's incremental mode off; dprint keeps

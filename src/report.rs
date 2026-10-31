@@ -36,22 +36,68 @@ pub struct ReportEntry<'a> {
 /// Render every entry as a `JUnit` `<testsuites>` document: one `<testsuite>` per file, one
 /// `<testcase>` per diagnostic (a `<failure>`), a single passing case for a clean file,
 /// and an `<error>` case for a file that could not be processed.
-///
-/// # Panics
-///
-/// Does not panic in practice: every write targets an in-memory buffer.
 #[must_use]
 pub fn render_junit(entries: &[ReportEntry]) -> Vec<u8> {
-    let (mut tests, mut failures, mut errors) = (0usize, 0usize, 0usize);
+    let mut report = JunitReport::default();
     for entry in entries {
-        let (t, f, e) = suite_counts(entry);
-        tests += t;
-        failures += f;
-        errors += e;
+        report.append(entry);
+    }
+    let (mut header, body) = report.finish();
+    header.extend_from_slice(&body);
+    header
+}
+
+/// A `JUnit` document rendered one entry at a time. Its root counts precede the body, so
+/// the body is held until [`JunitReport::finish`] writes the root.
+pub struct JunitReport {
+    body: Writer<Vec<u8>>,
+    root_len: usize,
+    totals: (usize, usize, usize),
+}
+
+impl Default for JunitReport {
+    fn default() -> Self {
+        // Opening the body with a placeholder root gives its suites the root's indentation.
+        let body = write_root(Vec::new(), (0, 0, 0));
+        Self {
+            root_len: body.get_ref().len(),
+            body,
+            totals: (0, 0, 0),
+        }
+    }
+}
+
+impl JunitReport {
+    pub fn append(&mut self, entry: &ReportEntry) {
+        let (tests, failures, errors) = suite_counts(entry);
+        self.totals.0 += tests;
+        self.totals.1 += failures;
+        self.totals.2 += errors;
+        write_suite(&mut self.body, entry);
     }
 
-    let mut buffer = Vec::new();
-    let mut writer = Writer::new_with_indent(&mut buffer, b' ', 2);
+    /// The document as its root and the rest, written in that order.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic in practice: every write targets an in-memory buffer.
+    #[must_use]
+    pub fn finish(mut self) -> (Vec<u8>, Vec<u8>) {
+        self.body
+            .write_event(Event::End(BytesEnd::new("testsuites")))
+            .expect(INFALLIBLE);
+        let mut body = self.body.into_inner();
+        body.drain(..self.root_len);
+        body.push(b'\n');
+        (write_root(Vec::new(), self.totals).into_inner(), body)
+    }
+}
+
+fn write_root(
+    buffer: Vec<u8>,
+    (tests, failures, errors): (usize, usize, usize),
+) -> Writer<Vec<u8>> {
+    let mut writer = Writer::new_with_indent(buffer, b' ', 2);
     writer
         .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
         .expect(INFALLIBLE);
@@ -61,14 +107,7 @@ pub fn render_junit(entries: &[ReportEntry]) -> Vec<u8> {
     root.push_attribute(("failures", failures.to_string().as_str()));
     root.push_attribute(("errors", errors.to_string().as_str()));
     writer.write_event(Event::Start(root)).expect(INFALLIBLE);
-    for entry in entries {
-        write_suite(&mut writer, entry);
-    }
     writer
-        .write_event(Event::End(BytesEnd::new("testsuites")))
-        .expect(INFALLIBLE);
-    writer.into_inner().push(b'\n');
-    buffer
 }
 
 /// `JUnit` `(tests, failures, errors)` for one file: a processing error is one errored case,
@@ -217,47 +256,91 @@ struct GitlabLines {
 
 /// Render every diagnostic as a `GitLab` code quality JSON array. Clean files contribute
 /// nothing; a processing error becomes a single `blocker` issue on line 1.
-///
-/// # Panics
-///
-/// Does not panic in practice: serialization targets an in-memory buffer.
 #[must_use]
 pub fn render_gitlab(entries: &[ReportEntry]) -> Vec<u8> {
-    let mut issues: Vec<GitlabIssue> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut next_salts: HashMap<String, u64> = HashMap::new();
+    let mut buffer = b"[".to_vec();
+    let mut state = GitlabState::new(entries.iter().map(|entry| entry.path.as_str()));
     for entry in entries {
-        if let Some(error) = entry.error {
-            issues.push(make_issue(
-                &entry.path,
-                "error",
-                1,
-                error,
-                "blocker",
-                &mut seen,
-                &mut next_salts,
-            ));
-        } else {
-            for problem in entry.problems {
-                let check_name = problem.rule.unwrap_or("syntax");
-                let severity = gitlab_severity(problem.level);
-                issues.push(make_issue(
-                    &entry.path,
-                    check_name,
-                    problem.line,
-                    &problem.message,
-                    severity,
-                    &mut seen,
-                    &mut next_salts,
-                ));
-            }
+        state.append(&mut buffer, entry);
+    }
+    buffer.extend_from_slice(b"]\n");
+    buffer
+}
+
+/// Fingerprint salts carried across one streamed `GitLab` array. A salt key starts with its
+/// path, so two entries can share a key only when their paths agree up to the first NUL;
+/// only such a shared prefix keeps its salts beyond its own entry.
+pub struct GitlabState {
+    shared: HashSet<String>,
+    seen: HashSet<String>,
+    next_salts: HashMap<String, u64>,
+    has_issue: bool,
+}
+
+impl GitlabState {
+    /// State for a report over entries with these paths, in any order.
+    pub fn new<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut once = HashSet::new();
+        let shared = paths
+            .into_iter()
+            .map(salt_group)
+            .filter(|group| !once.insert(*group))
+            .map(str::to_owned)
+            .collect();
+        Self {
+            shared,
+            seen: HashSet::new(),
+            next_salts: HashMap::new(),
+            has_issue: false,
         }
     }
 
-    let mut buffer = serde_json::to_vec(&issues)
-        .expect("serializing report issues to a Vec cannot fail");
-    buffer.push(b'\n');
-    buffer
+    /// Append one entry's issues, each preceded by a comma unless it opens the array.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic in practice: serialization targets an in-memory buffer.
+    pub fn append(&mut self, out: &mut Vec<u8>, entry: &ReportEntry) {
+        let mut own = (HashSet::new(), HashMap::new());
+        let (seen, next_salts) = if self.shared.contains(salt_group(&entry.path)) {
+            (&mut self.seen, &mut self.next_salts)
+        } else {
+            (&mut own.0, &mut own.1)
+        };
+        let has_issue = &mut self.has_issue;
+        let mut issue = |check_name: &str, line: usize, message: &str, severity| {
+            if std::mem::replace(has_issue, true) {
+                out.push(b',');
+            }
+            let issue = make_issue(
+                &entry.path,
+                check_name,
+                line,
+                message,
+                severity,
+                seen,
+                next_salts,
+            );
+            serde_json::to_writer(&mut *out, &issue)
+                .expect("serializing a report issue to a Vec cannot fail");
+        };
+        if let Some(error) = entry.error {
+            issue("error", 1, error, "blocker");
+        } else {
+            for problem in entry.problems {
+                issue(
+                    problem.rule.unwrap_or("syntax"),
+                    problem.line,
+                    &problem.message,
+                    gitlab_severity(problem.level),
+                );
+            }
+        }
+    }
+}
+
+fn salt_group(path: &str) -> &str {
+    path.split('\0').next().unwrap_or_default()
 }
 
 fn gitlab_severity(level: Severity) -> &'static str {

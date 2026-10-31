@@ -204,7 +204,11 @@ fn arb_filler() -> impl Strategy<Value = Filler> {
         (
             0u8..=3,
             0u8..=2,
-            prop_oneof![8 => "[a-z][a-z0-9 ]{0,6}", 1 => "@[a-z][a-z0-9 ]{0,6}"],
+            prop_oneof![
+                8 => "[a-z][a-z0-9 ]{0,6}",
+                1 => "@[a-z][a-z0-9 ]{0,6}",
+                1 => "yamllint disable-line rule:line-length",
+            ],
         )
             .prop_map(|(indent, spaces_after_hash, text)| Filler::Comment {
                 indent,

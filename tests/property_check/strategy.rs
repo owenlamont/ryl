@@ -330,7 +330,12 @@ fn arb_comment() -> impl Strategy<Value = Line> {
     (
         0u8..=4,
         0u8..=2,
-        prop_oneof![8 => arb_text(), 1 => Just("@ name".to_owned())],
+        prop_oneof![
+            8 => arb_text(),
+            1 => Just("@ name".to_owned()),
+            1 => Just("#".repeat(90)),
+            1 => Just("yamllint disable-line rule:line-length".to_owned()),
+        ],
     )
         .prop_map(|(indent, spaces_after_hash, text)| Line::Comment {
             indent,
@@ -583,6 +588,17 @@ fn arb_fragment() -> impl Strategy<Value = Vec<(Line, Newline)>> {
         2 => (arb_block_scalar_block(), arb_newline()).prop_map(|(lines, newline)| {
             lines.into_iter().map(|line| (line, newline)).collect()
         }),
+        1 => (arb_block_scalar_header(), any::<bool>(), arb_newline()).prop_map(
+            |(header, empty, newline)| vec![
+                (Line::DocumentEnd, newline),
+                (Line::Raw { indent: 0, text: header }, newline),
+                if empty {
+                    (Line::DocumentStart, newline)
+                } else {
+                    (Line::Raw { indent: 2, text: "root text".to_owned() }, newline)
+                },
+            ]
+        ),
         2 => (arb_seq_of_mappings_block(), arb_newline()).prop_map(|(lines, newline)| {
             lines.into_iter().map(|line| (line, newline)).collect()
         }),

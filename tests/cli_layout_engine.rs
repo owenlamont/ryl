@@ -698,7 +698,7 @@ fn trailing_comments_keep_what_comments_indentation_exempts() {
         (
             "a:\n   b: 1\n# yamllint disable rule:empty-lines\n # c\n",
             "[format]\n",
-            "a:\n  b: 1\n# yamllint disable rule:empty-lines\n  # c\n",
+            "a:\n  b: 1\n# yamllint disable rule:empty-lines\n# c\n",
         ),
         (
             "a:\n   b: 1\n# yamllint disable rule:comments-indentation\n# c\n",

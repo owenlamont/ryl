@@ -58,3 +58,32 @@ fn empty_stream_has_no_diagnostics() {
     let hits = document_start::check("", &cfg);
     assert!(hits.is_empty(), "empty stream should not warn: {hits:?}");
 }
+
+#[test]
+fn reports_missing_marker_at_a_root_block_scalar_header() {
+    let cfg = Config::new(true);
+    for input in [">\n  text\n", "|-\n\n  text\n", "a: 1\n...\n|\n  text\n"] {
+        let hits = document_start::check(input, &cfg);
+        let header = input
+            .lines()
+            .position(|line| line.starts_with(['>', '|']))
+            .unwrap()
+            + 1;
+        assert_eq!(
+            hits.last().map(|hit| hit.line),
+            Some(header),
+            "{input:?}: {hits:?}"
+        );
+    }
+}
+
+#[test]
+fn forbidden_marker_after_an_empty_block_scalar_keeps_its_line() {
+    let hits = document_start::check("|\n---\nvalue\n", &Config::new(false));
+    assert_eq!(
+        hits.iter()
+            .map(|hit| (hit.line, hit.column, hit.message.as_str()))
+            .collect::<Vec<_>>(),
+        [(2, 1, FORBIDDEN_MESSAGE)]
+    );
+}

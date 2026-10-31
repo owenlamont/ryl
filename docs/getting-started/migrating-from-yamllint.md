@@ -258,6 +258,14 @@ The [reference parser](https://play.yaml.com/#ez8JYTogYn0=) reads the flow form 
 `+MAP`, `=VAL :a`, `=VAL :b`, `-MAP`; [the block form](https://play.yaml.com/#PwlrZXkKOiB2YWx1ZQo=)
 emits `+MAP`, `=VAL :key`, `=VAL :value`, `-MAP`. Tabs used as indentation remain invalid.
 
+### A tab-only line inside a flow collection
+
+For `printf -- '- [\n\t\n foo\n ]\n'`, yamllint reports `found character '\t' that
+cannot start any token`; ryl parses the file. The
+[reference parser](https://play.yaml.com/#LSBbCgkKIGZvbwogXQo=) emits `+SEQ`, `+SEQ []`,
+`=VAL :foo`, `-SEQ`, `-SEQ`: inside a flow collection a tab is separation whitespace,
+YAML 1.2.2 [production 66](https://yaml.org/spec/1.2.2/#rule-s-separate-in-line).
+
 ### `?` directly before a flow indicator
 
 `ryl check` reports a syntax error for `[?,]`, `[?]` and `{?}`; yamllint (via PyYAML)
@@ -556,6 +564,22 @@ comment, `c-b-block-header(t) ::= (indicators) s-b-comment`
 [Example 8.1](https://yaml.org/spec/1.2.2/#example-block-scalar-header) writes
 `- | # Empty header`. yamllint's exemption is a side effect of reading comments only
 between tokens, not a style choice.
+
+### Comments ending a file with no final newline
+
+For `printf 'a: 1\n# note'`, yamllint reports `comment not indented like content` on
+the first comment of a block that ends the file without a newline, and accepts one at
+the column where the file ends; ryl checks those comments against the content, as
+anywhere else. yamllint compares them with the stream end, whose column is the last
+line's length.
+
+### A repeated `...` marker
+
+For `printf -- '---\na: 1\n...\n\n...\n'`, yamllint reports `missing document start
+"---"` on the second `...`; ryl reports nothing. The
+[reference parser](https://play.yaml.com/#LS0tCmE6IDEKLi4uCgouLi4K) reads one document,
+and YAML 1.2.2's [stream production](https://yaml.org/spec/1.2.2/#rule-l-yaml-stream)
+allows repeated document suffixes with no document between them.
 
 ### Per-line ignores
 

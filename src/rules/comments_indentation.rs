@@ -130,7 +130,7 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Viola
                 last_comment_indent = Some(line.indent);
             }
             LineKind::ScalarTrailingComment => last_comment_indent = Some(line.indent),
-            LineKind::Other | LineKind::DirectiveComment => {
+            LineKind::Other | LineKind::MagicFirstLine => {
                 last_comment_indent = None;
             }
             LineKind::Empty | LineKind::ScalarBody => {}
@@ -293,7 +293,7 @@ pub(crate) fn line_facts(input: Analysis<'_>) -> Vec<LineInfo> {
         .map(|(idx, line, _)| {
             let indent = leading_whitespace_width(line);
             let kind = if idx == 0 && is_magic_first_line(line) {
-                LineKind::DirectiveComment
+                LineKind::MagicFirstLine
             } else {
                 classify_line_kind(&line[indent..])
             };
@@ -427,7 +427,7 @@ pub(crate) enum LineKind {
     /// yamllint reads a comment on the line a block scalar's span runs on to as
     /// trailing that scalar, and never checks it.
     ScalarTrailingComment,
-    DirectiveComment,
+    MagicFirstLine,
     ScalarBody,
     Other,
 }
@@ -437,8 +437,6 @@ fn classify_line_kind(content: &str) -> LineKind {
 
     if trimmed.is_empty() {
         LineKind::Empty
-    } else if trimmed.starts_with("# yamllint ") {
-        LineKind::DirectiveComment
     } else if trimmed.starts_with('#') {
         LineKind::Comment
     } else {
