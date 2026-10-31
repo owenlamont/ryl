@@ -1,11 +1,9 @@
 use std::cell::Cell;
-use std::ops::Range;
 
+use crate::rules::support::span_utils::BytePos;
 #[cfg(feature = "lsp")]
 use crate::rules::support::span_utils::CharPos;
-use crate::rules::support::span_utils::containing_byte_scalar_range;
-use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
-use crate::text_version::{Analysis, TextVersion};
+use crate::text_version::{Analysis, lexical::Kind};
 
 pub(crate) struct Gap {
     start: usize,
@@ -45,66 +43,41 @@ pub(crate) fn target_spacing(current: usize, min: i64, max: i64) -> usize {
     }
 }
 
-pub(crate) fn collect_scalar_ranges(buffer: &str) -> Vec<Range<BytePos>> {
-    byte_scalar_ranges(TextVersion::new(buffer).analysis())
-}
-
-pub(crate) fn byte_scalar_ranges(input: Analysis<'_>) -> Vec<Range<BytePos>> {
-    let mut ranges: Vec<_> = input
-        .parsed()
-        .scalars()
-        .filter_map(|(_, span)| {
-            let start = marker_byte_offset(span.start);
-            let end = marker_byte_offset(span.end);
-            (start < end).then_some(start..end)
-        })
-        .collect();
-    ranges.sort_by_key(|range| range.start);
-    ranges
-}
-
 pub(crate) fn flow_sites(
     input: Analysis<'_>,
     skip_templates: bool,
 ) -> Vec<(usize, u8)> {
-    let ranges = byte_scalar_ranges(input);
     let bytes = input.text().as_bytes();
     let mut sites = Vec::new();
-    let mut cursor = 0;
-    let mut idx = 0;
     let mut depth = 0usize;
-    while idx < bytes.len() {
-        if let Some(range) = containing_byte_scalar_range(&ranges, &mut cursor, idx) {
-            if idx == range.start.get() && depth > 0 {
-                flow_content(&mut sites, idx);
+    let mut skip_to = 0;
+    for (start, end, kind) in input.tokens().bytes() {
+        if start >= end || start < skip_to {
+            continue;
+        }
+        match kind {
+            Kind::FlowMappingStart | Kind::FlowSequenceStart => {
+                if skip_templates
+                    && let Some(end) = template_double_curly_end(bytes, start)
+                {
+                    skip_to = end;
+                    continue;
+                }
+                depth += 1;
             }
-            idx = range.end.get();
-            continue;
-        }
-        let ch = bytes[idx];
-        if skip_templates && let Some(end) = template_double_curly_end(bytes, idx) {
-            idx = end;
-            continue;
-        }
-        match ch {
-            b'#' => {
-                idx = skip_comment(bytes, idx);
+            Kind::FlowMappingEnd | Kind::FlowSequenceEnd => {
+                depth = depth.saturating_sub(1);
+            }
+            Kind::FlowEntry => {}
+            Kind::Comment { .. } => continue,
+            _ => {
+                if depth > 0 {
+                    flow_content(&mut sites, start);
+                }
                 continue;
             }
-            b'{' | b'[' => {
-                depth += 1;
-                sites.push((idx, ch));
-            }
-            b'}' | b']' => {
-                depth = depth.saturating_sub(1);
-                sites.push((idx, ch));
-            }
-            b',' => sites.push((idx, ch)),
-            b' ' | b'\t' | b'\r' | b'\n' => {}
-            _ if depth > 0 => flow_content(&mut sites, idx),
-            _ => {}
         }
-        idx += 1;
+        sites.push((start, bytes[start]));
     }
     sites
 }

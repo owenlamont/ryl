@@ -26,7 +26,6 @@ pub struct TextVersion<'text> {
     tokens: OnceCell<lexical::Tokens>,
     sites: OnceCell<Vec<token_spacing::Site>>,
     flow_sites: OnceCell<Vec<(usize, u8)>>,
-    indentation: OnceCell<crate::rules::indentation::Scanned>,
     directives: OnceCell<crate::directives::Directives>,
     layout_facts: OnceCell<crate::format::layout::facts::PlanFacts>,
     scalar_lines: OnceCell<Vec<(usize, usize)>>,
@@ -79,7 +78,6 @@ impl<'text> TextVersion<'text> {
             tokens: OnceCell::new(),
             sites: OnceCell::new(),
             flow_sites: OnceCell::new(),
-            indentation: OnceCell::new(),
             directives: OnceCell::new(),
             layout_facts: OnceCell::new(),
             scalar_lines: OnceCell::new(),
@@ -126,7 +124,6 @@ impl<'text> TextVersion<'text> {
             tokens: self.tokens,
             sites: self.sites,
             flow_sites: self.flow_sites,
-            indentation: self.indentation,
             directives: self.directives,
             layout_facts: self.layout_facts,
             scalar_lines: self.scalar_lines,
@@ -152,7 +149,6 @@ impl<'text> TextVersion<'text> {
         self.tokens.take();
         self.sites.take();
         self.flow_sites.take();
-        self.indentation.take();
         self.directives.take();
         self.layout_facts.take();
         self.scalar_lines.take();
@@ -351,12 +347,6 @@ impl<'text> Analysis<'text> {
         self.source
             .directives
             .get_or_init(|| crate::directives::Directives::parse_uncached(self))
-    }
-
-    pub(crate) fn indentation(self) -> &'text crate::rules::indentation::Scanned {
-        self.source
-            .indentation
-            .get_or_init(|| crate::rules::indentation::scan_with_analysis(self))
     }
 
     pub(crate) fn sites(self) -> &'text [token_spacing::Site] {

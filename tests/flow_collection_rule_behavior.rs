@@ -48,6 +48,8 @@ fn braces_rule_suite() {
         braces::check,
     );
     assert_clean(&defaults, "outer: {{inner: 1}}\n", braces::check);
+    assert_clean(&defaults, "outer: {{{inner}}}\n", braces::check);
+    assert_clean(&defaults, "object: { # comment\n  key: 1}\n", braces::check);
     assert_clean(&defaults, "}\n", braces::check);
     assert_clean(&defaults, "value: {\n", braces::check);
     assert_clean(&defaults, "value: {# comment\n", braces::check);

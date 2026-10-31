@@ -577,10 +577,10 @@ impl<'a> Layout<'a> {
     ) -> Self {
         let mut starts = input.parsed().document_starts.clone();
         let directives = Directives::parse_with_analysis(input);
-        let source_starts = if streaming && !input.text().contains('\u{feff}') {
-            Cow::Borrowed(input.byte_line_starts())
+        let source_starts = if streaming {
+            super::normalized_line_starts(input)
         } else {
-            Cow::Owned(super::normalized_line_starts(input))
+            Cow::Owned(super::normalized_line_starts(input).into_owned())
         };
         let mut lines =
             supplied.unwrap_or_else(|| virtual_lines(input, &source_starts));

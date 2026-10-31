@@ -5,6 +5,7 @@
 use crate::rules::quoted_strings::{self, LayoutStyle};
 use crate::text_version::lexical::Kind as LexicalKind;
 use crate::text_version::{Analysis, TextVersion};
+use std::borrow::Cow;
 
 use crate::config::YamlLintConfig;
 use crate::rules::support::punctuation::Columns;
@@ -217,13 +218,13 @@ pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
 }
 
 pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
-    let scanned = input.indentation();
+    let line_starts = normalized_line_starts(input);
     let mut analyzer = Analyzer::new(
-        input::Initial::new(input.text(), &scanned.line_starts),
+        input::Initial::new(input.text(), &line_starts),
         cfg,
         Mode::Check,
     );
-    analyzer.run(scanned.tokens.iter().copied());
+    analyzer.run(normalized_tokens(input, &line_starts));
     analyzer.diagnostics
 }
 
@@ -279,34 +280,21 @@ impl Token {
     }
 }
 
-pub(crate) struct Scanned {
-    tokens: Vec<Token>,
-    line_starts: Vec<usize>,
-}
-
-pub(crate) fn scan_with_analysis(input: Analysis<'_>) -> Scanned {
-    let line_starts = normalized_line_starts(input);
-    let tokens = normalized_tokens(input, &line_starts).collect();
-    Scanned {
-        tokens,
-        line_starts,
-    }
-}
-
-pub(crate) fn normalized_line_starts(input: Analysis<'_>) -> Vec<usize> {
+pub(crate) fn normalized_line_starts(input: Analysis<'_>) -> Cow<'_, [usize]> {
     let text = input.text();
+    if !text.contains('\u{feff}') {
+        return Cow::Borrowed(input.byte_line_starts());
+    }
     let mut starts = input.byte_line_starts().to_vec();
-    if text.contains('\u{feff}') {
-        for (span, _) in input.tokens().iter(input.text()) {
-            for marker in [span.start, span.end] {
-                align_line_start(text, &mut starts[marker.line() - 1], marker);
-            }
-        }
-        for header in input.headers() {
-            skip_prefix_bom(text, &mut starts[header.line - 1]);
+    for (span, _) in input.tokens().iter(input.text()) {
+        for marker in [span.start, span.end] {
+            align_line_start(text, &mut starts[marker.line() - 1], marker);
         }
     }
-    starts
+    for header in input.headers() {
+        skip_prefix_bom(text, &mut starts[header.line - 1]);
+    }
+    Cow::Owned(starts)
 }
 
 pub(crate) fn normalized_tokens<'a>(

@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 use ryl_yaml_parser::Marker;
 
 /// A byte offset into a UTF-8 buffer, valid for `&str` slicing. Distinct type from
@@ -45,22 +43,6 @@ pub fn marker_byte_offset(marker: Marker) -> BytePos {
             .byte_offset()
             .expect("Parser::new_from_str always populates byte offsets"),
     )
-}
-
-pub(crate) fn containing_byte_scalar_range<'a>(
-    ranges: &'a [Range<BytePos>],
-    cursor: &mut usize,
-    idx: usize,
-) -> Option<&'a Range<BytePos>> {
-    while ranges
-        .get(*cursor)
-        .is_some_and(|range| range.end.get() <= idx)
-    {
-        *cursor += 1;
-    }
-    ranges
-        .get(*cursor)
-        .filter(|range| idx >= range.start.get() && idx < range.end.get())
 }
 
 #[must_use]

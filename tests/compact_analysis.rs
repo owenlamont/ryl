@@ -92,6 +92,7 @@ fn scanner_spans_preserve_unicode_and_zero_width_tokens() {
                 | (lexical::Kind::FlowSequenceEnd, TokenType::FlowSequenceEnd)
                 | (lexical::Kind::FlowMappingStart, TokenType::FlowMappingStart)
                 | (lexical::Kind::FlowMappingEnd, TokenType::FlowMappingEnd)
+                | (lexical::Kind::FlowEntry, TokenType::FlowEntry)
                 | (lexical::Kind::BlockEntry, TokenType::BlockEntry)
                 | (lexical::Kind::Key, TokenType::Key)
                 | (lexical::Kind::Value, TokenType::Value)
@@ -100,9 +101,7 @@ fn scanner_spans_preserve_unicode_and_zero_width_tokens() {
                 | (lexical::Kind::Tag, TokenType::Tag(..))
                 | (
                     lexical::Kind::Other,
-                    TokenType::VersionDirective(..)
-                    | TokenType::TagDirective(..)
-                    | TokenType::FlowEntry,
+                    TokenType::VersionDirective(..) | TokenType::TagDirective(..),
                 ) => {}
                 (
                     lexical::Kind::Scalar { style, empty },
@@ -124,6 +123,15 @@ fn scanner_spans_preserve_unicode_and_zero_width_tokens() {
             zero_width += usize::from(span.start == span.end);
         }
         assert!(reconstructed.next().is_none());
+        for ((start, end, kind), (span, full)) in
+            tokens.bytes().zip(tokens.iter(source))
+        {
+            assert_eq!(
+                (Some(start), Some(end)),
+                (span.start.byte_offset(), span.end.byte_offset())
+            );
+            assert_eq!(std::mem::discriminant(&kind), std::mem::discriminant(&full));
+        }
         assert!(matches!(
             tokens.iter(source).next().unwrap().1,
             lexical::Kind::StreamStart
@@ -160,6 +168,8 @@ fn wide_spans_preserve_sentinel_and_large_offsets() {
             let mut spans = spans::Spans::default();
             let stored = spans.store(&span);
             assert_span_eq(spans.get(stored), span);
+            let byte = |marker: Marker| marker.byte_offset().unwrap_or(usize::MAX);
+            assert_eq!(spans.bytes(stored), (byte(span.start), byte(span.end)));
         }
     }
 }

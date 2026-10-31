@@ -6,9 +6,7 @@ mod target;
 use crate::text_version::edits::Edit;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::{
-    Columns, collect_scalar_ranges, skip_comment,
-};
+use crate::rules::support::punctuation::{Columns, skip_comment};
 use crate::rules::support::span_utils::{BytePos, apply_replacements};
 use crate::text_version::{Analysis, TextVersion};
 
@@ -230,14 +228,14 @@ fn compute_spaces_before(bytes: &[u8], comma_idx: usize) -> BeforeResult {
 fn compute_spaces_after(bytes: &[u8], comma_idx: usize) -> AfterResult {
     let mut spaces = 0usize;
     let mut idx = comma_idx + 1;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b' ' | b'\t' => {
+    loop {
+        match bytes.get(idx) {
+            Some(b' ' | b'\t') => {
                 spaces += 1;
                 idx += 1;
             }
-            b'\n' | b'\r' | b'#' => return AfterResult::Ignored,
-            _ => {
+            None | Some(b'\n' | b'\r' | b'#') => return AfterResult::Ignored,
+            Some(_) => {
                 return AfterResult::SameLine {
                     spaces,
                     next_char: idx,
@@ -245,7 +243,6 @@ fn compute_spaces_after(bytes: &[u8], comma_idx: usize) -> AfterResult {
             }
         }
     }
-    AfterResult::Ignored
 }
 
 #[doc(hidden)]
@@ -262,12 +259,6 @@ pub fn coverage_compute_spaces_before(buffer: &str, comma_idx: usize) -> Option<
         BeforeResult::SameLine { spaces, .. } => Some(spaces),
         BeforeResult::Ignored => None,
     }
-}
-
-#[doc(hidden)]
-#[must_use]
-pub fn coverage_skip_zero_length_span() -> usize {
-    collect_scalar_ranges("").len()
 }
 
 #[doc(hidden)]
