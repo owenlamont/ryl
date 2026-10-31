@@ -81,3 +81,32 @@ fn list_files_uses_project_yaml_before_env_yaml() {
     expected.sort_unstable();
     assert_eq!(listed, expected, "{stdout}");
 }
+
+#[test]
+fn list_files_skips_vcs_directories_unless_named() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".yamllint"), "rules: {}\n").unwrap();
+    for vcs in [".git", ".hg", ".svn", ".jj"] {
+        fs::create_dir(dir.path().join(vcs)).unwrap();
+        fs::write(dir.path().join(vcs).join("x.yaml"), "ok: 1\n").unwrap();
+    }
+    let workflows = dir.path().join(".github/workflows");
+    fs::create_dir_all(&workflows).unwrap();
+    let workflow = workflows.join("ci.yaml");
+    fs::write(&workflow, "ok: 1\n").unwrap();
+    let git_file = dir.path().join(".git/x.yaml");
+
+    let list = |input: &std::path::Path| {
+        let (code, stdout, stderr) =
+            run(ryl(dir.path()).args(["check", "--list-files"]).arg(input));
+        assert_eq!(code, 0, "{stdout}{stderr}");
+        stdout
+            .lines()
+            .filter(|line| line.ends_with(".yaml"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(list(dir.path()), [workflow.to_str().unwrap()]);
+    assert_eq!(list(&dir.path().join(".git")), [git_file.to_str().unwrap()]);
+    assert_eq!(list(&git_file), [git_file.to_str().unwrap()]);
+}

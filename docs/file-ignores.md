@@ -14,6 +14,9 @@ Three mechanisms, narrowing from left to right:
 | [`per-file-ignores`](#per-file-ignores) | Named rules, for paths matching a glob | TOML only |
 | [Per-rule `ignore`](#per-rule-ignore) | One rule, for paths matching a glob | YAML and TOML |
 
+Before any of these, a directory walk honours `.gitignore` and skips `.git`, `.hg`,
+`.svn` and `.jj` directories below it. One named on the command line is still linted.
+
 ## `exclude`
 
 A top-level `exclude` lists paths ryl skips entirely. No rule runs against them,

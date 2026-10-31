@@ -30,9 +30,10 @@ Meta-actions
 ## Inputs
 
 - Accepts one or more inputs: files, directories, or `-` to read from stdin.
-- Directories: recursively scanned, honoring git ignore and git exclude; does not
-  follow symlinks. Each file's source kind is resolved from the `[files]` globs
-  (TOML) or `yaml-files` (YAML); files matching no kind are skipped.
+- Directories: recursively scanned, honoring git ignore and git exclude, skipping
+  `.git`/`.hg`/`.svn`/`.jj` below the root (`discover::walk_dir`, shared with the
+  LSP); does not follow symlinks. Each file's source kind is resolved from the
+  `[files]` globs (TOML) or `yaml-files` (YAML); files matching no kind are skipped.
 - Files named explicitly are linted as their resolved source kind; one that matches no
   `[files]` kind is rejected with an error (rather than silently treated as YAML).
 - A YAML-kind file whose first line is a Salt Jinja renderer header

@@ -28,3 +28,17 @@ fn gather_yaml_from_dir_finds_yaml_files_only() {
     names.sort();
     assert_eq!(names, vec!["a.yaml", "b.yml"]);
 }
+
+#[test]
+fn gather_yaml_from_dir_skips_vcs_directories_but_not_dot_github() {
+    let td = tempdir().unwrap();
+    let root = td.path();
+    for vcs in [".git", ".hg", ".svn", ".jj"] {
+        fs::create_dir(root.join(vcs)).unwrap();
+        fs::write(root.join(vcs).join("x.yaml"), "a: 1\n").unwrap();
+    }
+    fs::create_dir(root.join(".github")).unwrap();
+    fs::write(root.join(".github/ci.yaml"), "a: 1\n").unwrap();
+
+    assert_eq!(gather_yaml_from_dir(root), [root.join(".github/ci.yaml")]);
+}
