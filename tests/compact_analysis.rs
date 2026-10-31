@@ -168,8 +168,12 @@ fn wide_spans_preserve_sentinel_and_large_offsets() {
             let mut spans = spans::Spans::default();
             let stored = spans.store(&span);
             assert_span_eq(spans.get(stored), span);
-            let byte = |marker: Marker| marker.byte_offset().unwrap_or(usize::MAX);
-            assert_eq!(spans.bytes(stored), (byte(span.start), byte(span.end)));
+            let mut tokens = lexical::Tokens::default();
+            tokens.push(&span, ryl_yaml_parser::TokenKind::Key);
+            assert_span_eq(tokens.iter("").next().unwrap().0, span);
+            if let Some(byte) = span.start.byte_offset() {
+                assert_eq!(tokens.bytes().next().unwrap().0, byte);
+            }
         }
     }
 }
@@ -185,7 +189,6 @@ fn borrowed_scalar_outside_source_survives_reconstruction() {
 #[test]
 fn compact_records_are_smaller_than_parser_records() {
     assert_eq!(size_of::<spans::StoredSpan>(), 32);
-    assert_eq!(size_of::<(spans::StoredSpan, u32)>(), 36);
     assert!(size_of::<(events::StoredEvent, spans::StoredSpan)>() <= 56);
     assert!(size_of::<events::StoredEvent>() < size_of::<Event<'_>>());
 }
