@@ -2,7 +2,15 @@
 # 1.x, so this duplicate is unavoidable under the `lsp` feature. synstructure 0.13 pins
 # syn 2.x and reaches the graph only through the `jsonschema` dev-dependency
 # (jsonschema -> reqwest -> url -> idna -> icu_* -> zerovec -> yoke-derive), while the
-# build graph is on syn 3.x. Whitelisting only these two keeps multiple_crate_versions
+# build graph is on syn 3.x. Whitelisting only these keeps multiple_crate_versions
 # active for every other dependency.
-allowed-duplicate-crates = ["bitflags", "syn"]
+allowed-duplicate-crates = [
+    "bitflags",
+    # postcard's optional embedded-io 0.4 and 0.6 dependencies are never enabled.
+    "embedded-io",
+    "syn",
+    # postcard's cobs is on thiserror 2.x and dirs-next reaches 1.x only on Redox.
+    "thiserror",
+    "thiserror-impl",
+]
 excessive-nesting-threshold = 5

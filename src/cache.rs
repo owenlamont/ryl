@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write as _;
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -10,7 +9,6 @@ use ryl::config::{SourceKind, YamlLintConfig};
 use ryl::rules::ALL_RULE_IDS;
 use ryl::{LintProblem, Severity};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
@@ -22,7 +20,7 @@ pub(crate) struct Settings {
     cwd: PathBuf,
     checked: Mutex<HashSet<PathBuf>>,
     lint_entries: Mutex<HashMap<PathBuf, Arc<LintEntries>>>,
-    prefixes: Mutex<HashMap<(usize, bool, bool, PathBuf), Sha256>>,
+    prefixes: Mutex<HashMap<(usize, bool, bool, PathBuf), blake3::Hasher>>,
 }
 
 impl Settings {
@@ -107,34 +105,29 @@ impl Settings {
         let mut hash = prefixes
             .entry(key)
             .or_insert_with(|| {
-                let mut hash = Sha256::new();
-                hash.update(env!("CARGO_PKG_VERSION"));
-                hash.update([0]);
-                hash.update(mode);
-                hash.update([0]);
-                hash.update(format!("{kind:?}:{cfg:?}"));
-                hash.update([0]);
+                let mut hash = blake3::Hasher::new();
+                hash.update(env!("CARGO_PKG_VERSION").as_bytes());
+                hash.update(&[0]);
+                hash.update(mode.as_bytes());
+                hash.update(&[0]);
+                hash.update(format!("{kind:?}:{cfg:?}").as_bytes());
+                hash.update(&[0]);
                 hash.update(base_dir.as_os_str().as_encoded_bytes());
-                hash.update([0]);
+                hash.update(&[0]);
                 if let Some(encoding) = std::env::var_os("YAMLLINT_FILE_ENCODING") {
-                    hash.update([1]);
+                    hash.update(&[1]);
                     hash.update(encoding.as_encoded_bytes());
                 } else {
-                    hash.update([0]);
+                    hash.update(&[0]);
                 }
                 hash
             })
             .clone();
         drop(prefixes);
         hash.update(path.as_os_str().as_encoded_bytes());
-        hash.update([0]);
+        hash.update(&[0]);
         hash.update(&content);
-        let mut name = String::with_capacity(69);
-        for byte in hash.finalize() {
-            write!(name, "{byte:02x}").expect("writing to a String is infallible");
-        }
-        name.push_str(".json");
-        Ok(Some((dir.join(name), content)))
+        Ok(Some((dir.join(hash.finalize().to_hex().as_str()), content)))
     }
 
     pub fn lint_hit(&self, path: &Path) -> Option<Vec<LintProblem>> {
@@ -161,10 +154,10 @@ fn load_lint_entries(dir: &Path) -> LintEntries {
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|file| file.file_name().to_string_lossy().starts_with("batch-"))
+        .filter(|file| file.file_name().to_string_lossy().starts_with("lint-"))
         .filter_map(|file| fs::read(file.path()).ok())
         .filter_map(|bytes| {
-            serde_json::from_slice::<HashMap<String, Vec<CachedProblem>>>(&bytes).ok()
+            postcard::from_bytes::<HashMap<String, Vec<CachedProblem>>>(&bytes).ok()
         })
         .flat_map(|batch| {
             batch.into_iter().filter_map(|(name, cached)| {
@@ -313,17 +306,12 @@ pub fn store_lint_batch<'a>(
     for (dir, batch) in by_dir {
         let mut names: Vec<_> = batch.keys().collect();
         names.sort();
-        let mut hash = Sha256::new();
+        let mut hash = blake3::Hasher::new();
         for name in names {
             hash.update(name.as_bytes());
         }
-        let mut name = String::from("batch-");
-        for byte in hash.finalize() {
-            write!(name, "{byte:02x}").expect("writing to a String is infallible");
-        }
-        name.push_str(".json");
-        let path = dir.join(name);
-        let bytes = serde_json::to_vec(&batch).expect("cache entries serialize");
+        let path = dir.join(format!("lint-{}.postcard", hash.finalize().to_hex()));
+        let bytes = postcard::to_allocvec(&batch).expect("cache entries serialize");
         atomic_write(&path, &bytes)?;
     }
     Ok(())
