@@ -104,7 +104,6 @@ struct TruthyState<'cfg> {
     config: &'cfg Config,
     walker: Walker<()>,
     current_version: Version,
-    bad_truthy: Option<HashSet<String>>,
 }
 
 impl<'cfg> TruthyState<'cfg> {
@@ -113,13 +112,11 @@ impl<'cfg> TruthyState<'cfg> {
             config,
             walker: Walker::new(),
             current_version: (1, 1),
-            bad_truthy: None,
         }
     }
 
     fn document_start(&mut self, version: Option<Version>) {
         self.current_version = version.unwrap_or((1, 1));
-        self.bad_truthy = None;
         self.walker.reset();
     }
 
@@ -127,27 +124,15 @@ impl<'cfg> TruthyState<'cfg> {
         self.walker.reset();
     }
 
-    fn is_bad_truthy(&mut self, value: &str) -> bool {
-        if self.bad_truthy.is_none() {
-            // A higher minor (`%YAML 1.3`) is processed as 1.2, so anything at 1.2 or
-            // above uses the 1.2 set; 1.0/1.1 and the directive-less default use 1.1.
-            let base = if self.current_version >= (1, 2) {
-                &TRUTHY_VALUES_YAML_1_2[..]
-            } else {
-                &TRUTHY_VALUES_YAML_1_1[..]
-            };
-            let mut set: HashSet<String> = HashSet::new();
-            for candidate in base {
-                if !self.config.allows(candidate) {
-                    set.insert((*candidate).to_string());
-                }
-            }
-            self.bad_truthy = Some(set);
-        }
-        self.bad_truthy
-            .as_ref()
-            .expect("bad truthy set initialised")
-            .contains(value)
+    fn is_bad_truthy(&self, value: &str) -> bool {
+        // A higher minor (`%YAML 1.3`) is processed as 1.2, so anything at 1.2 or
+        // above uses the 1.2 set; 1.0/1.1 and the directive-less default use 1.1.
+        let base = if self.current_version >= (1, 2) {
+            &TRUTHY_VALUES_YAML_1_2[..]
+        } else {
+            &TRUTHY_VALUES_YAML_1_1[..]
+        };
+        base.contains(&value) && !self.config.allows(value)
     }
 
     fn handle_scalar(
@@ -206,10 +191,7 @@ impl<'cfg> TruthyReceiver<'cfg> {
 impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
-            Event::StreamStart => {
-                self.state.current_version = (1, 1);
-                self.state.bad_truthy = None;
-            }
+            Event::StreamStart => self.state.current_version = (1, 1),
             Event::DocumentStart(_, version) => {
                 self.state.document_start(version.map(event_version));
             }

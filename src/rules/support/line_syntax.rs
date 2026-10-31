@@ -191,6 +191,7 @@ pub(crate) fn scan_lines(buffer: &str) -> impl Iterator<Item = (usize, usize, us
 
 /// Line contents indexable by 1-based line number (`lines[line - 1]`), so a parser
 /// token's line number lands on its line exactly.
+#[cfg(feature = "lsp")]
 pub(crate) fn line_contents(buffer: &str) -> Vec<&str> {
     split_lines_preserve_endings(buffer)
         .map(|(_, content, _)| content)
