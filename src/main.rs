@@ -6,6 +6,11 @@
     clippy::cognitive_complexity
 )]
 
+// Windows only: on Linux, glibc's allocator beat both mimalloc and jemalloc.
+#[cfg(windows)]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod cache;
 
 use std::collections::HashSet;
