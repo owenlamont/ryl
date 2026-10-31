@@ -13,15 +13,16 @@ declares which YAML version its plain scalars resolve under.
 - **Per document.** A directive binds only the document it precedes (YAML 1.2.2
   §6.8.1), so every document in a stream needs its own.
 
-!!! warning "Not for Go consumers"
+!!! warning "Not for go-yaml consumers"
 
     go-yaml v2, v3 and v4, and `sigs.k8s.io/yaml`, reject any file containing
     `%YAML 1.2` (`found incompatible YAML document`). That is a conformance bug
     in those parsers, not in the file: YAML 1.2.2 §6.8.1 says a 1.2 processor
     *must* accept `%YAML 1.2`, and even YAML 1.1 §7.1.1 says a 1.1 processor
     *should* process it with a warning. Do not enable this rule for
-    files that Kubernetes, Helm, Docker Compose or another Go program loads.
-    PyYAML accepts the directive but ignores it. See
+    files that Kubernetes, Helm, Docker Compose or another program built on
+    go-yaml loads. Not every Go parser has the bug: goccy/go-yaml accepts the
+    directive. PyYAML accepts it but ignores it. See
     [What `%YAML 1.2` does for each reader](../yaml-version.md#what-yaml-12-does-for-each-reader).
 
 ## Configuration
