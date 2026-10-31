@@ -15,8 +15,6 @@ option at a non-default value, `check`, `check --fix`, `format` and
 `format --markdown` on clean and structural stress inputs, and file count.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 import json
@@ -26,16 +24,16 @@ import shutil
 import subprocess
 import tempfile
 import time
-from typing import Annotated, Any
+from typing import Annotated, Any, Final
 
 import typer
 
 
-ROOT = Path(__file__).resolve().parent.parent
-MIB = 1024 * 1024
+ROOT: Final = Path(__file__).resolve().parent.parent
+MIB: Final = 1024 * 1024
 
 # A snippet per rule that violates it, formatted with the repeat index `i`.
-DENSE: dict[str, str] = {
+DENSE: Final[dict[str, str]] = {
     "anchors": "a{i}: &dup 1\nb{i}: &u{i} 2\nc{i}: *dup\n",
     "block-scalar-chomping": "k{i}: |\n  text\n\n",
     "braces": "k{i}: {{  a: 1  }}\n",
@@ -65,15 +63,17 @@ DENSE: dict[str, str] = {
     "unicode-line-breaks": "k{i}: 'a\u2028b'\n",
 }
 
-CLEAN = "key_{i}:\n  name: value {i}\n  list:\n    - a\n    - b\n  flag: true\n"
-UNFORMATTED = "key_{i}:   [ a,b ]\nmap_{i}:\n    x:   1\n"
+CLEAN: Final = "key_{i}:\n  name: value {i}\n  list:\n    - a\n    - b\n  flag: true\n"
+UNFORMATTED: Final = "key_{i}:   [ a,b ]\nmap_{i}:\n    x:   1\n"
 
 # Structural stress inputs, each a generator of `size` bytes.
-STRUCTURE: dict[str, Callable[[int], str]] = {
-    "deep-nesting": lambda size: (
-        "".join("  " * depth + f"k{depth}:\n" for depth in range(min(size // 64, 2000)))
-        + "  " * min(size // 64, 2000)
-        + "v: 1\n"
+STRUCTURE: Final[dict[str, Callable[[int], str]]] = {
+    "deep-nesting": lambda size: repeat(
+        "r{i}:\n"
+        + "".join("  " * depth + f"k{depth}:\n" for depth in range(1, 200))
+        + "  " * 200
+        + "v: 1\n",
+        size,
     ),
     "long-lines": lambda size: "".join(
         f"k{i}: {'x' * 50_000}\n" for i in range(max(1, size // 50_000))
@@ -236,11 +236,14 @@ def timed(
 ) -> float:
     """Minimum wall time of `command` over fresh copies of `inputs`.
 
-    Stops early once a run passes `limit` seconds.
-
     Returns:
-        Seconds, or `nan` when the command rejects its configuration.
+        Seconds; `limit` once a run reaches it; `nan` when the command rejects its
+        configuration.
+
+    Raises:
+        RuntimeError: when the command exits with a code it never returns normally.
     """
+    allowed = {0} if "format" in command else {0, 1}
     best = math.inf
     for _ in range(runs):
         shutil.rmtree(work, ignore_errors=True)
@@ -248,15 +251,22 @@ def timed(
             (work / name).parent.mkdir(parents=True, exist_ok=True)
             (work / name).write_text(text, newline="")
         start = time.perf_counter()
-        result = subprocess.run(
-            [*command, "."], cwd=work, capture_output=True, check=False
-        )
-        elapsed = time.perf_counter() - start
+        try:
+            result = subprocess.run(
+                [*command, "."],
+                cwd=work,
+                capture_output=True,
+                check=False,
+                timeout=limit,
+            )
+        except subprocess.TimeoutExpired:
+            return limit
         if result.returncode == 2:
             return math.nan
-        best = min(best, elapsed)
-        if elapsed > limit:
-            break
+        if result.returncode not in allowed:
+            message = f"{command} exited {result.returncode}: {result.stderr[-500:]!r}"
+            raise RuntimeError(message)
+        best = min(best, time.perf_counter() - start)
     return best
 
 
@@ -314,7 +324,7 @@ def main(
                 if math.isnan(seconds):
                     break
                 timings.append((point, seconds))
-                if seconds > max_seconds:
+                if seconds >= max_seconds:
                     break
             if not timings:
                 typer.echo(f"skip  {spec.name}: config rejected")
