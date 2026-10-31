@@ -1,5 +1,5 @@
 use std::fs;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use tempfile::tempdir;
 
@@ -386,6 +386,8 @@ fn stdin_invalid_utf8_reports_decode_error() {
 #[cfg(unix)]
 #[test]
 fn stdin_read_error_reports_lint_failure() {
+    use std::process::Stdio;
+
     let dir = tempdir().unwrap();
     let dir_fd = std::fs::File::open(dir.path()).expect("open directory fd");
 

@@ -6,6 +6,11 @@
     clippy::cognitive_complexity
 )]
 
+// Not Linux: there, neither mimalloc nor jemalloc beat glibc at every input size.
+#[cfg(any(windows, target_os = "macos"))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod cache;
 
 use std::collections::HashSet;
