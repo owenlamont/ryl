@@ -21,15 +21,17 @@ pub mod new_line_at_end_of_file;
 pub mod new_lines;
 pub mod octal_values;
 pub mod quoted_strings;
+pub mod schema_dependent_values;
 pub(crate) mod support;
 pub mod tags;
 pub mod trailing_spaces;
 pub mod truthy;
 pub mod unicode_line_breaks;
+pub mod yaml_directive;
 
 /// Every rule id; the directive engine expands a bare `disable`/`enable` to this.
 /// Extend when adding a rule.
-pub const ALL_RULE_IDS: [&str; 27] = [
+pub const ALL_RULE_IDS: [&str; 29] = [
     anchors::ID,
     block_scalar_chomping::ID,
     braces::ID,
@@ -53,18 +55,22 @@ pub const ALL_RULE_IDS: [&str; 27] = [
     new_lines::ID,
     octal_values::ID,
     quoted_strings::ID,
+    schema_dependent_values::ID,
     tags::ID,
     trailing_spaces::ID,
     truthy::ID,
     unicode_line_breaks::ID,
+    yaml_directive::ID,
 ];
 
 /// Rules with no yamllint equivalent, so configurable only via TOML: the YAML config
 /// rejects them and the YAML schema prunes them, reserving the YAML `rules` namespace
 /// for yamllint's own definitions. Extend when adding a rule yamllint does not have.
-pub const RYL_ONLY_RULE_IDS: [&str; 4] = [
+pub const RYL_ONLY_RULE_IDS: [&str; 6] = [
     block_scalar_chomping::ID,
     merge_keys::ID,
+    schema_dependent_values::ID,
     tags::ID,
     unicode_line_breaks::ID,
+    yaml_directive::ID,
 ];

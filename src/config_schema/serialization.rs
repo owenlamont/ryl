@@ -163,6 +163,7 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
         locale: config.locale.clone(),
         line_length: config.line_length,
         indent_width: config.indent_width,
+        target_version: config.target_version,
         fix: normalize_fix_policy(&lint),
         rules: lint
             .rules
@@ -208,6 +209,7 @@ pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
         locale: config.locale.clone(),
         line_length: None,
         indent_width: None,
+        target_version: None,
         fix: None,
         rules: config
             .rules
@@ -360,6 +362,7 @@ pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value
 
     insert_serialized(&mut table, "line-length", config.line_length.as_ref());
     insert_serialized(&mut table, "indent-width", config.indent_width.as_ref());
+    insert_serialized(&mut table, "target-version", config.target_version.as_ref());
 
     let lint = normalized_lint_to_toml_table(config);
     if !lint.is_empty() {

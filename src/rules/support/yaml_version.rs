@@ -8,6 +8,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 use ryl_yaml_parser::{Scanner, StrInput, TokenType, YamlVersion};
 
+use crate::config::TargetVersion;
+
 pub type Version = (u32, u32);
 
 /// The `%YAML` version the parser reports on `Event::DocumentStart`, which already
@@ -54,6 +56,26 @@ pub const fn resolves_as_yaml_1_1(version: Option<Version>) -> bool {
     matches!(version, Some((1, minor)) if minor <= 1)
 }
 
+/// The readers a document's plain scalars must keep their values for: its `%YAML`
+/// directive's version, else both 1.1 and 1.2 readers until `target-version = "1.2"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Readers {
+    Yaml11,
+    Both,
+    Yaml12,
+}
+
+impl Readers {
+    #[must_use]
+    pub const fn of(version: Option<Version>, target: TargetVersion) -> Self {
+        match (version, target) {
+            _ if resolves_as_yaml_1_1(version) => Self::Yaml11,
+            (None, TargetVersion::Yaml11) => Self::Both,
+            _ => Self::Yaml12,
+        }
+    }
+}
+
 #[must_use]
 pub fn first_unsupported_major(buffer: &str) -> Option<Directive> {
     collect_directives(buffer)
@@ -73,15 +95,28 @@ pub fn first_higher_minor(buffer: &str) -> Option<Directive> {
 #[must_use]
 pub fn resolves_to_nonstring_in_yaml_1_1(value: &str) -> bool {
     YAML_1_1_NONSTRING.is_match(value)
+        || match value.chars().next() {
+            Some('.') => GO_YAML_FLOAT.is_match(value),
+            Some(c) if c.is_ascii_digit() || matches!(c, '-' | '+') => {
+                GO_YAML_FLOAT.is_match(&value.replace('_', ""))
+            }
+            _ => false,
+        }
 }
+
+// go-yaml drops every `_` before matching this unless the value starts with `.`, so `0_8`
+// and `1_0e5` load as floats but `.5_e2` stays a string.
+static GO_YAML_FLOAT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\A[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?\z")
+        .expect("go-yaml float regex is valid")
+});
 
 static YAML_1_1_NONSTRING: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(YAML_1_1_NONSTRING_PATTERN)
         .expect("YAML 1.1 implicit-type regex is valid")
 });
 
-// PyYAML's 1.1 resolvers plus yamllint's `0o` octal and go-yaml v2's `y`/`n` booleans
-// (`1e5` and `-.5` stay strings).
+// PyYAML's 1.1 resolvers plus yamllint's `0o` octal and go-yaml v2's `y`/`n` booleans.
 const YAML_1_1_NONSTRING_PATTERN: &str = concat!(
     r"\A(?:",
     r"y|Y|n|N|yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",

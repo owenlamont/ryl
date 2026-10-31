@@ -2,9 +2,7 @@ use std::cell::OnceCell;
 
 use ryl_yaml_parser::Tag;
 
-use crate::rules::support::yaml_version::{
-    Version, resolves_as_yaml_1_1, resolves_to_nonstring_in_yaml_1_1,
-};
+use crate::rules::support::yaml_version::{Readers, resolves_to_nonstring_in_yaml_1_1};
 use crate::yaml_dom::{Scalar as Value, is_core_schema, is_core_schema_int_spelling};
 
 #[derive(Clone, Copy)]
@@ -117,7 +115,7 @@ pub(crate) struct Scalar<'a> {
     value: &'a str,
     tag: Option<&'a Tag>,
     role: Role,
-    version: Option<Version>,
+    readers: Readers,
     plain_string: OnceCell<bool>,
 }
 
@@ -126,13 +124,13 @@ impl<'a> Scalar<'a> {
         value: &'a str,
         tag: Option<&'a Tag>,
         role: Role,
-        version: Option<Version>,
+        readers: Readers,
     ) -> Self {
         Self {
             value,
             tag,
             role,
-            version,
+            readers,
             plain_string: OnceCell::new(),
         }
     }
@@ -144,7 +142,7 @@ impl<'a> Scalar<'a> {
     pub(crate) fn plain_is_string(&self) -> bool {
         *self
             .plain_string
-            .get_or_init(|| resolves_to_string_for_version(self.version, self.value))
+            .get_or_init(|| resolves_to_string_for(self.readers, self.value))
     }
 
     pub(crate) fn has_core_tag(&self) -> bool {
@@ -156,13 +154,15 @@ impl<'a> Scalar<'a> {
     }
 }
 
-// Unquoted values must stay strings for YAML 1.1 readers as well as the active schema.
-pub(crate) fn resolves_to_string_for_version(
-    version: Option<Version>,
-    value: &str,
-) -> bool {
-    (resolves_as_yaml_1_1(version)
-        || (!is_core_schema_int_spelling(value)
-            && matches!(Value::resolve_plain_scalar(value.into()), Value::String(_))))
-        && !resolves_to_nonstring_in_yaml_1_1(value)
+pub(crate) fn resolves_to_string_for(readers: Readers, value: &str) -> bool {
+    let core = || {
+        !is_core_schema_int_spelling(value)
+            && matches!(Value::resolve_plain_scalar(value.into()), Value::String(_))
+    };
+    let yaml11 = || !resolves_to_nonstring_in_yaml_1_1(value);
+    match readers {
+        Readers::Yaml11 => yaml11(),
+        Readers::Both => core() && yaml11(),
+        Readers::Yaml12 => core(),
+    }
 }

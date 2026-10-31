@@ -8,8 +8,9 @@ use crate::rules::{
     anchors, block_scalar_chomping, braces, brackets, colons, commas, comments,
     comments_indentation, document_end, document_start, empty_lines, empty_values,
     float_values, hyphens, indentation, key_duplicates, key_ordering, line_length,
-    merge_keys, new_line_at_end_of_file, new_lines, octal_values, quoted_strings, tags,
-    trailing_spaces, truthy, unicode_line_breaks,
+    merge_keys, new_line_at_end_of_file, new_lines, octal_values, quoted_strings,
+    schema_dependent_values, tags, trailing_spaces, truthy, unicode_line_breaks,
+    yaml_directive,
 };
 use crate::text_version::{Analysis, ParsedFacts, TextVersion};
 
@@ -188,6 +189,17 @@ fn collect_layout_diagnostics(
     lint_rule!(
         diagnostics,
         cfg,
+        input,
+        path,
+        base_dir,
+        yaml_directive,
+        analysis,
+        no_config,
+        message
+    );
+    lint_rule!(
+        diagnostics,
+        cfg,
         content,
         path,
         base_dir,
@@ -268,6 +280,15 @@ fn collect_value_diagnostics(
         analysis
     );
     lint_rule!(diagnostics, cfg, input, path, base_dir, truthy, analysis);
+    lint_rule!(
+        diagnostics,
+        cfg,
+        input,
+        path,
+        base_dir,
+        schema_dependent_values,
+        analysis
+    );
 }
 
 fn collect_block_diagnostics(

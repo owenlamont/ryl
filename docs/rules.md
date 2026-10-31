@@ -4,7 +4,7 @@
 
 ## Introduction
 
-ryl implements 27 rules for checking YAML files. This page is a categorised
+ryl implements 29 rules for checking YAML files. This page is a categorised
 index of every rule with a brief description and a link to its detailed
 documentation. Each rule page covers what the rule does, why it matters,
 configuration options, and (where applicable) automatic fix behaviour.
@@ -56,6 +56,7 @@ conflict with it.
 | [`key-ordering`](rules/key-ordering.md) | Alphabetical or configured ordering of mapping keys. | :wrench: |
 | [`merge-keys`](rules/merge-keys.md) | The `<<` merge key (a YAML 1.1 feature removed in 1.2). |  |
 | [`tags`](rules/tags.md) | Unsafe and non-portable YAML tags. |  |
+| [`yaml-directive`](rules/yaml-directive.md) | A `%YAML` version directive on every document. | :wrench: |
 
 ## Comments
 
@@ -71,6 +72,7 @@ conflict with it.
 | [`float-values`](rules/float-values.md) | Float value formats. |  |
 | [`octal-values`](rules/octal-values.md) | Octal value formats. |  |
 | [`quoted-strings`](rules/quoted-strings.md) | Quoted string styles and when to require quotes. | :wrench: |
+| [`schema-dependent-values`](rules/schema-dependent-values.md) | Plain values YAML 1.1 and 1.2 read differently (`2026-10-10`, `22:22`, `1_000`). |  |
 | [`truthy`](rules/truthy.md) | Truthy values like `yes`, `no`, `on`, `off`. | :wrench: |
 
 ## Severity levels

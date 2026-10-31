@@ -7,12 +7,13 @@ use std::collections::HashSet;
 
 use ryl_yaml_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
 
+use crate::config::TargetVersion;
 use crate::config::YamlLintConfig;
 use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
-use crate::rules::support::yaml_version::{Version, event_version};
+use crate::rules::support::yaml_version::{Readers, Version, event_version};
 
 pub const ID: &str = "truthy";
 
@@ -29,6 +30,7 @@ pub struct Config {
     allowed: HashSet<String>,
     allowed_display: String,
     pub check_keys: bool,
+    target: TargetVersion,
 }
 
 impl Config {
@@ -72,6 +74,7 @@ impl Config {
             allowed,
             allowed_display,
             check_keys,
+            target: cfg.target_version(),
         }
     }
 
@@ -103,7 +106,7 @@ pub struct Violation {
 struct TruthyState<'cfg> {
     config: &'cfg Config,
     walker: Walker<()>,
-    current_version: Version,
+    readers: Readers,
 }
 
 impl<'cfg> TruthyState<'cfg> {
@@ -111,12 +114,12 @@ impl<'cfg> TruthyState<'cfg> {
         Self {
             config,
             walker: Walker::new(),
-            current_version: (1, 1),
+            readers: Readers::of(None, config.target),
         }
     }
 
     fn document_start(&mut self, version: Option<Version>) {
-        self.current_version = version.unwrap_or((1, 1));
+        self.readers = Readers::of(version, self.config.target);
         self.walker.reset();
     }
 
@@ -125,9 +128,7 @@ impl<'cfg> TruthyState<'cfg> {
     }
 
     fn is_bad_truthy(&self, value: &str) -> bool {
-        // A higher minor (`%YAML 1.3`) is processed as 1.2, so anything at 1.2 or
-        // above uses the 1.2 set; 1.0/1.1 and the directive-less default use 1.1.
-        let base = if self.current_version >= (1, 2) {
+        let base = if self.readers == Readers::Yaml12 {
             &TRUTHY_VALUES_YAML_1_2[..]
         } else {
             &TRUTHY_VALUES_YAML_1_1[..]
@@ -191,7 +192,7 @@ impl<'cfg> TruthyReceiver<'cfg> {
 impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
-            Event::StreamStart => self.state.current_version = (1, 1),
+            Event::StreamStart => self.state.document_start(None),
             Event::DocumentStart(_, version) => {
                 self.state.document_start(version.map(event_version));
             }
