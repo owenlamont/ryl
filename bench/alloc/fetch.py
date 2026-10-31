@@ -29,6 +29,7 @@ for repo, paths in needed.items():
         ("core.sparseCheckout", "true"),
         ("core.sparseCheckoutCone", "false"),
         ("core.longpaths", "true"),
+        ("core.protectNTFS", "false"),
     ):
         subprocess.run([*git, "config", key, value], check=True)
     patterns = "".join(
