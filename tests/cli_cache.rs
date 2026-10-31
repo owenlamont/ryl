@@ -215,20 +215,20 @@ fn corrupt_entry_is_rebuilt_and_version_directory_isolated() {
     };
     let first = command();
     let entry = entries(&root).pop().unwrap();
-    let name = serde_json::from_slice::<serde_json::Value>(&fs::read(&entry).unwrap())
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .keys()
-        .next()
-        .unwrap()
-        .clone();
-    fs::write(&entry, b"broken JSON").unwrap();
+    // Postcard layout of a one-entry batch: map length, then the 64-byte hex name,
+    // then one problem as (line, column, level, message, rule).
+    let name = fs::read(&entry).unwrap()[2..66].to_vec();
+    let batch = |level: u8, rule: &[u8]| {
+        [&[1, 64][..], &name, &[1, 1, 1, level, 1, b'x'], rule].concat()
+    };
+    fs::write(&entry, batch(0, &[0])).unwrap();
+    assert_ne!(command(), first, "a well-formed batch is served");
+    fs::write(&entry, b"broken").unwrap();
     assert_eq!(command(), first);
-    assert_ne!(fs::read(&entry).unwrap(), b"broken JSON");
-    fs::write(&entry, format!(r#"{{"{name}":[[1,1,2,"x",null]]}}"#)).unwrap();
+    assert_ne!(fs::read(&entry).unwrap(), b"broken");
+    fs::write(&entry, batch(2, &[0])).unwrap();
     assert_eq!(command(), first);
-    fs::write(&entry, format!(r#"{{"{name}":[[1,1,0,"x","unknown"]]}}"#)).unwrap();
+    fs::write(&entry, batch(0, b"\x01\x07unknown")).unwrap();
     assert_eq!(command(), first);
     fs::create_dir(root.join("other-version")).unwrap();
     fs::write(
