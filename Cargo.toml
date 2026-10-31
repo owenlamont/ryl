@@ -55,8 +55,6 @@ default = ["lsp"]
 # The `ryl server` language server; build `--no-default-features` for a minimal
 # linter-only binary. crossbeam-channel is a direct dep because lsp-server exposes
 # its Sender/Receiver on the Connection.
-alloc-jemalloc = ["dep:tikv-jemallocator"]
-alloc-mimalloc = ["dep:mimalloc"]
 lsp = ["dep:lsp-server", "dep:lsp-types", "dep:crossbeam-channel"]
 
 [dependencies]
@@ -86,10 +84,9 @@ lsp-server = { version = "0.10.0", optional = true }
 lsp-types = { version = "0.97.0", optional = true }
 crossbeam-channel = { version = "0.5", optional = true }
 num-bigint = { version = "0.5", default-features = false, features = ["std"] }
-mimalloc = { version = "0.1.52", optional = true }
 
-[target.'cfg(not(windows))'.dependencies]
-tikv-jemallocator = { version = "0.7.0", optional = true }
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+mimalloc = "0.1.52"
 
 [dev-dependencies]
 noyalib = "0.0.58"

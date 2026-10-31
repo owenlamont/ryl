@@ -6,17 +6,10 @@
     clippy::cognitive_complexity
 )]
 
-#[cfg(feature = "alloc-mimalloc")]
+// Not Linux: there, neither mimalloc nor jemalloc beat glibc at every input size.
+#[cfg(any(windows, target_os = "macos"))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
-#[cfg(all(
-    feature = "alloc-jemalloc",
-    not(feature = "alloc-mimalloc"),
-    not(windows)
-))]
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod cache;
 

@@ -15,9 +15,9 @@ summarize user-visible changes from the tagged commits and published release rec
   error now leaves the output of the files before it, and with `YAMLLINT_FILE_ENCODING`
   set, each file's warning now precedes its diagnostics.
   ([#830](https://github.com/owenlamont/ryl/issues/830))
-- On Windows, ryl uses mimalloc as its allocator, making `check` and `format` 5-10%
-  faster on large inputs for 50-100% more peak memory. Linux and macOS keep the system
-  allocator. ([#886](https://github.com/owenlamont/ryl/issues/886))
+- On Windows and macOS, ryl uses mimalloc as its allocator, making `check` and
+  `format` 3-27% faster beyond a single small file, for up to twice the peak memory.
+  Linux keeps the system allocator. ([#886](https://github.com/owenlamont/ryl/issues/886))
 
 ## v0.27.0
 
