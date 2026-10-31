@@ -229,16 +229,14 @@ fn rejects_block_marker_following_non_indicator_token() {
 }
 
 #[test]
-fn fix_resets_comment_block_at_directive_comment() {
-    // A `# yamllint ` directive breaks the comment block (resetting the reference), so
-    // the trailing misindented comment is re-indented to the surrounding content.
+fn directive_comments_are_checked_like_any_comment() {
+    let input =
+        "k:\n  until:\n    - x\n# yamllint disable-line rule:line-length\n    - y\n";
+    assert_eq!(run(input), vec![Violation { line: 4, column: 1 }]);
     let input = "obj:\n  a: 1\n# yamllint disable\n # misindented\nobj2: no\n";
-    let fixed = comments_indentation::fix(input, &Config::default());
     assert_eq!(
-        fixed,
-        Some(
-            "obj:\n  a: 1\n# yamllint disable\n  # misindented\nobj2: no\n".to_string()
-        )
+        comments_indentation::fix(input, &Config::default()).as_deref(),
+        Some("obj:\n  a: 1\n# yamllint disable\n# misindented\nobj2: no\n")
     );
 }
 

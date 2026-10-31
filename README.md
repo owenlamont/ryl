@@ -178,12 +178,12 @@ Profiles and what they cannot equalise:
 - **Defaults**: each tool with no configuration, so each does different work.
 - **Lint**: yamllint reads `extends: default` and ryl reads the TOML that
   `ryl --migrate-configs` writes from the same file. On the benchmark inputs they
-  share 87,477 diagnostics. yamllint alone reports 235: 128 `trailing-spaces` and
+  share 87,479 diagnostics. yamllint alone reports 233: 128 `trailing-spaces` and
   `empty-lines` inside block scalars, 73 `braces` and `commas` inside Jinja `{{ }}`,
-  18 `comments` on `#cloud-config`, 9 `comments-indentation` in files without a final
-  newline, 4 on `# yamllint` directive comments, and 3 others the migration guide
-  lists. ryl alone reports 8: 5 `comments` after a block scalar header, and 3 from
-  the same tab and end-of-file differences.
+  18 `comments` on `#cloud-config`, 11 `comments-indentation` in files without a
+  final newline, and 3 others the migration guide lists. ryl alone reports 8: 5
+  `comments` after a block scalar header, and 3 from the same tab and end-of-file
+  differences.
 
 Every run gets a fresh copy of its inputs and an empty cache directory, with
 ryl's and Prettier's caches off and dprint's incremental mode off; dprint keeps

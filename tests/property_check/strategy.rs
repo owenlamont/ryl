@@ -334,6 +334,7 @@ fn arb_comment() -> impl Strategy<Value = Line> {
             8 => arb_text(),
             1 => Just("@ name".to_owned()),
             1 => Just("#".repeat(90)),
+            1 => Just("yamllint disable-line rule:line-length".to_owned()),
         ],
     )
         .prop_map(|(indent, spaces_after_hash, text)| Line::Comment {

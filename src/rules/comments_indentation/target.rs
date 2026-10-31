@@ -126,7 +126,7 @@ impl<'a> Planner<'a> {
                 self.last_comment = Some(line.indent);
                 None
             }
-            LineKind::Other | LineKind::DirectiveComment => {
+            LineKind::Other | LineKind::MagicFirstLine => {
                 self.last_comment = None;
                 None
             }
