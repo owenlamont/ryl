@@ -62,7 +62,6 @@ pub(crate) fn check_with_analysis(
     input: crate::text_version::Analysis<'_>,
     cfg: Config,
 ) -> Vec<Violation> {
-    let buffer = input.text();
     let mut receiver = EmptyValuesReceiver::new(&cfg);
     for (event, span) in input.event_iter() {
         receiver.on_event(event, span);
@@ -72,13 +71,9 @@ pub(crate) fn check_with_analysis(
     // keep the report on a real position.
     let mut diagnostics = receiver.diagnostics;
     for violation in &mut diagnostics {
-        let (line, column) = crate::rules::support::span_utils::clamp_position(
-            buffer,
-            violation.line,
-            violation.column,
-        );
-        violation.line = line;
-        violation.column = column;
+        violation.line = violation.line.min(input.line_count());
+        let max_column = input.line_content(violation.line - 1).chars().count() + 1;
+        violation.column = violation.column.min(max_column);
     }
     diagnostics
 }

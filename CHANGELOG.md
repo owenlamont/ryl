@@ -27,6 +27,12 @@ summarize user-visible changes from the tagged commits and published release rec
 - Release binaries and wheels ship with symbols stripped, as ruff's do, cutting the
   x86_64 Linux binary from 9.9 MB to 8.7 MB.
   ([#887](https://github.com/owenlamont/ryl/issues/887))
+- The result cache hashes with BLAKE3 and stores entries in a binary format, making a
+  warm `check` 3-15% faster. Caches written by older versions are ignored.
+  ([#889](https://github.com/owenlamont/ryl/issues/889))
+- `empty-values` no longer slows quadratically on large files with many violations:
+  `check --enable ALL` on a 9.4 MiB file takes 0.87 s (was 5.7 s).
+  ([#890](https://github.com/owenlamont/ryl/issues/890))
 
 ## v0.27.0
 
