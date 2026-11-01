@@ -3,7 +3,7 @@
 ## What this rule does
 
 Reports octal integer literals. By default both YAML 1.1 implicit form
-(`0755`) and YAML 1.2 explicit form (`0o755`) are flagged.
+(`0755`, or signed `-0755`) and YAML 1.2 explicit form (`0o755`) are flagged.
 
 ## Why this matters
 
@@ -24,7 +24,7 @@ forbid-explicit-octal = true
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
-| `forbid-implicit-octal` | `true` | Forbid `0nnn` style literals that YAML 1.1 treats as octal. |
+| `forbid-implicit-octal` | `true` | Forbid `0nnn` and `-0nnn` style literals that YAML 1.1 treats as octal. |
 | `forbid-explicit-octal` | `true` | Forbid `0o755`-style literals that YAML 1.2 treats as octal. |
 
 ## Examples

@@ -485,6 +485,7 @@ fn cli_config_flags(args: &LintArgs) -> CliConfigFlags {
                 enable.clone()
             }
         }),
+        enable_all: enable.contains(&"ALL"),
         disable: if args.source.disable.contains(&"ALL") {
             ALL_RULE_IDS.to_vec()
         } else {
@@ -1426,13 +1427,12 @@ fn collect_files(args: &LintArgs) -> Result<CollectedFiles, String> {
 
     let flags = cli_config_flags(args);
     let mut global_cfg = build_global_cfg(&args.source.inputs, args)?;
+    let mut notices = Vec::new();
     if let Some(ctx) = global_cfg.as_mut() {
-        flags.apply(&mut ctx.config, &ctx.base_dir)?;
+        notices.clone_from(&ctx.notices);
+        notices.extend(flags.apply(&mut ctx.config, &ctx.base_dir)?);
         ctx.config_found |= flags.enable.is_some();
     }
-    let mut notices = global_cfg
-        .as_ref()
-        .map_or_else(Vec::new, |ctx| ctx.notices.clone());
     let inputs = &args.source.inputs;
 
     let (candidates, explicit_files) = gather_inputs(inputs);
@@ -2060,11 +2060,11 @@ fn resolve_stdin_ctx(
     } else {
         PathBuf::from(".")
     };
-    let ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(args))?;
-    emit_notices(&ctx.notices, args.lint.compatibility.no_warnings);
+    let mut ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(args))?;
     let mut cfg = ctx.config;
     let flags = cli_config_flags(args);
-    flags.apply(&mut cfg, &ctx.base_dir)?;
+    ctx.notices.extend(flags.apply(&mut cfg, &ctx.base_dir)?);
+    emit_notices(&ctx.notices, args.lint.compatibility.no_warnings);
     if !apply_yaml_files {
         cfg.disable_path_based_rule_ignores();
     }

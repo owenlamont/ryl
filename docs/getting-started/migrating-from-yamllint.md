@@ -548,6 +548,12 @@ plain `y` alone as it does a plain `no`. go-yaml's float spellings (`08`, `1e5`,
 readers out, so `truthy` then flags only the 1.2 booleans; yamllint has no such
 setting.
 
+### Signed implicit octals
+
+`octal-values` flags a signed implicit octal such as `-0777`; yamllint flags only
+the unsigned `0777`. YAML 1.1 reads `-0777` as -511 and YAML 1.2 reads it as
+-777, the same split the unsigned form has.
+
 ### ytt directives
 
 ryl's `comments` rule skips ytt `#@` directives, including their inline spacing.

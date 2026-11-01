@@ -48,6 +48,7 @@ fn arb_yaml_1_1_ambiguous() -> impl Strategy<Value = String> {
         Just("on".to_string()),
         Just("off".to_string()),
         Just("0b101".to_string()),
+        Just("-0x1F".to_string()),
         Just("1:30".to_string()),
         Just("0o17".to_string()),
         Just("2002-12-14".to_string()),

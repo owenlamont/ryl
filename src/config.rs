@@ -893,7 +893,6 @@ impl YamlLintConfig {
         }
     }
 
-    /// Backs `--enable`: run exactly `selected`, keeping the options of any already enabled.
     /// # Errors
     /// Returns an error when two enabled rules cannot both be satisfied.
     pub fn check_rule_conflicts(&self) -> Result<(), String> {
@@ -910,6 +909,7 @@ impl YamlLintConfig {
         Ok(())
     }
 
+    /// Backs `--enable`: run exactly `selected`, keeping the options of any already enabled.
     pub fn restrict_rules(&mut self, selected: &[&str]) {
         self.rules
             .retain(|name, _| selected.contains(&name.as_str()));

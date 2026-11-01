@@ -1,5 +1,6 @@
-//! `octal-values`: flag implicit (`0777`) and/or explicit (`0o777`) octal integers,
-//! which surprise readers expecting decimal. Mirrors yamllint's `octal-values`. No safe
+//! `octal-values`: flag implicit (`0777`, `-0777`) and/or explicit (`0o777`) octal
+//! integers, which surprise readers expecting decimal. Mirrors yamllint's `octal-values`,
+//! which skips the signed form YAML 1.1 reads as octal too. No safe
 //! `--fix`: resolving `010` needs the author's intent (integer 8, integer 10, or the
 //! string "010"), which the source alone cannot disambiguate.
 
@@ -107,7 +108,7 @@ impl SpannedEventReceiver<'_> for OctalValuesReceiver<'_> {
 }
 
 fn is_implicit_octal(value: &str) -> bool {
-    let bytes = value.as_bytes();
+    let bytes = value.strip_prefix(['-', '+']).unwrap_or(value).as_bytes();
     if bytes.len() <= 1 || bytes[0] != b'0' {
         return false;
     }

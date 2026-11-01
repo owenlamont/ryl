@@ -38,8 +38,15 @@ target-version = "1.2"
 level = "error"
 ```
 
-Enabling it beside `document-start` with `present = false` is a configuration
-error (exit `2`): a directive needs the `---` that setting forbids.
+Enabling it by name, in config or with `--enable yaml-directive`, beside
+`document-start` with `present = false` is a configuration error (exit `2`): a
+directive needs the `---` that setting forbids. `--enable ALL` keeps the explicit
+`present = false` instead: ryl prints the warning below, skips `yaml-directive`
+and lints with the other rules.
+
+```text
+warning: `yaml-directive` and `document-start` with `present = false` are incompatible. Ignoring `yaml-directive`.
+```
 
 ## Examples
 

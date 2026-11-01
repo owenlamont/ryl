@@ -248,14 +248,14 @@ pub fn resolve_ctx(
                 if cache.warned.insert(identity) {
                     notices.extend(ctx.notices.iter().cloned());
                 }
-                let entry = resolved(ctx, flags)?;
+                let entry = resolved(ctx, flags, &mut notices)?;
                 cache.by_config.insert(cfg_path, entry.clone());
                 (entry, notices)
             }
         }
         PerFileConfig::Fallback(ctx) => {
-            let notices = ctx.notices.clone();
-            (resolved(*ctx, flags)?, notices)
+            let mut notices = ctx.notices.clone();
+            (resolved(*ctx, flags, &mut notices)?, notices)
         }
     };
     cache.by_dir.insert(start, entry.clone());
@@ -277,18 +277,21 @@ pub struct ConfigCache {
 pub struct CliConfigFlags {
     pub markdown: bool,
     pub enable: Option<Vec<&'static str>>,
+    pub enable_all: bool,
     pub disable: Vec<&'static str>,
     pub exclude: Option<Vec<String>>,
 }
 
 impl CliConfigFlags {
+    /// Returns a warning when `--enable ALL` had to drop a rule the config conflicts with.
+    ///
     /// # Errors
     /// Returns an error for an invalid exclusion glob or conflicting enabled rules.
     pub fn apply(
         &self,
         cfg: &mut YamlLintConfig,
         base_dir: &Path,
-    ) -> Result<(), String> {
+    ) -> Result<Option<String>, String> {
         if self.markdown {
             cfg.enable_default_markdown(base_dir);
         }
@@ -299,7 +302,21 @@ impl CliConfigFlags {
         if let Some(patterns) = &self.exclude {
             cfg.replace_exclude(patterns)?;
         }
-        cfg.check_rule_conflicts()
+        match cfg.check_rule_conflicts() {
+            // Finalize already rejected a config naming yaml-directive, so here only
+            // `ALL` can have added it, and the config's explicit `present = false` wins.
+            Err(_) if self.enable_all => {
+                cfg.disable_rules(&[crate::rules::yaml_directive::ID]);
+                Ok(Some(format!(
+                    "warning: `{}` and `{}` with `present = false` are incompatible. \
+                     Ignoring `{}`.",
+                    crate::rules::yaml_directive::ID,
+                    crate::rules::document_start::ID,
+                    crate::rules::yaml_directive::ID,
+                )))
+            }
+            conflict => conflict.map(|()| None),
+        }
     }
 }
 
@@ -308,9 +325,10 @@ impl CliConfigFlags {
 fn resolved(
     ctx: ConfigContext,
     flags: &CliConfigFlags,
+    notices: &mut Vec<String>,
 ) -> Result<ResolvedConfig, String> {
     let mut cfg = ctx.config;
-    flags.apply(&mut cfg, &ctx.base_dir)?;
+    notices.extend(flags.apply(&mut cfg, &ctx.base_dir)?);
     Ok((
         ctx.base_dir,
         Arc::new(cfg),

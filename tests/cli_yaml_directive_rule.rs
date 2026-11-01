@@ -84,7 +84,7 @@ fn fix_declines_a_needed_end_marker_that_document_end_forbids() {
 }
 
 #[test]
-fn document_start_present_false_is_a_config_error() {
+fn document_start_present_false_rejects_yaml_directive_by_name() {
     for (config, args) in [
         (
             format!("{TARGET_1_2}document-start = {{ present = false }}\n"),
@@ -92,7 +92,7 @@ fn document_start_present_false_is_a_config_error() {
         ),
         (
             "[lint.rules]\ndocument-start = { present = false }\n".to_string(),
-            &["check", "--enable", "ALL"][..],
+            &["check", "--enable", "yaml-directive,document-start"][..],
         ),
     ] {
         let (code, output, _) = ryl_with(&config, "a: 1\n", args);
@@ -102,4 +102,35 @@ fn document_start_present_false_is_a_config_error() {
             "{args:?}: {output}"
         );
     }
+}
+
+#[test]
+fn enable_all_ignores_yaml_directive_beside_document_start_present_false() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules]\ndocument-start = { present = false }\n",
+    )
+    .unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "a: 1\n").unwrap();
+    let check = |extra: &[&str]| {
+        run(ryl(dir.path())
+            .args(["check", "--enable", "ALL"])
+            .args(extra)
+            .arg(&file))
+    };
+    let (code, stdout, stderr) = check(&["--disable", "yaml-directive"]);
+    assert_eq!(
+        check(&[]),
+        (
+            code,
+            stdout,
+            format!(
+                "warning: `yaml-directive` and `document-start` with `present = false` \
+                 are incompatible. Ignoring `yaml-directive`.\n{stderr}"
+            )
+        ),
+        "the warning alone changes nothing else"
+    );
 }
