@@ -112,12 +112,20 @@ pub(crate) fn capture_file_stderr<T>(f: impl FnOnce() -> T) -> (T, Vec<u8>) {
 /// multibyte Unicode) is untouched and the control-free case borrows without allocating.
 #[must_use]
 pub fn sanitize_control(text: &str) -> Cow<'_, str> {
-    if !text.contains(char::is_control) {
+    escape_chars(text, char::is_control)
+}
+
+/// Replace each char `escaped` matches with a visible `\u{..}` escape, borrowing when none does.
+pub(crate) fn escape_chars(
+    text: &str,
+    escaped: impl Fn(char) -> bool + Copy,
+) -> Cow<'_, str> {
+    if !text.contains(escaped) {
         return Cow::Borrowed(text);
     }
     let mut out = String::with_capacity(text.len());
     for ch in text.chars() {
-        if ch.is_control() {
+        if escaped(ch) {
             write!(out, "\\u{{{:x}}}", ch as u32)
                 .expect("writing to a String is infallible");
         } else {
@@ -275,7 +283,7 @@ pub struct CliConfigFlags {
 
 impl CliConfigFlags {
     /// # Errors
-    /// Returns an error for an invalid exclusion glob.
+    /// Returns an error for an invalid exclusion glob or conflicting enabled rules.
     pub fn apply(
         &self,
         cfg: &mut YamlLintConfig,
@@ -291,7 +299,7 @@ impl CliConfigFlags {
         if let Some(patterns) = &self.exclude {
             cfg.replace_exclude(patterns)?;
         }
-        Ok(())
+        cfg.check_rule_conflicts()
     }
 }
 

@@ -66,7 +66,9 @@ impl Kind {
         }
         if matches!(value, "y" | "Y" | "n" | "N") {
             Some(Self::SingleLetterBoolean)
-        } else if value.as_bytes().get(4) == Some(&b'-') {
+        } else if value.as_bytes().get(..5).is_some_and(|head| {
+            head[..4].iter().all(u8::is_ascii_digit) && head[4] == b'-'
+        }) {
             Some(Self::Timestamp)
         } else if value.contains(':') {
             Some(Self::Sexagesimal)

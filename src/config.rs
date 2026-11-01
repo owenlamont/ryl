@@ -894,6 +894,22 @@ impl YamlLintConfig {
     }
 
     /// Backs `--enable`: run exactly `selected`, keeping the options of any already enabled.
+    /// # Errors
+    /// Returns an error when two enabled rules cannot both be satisfied.
+    pub fn check_rule_conflicts(&self) -> Result<(), String> {
+        if self.rule_level(crate::rules::yaml_directive::ID).is_some()
+            && self.rule_level(crate::rules::document_start::ID).is_some()
+            && !crate::rules::document_start::Config::resolve(self).requires_marker()
+        {
+            return Err(
+                "invalid config: yaml-directive needs the document start \"---\" \
+                 that document-start forbids with present: false"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
     pub fn restrict_rules(&mut self, selected: &[&str]) {
         self.rules
             .retain(|name, _| selected.contains(&name.as_str()));
@@ -1137,16 +1153,7 @@ impl YamlLintConfig {
         {
             return Err(format!("invalid config: no such rule: \"{unknown}\""));
         }
-        if self.rule_level(crate::rules::yaml_directive::ID).is_some()
-            && self.rule_level(crate::rules::document_start::ID).is_some()
-            && !crate::rules::document_start::Config::resolve(self).requires_marker()
-        {
-            return Err(
-                "invalid config: yaml-directive needs the document start \"---\" \
-                 that document-start forbids with present: false"
-                    .to_string(),
-            );
-        }
+        self.check_rule_conflicts()?;
 
         let (matcher, extra_patterns) = build_ignore_matcher(
             &self.ignore_patterns,

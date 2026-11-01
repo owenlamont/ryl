@@ -941,13 +941,15 @@ impl<'a> RecordStream<'a> {
         {
             eprintln!("error: {message}");
         }
-        let entry = report_entry(record, &self.project_root);
         let mut gitlab = Vec::new();
-        if let Some(state) = &mut self.gitlab {
-            state.append(&mut gitlab, &entry);
-        }
-        if let Some(junit) = &mut self.junit {
-            junit.append(&entry);
+        if self.gitlab.is_some() || self.junit.is_some() {
+            let entry = report_entry(record, &self.project_root);
+            if let Some(state) = &mut self.gitlab {
+                state.append(&mut gitlab, &entry);
+            }
+            if let Some(junit) = &mut self.junit {
+                junit.append(&entry);
+            }
         }
         for (target, (writer, status)) in self.targets.iter().zip(&mut self.writers) {
             let console;
@@ -1863,10 +1865,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
             &prefixes,
             &mut |path, outcome| out.push(path, outcome),
         )?;
-        if preview == Preview::Check
-            && stats.changed_files == 0
-            && stats.skipped.is_empty()
-        {
+        if preview == Preview::Check && stats.changed_files == 0 && !stats.skipped {
             for entry in entries.into_iter().flatten() {
                 cache::mark_clean(&entry)?;
             }
@@ -2098,17 +2097,18 @@ fn emit_notices(notices: &[String], no_warnings: bool) {
 
 /// Lint `files` in parallel, handing each outcome to `emit` in input order.
 fn lint_files(files: &[LintFile], mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>))) {
-    let Ok(()) = ryl::cli_support::try_for_each_ordered(
-        files,
-        |(path, base_dir, cfg, kind)| match kind {
-            SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
-            SourceKind::Yaml => lint_file(path, cfg, base_dir),
-        },
-        |idx, result| {
+    let Ok(()) =
+        ryl::cli_support::try_for_each_ordered(files, lint_path, |idx, result| {
             emit(idx, result);
             Ok::<(), std::convert::Infallible>(())
-        },
-    );
+        });
+}
+
+fn lint_path((path, base_dir, cfg, kind): &LintFile) -> LintOutcome {
+    match kind {
+        SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
+        SourceKind::Yaml => lint_file(path, cfg, base_dir),
+    }
 }
 
 /// Cache misses stored per batch file, so the pending entries stay bounded.
@@ -2124,7 +2124,7 @@ fn lint_files_cached(
     settings: &cache::Settings,
     mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>)),
 ) -> Result<(), String> {
-    let compute = |(path, base_dir, cfg, kind): &LintFile| -> Result<_, String> {
+    let compute = |file @ (path, base_dir, cfg, kind): &LintFile| -> Result<_, String> {
         let entry = settings.entry(path, base_dir, cfg, *kind, "check")?;
         if let Some(problems) =
             entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
@@ -2143,10 +2143,7 @@ fn lint_files_cached(
                         lint_str_with_repair_help(&content, path, cfg, base_dir)
                     }
                 }),
-            None => match kind {
-                SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
-                SourceKind::Yaml => lint_file(path, cfg, base_dir),
-            },
+            None => lint_path(file),
         };
         Ok((outcome, entry.map(|(path, _)| path)))
     };

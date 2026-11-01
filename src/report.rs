@@ -1,4 +1,4 @@
-//! Whole-document report formats: `JUnit` XML and `GitLab` code quality JSON.
+//! Report formats, written one entry at a time: `JUnit` XML and `GitLab` code quality JSON.
 //!
 //! All user text is sanitized before serialization so it cannot break out of the
 //! structure: `JUnit` via `xml_sanitize` (control chars plus the U+FFFE/U+FFFF
@@ -186,22 +186,9 @@ fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
 /// document unparsable. Control chars are the only other XML-invalid scalars a Rust
 /// `char` can hold (surrogates are unrepresentable), so this covers the whole gap.
 fn xml_sanitize(text: &str) -> Cow<'_, str> {
-    fn forbidden(c: char) -> bool {
+    crate::cli_support::escape_chars(text, |c| {
         c.is_control() || c == '\u{fffe}' || c == '\u{ffff}'
-    }
-    if !text.contains(forbidden) {
-        return Cow::Borrowed(text);
-    }
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        if forbidden(c) {
-            write!(out, "\\u{{{:x}}}", c as u32)
-                .expect("writing to a String is infallible");
-        } else {
-            out.push(c);
-        }
-    }
-    Cow::Owned(out)
+    })
 }
 
 fn write_case_with_child<W: Write>(

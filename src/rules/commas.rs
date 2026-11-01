@@ -6,7 +6,7 @@ mod target;
 use crate::text_version::edits::Edit;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::{Columns, skip_comment};
+use crate::rules::support::punctuation::{AfterResult, Columns, compute_spaces_after};
 use crate::rules::support::span_utils::{BytePos, apply_replacements};
 use crate::text_version::{Analysis, TextVersion};
 
@@ -94,11 +94,6 @@ enum BeforeResult {
     Ignored,
 }
 
-enum AfterResult {
-    SameLine { spaces: usize, next_char: usize },
-    Ignored,
-}
-
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
     check_with_analysis(TextVersion::new(buffer).analysis(), cfg)
@@ -174,11 +169,11 @@ fn evaluate_comma(
         }
     }
 
-    if let AfterResult::SameLine { spaces, next_char } =
+    if let AfterResult::SameLine { spaces, next_idx } =
         compute_spaces_after(bytes, comma_idx)
     {
         let spaces_i64 = i64::try_from(spaces).unwrap_or(i64::MAX);
-        let (line, column) = columns.at(next_char);
+        let (line, column) = columns.at(next_idx);
         if cfg.max_spaces_after >= 0 && spaces_i64 > cfg.max_spaces_after {
             let highlight_column = column.saturating_sub(1).max(1);
             violations.push(Violation {
@@ -225,26 +220,6 @@ fn compute_spaces_before(bytes: &[u8], comma_idx: usize) -> BeforeResult {
     }
 }
 
-fn compute_spaces_after(bytes: &[u8], comma_idx: usize) -> AfterResult {
-    let mut spaces = 0usize;
-    let mut idx = comma_idx + 1;
-    loop {
-        match bytes.get(idx) {
-            Some(b' ' | b'\t') => {
-                spaces += 1;
-                idx += 1;
-            }
-            None | Some(b'\n' | b'\r' | b'#') => return AfterResult::Ignored,
-            Some(_) => {
-                return AfterResult::SameLine {
-                    spaces,
-                    next_char: idx,
-                };
-            }
-        }
-    }
-}
-
 #[doc(hidden)]
 #[must_use]
 pub fn coverage_compute_spaces_before(buffer: &str, comma_idx: usize) -> Option<usize> {
@@ -280,18 +255,6 @@ pub(crate) fn collect_comma_fixes(
     replacements: &mut Vec<crate::rules::support::token_spacing::SpaceEdit>,
 ) {
     replacements.extend(target::select(cfg, input::Initial::new(bytes, comma_idx)));
-}
-
-#[doc(hidden)]
-#[must_use]
-pub fn coverage_skip_comment_crlf() -> (usize, usize) {
-    let chars_crlf = "#\r\n".as_bytes();
-    let idx_crlf = skip_comment(chars_crlf, 0);
-
-    let chars_cr = "#\r".as_bytes();
-    let idx_cr = skip_comment(chars_cr, 0);
-
-    (idx_crlf, idx_cr)
 }
 
 pub(crate) struct Closing<'a>(target::Closing<'a>);

@@ -36,11 +36,12 @@ pub(crate) enum Kind<'text> {
 const WIDE: u32 = u32::MAX;
 const EXTRA: u32 = 0x80;
 
-/// 16 bytes per token: start and end byte, start line above an 8-bit kind code, and start
-/// column. A token's character index is its byte less the UTF-8 continuation bytes before
-/// it, `delta`, which only a token flagged `EXTRA` changes; such a token, spanning lines,
-/// holding a multibyte character or carrying an indent, also stores its end line, end
-/// column, indent and end delta. Anything else stores its whole span in `wide`.
+/// 16 bytes per token: start and end byte, start line above a 7-bit kind code and the
+/// `EXTRA` flag, and start column. A token's character index is its byte less the UTF-8
+/// continuation bytes before it, `delta`, which only an `EXTRA` or `wide` token changes. An
+/// `EXTRA` token, spanning lines, holding a multibyte character or carrying an indent, also
+/// stores its end line, end column, indent and end delta. Anything else stores its whole
+/// span in `wide`.
 #[derive(Default)]
 pub(crate) struct Tokens {
     records: Vec<[u32; 4]>,

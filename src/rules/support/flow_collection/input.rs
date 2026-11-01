@@ -1,9 +1,7 @@
 pub(super) use crate::rules::support::punctuation::Gap;
+use crate::rules::support::punctuation::{AfterResult, compute_spaces_after};
 
-use super::{
-    AfterResult, compute_spaces_after_open, compute_spaces_before_close,
-    next_significant_index,
-};
+use super::{compute_spaces_before_close, next_significant_index};
 
 pub(super) struct Opening {
     empty: bool,
@@ -15,7 +13,7 @@ impl Opening {
     pub(super) fn new(bytes: &[u8], at: usize, close: u8) -> Self {
         let empty =
             next_significant_index(bytes, at).is_some_and(|next| bytes[next] == close);
-        let (gap, immediately_closed) = match compute_spaces_after_open(bytes, at) {
+        let (gap, immediately_closed) = match compute_spaces_after(bytes, at) {
             AfterResult::SameLine { spaces, next_idx } => (
                 Some(Gap::new(at + 1, next_idx, spaces)),
                 bytes[next_idx] == close,

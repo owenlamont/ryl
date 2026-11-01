@@ -80,7 +80,7 @@ Windows/MSVC: ensure the `llvm-tools-preview` component is installed (already li
   fallback to `.`.
 - Flow scanners in rules: keep offsets in bytes using `marker_byte_offset` and `BytePos`
   from `crate::rules::support::span_utils`; derive diagnostic character columns with
-  `punctuation::byte_line_and_column`. Integration tests assert public diagnostic
+  `punctuation::Columns::at`. Integration tests assert public diagnostic
   positions instead of importing the crate-private helper.
 - Rules using the shared `crate::rules::support::mapping_key_walker::Walker` to track
   key/value position must advance it for *every* node-producing event, including

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use ryl_yaml_parser::Event;
 #[cfg(not(unix))]
@@ -19,6 +19,7 @@ use crate::markdown_embed::{
 use crate::rules::support::collection_style;
 use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
 use crate::rules::support::span_utils::BytePos;
+use crate::rules::support::yaml_version::Readers;
 use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, hyphens, indentation, key_ordering, line_length,
@@ -388,8 +389,7 @@ pub struct DiffStats {
     pub changed_files: usize,
     /// Per-file stderr, including skip notices, in input order.
     pub notices: Vec<u8>,
-    pub file_notices: Vec<Vec<u8>>,
-    pub skipped: Vec<PathBuf>,
+    pub skipped: bool,
     /// Files read that would not change and drew no skip.
     pub unchanged: usize,
 }
@@ -398,9 +398,7 @@ impl DiffStats {
     pub fn record(&mut self, path: &Path, outcome: &DiffOutcome, flag: &str) {
         self.changed_files += usize::from(outcome.changed);
         self.unchanged += usize::from(!outcome.changed && outcome.skipped.is_empty());
-        if !outcome.skipped.is_empty() {
-            self.skipped.push(path.to_path_buf());
-        }
+        self.skipped |= !outcome.skipped.is_empty();
         for problem in &outcome.skipped {
             self.notices
                 .extend_from_slice(skip_notice(path, problem, flag).as_bytes());
@@ -429,7 +427,7 @@ fn cwd_relative_label(path: &Path) -> String {
             }
             _ => cwd.join(path),
         };
-        let mut absolute = PathBuf::new();
+        let mut absolute = std::path::PathBuf::new();
         for component in rooted.components() {
             if component == std::path::Component::ParentDir {
                 absolute.pop();
@@ -857,24 +855,24 @@ fn representation_matches(before: Analysis<'_>, after: Analysis<'_>) -> bool {
 
 #[derive(Default)]
 pub(crate) struct EventComparison {
-    yaml11: bool,
+    readers: Readers,
 }
 
 impl EventComparison {
     pub(crate) fn matches(&mut self, a: &Event<'_>, b: &Event<'_>) -> bool {
         if let Event::DocumentStart(_, version) = a {
-            self.yaml11 = crate::rules::support::yaml_version::resolves_as_yaml_1_1(
+            self.readers = Readers::of(
                 version.map(crate::rules::support::yaml_version::event_version),
+                crate::config::TargetVersion::Yaml12,
             );
         }
         a == b
-            || normalized_event(a.clone(), self.yaml11)
-                == normalized_event(b.clone(), self.yaml11)
+            || normalized_event(a.clone(), self.readers)
+                == normalized_event(b.clone(), self.readers)
     }
 }
 
-fn normalized_event(mut event: Event<'_>, yaml11: bool) -> Event<'_> {
-    use crate::rules::support::yaml_version;
+fn normalized_event(mut event: Event<'_>, readers: Readers) -> Event<'_> {
     use ryl_yaml_parser::{ScalarStyle, StructureStyle};
     match &mut event {
         Event::DocumentStart(explicit, _) => *explicit = false,
@@ -884,14 +882,9 @@ fn normalized_event(mut event: Event<'_>, yaml11: bool) -> Event<'_> {
         Event::Scalar(value, style, _, tag)
             if (*style != ScalarStyle::Plain
                 || tag.is_some()
-                || (if yaml11 {
-                    !yaml_version::resolves_to_nonstring_in_yaml_1_1(value)
-                } else {
-                    matches!(
-                        crate::yaml_dom::Scalar::resolve_plain_scalar(value.clone()),
-                        crate::yaml_dom::Scalar::String(_)
-                    ) && !crate::yaml_dom::is_core_schema_int_spelling(value)
-                }))
+                || crate::text_version::model::resolves_to_string_for(
+                    readers, value,
+                ))
                 && (!value.contains('\u{feff}')
                     || matches!(
                         *style,
@@ -1003,13 +996,9 @@ pub fn diff_files<'a>(
             if let Some(notices) = preceding_notices.get(index) {
                 stats.notices.extend_from_slice(notices);
             }
-            let notice_start = stats.notices.len();
             if let Some(notice) = symlink_notice(path, flag) {
                 stats.notices.extend_from_slice(notice.as_bytes());
-                stats
-                    .file_notices
-                    .push(stats.notices[notice_start..].to_vec());
-                stats.skipped.push(path.clone());
+                stats.skipped = true;
                 return Ok(());
             }
             stats.notices.extend(stderr);
@@ -1017,9 +1006,6 @@ pub fn diff_files<'a>(
                 let _ = std::io::stderr().write_all(&stats.notices);
             })?;
             stats.record(path, &outcome, flag);
-            stats
-                .file_notices
-                .push(stats.notices[notice_start..].to_vec());
             emit(path, outcome);
             Ok(())
         },

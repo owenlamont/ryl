@@ -129,7 +129,7 @@ Markdown paths.
 
 Every multi-file pass (`lint_files`, `lint_files_cached`, and `fix::rewrite_files` and
 `fix::diff_files` through `read_in_order`) runs on `cli_support::try_for_each_ordered`.
-The calling thread spawns chunks of files on the rayon pool, at most `IN_FLIGHT` chunks
+The calling thread spawns chunks of files on the rayon pool, at most `8 × threads` chunks
 past the oldest unemitted one, and hands each result to its `emit` callback in input
 order, so memory stays flat in the file count. Tasks never block, so a nested
 `rayon::join` cannot deadlock against the window, and a worker panic is re-raised on the
@@ -267,8 +267,8 @@ could make the output ambiguous and whether a flow collection stays where `block
 configured (`collection_style::Plan::settles`); only then do notices parse the output.
 A preview skips notices outright when that evidence is quiet (`FormatCache::quiet`).
 Markdown notices come from each region's own rewrite in `fix_markdown_cached`.
-BOM inputs retain the
-cached normalizer, whose marker columns distinguish prefix BOMs from scalar content.
+BOM inputs keep a
+normalizer whose marker columns distinguish prefix BOMs from scalar content.
 Physical lines borrow slices from the byte-start table; scalar protection ranges are
 cached per text epoch. Space replacements emit counts.
 

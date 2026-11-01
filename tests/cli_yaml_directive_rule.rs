@@ -85,11 +85,21 @@ fn fix_declines_a_needed_end_marker_that_document_end_forbids() {
 
 #[test]
 fn document_start_present_false_is_a_config_error() {
-    let config = format!("{TARGET_1_2}document-start = {{ present = false }}\n");
-    let (code, output, _) = ryl_with(&config, "a: 1\n", &["check"]);
-    assert_eq!(code, 2, "{output}");
-    assert!(
-        output.contains("yaml-directive needs the document start"),
-        "{output}"
-    );
+    for (config, args) in [
+        (
+            format!("{TARGET_1_2}document-start = {{ present = false }}\n"),
+            &["check"][..],
+        ),
+        (
+            "[lint.rules]\ndocument-start = { present = false }\n".to_string(),
+            &["check", "--enable", "ALL"][..],
+        ),
+    ] {
+        let (code, output, _) = ryl_with(&config, "a: 1\n", args);
+        assert_eq!(code, 2, "{args:?}: {output}");
+        assert!(
+            output.contains("yaml-directive needs the document start"),
+            "{args:?}: {output}"
+        );
+    }
 }
