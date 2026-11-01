@@ -106,7 +106,10 @@ fn a_plain_scalar_spanning_lines_is_declined() {
         &["check", "--fix"],
     );
     assert_eq!(fixed, folded);
-    assert!(output.contains("timestamp in YAML 1.1  ("), "{output}");
+    assert!(
+        output.contains("timestamp in YAML 1.1") && !output.contains("; unsafe fix"),
+        "{output}"
+    );
 }
 
 #[test]
@@ -130,12 +133,13 @@ fn only_an_undeclared_document_under_target_1_1_is_fixed() {
 fn messages_name_the_fix_only_once_the_config_enables_it() {
     let (_, output, _) = ryl_with(RULES, "a: yes\n", &["check"]);
     assert!(
-        output.contains("truthy value should be one of [false, true]  (truthy)"),
+        output.contains("truthy value should be one of [false, true]")
+            && !output.contains("; unsafe fix"),
         "{output}"
     );
     let (_, output, _) = ryl_with(RULES, "a: yes\n", &["check", "--unsafe-fixes"]);
     assert!(
-        output.contains("; unsafe fix: yes -> \"yes\"  (truthy)"),
+        output.contains("[false, true]; unsafe fix: yes -> \"yes\""),
         "{output}"
     );
 }
@@ -144,12 +148,13 @@ fn messages_name_the_fix_only_once_the_config_enables_it() {
 fn check_hints_at_unsafe_fixes_unless_turned_off() {
     let hint = "3 unsafe fixes available with `--fix --unsafe-fixes`.";
     let content = "a: yes\nb: 0777\nc: 22:22\n";
-    let (_, output, _) = ryl_with(RULES, content, &["check"]);
+    let standard = ["check", "--format", "standard"];
+    let (_, output, _) = ryl_with(RULES, content, &standard);
     assert!(output.contains(hint), "{output}");
     let (_, output, fixed) = ryl_with(RULES, content, &["check", "--fix"]);
     assert_eq!(fixed, content);
     assert!(output.contains(hint), "{output}");
-    let (_, output, _) = ryl_with(RULES, "a: yes\n", &["check"]);
+    let (_, output, _) = ryl_with(RULES, "a: yes\n", &standard);
     assert!(
         output.contains("1 unsafe fix available with `--fix --unsafe-fixes`."),
         "{output}"
@@ -183,7 +188,7 @@ fn extend_safe_fixes_promotes_one_rule_and_unfixable_blocks_it() {
     assert_eq!(fixed, "a: \"yes\"\nb: 0777\n", "{output}");
     assert!(!output.contains("0777 -> 777"), "{output}");
     let hinted = blocked.replace("unsafe-fixes = true\n", "");
-    let (_, output, _) = ryl_with(&hinted, content, &["check"]);
+    let (_, output, _) = ryl_with(&hinted, content, &["check", "--format", "standard"]);
     assert!(
         output.contains("1 unsafe fix available"),
         "a blocked rule's fix is not advertised: {output}"
