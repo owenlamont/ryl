@@ -302,21 +302,9 @@ impl CliConfigFlags {
         if let Some(patterns) = &self.exclude {
             cfg.replace_exclude(patterns)?;
         }
-        match cfg.check_rule_conflicts() {
-            // Finalize already rejected a config naming yaml-directive, so here only
-            // `ALL` can have added it, and the config's explicit `present = false` wins.
-            Err(_) if self.enable_all => {
-                cfg.disable_rules(&[crate::rules::yaml_directive::ID]);
-                Ok(Some(format!(
-                    "warning: `{}` and `{}` with `present = false` are incompatible. \
-                     Ignoring `{}`.",
-                    crate::rules::yaml_directive::ID,
-                    crate::rules::document_start::ID,
-                    crate::rules::yaml_directive::ID,
-                )))
-            }
-            conflict => conflict.map(|()| None),
-        }
+        // Finalize already rejected a config naming yaml-directive, so a conflict here
+        // means the CLI enabled it, by name or through `ALL`.
+        cfg.resolve_rule_conflicts(self.enable_all)
     }
 }
 

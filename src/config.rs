@@ -195,6 +195,7 @@ impl Env for ClosureEnv<'_> {
 }
 
 #[derive(Debug, Clone)]
+#[expect(clippy::struct_excessive_bools, reason = "independent config flags")]
 pub struct YamlLintConfig {
     cache_dir: Option<PathBuf>,
     path_case: PathCase,
@@ -233,6 +234,7 @@ pub struct YamlLintConfig {
     locale: Option<String>,
     fix: FixConfig,
     deprecated_keys: Vec<DeprecatedKeyUse>,
+    yaml_directive_from_all: bool,
 }
 
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
@@ -619,6 +621,7 @@ impl Default for YamlLintConfig {
             locale: None,
             fix: FixConfig::default(),
             deprecated_keys: Vec::new(),
+            yaml_directive_from_all: false,
         }
     }
 }
@@ -893,20 +896,37 @@ impl YamlLintConfig {
         }
     }
 
+    /// Drops `yaml-directive` with a warning when only `ALL` enabled it beside
+    /// `document-start`'s `present = false`, since the explicit option wins.
+    ///
     /// # Errors
-    /// Returns an error when two enabled rules cannot both be satisfied.
-    pub fn check_rule_conflicts(&self) -> Result<(), String> {
-        if self.rule_level(crate::rules::yaml_directive::ID).is_some()
-            && self.rule_level(crate::rules::document_start::ID).is_some()
-            && !crate::rules::document_start::Config::resolve(self).requires_marker()
+    /// Returns an error when a named `yaml-directive` meets that `present = false`.
+    pub fn resolve_rule_conflicts(
+        &mut self,
+        yaml_directive_from_all: bool,
+    ) -> Result<Option<String>, String> {
+        use crate::rules::{document_start, yaml_directive};
+        if self.rule_level(yaml_directive::ID).is_none()
+            || self.rule_level(document_start::ID).is_none()
+            || document_start::Config::resolve(self).requires_marker()
         {
+            return Ok(None);
+        }
+        if !yaml_directive_from_all {
             return Err(
                 "invalid config: yaml-directive needs the document start \"---\" \
                  that document-start forbids with present: false"
                     .to_string(),
             );
         }
-        Ok(())
+        self.disable_rules(&[yaml_directive::ID]);
+        Ok(Some(format!(
+            "warning: `{}` and `{}` with `present = false` are incompatible. \
+             Ignoring `{}`.",
+            yaml_directive::ID,
+            document_start::ID,
+            yaml_directive::ID,
+        )))
     }
 
     /// Backs `--enable`: run exactly `selected`, keeping the options of any already enabled.
@@ -1121,6 +1141,7 @@ impl YamlLintConfig {
             self.fix = typed_fix_config(fix);
         }
 
+        self.yaml_directive_from_all = normalized.yaml_directive_from_all;
         for (name, value) in &normalized.rules {
             self.merge_rule(name, value);
         }
@@ -1141,7 +1162,7 @@ impl YamlLintConfig {
         &mut self,
         envx: &dyn Env,
         base_dir: &Path,
-    ) -> Result<(), String> {
+    ) -> Result<Option<String>, String> {
         self.path_case = envx.case_insensitive_paths().into();
         // Reject unknown rule names (matching yamllint's "no such rule"): an unknown rule
         // is never dispatched by `lint_str`, so without this a typo lints nothing and a
@@ -1153,7 +1174,7 @@ impl YamlLintConfig {
         {
             return Err(format!("invalid config: no such rule: \"{unknown}\""));
         }
-        self.check_rule_conflicts()?;
+        let notice = self.resolve_rule_conflicts(self.yaml_directive_from_all)?;
 
         let (matcher, extra_patterns) = build_ignore_matcher(
             &self.ignore_patterns,
@@ -1199,7 +1220,7 @@ impl YamlLintConfig {
         for rule in self.rules.values_mut() {
             rule.build_filter(envx, base_dir)?;
         }
-        Ok(())
+        Ok(notice)
     }
 
     fn merge_rule(&mut self, name: &str, value: &YamlOwned) {
@@ -1502,6 +1523,7 @@ fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
             .iter()
             .map(|(name, rule)| (name.clone(), rule.value.clone()))
             .collect(),
+        yaml_directive_from_all: false,
     }
 }
 
@@ -1567,7 +1589,7 @@ fn finalize_context(
     config_found: bool,
 ) -> Result<ConfigContext, String> {
     let base_dir = base_dir.into();
-    cfg.finalize(envx, &base_dir)?;
+    notices.extend(cfg.finalize(envx, &base_dir)?);
     cfg.source.clone_from(&source);
     let config_path = source.as_deref().unwrap_or_else(|| Path::new("config"));
     let file_name = source

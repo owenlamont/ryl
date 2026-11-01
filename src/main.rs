@@ -2091,7 +2091,8 @@ fn emit_notices(notices: &[String], no_warnings: bool) {
     if no_warnings {
         return;
     }
-    for notice in notices {
+    let mut seen = HashSet::new();
+    for notice in notices.iter().filter(|notice| seen.insert(*notice)) {
         eprintln!("{}", sanitize_control(notice));
     }
 }
@@ -2205,11 +2206,7 @@ fn gather_lint_files(
     for (path, explicit) in tagged {
         let (base_dir, cfg, file_notices, found) =
             resolve_ctx(path, global_cfg, flags, cache)?;
-        for notice in file_notices {
-            if !notices.contains(&notice) {
-                notices.push(notice);
-            }
-        }
+        notices.extend(file_notices);
         if cfg.is_file_ignored(path, &base_dir) {
             continue;
         }

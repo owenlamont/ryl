@@ -1616,6 +1616,7 @@ pub struct NormalizedConfig {
     pub target_version: Option<TargetVersion>,
     pub fix: Option<NormalizedFixConfig>,
     pub rules: BTreeMap<String, YamlOwned>,
+    pub yaml_directive_from_all: bool,
 }
 
 #[derive(Debug, Clone, Default)]

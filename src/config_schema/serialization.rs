@@ -140,6 +140,11 @@ pub(crate) fn yaml_owned_to_toml_value(
 pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
     let lint = config.merged_lint();
     let (exclude, exclude_from_file) = config.merged_exclude();
+    let mut rules = lint
+        .rules
+        .as_ref()
+        .map_or_else(std::collections::BTreeMap::new, normalized_rules_from_table);
+    let yaml_directive_from_all = expand_all_rules(&mut rules);
     NormalizedConfig {
         strict: lint.strict,
         cache_dir: config.cache_dir.clone(),
@@ -165,26 +170,23 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
         indent_width: config.indent_width,
         target_version: config.target_version,
         fix: normalize_fix_policy(&lint),
-        rules: lint
-            .rules
-            .as_ref()
-            .map_or_else(std::collections::BTreeMap::new, |rules| {
-                expand_all_rules(normalized_rules_from_table(rules))
-            }),
+        rules,
+        yaml_directive_from_all,
     }
 }
 
-fn expand_all_rules(
-    mut rules: std::collections::BTreeMap<String, YamlOwned>,
-) -> std::collections::BTreeMap<String, YamlOwned> {
-    if rules.remove("ALL").as_ref().and_then(YamlOwned::as_str) == Some("enable") {
-        for id in crate::rules::ALL_RULE_IDS {
-            rules.entry(id.to_string()).or_insert_with(|| {
-                YamlOwned::Value(ScalarOwned::String("enable".into()))
-            });
-        }
+/// Whether `ALL` added `yaml-directive`, rather than the table naming it.
+fn expand_all_rules(rules: &mut std::collections::BTreeMap<String, YamlOwned>) -> bool {
+    if rules.remove("ALL").as_ref().and_then(YamlOwned::as_str) != Some("enable") {
+        return false;
     }
-    rules
+    let from_all = !rules.contains_key(crate::rules::yaml_directive::ID);
+    for id in crate::rules::ALL_RULE_IDS {
+        rules
+            .entry(id.to_string())
+            .or_insert_with(|| YamlOwned::Value(ScalarOwned::String("enable".into())));
+    }
+    from_all
 }
 
 fn normalize_markdown_table(table: &MarkdownTable) -> NormalizedMarkdown {
@@ -215,6 +217,7 @@ pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
             .rules
             .as_ref()
             .map_or_else(std::collections::BTreeMap::new, normalized_rules_from_table),
+        yaml_directive_from_all: false,
     }
 }
 

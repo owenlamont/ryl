@@ -17,8 +17,8 @@ summarize user-visible changes from the tagged commits and published release rec
 - The ryl-only `yaml-directive` rule requires a `%YAML` directive on every document.
   Its safe fix stamps `%YAML 1.2` under `target-version = "1.2"`; go-yaml and
   Kubernetes reject such files, so the rule page warns against enabling it for them.
-  Naming it beside `document-start` with `present = false` is a config error; under
-  `--enable ALL` the explicit `present = false` wins, and ryl warns and skips it.
+  Naming it beside `document-start` with `present = false` is a config error; when only
+  `ALL` enables it, the explicit `present = false` wins, and ryl warns and skips it.
   ([#576](https://github.com/owenlamont/ryl/issues/576))
 - The ryl-only `schema-dependent-values` rule flags plain scalars that YAML 1.1 and 1.2
   read differently: timestamps, sexagesimal numbers, underscored, `0b` and signed `0x`
