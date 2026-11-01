@@ -133,21 +133,15 @@ def child_env(environ: Mapping[str, str], *, cases: int) -> dict[str, str]:
     return env
 
 
-def _nextest(*args: str, capture: bool) -> str:
-    return subprocess.run(
-        [*_NEXTEST, *args, *_NEXTEST_ARGS, "-E", _PROPERTY_FILTER],
-        cwd=ROOT,
-        check=True,
-        capture_output=capture,
-        text=True,
-    ).stdout
+def _nextest(*args: str, filterset: str = _PROPERTY_FILTER) -> list[str]:
+    return [*_NEXTEST, *args, *_NEXTEST_ARGS, "-E", filterset]
 
 
 def _runner(env: Mapping[str, str]) -> Callable[[Suite], Run]:
     def run(suite: Suite) -> Run:
         start = time.monotonic()
         result = subprocess.run(
-            [*_NEXTEST, "run", *_NEXTEST_ARGS, "-E", suite.filterset],
+            _nextest("run", filterset=suite.filterset),
             cwd=ROOT,
             env=env,
             check=False,
@@ -199,10 +193,15 @@ def main(
     Raises:
         Exit: With status 1 when a suite fails.
     """
-    _nextest("run", "--no-run", capture=False)
-    schedule = suites(
-        json.loads(_nextest("list", "--message-format", "json", capture=True))
+    subprocess.run(_nextest("run", "--no-run"), cwd=ROOT, check=True)
+    listing = subprocess.run(
+        _nextest("list", "--message-format", "json"),
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
     )
+    schedule = suites(json.loads(listing.stdout))
     env = child_env(os.environ, cases=cases)
     deadline = time.monotonic() + minutes * 60.0
     run_suite = _runner(env)
