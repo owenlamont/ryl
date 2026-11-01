@@ -76,7 +76,9 @@ it before the directive changes would move its value.
 The fix leaves a document alone, and its report stands, when a scalar has no
 1.2 core spelling (a timestamp such as `2026-10-10`), or when PyYAML reads it
 as a string but go-yaml or ruamel.yaml's 1.1 mode reads a number or boolean
-(`08`, `1e5`, `-.5`, `y`, `0o777`). Rewrite or quote those by hand. Every
+(`08`, `1e5`, `-.5`, `y`, `0o777`). A scalar that would need respelling behind
+the non-specific `!` tag (`! 0777`) blocks it too: the spec reads it as a
+string, PyYAML and ruamel.yaml as if untagged. Rewrite or quote those by hand. Every
 other value keeps the meaning PyYAML and ruamel.yaml's 1.1 mode give it;
 go-yaml, which reads `22:22` as a string, rejects a `%YAML 1.2` file anyway. A
 merge key `<<` stays as it is.

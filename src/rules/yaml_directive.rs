@@ -194,8 +194,12 @@ fn resolved(input: Analysis<'_>) -> impl Iterator<Item = (Option<Value>, Event<'
         })
 }
 
-/// A tag's core-schema suffix, empty for a tag outside the core schema (`!`, `!env`).
+/// A tag's core-schema suffix: `!` for the non-specific tag, empty for any other tag
+/// outside the core schema (`!env`).
 fn tag_suffix(tag: &Tag) -> Cow<'_, str> {
+    if tag.handle().is_empty() && tag.suffix() == "!" {
+        return Cow::Borrowed("!");
+    }
     core_schema_suffix(tag).unwrap_or_default()
 }
 

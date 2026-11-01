@@ -174,12 +174,12 @@ fn arb_scalar() -> impl Strategy<Value = Scalar> {
         }),
         2 => listed(
             &["word", "'yes'", "\"0777\"", "~", "null", ".inf", "-.Inf", ".NaN", "0",
-              "!!str yes", "! on", "._5"],
+              "!!str yes", "! word", "._5"],
             Outcome::Keep,
         ),
         1 => listed(
             &["2026-10-10", "08", "1e5", "1.5e3", "y", "N", "0o17", "-.5", "=", "0b_",
-              "!!int yes", "!!bool 'yes'"],
+              "!!int yes", "!!bool 'yes'", "! 0777", "! on"],
             Outcome::Decline,
         ),
     ]

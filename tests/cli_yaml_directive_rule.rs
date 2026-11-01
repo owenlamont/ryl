@@ -85,7 +85,7 @@ fn fix_migrates_each_yaml_1_1_scalar_to_a_1_2_spelling_of_its_value() {
          f: 0b1010\ng: !!bool yes\nh: -0777\n\
          i: [~, .inf, .NaN, <<, 0x1F, -0x1_f, 0x1_f, 6_0:00:00.5, 1.5e+3, 1_0.5_, &x 1:0:0]\n\
          m: [-1:30.5, No]\n\
-         j: [\"yes\", ! on, !!str off, ._5]\nk: !!int 0_777\nl: !!float 1_0.5\n",
+         j: [\"yes\", ! word, !!str off, ._5]\nk: !!int 0_777\nl: !!float 1_0.5\n",
         &["check", "--fix"],
     );
     assert_eq!(code, 0, "{output}");
@@ -95,7 +95,7 @@ fn fix_migrates_each_yaml_1_1_scalar_to_a_1_2_spelling_of_its_value() {
          f: 10\ng: !!bool true\nh: -511\n\
          i: [~, .inf, .NaN, <<, 0x1F, -31, 0x1f, 216000.5, 1.5e+3, 10.5, &x 3600]\n\
          m: [-90.5, false]\n\
-         j: [\"yes\", ! on, !!str off, ._5]\nk: !!int 0o777\nl: !!float 10.5\n"
+         j: [\"yes\", ! word, !!str off, ._5]\nk: !!int 0o777\nl: !!float 10.5\n"
     );
 }
 
@@ -106,6 +106,7 @@ fn migration_declines_a_document_holding_a_value_1_2_cannot_carry() {
         "%YAML 1.1\n---\na: yes\nb: 0b_\n",
         "%YAML 1.1\n---\na: yes\nb: !!int yes\n",
         "%YAML 1.1\n---\na: yes\nb: !!bool 'yes'\n",
+        "%YAML 1.1\n---\na: yes\nb: ! 0777\n",
         "%YAML 1.0\n---\na: yes\nb: 2026-10-10\n",
     ]
     .join("...\n");
@@ -118,7 +119,11 @@ fn migration_declines_a_document_holding_a_value_1_2_cannot_carry() {
         .filter(|line| line.contains("is older than target-version \"1.2\""))
         .map(|line| line.split_whitespace().next().unwrap())
         .collect();
-    assert_eq!(older, ["5:1", "10:1", "15:1", "20:1", "25:1"], "{output}");
+    assert_eq!(
+        older,
+        ["5:1", "10:1", "15:1", "20:1", "25:1", "30:1"],
+        "{output}"
+    );
     assert!(
         output.contains("version directive \"%YAML 1.0\""),
         "{output}"

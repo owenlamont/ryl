@@ -146,11 +146,13 @@ pub(crate) enum Migration {
 }
 
 /// How a scalar of a `%YAML 1.1` document carries over to 1.2; `tag` is its core-schema
-/// suffix, empty for a tag outside the core schema.
+/// suffix, `!` for the non-specific tag, which `PyYAML` and ruamel.yaml resolve like no tag
+/// although the spec reads a string, and empty for any other tag outside the core schema.
 pub(crate) fn migration(text: &str, plain: bool, tag: Option<&str>) -> Migration {
     let typed = matches!(tag, Some("bool" | "int" | "float"));
+    let implicit = matches!(tag, None | Some("!"));
     if !typed
-        && (tag.is_some()
+        && (!implicit
             || !plain
             || text == "<<"
             || is_core_schema_null(text)
@@ -179,7 +181,9 @@ pub(crate) fn value(
     tag: Option<&str>,
     yaml_1_1: bool,
 ) -> Option<Value> {
-    if !(plain && tag.is_none() || matches!(tag, Some("bool" | "int" | "float"))) {
+    if !(plain && matches!(tag, None | Some("!"))
+        || matches!(tag, Some("bool" | "int" | "float")))
+    {
         None
     } else if yaml_1_1 {
         yaml_1_1_value(text).map(|(value, _)| value)
