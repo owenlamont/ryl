@@ -117,7 +117,10 @@ fn migration_declines_a_document_holding_a_value_1_2_cannot_carry() {
     let older: Vec<&str> = output
         .lines()
         .filter(|line| line.contains("is older than target-version \"1.2\""))
-        .map(|line| line.split_whitespace().next().unwrap())
+        .map(|line| {
+            let report = line.rsplit("::").next().unwrap();
+            report.split_whitespace().next().unwrap()
+        })
         .collect();
     assert_eq!(
         older,

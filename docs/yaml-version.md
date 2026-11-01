@@ -42,7 +42,7 @@ ryl honours it per document, and it overrides `target-version`:
 | :--- | :--- |
 | none | Resolved as YAML 1.2; output also kept safe for 1.1 readers unless `target-version = "1.2"`. |
 | `%YAML 1.2` | Resolved as YAML 1.2, for 1.2 readers only. |
-| `%YAML 1.1` (or `1.0`) | Resolved as YAML 1.1, so scalars that 1.1 reads as a non-string keep that meaning. |
+| `%YAML 1.1` (or `1.0`) | Resolved as YAML 1.1, so scalars that 1.1 reads as a non-string keep that meaning. ryl still parses the document with the YAML 1.2 grammar and resolves only its scalars as 1.1, so a raw NEL, LS or PS used as a line break is a syntax error ([full 1.1 parsing](https://github.com/owenlamont/ryl/issues/910)). |
 | `%YAML 1.3`+ (higher minor) | Processed as YAML 1.2 with a warning, as the spec directs. |
 | `%YAML 2.0`+ (higher major) | Rejected as an error; the spec requires rejecting a higher major version. |
 | two `%YAML` directives in one document | Rejected as an error, even when both name the same version. |
