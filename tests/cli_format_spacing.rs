@@ -48,6 +48,17 @@ fn keep_chomped_spaces_at_eof_preserve_the_reference_value() {
 }
 
 #[test]
+fn a_tab_after_a_compact_keys_colon_trims_its_block_scalars_blank_line_in_one_pass() {
+    let input = "g:\n  - v:\t|\n     \n    b: x\n";
+    let (code, _, stderr, formatted) = ryl_on(Some("[format]\n"), input, &["format"]);
+    assert_eq!(
+        (code, formatted.as_str()),
+        (0, "g:\n  - v: |\n\n    b: x\n"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn format_respaces_and_reindents_compact_collections() {
     let (code, stderr, formatted) = run_on(DIRTY, &["format"]);
     assert_eq!(

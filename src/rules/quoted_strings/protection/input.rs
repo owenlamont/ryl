@@ -146,7 +146,7 @@ impl Block<'_> {
         if rest
             .split(['|', '>'])
             .next()
-            .is_some_and(|key| key.contains(": "))
+            .is_some_and(|key| key.contains(": ") || key.contains(":\t"))
         {
             line.len() - rest.len()
         } else {
