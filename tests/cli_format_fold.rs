@@ -98,13 +98,24 @@ fn disabled_lines_stay_whole_and_nothing_is_duplicated() {
 }
 
 #[test]
-fn a_disable_line_covers_the_output_line_after_it_not_a_converted_items_line() {
-    let input =
-        "---\n# ryl disable-line rule:line-length\nk: [aaa bbb ccc ddd eee fff]\n";
-    let expected = "---\n# ryl disable-line rule:line-length\nk:\n  - aaa bbb ccc ddd\n    eee fff\n";
-    let config = format!("{FOLD}sequence-style = 'block'\n");
-    let (code, _, stderr, after) = ryl_on(Some(&config), input, &["format"]);
-    assert_eq!((code, after.as_str()), (0, expected), "{stderr}");
+fn a_disable_line_guards_only_the_line_it_precedes_after_block_conversion() {
+    let block = format!("{FOLD}sequence-style = 'block'\n");
+    let own_line = format!("{block}dash-on-own-line = true\n");
+    for (config, input, expected) in [
+        (
+            &block,
+            "---\n# ryl disable-line rule:line-length\nk: [aaa bbb ccc ddd eee fff]\n",
+            "---\n# ryl disable-line rule:line-length\nk:\n  - aaa bbb ccc ddd\n    eee fff\n",
+        ),
+        (
+            &own_line,
+            "---\nk: [a]\nl:\n  - k: v\n# ryl disable-line rule:line-length\nv: aaa bbb ccc ddd eee fff\n",
+            "---\nk:\n  - a\nl:\n  -\n    k: v\n# ryl disable-line rule:line-length\nv: aaa bbb ccc ddd eee fff\n",
+        ),
+    ] {
+        let (code, _, stderr, after) = ryl_on(Some(config), input, &["format"]);
+        assert_eq!((code, after.as_str()), (0, expected), "{input:?}: {stderr}");
+    }
 }
 
 #[test]
