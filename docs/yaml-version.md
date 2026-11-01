@@ -74,10 +74,12 @@ alone: `0o777` is a string to PyYAML and ruamel.yaml's 1.1 mode, so respelling
 it before the directive changes would move its value.
 
 The fix leaves a document alone, and its report stands, when a scalar has no
-1.2 core spelling (a timestamp such as `2026-10-10`) or when 1.1 readers
-disagree on its value: PyYAML reads `08`, `1e5`, `-.5`, `y` and `0o777` as
-strings, while go-yaml or ruamel.yaml's 1.1 mode read them as numbers or
-booleans. Rewrite or quote those by hand. A merge key `<<` stays as it is.
+1.2 core spelling (a timestamp such as `2026-10-10`), or when PyYAML reads it
+as a string but go-yaml or ruamel.yaml's 1.1 mode reads a number or boolean
+(`08`, `1e5`, `-.5`, `y`, `0o777`). Rewrite or quote those by hand. Every
+other value keeps the meaning PyYAML and ruamel.yaml's 1.1 mode give it;
+go-yaml, which reads `22:22` as a string, rejects a `%YAML 1.2` file anyway. A
+merge key `<<` stays as it is.
 
 Unless a document declares `%YAML 1.2` or `target-version = "1.2"` is set,
 `quoted-strings` and `ryl format` keep the quotes on any scalar YAML 1.1 reads

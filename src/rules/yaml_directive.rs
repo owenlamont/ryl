@@ -11,7 +11,8 @@
 //! The fix migrates a `%YAML 1.1` document in one edit, respelling every scalar whose 1.1
 //! value 1.2 reads differently and writing `%YAML 1.2`: a respelling alone can move a
 //! value under 1.1 (`0o777` is a string to `PyYAML`). A document holding a scalar with no
-//! 1.2 core spelling, or one 1.1 readers disagree on, keeps its report and no fix.
+//! 1.2 core spelling, or one `PyYAML` reads as a string and other 1.1 readers do not,
+//! keeps its report and no fix.
 
 use std::borrow::Cow;
 

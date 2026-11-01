@@ -129,8 +129,8 @@ For a document declaring `%YAML 1.1` or `1.0`, the fix migrates the whole
 document to 1.2 at once: it respells every plain scalar whose 1.1 value 1.2
 reads differently (`yes` to `true`, `0755` to `0o755`, `1:30` to `90`) and
 writes `%YAML 1.2`. It skips a document holding a scalar with no 1.2 spelling,
-such as a date, or one that YAML 1.1 readers load differently, such as `08` or
-`1e5`. [Migrating a `%YAML 1.1` document to
+such as a date, or one that PyYAML reads as a string and other YAML 1.1
+readers do not, such as `08` or `1e5`. [Migrating a `%YAML 1.1` document to
 1.2](../yaml-version.md#migrating-a-yaml-11-document-to-12) lists the
 spellings. A migrated `0o755` is still reported by `octal-values` unless
 `forbid-explicit-octal` is off.

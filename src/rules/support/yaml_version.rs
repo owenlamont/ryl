@@ -140,7 +140,8 @@ pub(crate) enum Migration {
     Keep,
     /// A 1.2 core spelling of the scalar's 1.1 value.
     Respell(String),
-    /// The value has no 1.2 core spelling, or 1.1 readers disagree on it.
+    /// The value has no 1.2 core spelling, or `PyYAML` reads a string where another 1.1
+    /// reader does not.
     Decline,
 }
 
