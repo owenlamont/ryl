@@ -9,7 +9,7 @@ different values, in a document with no `%YAML` directive.
 | :--- | :--- | :--- | :--- | :--- |
 | `forbid-timestamps` | Dates and timestamps | `2026-10-10` | string | timestamp |
 | `forbid-sexagesimal` | Base-60 numbers | `22:22` | string | integer 1342 |
-| `forbid-underscored-numbers` | Numbers with `_` or `0b` | `1_000`, `0b1010` | string | integer |
+| `forbid-underscored-numbers` | Numbers with `_` or `0b`, and signed `0x` | `1_000`, `0b1010`, `+0x1F` | string | integer |
 | `forbid-leading-zero-decimals` | A leading zero before `8` or `9` | `08` | integer 8 | string |
 | `forbid-single-letter-booleans` | `y`, `Y`, `n`, `N` | `y` | string | boolean |
 
@@ -18,7 +18,7 @@ reported.
 
 Other rules own the rest of the divergent spellings:
 [`truthy`](truthy.md) (`yes`, `no`, `on`, `off`),
-[`octal-values`](octal-values.md) (`0777`, `0o777`) and
+[`octal-values`](octal-values.md) (`0777`, `-0777`, `0o777`) and
 [`float-values`](float-values.md) (`1e5`, with `forbid-scientific-notation`).
 
 ## Why this matters

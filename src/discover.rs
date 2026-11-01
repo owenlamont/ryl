@@ -1,5 +1,5 @@
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 // Only the LSP's workspace pull needs this; gate it out of `--no-default-features` so
 // it is not flagged dead.
 #[cfg(feature = "lsp")]
@@ -43,24 +43,13 @@ pub fn is_walked_file(entry: &DirEntry) -> bool {
         .is_some_and(|t| t.is_file() || (t.is_symlink() && entry.path().is_file()))
 }
 
-#[must_use]
-pub fn gather_yaml_from_dir(dir: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    for entry in walk_dir(dir).flatten() {
-        if is_yaml_path(entry.path()) && is_walked_file(&entry) {
-            files.push(entry.into_path());
-        }
-    }
-    files
-}
-
-/// Like [`gather_yaml_from_dir`] but returns `None` as soon as `cancel` is set (checked
-/// once per entry), so a cancelled `workspace/diagnostic` stops enumerating a huge tree.
+/// The YAML files under `dir`, or `None` as soon as `cancel` is set (checked once per
+/// entry), so a cancelled `workspace/diagnostic` stops enumerating a huge tree.
 #[cfg(feature = "lsp")]
 pub(crate) fn gather_yaml_from_dir_cancellable(
     dir: &Path,
     cancel: &AtomicBool,
-) -> Option<Vec<PathBuf>> {
+) -> Option<Vec<std::path::PathBuf>> {
     let mut files = Vec::new();
     for entry in walk_dir(dir).flatten() {
         if cancel.load(Ordering::Relaxed) {

@@ -34,6 +34,22 @@ toolchain.
     winget install owenlamont.ryl
     ```
 
+=== "Homebrew"
+
+    ```bash
+    brew install ryl
+    ```
+
+=== "Scoop (Windows)"
+
+    ```powershell
+    scoop bucket add orb https://github.com/o-l-a-v/scoop-bucket
+    scoop install ryl
+    ```
+
+    The bucket is community-maintained by
+    [o-l-a-v](https://github.com/o-l-a-v/scoop-bucket).
+
 === "Prebuilt binary"
 
     Download a release artifact from the
@@ -53,8 +69,8 @@ release binary on the runner, verifies its checksum and runs `ryl check .`:
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: owenlamont/ryl-action@v0.27.0
-- uses: owenlamont/ryl-action@v0.27.0
+- uses: owenlamont/ryl-action@v0.28.0
+- uses: owenlamont/ryl-action@v0.28.0
   with:
     args: format --check .
 ```

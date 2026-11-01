@@ -30,19 +30,25 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    `collect_block_diagnostics`). Pick the arm matching the rule's shape (config or not,
    `Vec`/`Option`, per-violation or fixed `MESSAGE`).
 4. **TOML config wiring** (`src/config_schema.rs` + `config_schema/serialization.rs`):
-   a `RuleSelector` variant + `as_str` arm, a `RulesTable` field with its `…Options` type,
-   and the `insert_serialized` line in `rules_table_to_value`. These four parallel lists
-   have no compile-time cross-check; the `every_rule_round_trips_through_toml_serialization`
-   guard test catches a forgotten serialization line. Regenerate the committed
+   a `RuleSelector` variant + `as_str` arm and a `RulesTable` field with its `…Options`
+   type; `rules_table_to_value` serializes the table generically. These lists have no
+   compile-time cross-check; the `every_rule_round_trips_through_toml_serialization`
+   guard test catches a forgotten field. Regenerate the committed
    `ryl.{toml,yaml}.schema.json` (see the `testing-traps` dev skill) and run `prek`.
+   A safe `--fix` also needs: `FixRuleName` and `FixableRuleSelector` variants, the
+   `FixRule` name map and both selector conversions in `src/config.rs`, the rule in
+   `fix.rs`'s `SAFE_FIX_RULE_IDS`, a `Passes` field with its rewrite-loop step (and the
+   `Passes` literal in `format.rs`), and `SUPPRESSED` when the rule shapes a whole file.
 5. **Tests**: add the rule to `property_check`'s `collect_spans` + a `RULE_TRIGGERS`
-   row; if it has a safe `--fix`, also `SAFE_FIX_RULES` and the safe-fix generator. Add
-   a CLI test `tests/cli_<rule>_rule.rs` (use the shared `common::cli` harness) and an
-   embedded-markdown regression test in `tests/cli_markdown_embed.rs`.
-6. **Docs**: a `docs/rules/<rule>.md` page + the index, and a "How ryl differs from
-   yamllint" entry for any deliberate divergence. When a doc page shows example CLI
-   output, produce the `line:col`/message by **running ryl** on the shown input — not by
-   hand (hand-written examples have shipped with wrong columns).
+   row; if it has a safe `--fix`, also `SAFE_FIX_RULES`, the safe-fix generator and
+   `property_fix_convergence`. Add a CLI test `tests/cli_<rule>_rule.rs` (use the shared
+   `common::cli` harness) and an embedded-markdown regression test in
+   `tests/cli_markdown_embed.rs`.
+6. **Docs**: a `docs/rules/<rule>.md` page + the index, the hand-kept rule counts in
+   `README.md` and `docs/rules.md`, and a "How ryl differs from yamllint" entry for any
+   deliberate divergence (a ryl-only rule joins that page's list). When a doc page shows
+   example CLI output, produce the `line:col`/message by **running ryl** on the shown
+   input — not by hand (hand-written examples have shipped with wrong columns).
 
 ## Parser event/span gotchas (ryl-yaml-parser)
 

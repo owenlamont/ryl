@@ -1,7 +1,7 @@
 //! `schema-dependent-values`: flag plain scalars that YAML 1.1 and the YAML 1.2 core
 //! schema read as different values, in a document with no `%YAML` directive under
 //! `target-version = "1.1"`. `truthy`, `octal-values` and `float-values` own `yes`/`no`,
-//! `0777`/`0o777` and `1e5`. Sources: YAML 1.1 type repository, YAML 1.2.2 §10.3.2.
+//! `0777`/`-0777`/`0o777` and `1e5`. Sources: YAML 1.1 type repository, YAML 1.2.2 §10.3.2.
 //! No safe `--fix`: quoting, retyping or rewriting each needs the author's intent.
 
 use std::sync::LazyLock;
@@ -66,12 +66,17 @@ impl Kind {
         }
         if matches!(value, "y" | "Y" | "n" | "N") {
             Some(Self::SingleLetterBoolean)
-        } else if value.as_bytes().get(4) == Some(&b'-') {
+        } else if value.as_bytes().get(..5).is_some_and(|head| {
+            head[..4].iter().all(u8::is_ascii_digit) && head[4] == b'-'
+        }) {
             Some(Self::Timestamp)
         } else if value.contains(':') {
             Some(Self::Sexagesimal)
         } else if value.contains('_')
-            || value.trim_start_matches(['-', '+']).starts_with("0b")
+            || matches!(
+                value.trim_start_matches(['-', '+']).get(..2),
+                Some("0b" | "0x")
+            )
         {
             Some(Self::Underscored)
         } else {

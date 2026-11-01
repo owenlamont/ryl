@@ -264,7 +264,7 @@ impl Directives {
     /// Parse inline directives, then layer config `per-line-ignores` on top as a virtual
     /// `disable-line`, so lint filtering and `--fix` reconcile treat config and inline
     /// suppression identically. A `regex` entry suppresses its rules only on matching
-    /// lines, numbered via [`line_contents`] (same YAML 1.2 break set as the parser, so
+    /// lines, numbered via `Analysis::lines` (same YAML 1.2 break set as the parser, so
     /// a match on line *n* lands on a diagnostic at line *n*); a no-`regex` entry is
     /// file-wide, recorded once in `file_wide`.
     #[must_use]

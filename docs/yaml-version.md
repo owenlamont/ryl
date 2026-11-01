@@ -137,7 +137,8 @@ input as YAML 1.2 (an explicit `%YAML 1.1` shifts the value-resolving rules to
 
 - [`truthy`](rules/truthy.md) &mdash; the rule itself still recognises
   the 1.1 truthy word list as ambiguous and flags barewords like `yes`
-  or `On` so authors are warned about consumers that still use 1.1.
+  or `On` so authors are warned about consumers that still use 1.1, unless
+  `target-version = "1.2"` declares there are none.
 - [`octal-values`](rules/octal-values.md) &mdash; `0755` is treated as
   decimal `755`; the rule can still report it for ambiguity reasons.
 - [`float-values`](rules/float-values.md) &mdash; numeric formats follow

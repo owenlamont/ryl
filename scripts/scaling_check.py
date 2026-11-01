@@ -21,16 +21,28 @@ import json
 import math
 from pathlib import Path
 import shutil
+import statistics
 import subprocess
 import tempfile
 import time
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, TypedDict
 
 import typer
 
 
 ROOT: Final = Path(__file__).resolve().parent.parent
 MIB: Final = 1024 * 1024
+_MARKDOWN_BLOCK_BYTES: Final = 2048
+_FILES_PER_DIRECTORY: Final = 500
+_COUNT_FILE_BYTES: Final = 1500
+app = typer.Typer(
+    add_completion=False, context_settings={"help_option_names": ["-h", "--help"]}
+)
+
+
+class CommandFailedError(Exception):
+    """A timed command exited with a status it never returns normally."""
+
 
 # A snippet per rule that violates it, formatted with the repeat index `i`.
 DENSE: Final[dict[str, str]] = {
@@ -114,31 +126,42 @@ def markdown(yaml: str) -> str:
     for line in yaml.splitlines(keepends=True):
         chunk.append(line)
         length += len(line)
-        if length > 2048 and not line.startswith(" "):
+        if length > _MARKDOWN_BLOCK_BYTES and not line.startswith(" "):
             blocks.append("".join(chunk))
             chunk, length = [], 0
     blocks.append("".join(chunk))
     return "".join(f"# Part\n\n```yaml\n{block}```\n\n" for block in blocks if block)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Series:
     name: str
-    command: list[str]
+    command: tuple[str, ...]
     inputs: Callable[[float], dict[str, str]]
     config: str = ""
 
 
-def option_values(schema: dict[str, Any], node: dict[str, Any]) -> list[Any]:
+class SeriesResult(TypedDict):
+    series: str
+    slope: float
+    timings: list[tuple[float, float]]
+    timed_out: float | None
+
+
+def option_values(*, schema: dict[str, Any], node: dict[str, Any]) -> list[Any]:
     """Leaf values worth trying for a schema option: booleans, enum members, 1.
 
     Returns:
         The candidate values.
     """
     if "$ref" in node:
-        return option_values(schema, schema["$defs"][node["$ref"].split("/")[-1]])
+        return option_values(
+            schema=schema, node=schema["$defs"][node["$ref"].split("/")[-1]]
+        )
     if "anyOf" in node:
-        return [v for alt in node["anyOf"] for v in option_values(schema, alt)]
+        return [
+            v for alt in node["anyOf"] for v in option_values(schema=schema, node=alt)
+        ]
     if "enum" in node:
         return list(node["enum"])
     kinds = node.get("type", [])
@@ -160,7 +183,7 @@ def rule_options(rule: str) -> Iterator[tuple[str, Any]]:
         for option, node in defs.get(name, {}).get("properties", {}).items():
             if option in {"level", "ignore", "ignore-from-file"}:
                 continue
-            for value in dict.fromkeys(option_values(schema, node)):
+            for value in dict.fromkeys(option_values(schema=schema, node=node)):
                 yield option, value
 
 
@@ -180,19 +203,23 @@ def series(binary: str) -> Iterator[Series]:
         One `Series` per command and input family.
     """
 
-    def sized(text_for: Callable[[int], str], name: str = "in.yaml"):
+    def sized(
+        text_for: Callable[[int], str], name: str = "in.yaml"
+    ) -> Callable[[float], dict[str, str]]:
         return lambda mib: {name: text_for(int(mib * MIB))}
 
-    check = [binary, "check", "--no-cache"]
+    check = (binary, "check", "--no-cache")
     for rule, snippet in DENSE.items():
         dense = sized(lambda size, s=snippet: repeat(s, size))
-        yield Series(f"rule {rule}", [*check, "--enable", rule], dense)
+        yield Series(
+            name=f"rule {rule}", command=(*check, "--enable", rule), inputs=dense
+        )
         for option, value in rule_options(rule):
             yield Series(
-                f"rule {rule} {option}={toml_value(value)}",
-                [*check, "--enable", rule],
-                dense,
-                f"[lint.rules.{rule}]\n{option} = {toml_value(value)}\n",
+                name=f"rule {rule} {option}={toml_value(value)}",
+                command=(*check, "--enable", rule),
+                inputs=dense,
+                config=f"[lint.rules.{rule}]\n{option} = {toml_value(value)}\n",
             )
     every_rule = "\n".join(DENSE.values())
     families = {
@@ -202,13 +229,25 @@ def series(binary: str) -> Iterator[Series]:
         **{name: sized(make) for name, make in STRUCTURE.items()},
     }
     for family, inputs in families.items():
-        yield Series(f"check ALL {family}", [*check, "--enable", "ALL"], inputs)
-        yield Series(f"fix ALL {family}", [*check, "--fix", "--enable", "ALL"], inputs)
-        yield Series(f"format {family}", [binary, "format", "--no-cache"], inputs)
         yield Series(
-            f"format --markdown {family}",
-            [binary, "format", "--no-cache", "--markdown"],
-            lambda mib, inputs=inputs: {
+            name=f"check ALL {family}",
+            command=(*check, "--enable", "ALL"),
+            inputs=inputs,
+        )
+        yield Series(
+            name=f"fix ALL {family}",
+            command=(*check, "--fix", "--enable", "ALL"),
+            inputs=inputs,
+        )
+        yield Series(
+            name=f"format {family}",
+            command=(binary, "format", "--no-cache"),
+            inputs=inputs,
+        )
+        yield Series(
+            name=f"format --markdown {family}",
+            command=(binary, "format", "--no-cache", "--markdown"),
+            inputs=lambda mib, inputs=inputs: {
                 "in.md": markdown(next(iter(inputs(mib).values())))
             },
         )
@@ -220,28 +259,42 @@ def count_series(binary: str) -> Iterator[Series]:
     Yields:
         One `Series` per command.
     """
-    body = repeat("\n".join(DENSE.values()).replace("k: {i}\n", ""), 1500)
+    body = repeat("\n".join(DENSE.values()).replace("k: {i}\n", ""), _COUNT_FILE_BYTES)
 
     def files(count: float) -> dict[str, str]:
-        return {f"d{n // 500}/f{n}.yaml": body for n in range(int(count))}
+        return {
+            f"d{n // _FILES_PER_DIRECTORY}/f{n}.yaml": body for n in range(int(count))
+        }
 
-    check = [binary, "check", "--no-cache"]
-    yield Series("count check ALL", [*check, "--enable", "ALL"], files)
-    yield Series("count fix ALL", [*check, "--fix", "--enable", "ALL"], files)
-    yield Series("count format", [binary, "format", "--no-cache"], files)
+    check = (binary, "check", "--no-cache")
+    yield Series(
+        name="count check ALL", command=(*check, "--enable", "ALL"), inputs=files
+    )
+    yield Series(
+        name="count fix ALL", command=(*check, "--fix", "--enable", "ALL"), inputs=files
+    )
+    yield Series(
+        name="count format", command=(binary, "format", "--no-cache"), inputs=files
+    )
 
 
 def timed(
-    command: list[str], work: Path, inputs: dict[str, str], runs: int, limit: float
+    *,
+    command: list[str],
+    work: Path,
+    inputs: dict[str, str],
+    runs: int,
+    limit_seconds: float,
 ) -> float:
     """Minimum wall time of `command` over fresh copies of `inputs`.
 
     Returns:
-        Seconds; `inf` once a run reaches `limit`; `nan` when the command rejects
-        its configuration.
+        Seconds; `inf` once a run reaches `limit_seconds`; `nan` when the command
+        rejects its configuration.
 
     Raises:
-        RuntimeError: when the command exits with a code it never returns normally.
+        CommandFailedError: when the command exits with a code it never returns
+            normally.
     """
     allowed = {0} if "format" in command else {0, 1}
     best = math.inf
@@ -257,7 +310,7 @@ def timed(
                 cwd=work,
                 capture_output=True,
                 check=False,
-                timeout=limit,
+                timeout=limit_seconds,
             )
         except subprocess.TimeoutExpired:
             return math.inf
@@ -265,7 +318,7 @@ def timed(
             return math.nan
         if result.returncode not in allowed:
             message = f"{command} exited {result.returncode}: {result.stderr[-500:]!r}"
-            raise RuntimeError(message)
+            raise CommandFailedError(message)
         best = min(best, time.perf_counter() - start)
     return best
 
@@ -276,21 +329,21 @@ def slope(points: list[tuple[float, float]]) -> float:
     Returns:
         The fitted exponent.
     """
-    xs = [math.log(x) for x, _ in points]
-    ys = [math.log(y) for _, y in points]
-    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
-    return sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True)) / sum(
-        (x - mx) ** 2 for x in xs
-    )
+    return statistics.linear_regression(
+        [math.log(size) for size, _ in points],
+        [math.log(seconds) for _, seconds in points],
+    ).slope
 
 
+@app.command()
 def main(
+    *,
     binary: Annotated[Path, typer.Option()] = ROOT / "target/release/ryl",
     sizes: Annotated[str, typer.Option(help="MiB per point")] = "0.5,1,2,4,8",
     counts: Annotated[str, typer.Option()] = "100,300,1000,3000,10000",
     runs: Annotated[int, typer.Option()] = 3,
     max_slope: Annotated[float, typer.Option()] = 1.2,
-    max_seconds: Annotated[float, typer.Option(help="stop a series past this")] = 20,
+    max_seconds: Annotated[float, typer.Option(help="stop a series past this")] = 20.0,
     only: Annotated[str, typer.Option(help="substring of series names")] = "",
     report: Annotated[Path | None, typer.Option(help="JSON results")] = None,
 ) -> None:
@@ -309,7 +362,8 @@ def main(
             for s in count_series(str(binary.resolve()))
         ),
     ]
-    results, flagged = [], []
+    results: list[SeriesResult] = []
+    flagged: list[str] = []
     with tempfile.TemporaryDirectory() as scratch:
         for spec, points in grid:
             if only not in spec.name:
@@ -320,7 +374,13 @@ def main(
             command = [*spec.command[:2], "-c", str(config), *spec.command[2:]]
             timings, timed_out = [], None
             for point in points:
-                seconds = timed(command, work, spec.inputs(point), runs, max_seconds)
+                seconds = timed(
+                    command=command,
+                    work=work,
+                    inputs=spec.inputs(point),
+                    runs=runs,
+                    limit_seconds=max_seconds,
+                )
                 if math.isinf(seconds):
                     timed_out = point
                 if not math.isfinite(seconds):
@@ -352,4 +412,4 @@ def main(
 
 
 if __name__ == "__main__":
-    typer.run(main)
+    app()

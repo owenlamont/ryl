@@ -12,7 +12,9 @@ pub(crate) const fn retained_closing(
 }
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::{Columns, skip_comment};
+use crate::rules::support::punctuation::{
+    AfterResult, Columns, compute_spaces_after, skip_comment,
+};
 
 macro_rules! define_rule {
     (
@@ -341,12 +343,6 @@ impl<'a> Edits<'a> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum AfterResult {
-    SameLine { spaces: usize, next_idx: usize },
-    Ignored,
-}
-
 #[derive(Clone, Copy)]
 struct SpacingMessages<'a> {
     min: &'a str,
@@ -370,12 +366,7 @@ pub fn check(
     cfg: &Config,
     desc: &FlowCollectionDescriptor,
 ) -> Vec<Violation> {
-    let buffer = input.text();
-    if buffer.is_empty() {
-        return Vec::new();
-    }
-
-    let bytes = buffer.as_bytes();
+    let bytes = input.text().as_bytes();
     let columns = Columns::new(bytes, input.byte_line_starts());
     let mut stack: Vec<CollectionState> = Vec::new();
     let mut violations = Vec::new();
@@ -459,7 +450,7 @@ fn handle_open(
 
     if !skip_open_check
         && let AfterResult::SameLine { spaces, next_idx } =
-            compute_spaces_after_open(bytes, idx)
+            compute_spaces_after(bytes, idx)
     {
         let (line, next_column) = columns.at(next_idx);
         if state.is_empty && bytes[next_idx] == desc.close {
@@ -560,26 +551,6 @@ fn record_after_spacing(
     }
 }
 
-fn compute_spaces_after_open(bytes: &[u8], open_idx: usize) -> AfterResult {
-    let mut spaces = 0usize;
-    let mut idx = open_idx + 1;
-    loop {
-        match bytes.get(idx) {
-            Some(b' ' | b'\t') => {
-                spaces += 1;
-                idx += 1;
-            }
-            None | Some(b'\n' | b'\r' | b'#') => return AfterResult::Ignored,
-            Some(_) => {
-                return AfterResult::SameLine {
-                    spaces,
-                    next_idx: idx,
-                };
-            }
-        }
-    }
-}
-
 fn compute_spaces_before_close(
     bytes: &[u8],
     close_idx: usize,
@@ -602,14 +573,7 @@ fn next_significant_index(bytes: &[u8], open_idx: usize) -> Option<usize> {
     let mut idx = open_idx + 1;
     while idx < bytes.len() {
         match bytes[idx] {
-            b' ' | b'\t' | b'\n' => idx += 1,
-            b'\r' => {
-                if idx + 1 < bytes.len() && bytes[idx + 1] == b'\n' {
-                    idx += 2;
-                } else {
-                    idx += 1;
-                }
-            }
+            b' ' | b'\t' | b'\n' | b'\r' => idx += 1,
             b'#' => idx = skip_comment(bytes, idx) + 1,
             _ => return Some(idx),
         }

@@ -9,8 +9,10 @@ fn build_config(yaml: &str) -> Config {
 #[test]
 fn flags_plain_implicit_and_explicit_values() {
     let resolved = build_config("rules:\n  octal-values: enable\n");
-    let hits = octal_values::check("foo: 010\nbar: 0o10\n", &resolved);
-    assert_eq!(hits.len(), 2, "expected to flag both values");
+    let hits =
+        octal_values::check("foo: 010\nbar: 0o10\nbaz: -010\nqux: -0o10\n", &resolved);
+    assert_eq!(hits.len(), 3, "a signed 0o10 is a string to every reader");
+    assert_eq!(hits[2].message, "forbidden implicit octal value \"-010\"");
 
     assert_eq!(hits[0].line, 1);
     assert_eq!(hits[0].column, 9);

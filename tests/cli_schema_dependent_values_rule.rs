@@ -16,7 +16,7 @@ fn check(config: &str, content: &str) -> (i32, String) {
     (code, command_output(&stdout, &stderr).to_string())
 }
 
-const KINDS: &str = "a: 2026-10-10\nb: 22:22\nc: 1_000\nd: 0b1010\ne: 08\nf: y\nn: 1\ng: 0_8\nh: 1_0e5\n";
+const KINDS: &str = "a: 2026-10-10\nb: 22:22\nc: 1_000\nd: 0b1010\ne: 08\nf: y\nn: 1\ng: 0_8\nh: 1_0e-5\ni: +0x1F\n";
 
 #[test]
 fn reports_each_kind_with_both_readings() {
@@ -32,7 +32,8 @@ fn reports_each_kind_with_both_readings() {
         "plain \"y\" is a string in YAML 1.2 but a boolean in YAML 1.1",
         "7:1 ",
         "plain \"0_8\" is a string in YAML 1.2 but a number in YAML 1.1",
-        "plain \"1_0e5\" is a string in YAML 1.2 but a number in YAML 1.1",
+        "plain \"1_0e-5\" is a string in YAML 1.2 but a number in YAML 1.1",
+        "plain \"+0x1F\" is a string in YAML 1.2 but a number in YAML 1.1",
     ] {
         assert!(output.contains(expected), "missing {expected:?}: {output}");
     }

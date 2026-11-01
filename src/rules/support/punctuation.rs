@@ -196,7 +196,7 @@ pub(crate) fn line_and_column(
     )
 }
 
-pub(crate) fn template_double_curly_end(chars: &[u8], idx: usize) -> Option<usize> {
+fn template_double_curly_end(chars: &[u8], idx: usize) -> Option<usize> {
     if idx + 1 >= chars.len() || chars[idx] != b'{' || chars[idx + 1] != b'{' {
         return None;
     }
@@ -210,4 +210,31 @@ pub(crate) fn template_double_curly_end(chars: &[u8], idx: usize) -> Option<usiz
     }
     let inner_contains_mapping = chars[idx + 2..].contains(&b':');
     (!inner_contains_mapping).then_some(chars.len())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum AfterResult {
+    SameLine { spaces: usize, next_idx: usize },
+    Ignored,
+}
+
+/// The blanks after the byte at `idx`, or `Ignored` when a line end or comment follows.
+pub(crate) fn compute_spaces_after(bytes: &[u8], idx: usize) -> AfterResult {
+    let mut spaces = 0usize;
+    let mut idx = idx + 1;
+    loop {
+        match bytes.get(idx) {
+            Some(b' ' | b'\t') => {
+                spaces += 1;
+                idx += 1;
+            }
+            None | Some(b'\n' | b'\r' | b'#') => return AfterResult::Ignored,
+            Some(_) => {
+                return AfterResult::SameLine {
+                    spaces,
+                    next_idx: idx,
+                };
+            }
+        }
+    }
 }

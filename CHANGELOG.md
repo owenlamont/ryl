@@ -5,6 +5,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+## v0.28.0
+
 ### Added
 
 - The top-level TOML setting `target-version = "1.1" | "1.2"` names the oldest YAML
@@ -15,15 +17,22 @@ summarize user-visible changes from the tagged commits and published release rec
 - The ryl-only `yaml-directive` rule requires a `%YAML` directive on every document.
   Its safe fix stamps `%YAML 1.2` under `target-version = "1.2"`; go-yaml and
   Kubernetes reject such files, so the rule page warns against enabling it for them.
+  Naming it beside `document-start` with `present = false` is a config error; when only
+  `ALL` enables it, the explicit `present = false` wins, and ryl warns and skips it.
   ([#576](https://github.com/owenlamont/ryl/issues/576))
 - The ryl-only `schema-dependent-values` rule flags plain scalars that YAML 1.1 and 1.2
-  read differently: timestamps, sexagesimal numbers, underscored and `0b` numbers,
-  `08`-style leading zeros, and `y`/`n`. It reports only in documents with no
+  read differently: timestamps, sexagesimal numbers, underscored, `0b` and signed `0x`
+  numbers, `08`-style leading zeros, and `y`/`n`. It reports only in documents with no
   `%YAML` directive under `target-version = "1.1"`.
   ([#600](https://github.com/owenlamont/ryl/issues/600))
+- The README and installation docs list Homebrew (`brew install ryl`) and the
+  community-maintained Scoop bucket.
+  ([#895](https://github.com/owenlamont/ryl/issues/895))
 
 ### Changed
 
+- `octal-values` flags a signed implicit octal such as `-0777`, which YAML 1.1 reads
+  as -511 and YAML 1.2 as -777; yamllint skips it.
 - A document that declares `%YAML 1.2` now drops the quotes only a YAML 1.1 reader
   needs, under `quoted-strings` and `ryl format`, whatever `target-version` says.
   ([#576](https://github.com/owenlamont/ryl/issues/576))

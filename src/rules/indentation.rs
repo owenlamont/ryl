@@ -8,7 +8,6 @@ use crate::text_version::{Analysis, TextVersion};
 use std::borrow::Cow;
 
 use crate::config::YamlLintConfig;
-use crate::rules::support::punctuation::Columns;
 use crate::rules::support::span_utils::marker_byte_offset;
 pub(crate) use crate::rules::support::token_spacing::IndentationGap as Gap;
 use crate::rules::support::token_spacing::{GapRequest, Indicator};
@@ -433,10 +432,9 @@ fn align_line_start(
     marker: ryl_yaml_parser::Marker,
 ) {
     if text[*line_start..].starts_with('\u{feff}')
-        && Columns::new(text.as_bytes(), &[*line_start])
-            .at(marker_byte_offset(marker).get())
-            .1
-            - 1
+        && text[*line_start..marker_byte_offset(marker).get()]
+            .chars()
+            .count()
             > marker.col()
     {
         skip_prefix_bom(text, line_start);

@@ -58,10 +58,11 @@ pub const fn resolves_as_yaml_1_1(version: Option<Version>) -> bool {
 
 /// The readers a document's plain scalars must keep their values for: its `%YAML`
 /// directive's version, else both 1.1 and 1.2 readers until `target-version = "1.2"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Readers {
     Yaml11,
     Both,
+    #[default]
     Yaml12,
 }
 

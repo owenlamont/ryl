@@ -1,6 +1,5 @@
 use ryl::rules::commas::{
     Config, check, coverage_compute_spaces_before, coverage_overlapping_replacements,
-    coverage_skip_comment_crlf,
 };
 
 #[test]
@@ -21,11 +20,6 @@ fn newline_before_comma_is_ignored() {
 #[test]
 fn overlapping_replacements_preserve_right_to_left_order() {
     assert_eq!(coverage_overlapping_replacements(), "aX");
-}
-
-#[test]
-fn skip_comment_handles_crlf_lines() {
-    assert_eq!(coverage_skip_comment_crlf(), (2, 1));
 }
 
 #[test]

@@ -13,7 +13,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod cache;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -485,6 +485,8 @@ fn cli_config_flags(args: &LintArgs) -> CliConfigFlags {
                 enable.clone()
             }
         }),
+        enable_all: enable.contains(&"ALL")
+            && !enable.contains(&ryl::rules::yaml_directive::ID),
         disable: if args.source.disable.contains(&"ALL") {
             ALL_RULE_IDS.to_vec()
         } else {
@@ -941,25 +943,30 @@ impl<'a> RecordStream<'a> {
         {
             eprintln!("error: {message}");
         }
-        let entry = report_entry(record, &self.project_root);
         let mut gitlab = Vec::new();
-        if let Some(state) = &mut self.gitlab {
-            state.append(&mut gitlab, &entry);
-        }
-        if let Some(junit) = &mut self.junit {
-            junit.append(&entry);
+        if self.gitlab.is_some() || self.junit.is_some() {
+            let entry = report_entry(record, &self.project_root);
+            if let Some(state) = &mut self.gitlab {
+                state.append(&mut gitlab, &entry);
+            }
+            if let Some(junit) = &mut self.junit {
+                junit.append(&entry);
+            }
         }
         for (target, (writer, status)) in self.targets.iter().zip(&mut self.writers) {
-            let console;
-            let block: &[u8] = match target.format {
+            let append: fn(&mut Vec<u8>, &Path, &[LintProblem]) = match target.format {
                 OutputFormat::Junit => continue,
-                OutputFormat::Gitlab => &gitlab,
-                format => {
-                    console = console_block(format, record);
-                    &console
+                OutputFormat::Gitlab => {
+                    then(status, || writer.write_all(&gitlab));
+                    continue;
                 }
+                OutputFormat::Standard => append_standard,
+                OutputFormat::Colored => append_colored,
+                OutputFormat::Github => append_github,
+                OutputFormat::Parsable => append_parsable,
             };
-            then(status, || writer.write_all(block));
+            let block = console_block(target.format, append, record);
+            then(status, || writer.write_all(&block));
         }
     }
 
@@ -1015,15 +1022,13 @@ fn then(status: &mut std::io::Result<()>, write: impl FnOnce() -> std::io::Resul
 // that invariant rather than leaving an uncovered `None` arm.
 const JUNIT_REPORT_KEPT: &str = "the report is kept when a JUnit target is present";
 
-/// One record's block in a console `format`: nothing for a clean file, its
-/// (already-sanitized) message line for a processing error.
-fn console_block(format: OutputFormat, record: &FileRecord) -> Vec<u8> {
-    let append: fn(&mut Vec<u8>, &Path, &[LintProblem]) = match format {
-        OutputFormat::Colored => append_colored,
-        OutputFormat::Github => append_github,
-        OutputFormat::Parsable => append_parsable,
-        _ => append_standard,
-    };
+/// One record's block in a console `format`, written by `append`: nothing for a clean
+/// file, its (already-sanitized) message line for a processing error.
+fn console_block(
+    format: OutputFormat,
+    append: fn(&mut Vec<u8>, &Path, &[LintProblem]),
+    record: &FileRecord,
+) -> Vec<u8> {
     let mut block = Vec::new();
     if let Some(message) = &record.error {
         writeln!(block, "error: {message}").expect(OUTPUT_INFALLIBLE);
@@ -1424,13 +1429,12 @@ fn collect_files(args: &LintArgs) -> Result<CollectedFiles, String> {
 
     let flags = cli_config_flags(args);
     let mut global_cfg = build_global_cfg(&args.source.inputs, args)?;
+    let mut notices = Vec::new();
     if let Some(ctx) = global_cfg.as_mut() {
-        flags.apply(&mut ctx.config, &ctx.base_dir)?;
+        notices.clone_from(&ctx.notices);
+        notices.extend(flags.apply(&mut ctx.config, &ctx.base_dir)?);
         ctx.config_found |= flags.enable.is_some();
     }
-    let mut notices = global_cfg
-        .as_ref()
-        .map_or_else(Vec::new, |ctx| ctx.notices.clone());
     let inputs = &args.source.inputs;
 
     let (candidates, explicit_files) = gather_inputs(inputs);
@@ -1490,8 +1494,8 @@ fn lint_and_exit(
                     .zip(safe_fix_rule_counts(&outcome, no_warnings))
                     .map(|(before, after)| before.saturating_sub(after))
                     .sum::<usize>();
-                match errors.iter().find(|(index, _)| *index == idx) {
-                    Some((_, error)) => Err(error.clone()),
+                match errors.get(&idx) {
+                    Some(error) => Err(error.clone()),
                     None => outcome,
                 }
             }
@@ -1543,7 +1547,7 @@ fn apply_fixes_reporting_skips(files: &[LintFile], no_warnings: bool) -> FixBase
     for (index, _) in &fix_stats.errors {
         before[*index] = [0; SAFE_FIX_RULE_IDS.len()];
     }
-    (before, fix_stats.errors)
+    (before, fix_stats.errors.into_iter().collect())
 }
 
 fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
@@ -1863,10 +1867,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
             &prefixes,
             &mut |path, outcome| out.push(path, outcome),
         )?;
-        if preview == Preview::Check
-            && stats.changed_files == 0
-            && stats.skipped.is_empty()
-        {
+        if preview == Preview::Check && stats.changed_files == 0 && !stats.skipped {
             for entry in entries.into_iter().flatten() {
                 cache::mark_clean(&entry)?;
             }
@@ -2061,11 +2062,11 @@ fn resolve_stdin_ctx(
     } else {
         PathBuf::from(".")
     };
-    let ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(args))?;
-    emit_notices(&ctx.notices, args.lint.compatibility.no_warnings);
+    let mut ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(args))?;
     let mut cfg = ctx.config;
     let flags = cli_config_flags(args);
-    flags.apply(&mut cfg, &ctx.base_dir)?;
+    ctx.notices.extend(flags.apply(&mut cfg, &ctx.base_dir)?);
+    emit_notices(&ctx.notices, args.lint.compatibility.no_warnings);
     if !apply_yaml_files {
         cfg.disable_path_based_rule_ignores();
     }
@@ -2091,24 +2092,26 @@ fn emit_notices(notices: &[String], no_warnings: bool) {
     if no_warnings {
         return;
     }
-    for notice in notices {
+    let mut seen = HashSet::new();
+    for notice in notices.iter().filter(|notice| seen.insert(*notice)) {
         eprintln!("{}", sanitize_control(notice));
     }
 }
 
 /// Lint `files` in parallel, handing each outcome to `emit` in input order.
 fn lint_files(files: &[LintFile], mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>))) {
-    let Ok(()) = ryl::cli_support::try_for_each_ordered(
-        files,
-        |(path, base_dir, cfg, kind)| match kind {
-            SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
-            SourceKind::Yaml => lint_file(path, cfg, base_dir),
-        },
-        |idx, result| {
+    let Ok(()) =
+        ryl::cli_support::try_for_each_ordered(files, lint_path, |idx, result| {
             emit(idx, result);
             Ok::<(), std::convert::Infallible>(())
-        },
-    );
+        });
+}
+
+fn lint_path((path, base_dir, cfg, kind): &LintFile) -> LintOutcome {
+    match kind {
+        SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
+        SourceKind::Yaml => lint_file(path, cfg, base_dir),
+    }
 }
 
 /// Cache misses stored per batch file, so the pending entries stay bounded.
@@ -2124,7 +2127,7 @@ fn lint_files_cached(
     settings: &cache::Settings,
     mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>)),
 ) -> Result<(), String> {
-    let compute = |(path, base_dir, cfg, kind): &LintFile| -> Result<_, String> {
+    let compute = |file @ (path, base_dir, cfg, kind): &LintFile| -> Result<_, String> {
         let entry = settings.entry(path, base_dir, cfg, *kind, "check")?;
         if let Some(problems) =
             entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
@@ -2143,10 +2146,7 @@ fn lint_files_cached(
                         lint_str_with_repair_help(&content, path, cfg, base_dir)
                     }
                 }),
-            None => match kind {
-                SourceKind::Markdown => lint_markdown_file(path, cfg, base_dir),
-                SourceKind::Yaml => lint_file(path, cfg, base_dir),
-            },
+            None => lint_path(file),
         };
         Ok((outcome, entry.map(|(path, _)| path)))
     };
@@ -2207,11 +2207,7 @@ fn gather_lint_files(
     for (path, explicit) in tagged {
         let (base_dir, cfg, file_notices, found) =
             resolve_ctx(path, global_cfg, flags, cache)?;
-        for notice in file_notices {
-            if !notices.contains(&notice) {
-                notices.push(notice);
-            }
-        }
+        notices.extend(file_notices);
         if cfg.is_file_ignored(path, &base_dir) {
             continue;
         }
@@ -2305,7 +2301,7 @@ impl LintSummary {
 type SafeFixRuleCounts = [usize; SAFE_FIX_RULE_IDS.len()];
 
 /// Each file's pre-fix safe-fix counts, and the files `--fix` failed to write.
-type FixBaseline = (Vec<SafeFixRuleCounts>, Vec<(usize, String)>);
+type FixBaseline = (Vec<SafeFixRuleCounts>, HashMap<usize, String>);
 
 /// A file's reported problems per safe-fix rule, so a fix that adds another rule's problem
 /// cannot cancel one it cleared.

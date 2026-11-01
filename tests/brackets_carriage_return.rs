@@ -12,13 +12,13 @@ fn brackets_carriage_return_without_line_feed_is_retained() {
 
 #[test]
 fn brackets_comment_crlf_is_ignored() {
-    let diagnostics = check("[# comment\r\n]", &config(Forbid::None));
+    let diagnostics = check("[ # comment\r\n]", &config(Forbid::None));
     assert!(diagnostics.is_empty());
 }
 
 #[test]
 fn brackets_comment_carriage_return_is_ignored() {
-    let diagnostics = check("[# comment\r]", &config(Forbid::None));
+    let diagnostics = check("[ # comment\r]", &config(Forbid::None));
     assert!(diagnostics.is_empty());
 }
 
@@ -30,7 +30,7 @@ fn brackets_carriage_return_line_feed_is_ignored() {
 
 #[test]
 fn brackets_comment_newline_is_ignored() {
-    let diagnostics = check("[# comment\n ]", &config(Forbid::None));
+    let diagnostics = check("[ # comment\n ]", &config(Forbid::None));
     assert!(diagnostics.is_empty());
 }
 

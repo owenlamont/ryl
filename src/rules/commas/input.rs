@@ -1,5 +1,6 @@
-use super::{AfterResult, BeforeResult, compute_spaces_after, compute_spaces_before};
+use super::{BeforeResult, compute_spaces_before};
 pub(super) use crate::rules::support::punctuation::Gap;
+use crate::rules::support::punctuation::{AfterResult, compute_spaces_after};
 
 #[derive(Clone, Copy)]
 pub(super) struct Initial<'a> {
@@ -23,8 +24,8 @@ impl<'a> Initial<'a> {
 
     pub(super) fn after(self) -> Option<Gap> {
         match compute_spaces_after(self.bytes, self.at) {
-            AfterResult::SameLine { spaces, next_char } => {
-                Some(Gap::new(self.at + 1, next_char, spaces))
+            AfterResult::SameLine { spaces, next_idx } => {
+                Some(Gap::new(self.at + 1, next_idx, spaces))
             }
             AfterResult::Ignored => None,
         }
