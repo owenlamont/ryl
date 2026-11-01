@@ -225,3 +225,28 @@ fn enable_flag_rejects_unknown_ids_and_lowercase_all() {
     ]));
     assert_eq!(code, 2, "{stderr}");
 }
+
+#[test]
+fn check_sorts_a_files_diagnostics_by_position_not_rule() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "key:   yes\nlist: [ 1,2 ]\n").unwrap();
+    let (code, stdout, stderr) = run(ryl(dir.path())
+        .args([
+            "check",
+            "--enable",
+            "truthy,brackets,commas",
+            "-f",
+            "parsable",
+        ])
+        .arg(&file));
+    let out = command_output(&stdout, &stderr);
+    assert_eq!(code, 1, "{out}");
+    let prefix = format!("{}:", file.display());
+    let positions: Vec<&str> = out
+        .lines()
+        .filter_map(|line| line.strip_prefix(&prefix)?.split_once(": ["))
+        .map(|(position, _)| position)
+        .collect();
+    assert_eq!(positions, ["1:8", "2:8", "2:11", "2:12"], "{out}");
+}

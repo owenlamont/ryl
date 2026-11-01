@@ -5,6 +5,12 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Changed
+
+- `ryl check` sorts each file's diagnostics by line, column, then rule ID, as yamllint
+  and ruff do, rather than grouping them by rule. Files stay in input order.
+  ([#905](https://github.com/owenlamont/ryl/issues/905))
+
 ## v0.28.0
 
 ### Added
