@@ -116,9 +116,15 @@ max = 120
 ```
 
 Each rule then runs with its own defaults at level `error`. An explicit entry for
-a rule wins over `ALL` wherever it appears in the table. New rules arrive with
-ryl upgrades, so `ALL` can start reporting new diagnostics after an update. `ALL`
-is TOML-only; yamllint-compatible YAML config rejects it.
+a rule wins over `ALL` wherever it appears in the table. `ALL` is TOML-only;
+yamllint-compatible YAML config rejects it.
+
+!!! warning "`ALL` can grow when you upgrade ryl"
+
+    `ALL`, in config or as `--enable ALL`, turns on every rule the installed ryl
+    has, including any added after you wrote the config. An upgrade that adds a rule
+    can then fail a check that passed before. Pin the ryl version, or list the rules
+    you want.
 
 `ryl check --enable <RULES>` picks the rules from the command line instead:
 comma-separated rule IDs or `ALL`, and the flag can be repeated. It replaces the

@@ -29,7 +29,8 @@ with CLI flags:
 ryl check --enable ALL --disable line-length,truthy,document-start --exclude pnpm-lock.yaml .
 ```
 
-`ALL` selects every ryl rule, rather than yamllint's `default` preset.
+`ALL` selects every ryl rule, rather than yamllint's `default` preset, and
+[picks up new rules on upgrade](../rules.md).
 `--disable` subtracts from config or `--enable` selections; `--exclude` replaces
 config exclusions with comma-separated globs relative to the current directory.
 Both flags may appear once. TOML still has no `extends` or presets.
