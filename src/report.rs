@@ -129,21 +129,18 @@ fn write_root(buffer: Vec<u8>, totals: Counts) -> Writer<Vec<u8>> {
 /// failing case per diagnostic.
 fn suite_counts(entry: &ReportEntry) -> Counts {
     let problems = entry.problems.len();
-    match (entry.error, problems) {
-        (Some(_), _) => Counts {
+    if entry.error.is_some() {
+        Counts {
             tests: 1,
             failures: 0,
             errors: 1,
-        },
-        (None, 0) => Counts {
-            tests: 1,
-            ..Counts::default()
-        },
-        (None, _) => Counts {
-            tests: problems,
+        }
+    } else {
+        Counts {
+            tests: problems.max(1),
             failures: problems,
             errors: 0,
-        },
+        }
     }
 }
 
