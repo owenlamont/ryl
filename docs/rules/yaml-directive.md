@@ -3,7 +3,9 @@
 ## What this rule does
 
 Requires a `%YAML` version directive before every document, so each document
-declares which YAML version its plain scalars resolve under.
+declares which YAML version its plain scalars resolve under. Under
+[`target-version = "1.2"`](../yaml-version.md#how-ryl-handles-yaml-versions)
+it also reports a document that declares `%YAML 1.1` or `1.0`.
 
 ## Why this matters
 
@@ -74,6 +76,41 @@ name: web
 name: db
 ```
 
+With `target-version = "1.2"`, a document declaring an older version:
+
+```console
+$ cat legacy.yaml
+%YAML 1.1
+---
+mode: 0755
+enabled: yes
+timeout: 1:30
+...
+%YAML 1.1
+---
+released: 2026-10-10
+$ ryl check legacy.yaml
+legacy.yaml
+  1:1       error    version directive "%YAML 1.1" is older than target-version "1.2"  (yaml-directive)
+  7:1       error    version directive "%YAML 1.1" is older than target-version "1.2"  (yaml-directive)
+```
+
+### :wrench: After `ryl check --fix`
+
+```yaml
+%YAML 1.2
+---
+mode: 0o755
+enabled: true
+timeout: 90
+...
+%YAML 1.1
+---
+released: 2026-10-10
+```
+
+The second document keeps its report: a date has no YAML 1.2 core spelling.
+
 ## Automatic fixing
 
 `ryl check --fix` stamps `%YAML 1.2`, the version ryl already reads an undeclared
@@ -87,6 +124,16 @@ the default `"1.1"`, `ryl format` keeps quotes a YAML 1.1 reader needs in an
 undeclared document; stamping `%YAML 1.2` would drop them, so the rule reports
 without fixing. Beside `document-end` with `present = false`, the fix skips a
 document that would need a `...` and the diagnostic stays.
+
+For a document declaring `%YAML 1.1` or `1.0`, the fix migrates the whole
+document to 1.2 at once: it respells every plain scalar whose 1.1 value 1.2
+reads differently (`yes` to `true`, `0755` to `0o755`, `1:30` to `90`) and
+writes `%YAML 1.2`. It skips a document holding a scalar with no 1.2 spelling,
+such as a date, or one that PyYAML reads as a string and other YAML 1.1
+readers do not, such as `08` or `1e5`. [Migrating a `%YAML 1.1` document to
+1.2](../yaml-version.md#migrating-a-yaml-11-document-to-12) lists the
+spellings. A migrated `0o755` is still reported by `octal-values` unless
+`forbid-explicit-octal` is off.
 
 The rule is suppressed in YAML embedded in Markdown, which is not a standalone
 file.

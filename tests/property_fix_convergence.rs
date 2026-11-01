@@ -27,8 +27,8 @@ use ryl::rules::{
 use ryl_yaml_parser::{Scanner, StrInput, TokenType};
 
 use config::{
-    SAFE_FIX_RULES, named_config, parse_for_compare, reference_safe_eof_append,
-    safe_fix_configs, synthetic_base_dir, synthetic_path,
+    SAFE_FIX_RULES, named_config, parse_for_compare, parse_for_compare_migrated,
+    reference_safe_eof_append, safe_fix_configs, synthetic_base_dir, synthetic_path,
 };
 use stack::{Decoration, Filler, FollowOn, StackedDocument, arb_stacked_document};
 
@@ -137,7 +137,9 @@ fn pipeline_rules(cfg: &YamlLintConfig) -> Vec<RuleFix> {
         ),
         (
             yaml_directive::ID,
-            Box::new(move |buffer| yaml_directive::fix(buffer, &yaml_directive_cfg)),
+            Box::new(move |buffer| {
+                yaml_directive::fix(buffer, &yaml_directive_cfg, &[])
+            }),
         ),
     ]
 }
@@ -297,7 +299,7 @@ fn assert_converges(
                 cfg_name,
                 input
             );
-            if let Some(before) = parse_for_compare(input) {
+            if let Some(before) = parse_for_compare_migrated(input, cfg) {
                 prop_assert!(
                     parse_for_compare(&fixed).as_ref() == Some(&before)
                         || reference_safe_eof_append(input, &fixed),

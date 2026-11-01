@@ -311,7 +311,12 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
             column: violation.column,
         });
     }
-    for violation in yaml_directive::check(content) {
+    static TARGET_1_2: LazyLock<YamlLintConfig> = LazyLock::new(|| {
+        YamlLintConfig::from_toml_str("target-version = \"1.2\"\n")
+            .expect("target 1.2 config must parse")
+    });
+    let directive_cfg = yaml_directive::Config::resolve(&TARGET_1_2);
+    for violation in yaml_directive::check(content, directive_cfg) {
         spans.push(Span {
             rule: yaml_directive::ID,
             line: violation.line,

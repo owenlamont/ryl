@@ -138,8 +138,14 @@ fn core_schema_int_digits(v: &str) -> Option<(&str, u32)> {
 /// leading zeros, so differently written integers past `i64` compare equal.
 #[must_use]
 pub(crate) fn canonical_core_schema_int(v: &str) -> Option<String> {
+    core_schema_int(v).map(|value| value.to_string())
+}
+
+/// A YAML 1.2 core-schema integer of any width.
+#[must_use]
+pub(crate) fn core_schema_int(v: &str) -> Option<BigInt> {
     let (digits, radix) = core_schema_int_digits(v)?;
-    BigInt::parse_bytes(digits.as_bytes(), radix).map(|value| value.to_string())
+    BigInt::parse_bytes(digits.as_bytes(), radix)
 }
 
 /// A YAML 1.2 core-schema integer, honouring `0x`/`0o` radix prefixes and a leading

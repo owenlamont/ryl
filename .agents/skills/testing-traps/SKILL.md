@@ -29,13 +29,15 @@ a dedicated subdirectory and never drop a config-candidate-named file at the tem
 ## Assert format-agnostically
 
 CLI/system tests that drive `env!("CARGO_BIN_EXE_ryl")` run under CI's environment, where
-`GITHUB_ACTIONS` makes ryl auto-select the GitHub output format
-(`::error file=…,line=L,col=C::L:C [rule] message`) rather than the standard format
-(`  L:C  level  message  (rule)`).
+`GITHUB_ACTIONS` with `GITHUB_WORKFLOW` makes ryl auto-select the GitHub output
+format (`::error file=…,line=L,col=C::L:C [rule] message`) rather than the standard format
+(`  L:C  level  message  (rule)`). Set both to reproduce it locally.
 
 Match the bare `line:col` (present verbatim in both formats) and the **bare rule id**
-(`colons`, never `(colons)` — the GitHub format renders it `[colons]`). Do not force
-`-f` to dodge this and do not assert a specific format's `(rule)` parens or ANSI.
+(`colons`, never `(colons)` — the GitHub format renders it `[colons]`). The GitHub format
+escapes `%` in a message as `%25`, so match message text around a `%`, not through it.
+Do not force `-f` to dodge this and do not assert a specific format's `(rule)` parens
+or ANSI.
 The `cli_*_rule` tests follow this; tests that exercise output formatting itself
 (`cli_format_options`) pin the format via `-f`.
 

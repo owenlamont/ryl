@@ -8,6 +8,8 @@ use std::sync::LazyLock;
 use crate::common::yaml_canonical;
 use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::lint::{LintProblem, lint_str};
+use ryl::rules::yaml_directive;
+use ryl::yaml_dom::YamlOwned;
 use tempfile::TempDir;
 
 use super::representation;
@@ -248,6 +250,19 @@ pub fn safe_fix_rule_diagnostics(
                 .unwrap_or(false)
         })
         .collect()
+}
+
+/// The values a safe fix of `input` must load to: `input`'s own, after `yaml-directive`
+/// carries any `%YAML 1.1` document over to 1.2, since the loader reads every document
+/// as 1.2. `property_yaml_migration` holds the carry-over to the 1.1 values.
+pub fn parse_for_compare_migrated(
+    input: &str,
+    cfg: &YamlLintConfig,
+) -> Option<Vec<YamlOwned>> {
+    let migrated = cfg.rule_level(yaml_directive::ID).and_then(|_| {
+        yaml_directive::fix(input, &yaml_directive::Config::resolve(cfg), &[])
+    });
+    parse_for_compare(migrated.as_deref().unwrap_or(input))
 }
 
 pub fn reference_safe_eof_append(input: &str, fixed: &str) -> bool {
