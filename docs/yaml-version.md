@@ -116,7 +116,8 @@ spelling both versions read that way:
 
 Under `"1.1"` the fix leaves a scalar alone where the migration above declines:
 YAML 1.1 readers disagree on it (`08`, `0o17`, `y`), or YAML 1.2
-has no type for it (a timestamp). Quotes follow `quoted-strings`'
+has no type for it (a timestamp). Either way it leaves alone an integer past 64
+bits, which go-yaml reads as a float. Quotes follow `quoted-strings`'
 `quote-type = "single"` when that rule is on, and a boolean takes the first
 spelling `truthy`'s `allowed-values` permits.
 

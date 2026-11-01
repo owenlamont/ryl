@@ -255,7 +255,13 @@ impl Respelling {
         };
         let spelling = match &value {
             Value::Bool(value) => value.to_string(),
-            Value::Int(value) => value.to_string(),
+            // go-yaml reads an integer past `i64` and `u64` as a float.
+            Value::Int(value)
+                if i64::try_from(value).is_ok() || u64::try_from(value).is_ok() =>
+            {
+                value.to_string()
+            }
+            Value::Int(_) => return None,
             Value::Float(value) => format!("{:?}", value.0),
         };
         (core_value(&spelling).as_ref() == Some(&value)

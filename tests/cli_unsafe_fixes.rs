@@ -78,14 +78,23 @@ fn source_1_1_writes_the_1_1_value_and_declines_where_1_1_readers_disagree() {
 }
 
 #[test]
-fn a_float_no_shared_spelling_carries_is_declined() {
+fn a_number_no_shared_spelling_carries_is_declined() {
+    let config = format!("source-version = \"1.1\"\nunsafe-fixes = true\n{RULES}");
     let base_60_past_1e16 = "a: 1:00:00:00:00:00:00:00:00:00.5\n";
+    let (_, output, fixed) = ryl_with(&config, base_60_past_1e16, &["check", "--fix"]);
+    assert_eq!(fixed, base_60_past_1e16, "{output}");
+    let past_u64 = "a: 18_446_744_073_709_551_616\nb: -9_223_372_036_854_775_809\n";
+    let (_, output, fixed) = ryl_with(&config, past_u64, &["check", "--fix"]);
+    assert_eq!(fixed, past_u64, "go-yaml reads these as floats: {output}");
     let (_, output, fixed) = ryl_with(
-        &format!("source-version = \"1.1\"\nunsafe-fixes = true\n{RULES}"),
-        base_60_past_1e16,
+        &config,
+        "a: 18_446_744_073_709_551_615\nb: -9_223_372_036_854_775_808\n",
         &["check", "--fix"],
     );
-    assert_eq!(fixed, base_60_past_1e16, "{output}");
+    assert_eq!(
+        fixed, "a: 18446744073709551615\nb: -9223372036854775808\n",
+        "{output}"
+    );
 }
 
 #[test]
