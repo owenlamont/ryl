@@ -5,6 +5,25 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Changed
+
+- `ryl check` sorts each file's diagnostics by line, column, then rule ID, as yamllint
+  and ruff do, rather than grouping them by rule. Files stay in input order.
+  ([#905](https://github.com/owenlamont/ryl/issues/905))
+
+### Fixed
+
+- With `fold-long-lines`, a `disable-line rule:line-length` comment above a flow
+  collection that `sequence-style` or `mapping-style` turns into block form no longer
+  stops `ryl format` folding the first entry, which a second run then folded.
+  ([#906](https://github.com/owenlamont/ryl/pull/906))
+- A tab after a compact mapping key's colon (`- key:\t|`) no longer stops `ryl format`
+  trimming the block scalar's whitespace-only lines until a second run, nor hides them
+  from `trailing-spaces`. ([#906](https://github.com/owenlamont/ryl/pull/906))
+- `trailing-spaces` no longer reports a block scalar's whitespace-only content lines when
+  a `:` inside an anchor or tag before it (`- &a: |+`) looked like a compact key.
+  ([#906](https://github.com/owenlamont/ryl/pull/906))
+
 ## v0.28.0
 
 ### Added

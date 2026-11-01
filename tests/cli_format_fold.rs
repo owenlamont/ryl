@@ -98,6 +98,27 @@ fn disabled_lines_stay_whole_and_nothing_is_duplicated() {
 }
 
 #[test]
+fn a_disable_line_guards_only_the_line_it_precedes_after_block_conversion() {
+    let block = format!("{FOLD}sequence-style = 'block'\n");
+    let own_line = format!("{block}dash-on-own-line = true\n");
+    for (config, input, expected) in [
+        (
+            &block,
+            "---\n# ryl disable-line rule:line-length\nk: [aaa bbb ccc ddd eee fff]\n",
+            "---\n# ryl disable-line rule:line-length\nk:\n  - aaa bbb ccc ddd\n    eee fff\n",
+        ),
+        (
+            &own_line,
+            "---\nk: [a]\nl:\n  - k: v\n# ryl disable-line rule:line-length\nv: aaa bbb ccc ddd eee fff\n",
+            "---\nk:\n  - a\nl:\n  -\n    k: v\n# ryl disable-line rule:line-length\nv: aaa bbb ccc ddd eee fff\n",
+        ),
+    ] {
+        let (code, _, stderr, after) = ryl_on(Some(config), input, &["format"]);
+        assert_eq!((code, after.as_str()), (0, expected), "{input:?}: {stderr}");
+    }
+}
+
+#[test]
 fn markdown_regions_fold_from_their_own_column() {
     let dir = tempdir().unwrap();
     let config = format!("{FOLD}[files]\nmarkdown = ['*.md']\n");

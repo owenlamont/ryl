@@ -143,10 +143,17 @@ impl Block<'_> {
         {
             rest = after.trim_start_matches(' ');
         }
-        if rest
+        let mut key = rest;
+        // An anchor or tag may contain `:`, so skip node properties before looking for one.
+        while let Some(after) = key.strip_prefix(['&', '!']) {
+            key = after
+                .trim_start_matches(|c| !matches!(c, ' ' | '\t'))
+                .trim_start_matches([' ', '\t']);
+        }
+        if key
             .split(['|', '>'])
             .next()
-            .is_some_and(|key| key.contains(": "))
+            .is_some_and(|key| key.contains(": ") || key.contains(":\t"))
         {
             line.len() - rest.len()
         } else {

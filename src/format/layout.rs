@@ -1879,11 +1879,9 @@ impl DocumentPlan<'_> {
             bom: line.bom(),
             content: line.scalar_content().kind(),
             allowed: self.guard.as_ref().is_none_or(|guard| {
-                guard.allows(
-                    crate::rules::line_length::ID,
-                    line.source_anchor(),
-                    line.source_anchor(),
-                )
+                // A converted line can open with a token anchored on the line above.
+                let anchor = line.source_anchor().max(BytePos::new(site.full.start));
+                guard.allows(crate::rules::line_length::ID, anchor, anchor)
             }),
             guarded_directive_tail: site.tail.guarded_directive,
         };

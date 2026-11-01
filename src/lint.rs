@@ -53,7 +53,7 @@ impl<'i> ryl_yaml_parser::EventReceiver<'i> for NullSink {
     fn on_event(&mut self, _ev: ryl_yaml_parser::Event<'i>) {}
 }
 
-/// Lint a single YAML file and return diagnostics in yamllint format order.
+/// Lint a single YAML file and return diagnostics sorted by line, column and rule.
 ///
 /// # Errors
 ///
@@ -156,8 +156,7 @@ macro_rules! lint_rule {
     };
 }
 
-// Split dispatch for clippy's complexity limit; preserve layout/value/block order
-// because diagnostics are not sorted after collection.
+// Split dispatch for clippy's complexity limit.
 fn collect_layout_diagnostics(
     diagnostics: &mut Vec<LintProblem>,
     input: Analysis<'_>,
@@ -383,8 +382,8 @@ fn collect_block_diagnostics(
     );
 }
 
-/// Lint YAML content held in memory and return diagnostics in yamllint format
-/// order.
+/// Lint YAML content held in memory and return diagnostics sorted by line, column and
+/// rule.
 ///
 /// `path` is used purely for diagnostic context and per-rule ignore matching;
 /// no filesystem reads are performed.
@@ -473,6 +472,7 @@ fn lint_unless_syntax_error(
     if let Some(warning) = higher_minor_version_warning(content) {
         diagnostics.push(warning);
     }
+    diagnostics.sort_by_key(|problem| (problem.line, problem.column, problem.rule));
 
     Ok(diagnostics)
 }
