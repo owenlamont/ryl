@@ -28,10 +28,11 @@ cases unless they pin `cases` themselves; `PROPTEST_CASES` still overrides a pin
 `cases`. Keep the whole step **under 10 minutes**. Commit only once it is green, and keep
 any newly-persisted seeds in `tests/proptest-regressions/`.
 
-**A release gate, or an integration branch's tip, runs every suite at its default
-count**, not only the touched ones. Any failure a property run finds, in any branch, gets
-the fix plus a named deterministic regression test that reproduces it without proptest,
-in the branch where it was found; a committed seed alone is not enough.
+**An integration branch's tip runs every suite at its default count**, not only the
+touched ones; a release runs the soak below. Any failure a property run finds, in any
+branch, gets the fix plus a named deterministic regression test that reproduces it
+without proptest, in the branch where it was found; a committed seed alone is not
+enough.
 
 ## Coverage and CI
 
@@ -40,7 +41,17 @@ property case already reaches the region. Coverage runs with `PROPTEST_CASES=0` 
 `PROPTEST_DISABLE_FAILURE_PERSISTENCE=1`, so neither random cases nor saved seeds can
 satisfy the gate. CI replays committed seeds separately with `PROPTEST_CASES=0` and
 failure persistence enabled; proptest replays seeds before generating random cases.
-Local property runs and the release/integration gates keep their default counts.
+Local property runs and the integration gate keep their default counts.
+
+## Soak
+
+`uv run --script scripts/property_soak.py --minutes N [--cases M]` builds the test
+binaries, then runs each `property_` suite round-robin, `M` cases per run (default 256)
+with fresh seeds, until `N` minutes pass. It stops at the first failure, keeping the seed
+and printing the regression files' status and diff, and exits 1. Its per-suite table of
+runs, cases and cases per second shows a suite that got slower. `property-soak.yml` runs
+it nightly for 60 minutes and uploads the seed on failure; a release runs it last before
+the timing gates (release skill).
 
 ## Property Tests For Safe Fixes
 

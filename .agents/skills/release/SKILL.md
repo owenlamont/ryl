@@ -44,27 +44,6 @@ description: >-
     `uv run --script scripts/changelog.py extract vX.Y.Z` before tagging. A missing
     or empty version section stops `release.yml` before it creates the draft release.
   - Update README/AGENTS for behavior changes.
-  - **Refresh the benchmark image** when the release changes timed code: any minor or
-    major bump, or a patch that touches performance-relevant paths. Skip it for a
-    docs/packaging/bugfix patch with no perf delta, leaving the committed
-    `img/benchmark.svg` in place. Do this **in the version-bump PR, before
-    squash-merge**. Bump the pins in `scripts/benchmark_tool_versions.toml` (or pass
-    `--tool-versions latest`); the script installs every tool under its output
-    directory, never globally. Build with `cargo build --release`, smoke-test, then
-    take the full run while no build or other benchmark runs:
-
-    ```sh
-    uv run scripts/benchmark_yaml_tools.py run --ryl-bin target/release/ryl \
-      --runs 2 --sizes-kib 1 --counts 1,10 --max-load 100
-    uv run scripts/benchmark_yaml_tools.py run --ryl-bin target/release/ryl
-    uv run scripts/benchmark_yaml_tools.py plot manual_outputs/benchmarks/<ts>
-    cp manual_outputs/benchmarks/<ts>/benchmark.svg img/benchmark.svg
-    ```
-
-    The full run takes about 35 minutes and retries a case whose load average passed
-    `--max-load`; `meta.json` records the load, versions, binaries, inputs, output
-    agreement and lint diagnostics. Update the README tables, agreement figures and
-    "where ryl does not win" list from `summary.csv` and `meta.json`.
   - **Review the dev skills** in `.agents/skills/` for any procedure that changed
     in this release (a moved command, renamed test, new wiring step), and update
     the affected `SKILL.md`. If any `.agents/skills/` file changed, refresh the
@@ -94,6 +73,41 @@ description: >-
     are not a release gate.
   - Run the scaling check (property-tests skill, *Scaling Check*); fix any flagged
     series before tagging.
+  - Run the downstream report on at least two of **the maintainer's downstream repos**:
+
+    ```sh
+    uv run --script scripts/downstream_check.py --ryl-bin /absolute/path/to/target/release/ryl /path/to/downstream-a /path/to/downstream-b
+    ```
+
+    The helper installs each repo's ryl-pre-commit release pin from `prek.toml` or
+    `.pre-commit-config.yaml`/`.yml`, then compares read-only whole-repo checks with the
+    candidate. Frozen SHA pins select the newest upstream release tag matching the
+    SHA (requiring `git` and network access); untagged commits fail rather than
+    guessing a PyPI version.
+    Format hooks trigger `format --check`; Markdown hooks add Markdown
+    checks. Repo configuration applies, but hook file filters and hook arguments do not:
+    the report intentionally checks the whole repo. Raw stdout/stderr retains every
+    warning, notice and formatter filename alongside new/removed diagnostics. Exit 1
+    means changes or errors need review; an exit 0 does not replace the guidance trial.
+  - Read the downstream report, then upgrade at least two downstream repos using **only
+    ryl's printed warnings, `--help` and published docs** as guidance. Exercise the
+    upgraded hooks too, so hidden warnings or an incomplete migration appear. Record
+    each repo's starting pin, warnings followed, commands, hook result and guidance
+    defects in the release PR body. Any misleading or missing guidance blocks the tag:
+    fix the guidance, rebuild the candidate, and repeat the affected upgrade trial.
+  - Soak the property suites, the last code-quality step, so a fix for anything it
+    finds lands before the timing runs below and they run once:
+
+    ```sh
+    uv run --script scripts/property_soak.py --minutes 60
+    ```
+
+    It builds the test binaries before the clock starts, then runs each `property_`
+    suite round-robin with fresh seeds until the budget is spent, stopping at the first
+    failure with its seed saved under `tests/proptest-regressions/` (or the parser
+    crate's). A failure blocks the tag: fix it with a named deterministic regression
+    test (property-tests skill), then re-run the soak; re-run it only after such a fix.
+    Paste the per-suite table it prints into the release PR.
   - Run the performance gate against the newest published stable `v*` release:
 
     ```sh
@@ -129,28 +143,28 @@ description: >-
     Every failing case needs a separate top-level bullet with a nonempty reason;
     quoted, nested or historical markers cannot waive a regression. Re-run the gate
     after recording acceptance.
-  - Run the downstream report on at least two of **the maintainer's downstream repos**:
+  - **Refresh the benchmark image** when the release changes timed code: any minor or
+    major bump, or a patch that touches performance-relevant paths. Skip it for a
+    docs/packaging/bugfix patch with no perf delta, leaving the committed
+    `img/benchmark.svg` in place. Do this **in the version-bump PR, before
+    squash-merge, and after the performance gate**. Bump the pins in
+    `scripts/benchmark_tool_versions.toml` (or pass `--tool-versions latest`); the
+    script installs every tool under its output directory, never globally. Smoke-test
+    the release candidate, then take the full run while no build or other benchmark
+    runs:
 
     ```sh
-    uv run --script scripts/downstream_check.py --ryl-bin /absolute/path/to/target/release/ryl /path/to/downstream-a /path/to/downstream-b
+    uv run scripts/benchmark_yaml_tools.py run --ryl-bin target/release/ryl \
+      --runs 2 --sizes-kib 1 --counts 1,10 --max-load 100
+    uv run scripts/benchmark_yaml_tools.py run --ryl-bin target/release/ryl
+    uv run scripts/benchmark_yaml_tools.py plot manual_outputs/benchmarks/<ts>
+    cp manual_outputs/benchmarks/<ts>/benchmark.svg img/benchmark.svg
     ```
 
-    The helper installs each repo's ryl-pre-commit release pin from `prek.toml` or
-    `.pre-commit-config.yaml`/`.yml`, then compares read-only whole-repo checks with the
-    candidate. Frozen SHA pins select the newest upstream release tag matching the
-    SHA (requiring `git` and network access); untagged commits fail rather than
-    guessing a PyPI version.
-    Format hooks trigger `format --check`; Markdown hooks add Markdown
-    checks. Repo configuration applies, but hook file filters and hook arguments do not:
-    the report intentionally checks the whole repo. Raw stdout/stderr retains every
-    warning, notice and formatter filename alongside new/removed diagnostics. Exit 1
-    means changes or errors need review; an exit 0 does not replace the guidance trial.
-  - Read the downstream report, then upgrade at least two downstream repos using **only
-    ryl's printed warnings, `--help` and published docs** as guidance. Exercise the
-    upgraded hooks too, so hidden warnings or an incomplete migration appear. Record
-    each repo's starting pin, warnings followed, commands, hook result and guidance
-    defects in the release PR body. Any misleading or missing guidance blocks the tag:
-    fix the guidance, rebuild the candidate, and repeat the affected upgrade trial.
+    The full run takes about 35 minutes and retries a case whose load average passed
+    `--max-load`; `meta.json` records the load, versions, binaries, inputs, output
+    agreement and lint diagnostics. Update the README tables, agreement figures and
+    "where ryl does not win" list from `summary.csv` and `meta.json`.
 - Tag and push (when releasing):
   - `git tag -a vX.Y.Z -m "vX.Y.Z"`
   - `git push && git push --tags`

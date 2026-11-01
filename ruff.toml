@@ -73,6 +73,7 @@ preview = true
 "scripts/scaling_check.py" = ["S404", "S603"]
 "scripts/downstream_check.py" = ["S404", "S603", "S607"]
 "scripts/release_perf_gate.py" = ["S404", "S603", "S607"]
+"scripts/property_soak.py" = ["S404", "S603", "S607"]
 # Shells out to git, cargo and ryl over pinned clones: relax the subprocess checks.
 "scripts/formatter_corpus_check.py" = ["S404", "S603", "S607"]
 
