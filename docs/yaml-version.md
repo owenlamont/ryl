@@ -78,7 +78,10 @@ The fix leaves a document alone, and its report stands, when a scalar has no
 as a string but go-yaml or ruamel.yaml's 1.1 mode reads a number or boolean
 (`08`, `1e5`, `-.5`, `y`, `0o777`). A scalar that would need respelling behind
 the non-specific `!` tag (`! 0777`) blocks it too: the spec reads it as a
-string, PyYAML and ruamel.yaml as if untagged. Rewrite or quote those by hand. Every
+string, PyYAML and ruamel.yaml as if untagged. Rewrite or quote those by hand.
+A file holding a raw NEL, LS or PS character is never migrated, since YAML 1.1
+reads one as a line break and 1.2 as content; see
+[`unicode-line-breaks`](rules/unicode-line-breaks.md). Every
 other value keeps the meaning PyYAML and ruamel.yaml's 1.1 mode give it;
 go-yaml, which reads `22:22` as a string, rejects a `%YAML 1.2` file anyway. A
 merge key `<<` stays as it is.

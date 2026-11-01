@@ -128,6 +128,11 @@ fn migration_declines_a_document_holding_a_value_1_2_cannot_carry() {
         output.contains("version directive \"%YAML 1.0\""),
         "{output}"
     );
+    for line_break in ['\u{85}', '\u{2028}', '\u{2029}'] {
+        let input = format!("%YAML 1.1\n---\na: \"abc{line_break}  def\"\nb: yes\n");
+        let (_, output, fixed) = ryl_with(TARGET_1_2, &input, &["check", "--fix"]);
+        assert_eq!(fixed, input, "1.1 folds the break, 1.2 keeps it: {output}");
+    }
 }
 
 #[test]

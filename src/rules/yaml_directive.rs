@@ -115,6 +115,10 @@ fn migrate(
     per_line: &[PerLineRuleApply<'_>],
 ) -> Option<String> {
     let buffer = input.text();
+    // YAML 1.1 reads a raw NEL, LS or PS as a line break and 1.2 as content.
+    if buffer.contains(['\u{85}', '\u{2028}', '\u{2029}']) {
+        return None;
+    }
     let output = render(buffer, migration_edits(input, cfg))?;
     let output = Directives::parse_per_line_with_analysis(input, per_line)
         .reconcile(ID, buffer, &output);
