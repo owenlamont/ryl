@@ -4,7 +4,7 @@ use std::process::Command;
 use tempfile::tempdir;
 
 use crate::common;
-use common::cli::run;
+use common::cli::{run, ryl_on};
 
 #[test]
 fn trailing_spaces_reports_error() {
@@ -79,4 +79,17 @@ fn rule_ignore_skips_file() {
     );
     assert!(stdout.trim().is_empty(), "expected no stdout: {stdout}");
     assert!(stderr.trim().is_empty(), "expected no stderr: {stderr}");
+}
+
+#[test]
+fn a_colon_inside_an_anchor_or_tag_does_not_make_a_compact_key() {
+    for input in [
+        "g:\n  - &a: |+\n     \n  - x\n",
+        "g:\n  - &a:\t|+\n     \n  - x\n",
+        "g:\n  - !t:x |+\n     \n  - x\n",
+    ] {
+        let (code, stdout, stderr, _) =
+            ryl_on(None, input, &["check", "--enable", "trailing-spaces"]);
+        assert_eq!(code, 0, "{input:?}: {stdout}{stderr}");
+    }
 }

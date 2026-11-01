@@ -20,6 +20,9 @@ summarize user-visible changes from the tagged commits and published release rec
 - A tab after a compact mapping key's colon (`- key:\t|`) no longer stops `ryl format`
   trimming the block scalar's whitespace-only lines until a second run, nor hides them
   from `trailing-spaces`. ([#906](https://github.com/owenlamont/ryl/pull/906))
+- `trailing-spaces` no longer reports a block scalar's whitespace-only content lines when
+  a `:` inside an anchor or tag before it (`- &a: |+`) looked like a compact key.
+  ([#906](https://github.com/owenlamont/ryl/pull/906))
 
 ## v0.28.0
 
