@@ -44,11 +44,30 @@ const EXTRA: u32 = 0x80;
 /// span in `wide`.
 #[derive(Default)]
 pub(crate) struct Tokens {
-    records: Vec<[u32; 4]>,
-    extras: Vec<[u32; 4]>,
+    records: Vec<Record>,
+    extras: Vec<Extra>,
     wide: Vec<Span>,
     delta: u32,
 }
+
+/// A `WIDE` start marks a token kept in `wide`, at index `end`.
+#[derive(Clone, Copy)]
+struct Record {
+    start: u32,
+    end: u32,
+    code: u32,
+    column: u32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Extra {
+    end_line: u32,
+    end_column: u32,
+    indent: u32,
+    end_delta: u32,
+}
+
+const _: () = assert!(size_of::<Record>() == 16 && size_of::<Extra>() == 16);
 
 impl Tokens {
     #[inline]
@@ -108,30 +127,40 @@ impl Tokens {
             | (narrow(delta) != self.delta)
         {
             self.delta = narrow(to);
-            self.records.push([WIDE, narrow(self.wide.len()), index, 0]);
+            self.records.push(Record {
+                start: WIDE,
+                end: narrow(self.wide.len()),
+                code: index,
+                column: 0,
+            });
             self.wide.push(*span);
             return;
         }
         let line = narrow(start.line());
-        let mut record = [narrow(a), narrow(b), line << 8 | index, narrow(start.col())];
-        let extra = [
-            narrow(end.line()),
-            narrow(end.col()),
-            span.indent.map_or(WIDE, narrow),
-            narrow(to),
-        ];
-        let [a, b, code, column] = record;
-        if extra
-            != [
-                code >> 8,
-                column.wrapping_add(b.wrapping_sub(a)),
-                WIDE,
-                self.delta,
-            ]
-        {
-            record[2] |= EXTRA;
+        let mut record = Record {
+            start: narrow(a),
+            end: narrow(b),
+            code: line << 8 | index,
+            column: narrow(start.col()),
+        };
+        let extra = Extra {
+            end_line: narrow(end.line()),
+            end_column: narrow(end.col()),
+            indent: span.indent.map_or(WIDE, narrow),
+            end_delta: narrow(to),
+        };
+        let implied = Extra {
+            end_line: line,
+            end_column: record
+                .column
+                .wrapping_add(record.end.wrapping_sub(record.start)),
+            indent: WIDE,
+            end_delta: self.delta,
+        };
+        if extra != implied {
+            record.code |= EXTRA;
             self.extras.push(extra);
-            self.delta = extra[3];
+            self.delta = extra.end_delta;
         }
         self.records.push(record);
     }
@@ -140,16 +169,21 @@ impl Tokens {
     pub(crate) fn bytes(
         &self,
     ) -> impl Iterator<Item = (usize, usize, Kind<'static>)> + '_ {
-        self.records.iter().map(|&[start, end, code, _]| {
-            let (start, end) = if start == WIDE {
-                let span = self.wide[end as usize];
-                let byte = |marker: Marker| marker.byte_offset().unwrap_or(usize::MAX);
-                (byte(span.start), byte(span.end))
-            } else {
-                (start as usize, end as usize)
-            };
-            (start, end, decode(code))
-        })
+        self.records.iter().map(
+            |&Record {
+                 start, end, code, ..
+             }| {
+                let (start, end) = if start == WIDE {
+                    let span = self.wide[end as usize];
+                    let byte =
+                        |marker: Marker| marker.byte_offset().unwrap_or(usize::MAX);
+                    (byte(span.start), byte(span.end))
+                } else {
+                    (start as usize, end as usize)
+                };
+                (start, end, decode(code))
+            },
+        )
     }
 
     pub(crate) fn iter<'a>(
@@ -158,32 +192,44 @@ impl Tokens {
     ) -> impl Iterator<Item = (Span, Kind<'a>)> {
         let mut extras = self.extras.iter();
         let mut delta = 0;
-        self.records.iter().map(move |&[start, end, code, column]| {
-            if start == WIDE {
-                let span = self.wide[end as usize];
-                delta = char_delta(span.end);
-                return (span, decode(code).with_source(source, &span));
-            }
-            let (start, end, line) =
-                (start as usize, end as usize, (code >> 8) as usize);
-            let from = start - delta;
-            let (end_line, end_column, indent) = if code & EXTRA == 0 {
-                (line, column as usize + end - start, None)
-            } else {
-                let &[line, column, indent, to] =
-                    extras.next().expect("flagged extra is stored");
-                delta = to as usize;
-                let indent = (indent != WIDE).then_some(indent as usize);
-                (line as usize, column as usize, indent)
-            };
-            let span = Span::new(
-                Marker::new(from, line, column as usize).with_byte_offset(Some(start)),
-                Marker::new(end - delta, end_line, end_column)
-                    .with_byte_offset(Some(end)),
-            )
-            .with_indent(indent);
-            (span, decode(code).with_source(source, &span))
-        })
+        self.records.iter().map(
+            move |&Record {
+                      start,
+                      end,
+                      code,
+                      column,
+                  }| {
+                if start == WIDE {
+                    let span = self.wide[end as usize];
+                    delta = char_delta(span.end);
+                    return (span, decode(code).with_source(source, &span));
+                }
+                let (start, end, line) =
+                    (start as usize, end as usize, (code >> 8) as usize);
+                let from = start - delta;
+                let (end_line, end_column, indent) = if code & EXTRA == 0 {
+                    (line, column as usize + end - start, None)
+                } else {
+                    let &Extra {
+                        end_line,
+                        end_column,
+                        indent,
+                        end_delta,
+                    } = extras.next().expect("flagged extra is stored");
+                    delta = end_delta as usize;
+                    let indent = (indent != WIDE).then_some(indent as usize);
+                    (end_line as usize, end_column as usize, indent)
+                };
+                let span = Span::new(
+                    Marker::new(from, line, column as usize)
+                        .with_byte_offset(Some(start)),
+                    Marker::new(end - delta, end_line, end_column)
+                        .with_byte_offset(Some(end)),
+                )
+                .with_indent(indent);
+                (span, decode(code).with_source(source, &span))
+            },
+        )
     }
 }
 

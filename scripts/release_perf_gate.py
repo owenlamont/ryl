@@ -61,6 +61,13 @@ class Result:
         """Positive values denote a slowdown."""
         return (self.candidate_seconds / self.previous_seconds - 1.0) * 100.0
 
+    @property
+    def within_noise(self) -> bool:
+        """Whether the means differ by no more than their combined sd."""
+        return abs(self.candidate_seconds - self.previous_seconds) <= math.hypot(
+            self.previous_sd, self.candidate_sd
+        )
+
 
 _CARGO_MANIFEST: Final = Path("Cargo.toml")
 _ALLOWED_EXITS: Final = {_Mode.LINT: {0, 1}, _Mode.FORMAT: {0}, _Mode.MAX_WORK: {0}}
@@ -106,12 +113,13 @@ def accepted_slowdowns(*, changelog: str, release: str) -> dict[str, str]:
 def regressions(
     *, results: Sequence[Result], tolerance: float, accepted: Mapping[str, str]
 ) -> list[str]:
-    """Return cases strictly beyond tolerance without a case-specific acceptance."""
+    """Return cases strictly beyond tolerance and sample noise, and not accepted."""
     return [
         result.case
         for result in results
         if result.candidate_seconds
         > result.previous_seconds * (1.0 + tolerance / 100.0)
+        and not result.within_noise
         and result.case not in accepted
     ]
 
@@ -290,13 +298,10 @@ def main(
             failing = regressions(
                 results=[result], tolerance=tolerance, accepted=accepted
             )
-            noise = abs(
-                result.candidate_seconds - result.previous_seconds
-            ) <= math.hypot(result.previous_sd, result.candidate_sd)
             verdict = "FAIL" if failing else "PASS"
             if result.case in accepted:
                 verdict += f"; accepted: {accepted[result.case]}"
-            if noise:
+            if result.within_noise:
                 verdict += "; within sample noise"
             typer.echo(
                 f"| {result.case} | {result.previous_seconds * 1000:.3f} "

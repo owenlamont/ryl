@@ -32,6 +32,9 @@ import typer
 
 
 ROOT: Final = Path(__file__).resolve().parents[1]
+app = typer.Typer(
+    add_completion=False, context_settings={"help_option_names": ["-h", "--help"]}
+)
 ZENSICAL: Final = ROOT / "zensical.toml"
 DOCS: Final = ROOT / "docs"
 OUTPUT: Final = DOCS / "llms.txt"
@@ -211,6 +214,7 @@ def render_full(config: dict) -> str:
     return "\n".join(parts).rstrip() + "\n"
 
 
+@app.command()
 def main(
     *,
     check: Annotated[
@@ -240,4 +244,4 @@ def main(
 
 
 if __name__ == "__main__":
-    typer.run(main)
+    app()

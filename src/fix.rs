@@ -1093,17 +1093,17 @@ fn fix_markdown_cached(
     };
     let mut regions = extract_regions(markdown, sources);
     regions.sort_by_key(|region| std::cmp::Reverse(region.raw_span.start));
-    let mut run = |verify| {
+    let mut run = |read_back| {
         rewrite_regions(
             markdown,
             &regions,
             (path, cfg, base_dir),
-            (sources, rewrite, verify),
+            (sources, rewrite, read_back),
             refusal_lines_in_output,
             cache,
         )
     };
-    let (out, problems, written) = run(false);
+    let (out, problems, written) = run(ReadBack::Whole);
     if regions_hold(
         out.as_deref().unwrap_or(markdown),
         &regions,
@@ -1112,8 +1112,17 @@ fn fix_markdown_cached(
     ) {
         return (out, problems);
     }
-    let (out, problems, _) = run(true);
+    let (out, problems, _) = run(ReadBack::EachRegion);
     (out, problems)
+}
+
+/// Where a rewritten region is checked to read back as written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadBack {
+    /// Once over the whole document, by [`regions_hold`].
+    Whole,
+    /// Region by region, as each is written.
+    EachRegion,
 }
 
 /// A region's rewrite, spanning its replacement text alone, and the lines it adds.
@@ -1151,12 +1160,13 @@ fn regions_hold(
 }
 
 /// The rewritten document, its notices, and per region its rewrite and added lines;
-/// without `verify`, a rewrite is not re-parsed, so [`regions_hold`] must check them all.
+/// under [`ReadBack::Whole`], a rewrite is not re-parsed, so [`regions_hold`] must check
+/// them all.
 fn rewrite_regions(
     markdown: &str,
     regions: &[EmbeddedRegion],
     (path, cfg, base_dir): (&Path, &YamlLintConfig, &Path),
-    (sources, rewrite, verify): (MarkdownSources, Rewrite, bool),
+    (sources, rewrite, read_back): (MarkdownSources, Rewrite, ReadBack),
     refusal_lines_in_output: bool,
     cache: &mut FormatCache,
 ) -> (Option<String>, Vec<MarkdownRefusal>, Vec<Written>) {
@@ -1191,7 +1201,7 @@ fn rewrite_regions(
                     &out,
                     region,
                     fixed,
-                    (sources, rewrite, verify),
+                    (sources, rewrite, read_back),
                     &mut refusals,
                 )
             });
@@ -1233,7 +1243,7 @@ fn rewrite_regions(
                 blocks_preview: false,
             });
         }
-        if verify {
+        if read_back == ReadBack::EachRegion {
             out.replace_range(region.raw_span.clone(), &replacement);
         }
         let span = &region.raw_span;
@@ -1300,7 +1310,7 @@ fn write_region(
     out: &str,
     region: &EmbeddedRegion,
     fixed: &str,
-    (sources, rewrite, verify): (MarkdownSources, Rewrite, bool),
+    (sources, rewrite, read_back): (MarkdownSources, Rewrite, ReadBack),
     refusals: &mut Vec<MarkdownRefusal>,
 ) -> Option<(String, EmbeddedRegion, isize)> {
     let Some((prefix, newline)) = region_prefix(out, region) else {
@@ -1317,7 +1327,7 @@ fn write_region(
         return None;
     };
     let replacement = reindent(fixed, &prefix, newline);
-    let updated = if verify {
+    let updated = if read_back == ReadBack::EachRegion {
         let mut candidate = out.to_owned();
         candidate.replace_range(region.raw_span.clone(), &replacement);
         let expected_span =

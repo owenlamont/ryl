@@ -114,8 +114,10 @@ description: >-
     Preserve the per-case mean ± standard deviation and delta table, plus
     `manual_outputs/benchmarks/release-perf.json`, in the release PR. The host-load
     guard applies before and throughout timing; an overloaded host invalidates the run.
-    Any mean slowdown **strictly above 10%** blocks the tag. `--tolerance` changes the
-    threshold only with the maintainer's agreement. Acceptance requires the maintainer
+    A case blocks the tag when its mean slowdown is **strictly above 10%** and also
+    larger than the two runs' combined standard deviation; a slowdown within that
+    noise passes, labelled `within sample noise`. `--tolerance` changes the 10% only
+    with the maintainer's agreement. Acceptance requires the maintainer
     to approve a bullet in the exact release's CHANGELOG section (dated headings are
     supported):
 

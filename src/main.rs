@@ -13,7 +13,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod cache;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -954,16 +954,19 @@ impl<'a> RecordStream<'a> {
             }
         }
         for (target, (writer, status)) in self.targets.iter().zip(&mut self.writers) {
-            let console;
-            let block: &[u8] = match target.format {
+            let append: fn(&mut Vec<u8>, &Path, &[LintProblem]) = match target.format {
                 OutputFormat::Junit => continue,
-                OutputFormat::Gitlab => &gitlab,
-                format => {
-                    console = console_block(format, record);
-                    &console
+                OutputFormat::Gitlab => {
+                    then(status, || writer.write_all(&gitlab));
+                    continue;
                 }
+                OutputFormat::Standard => append_standard,
+                OutputFormat::Colored => append_colored,
+                OutputFormat::Github => append_github,
+                OutputFormat::Parsable => append_parsable,
             };
-            then(status, || writer.write_all(block));
+            let block = console_block(target.format, append, record);
+            then(status, || writer.write_all(&block));
         }
     }
 
@@ -1019,15 +1022,13 @@ fn then(status: &mut std::io::Result<()>, write: impl FnOnce() -> std::io::Resul
 // that invariant rather than leaving an uncovered `None` arm.
 const JUNIT_REPORT_KEPT: &str = "the report is kept when a JUnit target is present";
 
-/// One record's block in a console `format`: nothing for a clean file, its
-/// (already-sanitized) message line for a processing error.
-fn console_block(format: OutputFormat, record: &FileRecord) -> Vec<u8> {
-    let append: fn(&mut Vec<u8>, &Path, &[LintProblem]) = match format {
-        OutputFormat::Colored => append_colored,
-        OutputFormat::Github => append_github,
-        OutputFormat::Parsable => append_parsable,
-        _ => append_standard,
-    };
+/// One record's block in a console `format`, written by `append`: nothing for a clean
+/// file, its (already-sanitized) message line for a processing error.
+fn console_block(
+    format: OutputFormat,
+    append: fn(&mut Vec<u8>, &Path, &[LintProblem]),
+    record: &FileRecord,
+) -> Vec<u8> {
     let mut block = Vec::new();
     if let Some(message) = &record.error {
         writeln!(block, "error: {message}").expect(OUTPUT_INFALLIBLE);
@@ -1493,8 +1494,8 @@ fn lint_and_exit(
                     .zip(safe_fix_rule_counts(&outcome, no_warnings))
                     .map(|(before, after)| before.saturating_sub(after))
                     .sum::<usize>();
-                match errors.iter().find(|(index, _)| *index == idx) {
-                    Some((_, error)) => Err(error.clone()),
+                match errors.get(&idx) {
+                    Some(error) => Err(error.clone()),
                     None => outcome,
                 }
             }
@@ -1546,7 +1547,7 @@ fn apply_fixes_reporting_skips(files: &[LintFile], no_warnings: bool) -> FixBase
     for (index, _) in &fix_stats.errors {
         before[*index] = [0; SAFE_FIX_RULE_IDS.len()];
     }
-    (before, fix_stats.errors)
+    (before, fix_stats.errors.into_iter().collect())
 }
 
 fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
@@ -2300,7 +2301,7 @@ impl LintSummary {
 type SafeFixRuleCounts = [usize; SAFE_FIX_RULE_IDS.len()];
 
 /// Each file's pre-fix safe-fix counts, and the files `--fix` failed to write.
-type FixBaseline = (Vec<SafeFixRuleCounts>, Vec<(usize, String)>);
+type FixBaseline = (Vec<SafeFixRuleCounts>, HashMap<usize, String>);
 
 /// A file's reported problems per safe-fix rule, so a fix that adds another rule's problem
 /// cannot cancel one it cleared.

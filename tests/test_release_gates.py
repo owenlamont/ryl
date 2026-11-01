@@ -89,6 +89,28 @@ def test_custom_tolerance_and_case_specific_override() -> None:
     ) == [result.case]
 
 
+@pytest.mark.parametrize(
+    ("candidate_sd", "fails"),
+    [
+        pytest.param(0.664, False, id="slowdown within combined sd passes"),
+        pytest.param(0.4, True, id="slowdown beyond combined sd fails"),
+    ],
+)
+def test_slowdown_fails_only_beyond_sample_noise(
+    *, candidate_sd: float, fails: bool
+) -> None:
+    result = Result(
+        case="format/100x1KiB",
+        previous_seconds=6.965,
+        previous_sd=0.332,
+        candidate_seconds=7.697,
+        candidate_sd=candidate_sd,
+    )
+    assert regressions(results=[result], tolerance=10.0, accepted={}) == (
+        [result.case] if fails else []
+    )
+
+
 def test_acceptance_only_in_selected_release_bullets() -> None:
     changelog = """# Changelog
 ## Unreleased

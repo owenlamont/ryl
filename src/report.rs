@@ -52,27 +52,47 @@ pub fn render_junit(entries: &[ReportEntry]) -> Vec<u8> {
 pub struct JunitReport {
     body: Writer<Vec<u8>>,
     root_len: usize,
-    totals: (usize, usize, usize),
+    totals: Counts,
+}
+
+/// `JUnit` case counts, for one suite or the whole report.
+#[derive(Debug, Clone, Copy, Default)]
+struct Counts {
+    tests: usize,
+    failures: usize,
+    errors: usize,
+}
+
+impl Counts {
+    fn add_attributes(self, element: &mut BytesStart<'_>) {
+        for (name, count) in [
+            ("tests", self.tests),
+            ("failures", self.failures),
+            ("errors", self.errors),
+        ] {
+            element.push_attribute((name, count.to_string().as_str()));
+        }
+    }
 }
 
 impl Default for JunitReport {
     fn default() -> Self {
         // Opening the body with a placeholder root gives its suites the root's indentation.
-        let body = write_root(Vec::new(), (0, 0, 0));
+        let body = write_root(Vec::new(), Counts::default());
         Self {
             root_len: body.get_ref().len(),
             body,
-            totals: (0, 0, 0),
+            totals: Counts::default(),
         }
     }
 }
 
 impl JunitReport {
     pub fn append(&mut self, entry: &ReportEntry) {
-        let (tests, failures, errors) = suite_counts(entry);
-        self.totals.0 += tests;
-        self.totals.1 += failures;
-        self.totals.2 += errors;
+        let counts = suite_counts(entry);
+        self.totals.tests += counts.tests;
+        self.totals.failures += counts.failures;
+        self.totals.errors += counts.errors;
         write_suite(&mut self.body, entry);
     }
 
@@ -93,43 +113,45 @@ impl JunitReport {
     }
 }
 
-fn write_root(
-    buffer: Vec<u8>,
-    (tests, failures, errors): (usize, usize, usize),
-) -> Writer<Vec<u8>> {
+fn write_root(buffer: Vec<u8>, totals: Counts) -> Writer<Vec<u8>> {
     let mut writer = Writer::new_with_indent(buffer, b' ', 2);
     writer
         .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
         .expect(INFALLIBLE);
     let mut root = BytesStart::new("testsuites");
     root.push_attribute(("name", "ryl"));
-    root.push_attribute(("tests", tests.to_string().as_str()));
-    root.push_attribute(("failures", failures.to_string().as_str()));
-    root.push_attribute(("errors", errors.to_string().as_str()));
+    totals.add_attributes(&mut root);
     writer.write_event(Event::Start(root)).expect(INFALLIBLE);
     writer
 }
 
-/// `JUnit` `(tests, failures, errors)` for one file: a processing error is one errored case,
-/// a clean file one passing case, otherwise one failing case per diagnostic.
-fn suite_counts(entry: &ReportEntry) -> (usize, usize, usize) {
-    if entry.error.is_some() {
-        (1, 0, 1)
-    } else if entry.problems.is_empty() {
-        (1, 0, 0)
-    } else {
-        (entry.problems.len(), entry.problems.len(), 0)
+/// A processing error is one errored case, a clean file one passing case, otherwise one
+/// failing case per diagnostic.
+fn suite_counts(entry: &ReportEntry) -> Counts {
+    let problems = entry.problems.len();
+    match (entry.error, problems) {
+        (Some(_), _) => Counts {
+            tests: 1,
+            failures: 0,
+            errors: 1,
+        },
+        (None, 0) => Counts {
+            tests: 1,
+            ..Counts::default()
+        },
+        (None, _) => Counts {
+            tests: problems,
+            failures: problems,
+            errors: 0,
+        },
     }
 }
 
 fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
-    let (tests, failures, errors) = suite_counts(entry);
     let path = xml_sanitize(&entry.path);
     let mut suite = BytesStart::new("testsuite");
     suite.push_attribute(("name", path.as_ref()));
-    suite.push_attribute(("tests", tests.to_string().as_str()));
-    suite.push_attribute(("failures", failures.to_string().as_str()));
-    suite.push_attribute(("errors", errors.to_string().as_str()));
+    suite_counts(entry).add_attributes(&mut suite);
     writer.write_event(Event::Start(suite)).expect(INFALLIBLE);
 
     if let Some(error) = entry.error {
