@@ -11,6 +11,13 @@ summarize user-visible changes from the tagged commits and published release rec
   and ruff do, rather than grouping them by rule. Files stay in input order.
   ([#905](https://github.com/owenlamont/ryl/issues/905))
 
+### Fixed
+
+- With `fold-long-lines`, a `disable-line rule:line-length` comment above a flow
+  collection that `sequence-style` or `mapping-style` turns into block form no longer
+  stops `ryl format` folding the first entry, which a second run then folded.
+  ([#905](https://github.com/owenlamont/ryl/issues/905))
+
 ## v0.28.0
 
 ### Added

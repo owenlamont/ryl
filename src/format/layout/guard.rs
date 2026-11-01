@@ -71,6 +71,16 @@ impl Guard {
         self.range(start, end).all(|line| self.line(rule, line))
     }
 
+    /// Whether `rule` may change `line`; a converted layout can place `anchor` on a line
+    /// other than `line`, so a projected guard reads the line itself.
+    pub(super) fn allows_line(&self, rule: &str, line: usize, anchor: BytePos) -> bool {
+        if self.projected.is_some() {
+            self.line(rule, line)
+        } else {
+            self.allows(rule, anchor, anchor)
+        }
+    }
+
     pub(super) fn allows_any(&self, rule: &str, start: BytePos, end: BytePos) -> bool {
         self.range(start, end).any(|line| self.line(rule, line))
     }

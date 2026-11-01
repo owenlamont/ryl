@@ -1879,9 +1879,9 @@ impl DocumentPlan<'_> {
             bom: line.bom(),
             content: line.scalar_content().kind(),
             allowed: self.guard.as_ref().is_none_or(|guard| {
-                guard.allows(
+                guard.allows_line(
                     crate::rules::line_length::ID,
-                    line.source_anchor(),
+                    index,
                     line.source_anchor(),
                 )
             }),
