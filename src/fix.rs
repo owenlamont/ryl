@@ -23,8 +23,8 @@ use crate::rules::support::yaml_version::Readers;
 use crate::rules::{
     braces, brackets, colons, commas, comments, comments_indentation, document_end,
     document_start, empty_lines, hyphens, indentation, key_ordering, line_length,
-    new_line_at_end_of_file, new_lines, quoted_strings, trailing_spaces, truthy,
-    yaml_directive,
+    new_line_at_end_of_file, new_lines, octal_values, quoted_strings,
+    schema_dependent_values, trailing_spaces, truthy, yaml_directive,
 };
 use crate::text_version::{Analysis, ParsedFacts, TextVersion};
 
@@ -71,6 +71,11 @@ pub const SAFE_FIX_RULE_IDS: [&str; 17] = [
     key_ordering::ID,
     yaml_directive::ID,
 ];
+
+/// Every rule with an unsafe fix, which `--fix` applies only under `unsafe-fixes` or
+/// `lint.extend-safe-fixes`.
+pub const UNSAFE_FIX_RULE_IDS: [&str; 3] =
+    [truthy::ID, octal_values::ID, schema_dependent_values::ID];
 
 #[derive(Debug, Clone, Default)]
 pub struct FixStats {
@@ -542,6 +547,7 @@ fn would_reformat(diff: Option<&str>) -> crate::lint::LintProblem {
         level: crate::lint::Severity::Error,
         message: "File would be reformatted".to_string(),
         rule: Some("unformatted"),
+        hidden_unsafe_fix: false,
     }
 }
 
@@ -729,6 +735,7 @@ fn unfixed_notices(
             message: "cannot fix this file safely: block scalar value may change"
                 .to_string(),
             rule: None,
+            hidden_unsafe_fix: false,
         });
     }
     if rule_enabled(key_ordering::ID, cfg, path, base_dir) {
@@ -742,6 +749,7 @@ fn unfixed_notices(
                     level: crate::lint::Severity::Error,
                     message: violation.message,
                     rule: Some(key_ordering::ID),
+                    hidden_unsafe_fix: false,
                 }),
         );
     }
@@ -921,6 +929,7 @@ fn diff_skip(message: &str) -> crate::lint::LintProblem {
         level: crate::lint::Severity::Error,
         message: message.to_string(),
         rule: None,
+        hidden_unsafe_fix: false,
     }
 }
 
@@ -1064,6 +1073,7 @@ fn markdown_refusal(
             level: crate::lint::Severity::Error,
             message: format!("{kind} {reason}"),
             rule: None,
+            hidden_unsafe_fix: false,
         },
         blocks_preview,
     }
@@ -1503,6 +1513,24 @@ pub(crate) fn rewrite<'a>(
                 tracking.edited,
                 truthy::fix,
             );
+        let octal = !ambiguous
+            && fix_rule(
+                &mut output,
+                octal_values::ID,
+                passes.octal_values.as_ref(),
+                passes,
+                tracking.edited,
+                octal_values::fix,
+            );
+        let schema = !ambiguous
+            && fix_rule(
+                &mut output,
+                schema_dependent_values::ID,
+                passes.schema_dependent_values.as_ref(),
+                passes,
+                tracking.edited,
+                schema_dependent_values::fix,
+            );
         let ordered = fix_rule(
             &mut output,
             key_ordering::ID,
@@ -1521,7 +1549,7 @@ pub(crate) fn rewrite<'a>(
                 |text, cfg| yaml_directive::fix(text, cfg, &passes.per_line),
             );
         current = output;
-        if !truthy && !ordered && !declared {
+        if !(truthy || octal || schema || ordered || declared) {
             break;
         }
     }
@@ -1615,6 +1643,8 @@ pub(crate) struct Passes<'a> {
     pub(crate) document_end: Option<document_end::Config>,
     pub(crate) empty_lines: Option<empty_lines::Config>,
     pub(crate) truthy: Option<truthy::Config>,
+    pub(crate) octal_values: Option<octal_values::Config>,
+    pub(crate) schema_dependent_values: Option<schema_dependent_values::Config>,
     pub(crate) key_ordering: Option<key_ordering::Config>,
     pub(crate) yaml_directive: Option<yaml_directive::Config>,
     pub(crate) line_length: Option<line_length::Fold>,
@@ -1680,6 +1710,12 @@ impl<'a> Passes<'a> {
                 .then(|| document_end::Config::resolve(cfg)),
             empty_lines: on(empty_lines::ID).then(|| empty_lines::Config::resolve(cfg)),
             truthy: on(truthy::ID).then(|| truthy::Config::resolve(cfg)),
+            octal_values: (on(octal_values::ID)
+                && cfg.applies_unsafe_fix(octal_values::ID))
+            .then(|| octal_values::Config::resolve(cfg)),
+            schema_dependent_values: (on(schema_dependent_values::ID)
+                && cfg.applies_unsafe_fix(schema_dependent_values::ID))
+            .then(|| schema_dependent_values::Config::resolve(cfg)),
             key_ordering: on(key_ordering::ID)
                 .then(|| key_ordering::Config::resolve(cfg, path)),
             yaml_directive: on(yaml_directive::ID)

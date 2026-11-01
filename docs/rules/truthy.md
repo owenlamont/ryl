@@ -37,6 +37,8 @@ A workflow's required `on:` key is a truthy bareword, so `truthy` reports it:
 $ ryl check .github/workflows/ci.yml
 .github/workflows/ci.yml
   2:1       error    truthy value should be one of [false, true]  (truthy)
+
+1 unsafe fix available with `--fix --unsafe-fixes`.
 ```
 
 Quoting the key also works: `'on': push` passes both `truthy` and
@@ -117,9 +119,15 @@ case. Every one of those spellings is the same boolean under YAML 1.1 and 1.2,
 so the value does not change. When `allowed-values` has no spelling of that
 boolean, the value is left as it is.
 
-The fix is **partial**: `yes`, `no`, `on`, `off` and their case variants are
-never rewritten, because the right replacement (quote it to keep the string,
-or change it to a boolean) depends on what the author meant.
+`yes`, `no`, `on`, `off` and their case variants get an
+[unsafe fix](../rules.md#unsafe-fixes) instead, because the right replacement
+(quote it to keep the string, or change it to a boolean) depends on what the
+author meant. It applies only in a document with no `%YAML` directive under the
+default `target-version = "1.1"`, and follows
+[`source-version`](../yaml-version.md#unsafe-fixes-and-source-version):
+`enabled: yes` becomes `enabled: "yes"` under `"1.2"` (the default) and
+`enabled: true` under `"1.1"`, taking the first spelling of that boolean
+`allowed-values` permits, or none when it permits none.
 
 With `check-keys` on, keys are fixed too. That can surface a duplicate key:
 `True: 1` and `true: 2` in one mapping were always the same boolean key, and

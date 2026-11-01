@@ -14,6 +14,15 @@ summarize user-visible changes from the tagged commits and published release rec
   PyYAML reads as a string and other 1.1 readers do not (`08`, `1e5`, `y`), keeps its
   report and is left as is.
   ([#365](https://github.com/owenlamont/ryl/issues/365))
+- Unsafe fixes, as in ruff: `--unsafe-fixes` (or `unsafe-fixes = true`) applies them
+  with `check --fix` and `--diff`, and `lint.extend-safe-fixes` promotes one rule's.
+  `truthy`, `octal-values` and `schema-dependent-values` gain one for a plain scalar
+  YAML 1.1 and 1.2 read differently in an undeclared document: the new top-level
+  `source-version` (default `"1.2"`) picks the reading kept, so `yes` becomes `"yes"`
+  and `0777` becomes `777`, or under `"1.1"` `true` and `511`. `ryl check` counts the
+  ones left out ("N unsafe fixes available with `--fix --unsafe-fixes`"), and
+  `ryl server` offers them as quick fixes outside "Fix all".
+  ([#365](https://github.com/owenlamont/ryl/issues/365))
 
 ### Changed
 

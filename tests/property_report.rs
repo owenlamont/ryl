@@ -99,6 +99,7 @@ fn arb_problem() -> impl Strategy<Value = LintProblem> {
             level,
             message,
             rule,
+            hidden_unsafe_fix: false,
         })
 }
 

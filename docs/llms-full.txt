@@ -1739,7 +1739,8 @@ For configuration discovery, presets, and file selection, see
 - [Comments](#comments) &mdash; comment placement and spacing
 - [Values](#values) &mdash; numeric, string, and boolean value formats
 
-Rules that auto-fix are marked with :wrench: in the **Fix** column. Most layout
+Rules that auto-fix are marked with :wrench: in the **Fix** column, and rules with an
+[unsafe fix](#unsafe-fixes) with :warning:. Most layout
 rules are also enforced by [`ryl format`](https://ryl-docs.pages.dev/formatter/); the
 [Formatter](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules) page lists which, and the options that
 conflict with it.
@@ -1788,10 +1789,10 @@ conflict with it.
 | Rule | Description | Fix |
 | :--- | :--- | :---: |
 | [`float-values`](https://ryl-docs.pages.dev/rules/float-values/) | Float value formats. |  |
-| [`octal-values`](https://ryl-docs.pages.dev/rules/octal-values/) | Octal value formats. |  |
+| [`octal-values`](https://ryl-docs.pages.dev/rules/octal-values/) | Octal value formats. | :warning: |
 | [`quoted-strings`](https://ryl-docs.pages.dev/rules/quoted-strings/) | Quoted string styles and when to require quotes. | :wrench: |
-| [`schema-dependent-values`](https://ryl-docs.pages.dev/rules/schema-dependent-values/) | Plain values YAML 1.1 and 1.2 read differently (`2026-10-10`, `22:22`, `1_000`). |  |
-| [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) | Truthy values like `yes`, `no`, `on`, `off`. | :wrench: |
+| [`schema-dependent-values`](https://ryl-docs.pages.dev/rules/schema-dependent-values/) | Plain values YAML 1.1 and 1.2 read differently (`2026-10-10`, `22:22`, `1_000`). | :warning: |
+| [`truthy`](https://ryl-docs.pages.dev/rules/truthy/) | Truthy values like `yes`, `no`, `on`, `off`. | :wrench: :warning: |
 
 ## Severity levels
 
@@ -1881,6 +1882,41 @@ Control which rules apply fixes with `fixable`/`unfixable` in the `[lint]` table
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```
+
+### Unsafe fixes
+
+A safe fix never changes what a value means. An **unsafe** fix may: it picks one
+meaning where readers disagree, so it applies only when you opt in, as with ruff.
+`truthy`, `octal-values` and `schema-dependent-values` offer one for a plain scalar
+that YAML 1.1 and 1.2 readers load differently (see
+[YAML version compatibility](https://ryl-docs.pages.dev/yaml-version/#unsafe-fixes-and-source-version)).
+
+`ryl check` counts the fixes it left out:
+
+```console
+$ ryl check config.yaml
+config.yaml
+  1:10      error    truthy value should be one of [false, true]  (truthy)
+
+1 unsafe fix available with `--fix --unsafe-fixes`.
+```
+
+Apply every unsafe fix with `--unsafe-fixes` or the top-level setting, or one rule's
+with `extend-safe-fixes`, which lets plain `--fix` apply it:
+
+```toml
+unsafe-fixes = true
+
+[lint]
+extend-safe-fixes = ["octal-values"]
+```
+
+`--diff` previews them, and once the config enables a fix its message names the old
+and new spelling (`; unsafe fix: yes -> "yes"`). `--no-unsafe-fixes` overrides the setting,
+and `unsafe-fixes = false` also silences the count. `unfixable` blocks a rule's unsafe
+fix too, and `ryl format` never applies one. In an editor, `ryl server` offers each
+rule's unsafe fixes as a quick fix, kept out of "Fix all" until the config applies
+them.
 
 ---
 
@@ -3736,6 +3772,41 @@ same to a 1.1 consumer such as PyYAML. The set is PyYAML's 1.1 resolver plus
 `0o` octal, `y`, `Y`, `n` and `N`, which go-yaml v2 (used by Kubernetes) loads
 as booleans, and go-yaml's float spellings (`'08'`, `'1e5'`, `'-.5'`, `'0_8'`),
 which PyYAML reads as strings.
+
+### Unsafe fixes and `source-version`
+
+A document with no directive under the default `target-version = "1.1"` must
+mean the same to both versions, but a scalar such as `yes` already does not: a
+string to 1.2, a boolean to PyYAML. Rewriting it picks one reading, so
+`truthy`, `octal-values` and `schema-dependent-values` offer an
+[unsafe fix](https://ryl-docs.pages.dev/rules/#unsafe-fixes) that applies only under `--unsafe-fixes`,
+`unsafe-fixes = true` or `lint.extend-safe-fixes`. The top-level
+`source-version` says which reading the author meant, and the fix writes a
+spelling both versions read that way:
+
+| Scalar | `source-version = "1.2"` (default) | `source-version = "1.1"` |
+| :--- | :--- | :--- |
+| `yes`, `off` | `"yes"`, `"off"` | `true`, `false` |
+| `0777`, `0o17` | `777`, `15` | `511`, left alone |
+| `1_000`, `0b1010` | `"1_000"`, `"0b1010"` | `1000`, `10` |
+| `22:22`, `1:30.5` | `"22:22"`, `"1:30.5"` | `1342`, `90.5` |
+| `08` | `8` | left alone |
+| `2026-10-10`, `y` | `"2026-10-10"`, `"y"` | left alone |
+
+Under `"1.1"` the fix leaves a scalar alone where the migration above declines:
+YAML 1.1 readers disagree on it (`08`, `0o17`, `y`), or YAML 1.2
+has no type for it (a timestamp). Quotes follow `quoted-strings`'
+`quote-type = "single"` when that rule is on, and a boolean takes the first
+spelling `truthy`'s `allowed-values` permits.
+
+```toml
+source-version = "1.1"
+```
+
+`source-version` steers only the fix: every rule, the formatter and the value
+checks still read an undeclared document as YAML 1.2. Like any setting, the
+nearest config wins, so a PyYAML-era subtree can carry its own
+`source-version = "1.1"`.
 
 ### What `%YAML 1.2` does for each reader
 
@@ -6154,8 +6225,19 @@ permissions: 0o755
 
 ## Automatic fixing
 
-This rule does not auto-fix; rewriting an integer literal requires
-deciding whether the intended value is octal, decimal, or a string.
+No safe fix; rewriting an integer literal requires deciding whether the
+intended value is octal, decimal, or a string. In a document with no `%YAML`
+directive under the default `target-version = "1.1"`, an
+[unsafe fix](https://ryl-docs.pages.dev/rules/#unsafe-fixes) writes the decimal value
+[`source-version`](https://ryl-docs.pages.dev/yaml-version/#unsafe-fixes-and-source-version) reads:
+
+| Literal | `source-version = "1.2"` (default) | `source-version = "1.1"` |
+| :--- | :--- | :--- |
+| `0755` | `755` | `493` |
+| `-0755` | `-755` | `-493` |
+| `0o755` | `493` | left alone |
+
+YAML 1.1 readers disagree on `0o755` (a string to PyYAML), so it has no 1.1 fix.
 
 ## Related rules
 
@@ -6367,13 +6449,27 @@ config.yaml
   3:9       error    plain "1_000" is a string in YAML 1.2 but a number in YAML 1.1  (schema-dependent-values)
   4:7       error    plain "08" is an integer in YAML 1.2 but a string in YAML 1.1  (schema-dependent-values)
   5:10      error    plain "y" is a string in YAML 1.2 but a boolean in YAML 1.1  (schema-dependent-values)
+
+5 unsafe fixes available with `--fix --unsafe-fixes`.
 ```
 
 ## Automatic fixing
 
-None. Quoting, retyping or rewriting the value each needs the author's intent:
-`22:22` may be a time of day or a port mapping, and `08` a zero-padded string or the
-number 8.
+No safe fix. Quoting, retyping or rewriting the value each needs the author's
+intent: `22:22` may be a time of day or a port mapping, and `08` a zero-padded string
+or the number 8. An [unsafe fix](https://ryl-docs.pages.dev/rules/#unsafe-fixes) applies the reading
+[`source-version`](https://ryl-docs.pages.dev/yaml-version/#unsafe-fixes-and-source-version) names:
+
+| Scalar | `source-version = "1.2"` (default) | `source-version = "1.1"` |
+| :--- | :--- | :--- |
+| `2026-10-10` | `"2026-10-10"` | left alone |
+| `22:22`, `1:30.5` | `"22:22"`, `"1:30.5"` | `1342`, `90.5` |
+| `1_000`, `0b1010` | `"1_000"`, `"0b1010"` | `1000`, `10` |
+| `08` | `8` | left alone |
+| `y` | `"y"` | left alone |
+
+Under `"1.1"` a timestamp has no YAML 1.2 type, and YAML 1.1 readers disagree on
+`08` and `y`, so those keep their report.
 
 ## Related rules
 
@@ -6621,6 +6717,8 @@ A workflow's required `on:` key is a truthy bareword, so `truthy` reports it:
 $ ryl check .github/workflows/ci.yml
 .github/workflows/ci.yml
   2:1       error    truthy value should be one of [false, true]  (truthy)
+
+1 unsafe fix available with `--fix --unsafe-fixes`.
 ```
 
 Quoting the key also works: `'on': push` passes both `truthy` and
@@ -6701,9 +6799,15 @@ case. Every one of those spellings is the same boolean under YAML 1.1 and 1.2,
 so the value does not change. When `allowed-values` has no spelling of that
 boolean, the value is left as it is.
 
-The fix is **partial**: `yes`, `no`, `on`, `off` and their case variants are
-never rewritten, because the right replacement (quote it to keep the string,
-or change it to a boolean) depends on what the author meant.
+`yes`, `no`, `on`, `off` and their case variants get an
+[unsafe fix](https://ryl-docs.pages.dev/rules/#unsafe-fixes) instead, because the right replacement
+(quote it to keep the string, or change it to a boolean) depends on what the
+author meant. It applies only in a document with no `%YAML` directive under the
+default `target-version = "1.1"`, and follows
+[`source-version`](https://ryl-docs.pages.dev/yaml-version/#unsafe-fixes-and-source-version):
+`enabled: yes` becomes `enabled: "yes"` under `"1.2"` (the default) and
+`enabled: true` under `"1.1"`, taking the first spelling of that boolean
+`allowed-values` permits, or none when it permits none.
 
 With `check-keys` on, keys are fixed too. That can surface a duplicate key:
 `True: 1` and `true: 2` in one mapping were always the same boolean key, and

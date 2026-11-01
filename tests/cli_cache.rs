@@ -216,10 +216,10 @@ fn corrupt_entry_is_rebuilt_and_version_directory_isolated() {
     let first = command();
     let entry = entries(&root).pop().unwrap();
     // Postcard layout of a one-entry batch: map length, then the 64-byte hex name,
-    // then one problem as (line, column, level, message, rule).
+    // then one problem as (line, column, level, message, rule, hidden unsafe fix).
     let name = fs::read(&entry).unwrap()[2..66].to_vec();
     let batch = |level: u8, rule: &[u8]| {
-        [&[1, 64][..], &name, &[1, 1, 1, level, 1, b'x'], rule].concat()
+        [&[1, 64][..], &name, &[1, 1, 1, level, 1, b'x'], rule, &[0]].concat()
     };
     fs::write(&entry, batch(0, &[0])).unwrap();
     assert_ne!(command(), first, "a well-formed batch is served");

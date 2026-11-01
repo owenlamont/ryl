@@ -37,8 +37,8 @@ use ryl::config_schema::{
 use ryl::decoder;
 use ryl::directives::starts_with_jinja_header;
 use ryl::fix::{
-    DiffOutcome, DiffStats, Rewrite, SAFE_FIX_RULE_IDS, decoded_diff_outcome,
-    diff_files, rewrite_files, rewrite_str, skip_notice,
+    DiffOutcome, DiffStats, Rewrite, SAFE_FIX_RULE_IDS, UNSAFE_FIX_RULE_IDS,
+    decoded_diff_outcome, diff_files, rewrite_files, rewrite_str, skip_notice,
 };
 use ryl::lint::lint_str_with_repair_help;
 use ryl::migrate::{
@@ -493,10 +493,17 @@ fn cli_config_flags(args: &LintArgs) -> CliConfigFlags {
             args.source.disable.clone()
         },
         exclude: args.source.exclude.clone(),
+        unsafe_fixes: match (args.lint.fix.unsafe_fixes, args.lint.fix.no_unsafe_fixes)
+        {
+            (true, _) => Some(true),
+            (_, true) => Some(false),
+            _ => None,
+        },
     }
 }
 
 #[derive(clap::Args, Debug, Default)]
+#[expect(clippy::struct_excessive_bools, reason = "one field per CLI flag")]
 struct FixFlags {
     /// Apply safe fixes in place before reporting remaining diagnostics
     #[arg(long = "fix", default_value_t = false)]
@@ -506,6 +513,14 @@ struct FixFlags {
     /// never modifies files and exits 1 if any file would change
     #[arg(long = "diff", default_value_t = false, conflicts_with = "fix")]
     diff: bool,
+
+    /// Include fixes that may change a value's meaning; overrides `unsafe-fixes`
+    #[arg(long = "unsafe-fixes", conflicts_with = "no_unsafe_fixes")]
+    unsafe_fixes: bool,
+
+    /// Leave out unsafe fixes and their hint, overriding `unsafe-fixes`
+    #[arg(long = "no-unsafe-fixes")]
+    no_unsafe_fixes: bool,
 }
 
 #[derive(clap::Args, Debug, Default)]
@@ -1491,7 +1506,7 @@ fn lint_and_exit(
             Some((before, errors)) => {
                 fixed += before[idx]
                     .iter()
-                    .zip(safe_fix_rule_counts(&outcome, no_warnings))
+                    .zip(fix_rule_counts(&outcome, no_warnings))
                     .map(|(before, after)| before.saturating_sub(after))
                     .sum::<usize>();
                 match errors.get(&idx) {
@@ -1522,6 +1537,23 @@ fn lint_and_exit(
                 summary.problem_count
             );
         }
+        let human = targets.iter().any(|target| {
+            matches!(
+                target.format,
+                OutputFormat::Standard | OutputFormat::Colored
+            )
+        });
+        if summary.hidden_unsafe_fixes > 0 && (human || before_fix.is_some()) {
+            eprintln!(
+                "{} unsafe {} available with `--fix --unsafe-fixes`.",
+                summary.hidden_unsafe_fixes,
+                if summary.hidden_unsafe_fixes == 1 {
+                    "fix"
+                } else {
+                    "fixes"
+                }
+            );
+        }
         if before_fix
             .as_ref()
             .is_none_or(|(_, errors)| errors.is_empty())
@@ -1540,12 +1572,12 @@ fn apply_fixes_reporting_skips(files: &[LintFile], no_warnings: bool) -> FixBase
     let mut before = Vec::with_capacity(files.len());
     lint_files(files, |_, (outcome, stderr)| {
         let _ = std::io::stderr().write_all(&stderr);
-        before.push(safe_fix_rule_counts(&outcome, no_warnings));
+        before.push(fix_rule_counts(&outcome, no_warnings));
     });
     let fix_stats = rewrite_files(files, Rewrite::Fix);
     let _ = std::io::stderr().write_all(&fix_stats.notices);
     for (index, _) in &fix_stats.errors {
-        before[*index] = [0; SAFE_FIX_RULE_IDS.len()];
+        before[*index] = [0; ALL_RULE_IDS.len()];
     }
     (before, fix_stats.errors.into_iter().collect())
 }
@@ -2256,6 +2288,7 @@ struct LintSummary {
     has_error: bool,
     has_warning: bool,
     problem_count: usize,
+    hidden_unsafe_fixes: usize,
 }
 
 impl LintSummary {
@@ -2286,6 +2319,10 @@ impl LintSummary {
                     }
                 }
                 self.problem_count += kept.len();
+                self.hidden_unsafe_fixes += kept
+                    .iter()
+                    .filter(|problem| problem.hidden_unsafe_fix)
+                    .count();
                 (kept, None)
             }
         };
@@ -2298,20 +2335,23 @@ impl LintSummary {
     }
 }
 
-type SafeFixRuleCounts = [usize; SAFE_FIX_RULE_IDS.len()];
+type FixRuleCounts = [usize; ALL_RULE_IDS.len()];
 
-/// Each file's pre-fix safe-fix counts, and the files `--fix` failed to write.
-type FixBaseline = (Vec<SafeFixRuleCounts>, HashMap<usize, String>);
+/// Each file's pre-fix counts, and the files `--fix` failed to write.
+type FixBaseline = (Vec<FixRuleCounts>, HashMap<usize, String>);
 
-/// A file's reported problems per safe-fix rule, so a fix that adds another rule's problem
-/// cannot cancel one it cleared.
-fn safe_fix_rule_counts(outcome: &LintOutcome, no_warnings: bool) -> SafeFixRuleCounts {
-    let mut counts = [0; SAFE_FIX_RULE_IDS.len()];
+/// A file's reported problems per rule with a safe or unsafe fix, so a fix that adds
+/// another rule's problem cannot cancel one it cleared.
+fn fix_rule_counts(outcome: &LintOutcome, no_warnings: bool) -> FixRuleCounts {
+    let mut counts = [0; ALL_RULE_IDS.len()];
     for problem in outcome.iter().flatten() {
         if !(no_warnings && problem.level == Severity::Warning)
-            && let Some(idx) = SAFE_FIX_RULE_IDS
+            && let Some(rule) = problem.rule
+            && SAFE_FIX_RULE_IDS
                 .iter()
-                .position(|id| problem.rule == Some(*id))
+                .chain(&UNSAFE_FIX_RULE_IDS)
+                .any(|id| *id == rule)
+            && let Some(idx) = ALL_RULE_IDS.iter().position(|id| *id == rule)
         {
             counts[idx] += 1;
         }

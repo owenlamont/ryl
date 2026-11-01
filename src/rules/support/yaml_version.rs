@@ -1,7 +1,8 @@
 //! `%YAML` version-directive handling shared by the rules and the lint engine: scan
 //! directives, resolve the version in effect per document, and recognise the plain
 //! scalars YAML 1.1 resolves to a non-string so quote removal stays value-preserving
-//! for a 1.1 reader, and carry a 1.1 document's values over to 1.2.
+//! for a 1.1 reader, carry a 1.1 document's values over to 1.2, and respell a scalar
+//! YAML 1.1 and 1.2 read differently so both read the value its author meant.
 
 use std::fmt::Debug;
 use std::ops::{Add, Mul};
@@ -11,9 +12,10 @@ use std::sync::LazyLock;
 use num_bigint::BigInt;
 use ordered_float::OrderedFloat;
 use regex::Regex;
-use ryl_yaml_parser::{Scanner, StrInput, TokenType, YamlVersion};
+use ryl_yaml_parser::{Scanner, Span, StrInput, TokenType, YamlVersion};
 
-use crate::config::TargetVersion;
+use crate::config::{SourceVersion, TargetVersion, YamlLintConfig};
+use crate::rules::quoted_strings;
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 use crate::yaml_dom::{
     core_schema_int, is_core_schema_null, parse_core_schema_bool, parse_core_schema_fp,
@@ -189,6 +191,85 @@ pub(crate) fn value(
         yaml_1_1_value(text).map(|(value, _)| value)
     } else {
         core_value(text)
+    }
+}
+
+/// The unsafe fix `truthy`, `octal-values` and `schema-dependent-values` offer for a plain
+/// scalar of a document YAML 1.1 and 1.2 readers must both load: a spelling both read as
+/// the value `source-version` reads.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Respelling {
+    source: SourceVersion,
+    quote: char,
+    enabled: bool,
+    hinted: bool,
+}
+
+impl Respelling {
+    pub(crate) fn resolve(cfg: &YamlLintConfig, rule: &str) -> Self {
+        let single = cfg.rule_level(quoted_strings::ID).is_some()
+            && cfg.rule_option_str(quoted_strings::ID, "quote-type") == Some("single");
+        Self {
+            source: cfg.source_version(),
+            quote: if single { '\'' } else { '"' },
+            enabled: cfg.applies_unsafe_fix(rule),
+            hinted: cfg.hints_unsafe_fixes(),
+        }
+    }
+
+    pub(crate) const fn enabled(self) -> bool {
+        self.enabled
+    }
+
+    /// Whether `ryl check` counts the fix in its unsafe-fix hint.
+    pub(crate) const fn hidden(self) -> bool {
+        !self.enabled && self.hinted
+    }
+
+    /// The edit respelling the single-line plain scalar `text` at `span` of `buffer`.
+    pub(crate) fn edit(
+        self,
+        buffer: &str,
+        span: Span,
+        text: &str,
+    ) -> Option<(BytePos, BytePos, String)> {
+        let start = marker_byte_offset(span.start);
+        let end = BytePos::new(start.get() + text.len());
+        (buffer.get(start.get()..end.get()) == Some(text))
+            .then(|| self.respell(text))
+            .flatten()
+            .map(|spelling| (start, end, spelling))
+    }
+
+    /// `None` where `PyYAML` reads a string other 1.1 readers do not, a timestamp, or a
+    /// value no shared spelling carries.
+    fn respell(self, text: &str) -> Option<String> {
+        let value = match self.source {
+            SourceVersion::Yaml12 => core_value(text),
+            SourceVersion::Yaml11 => Some(yaml_1_1_value(text)?.0),
+        };
+        // Every scalar the three rules flag is digits, letters, `-`, `_`, `:`, `.`, `+` and
+        // spaces, so quoting it needs no escape.
+        let Some(value) = value else {
+            return Some(format!("{quote}{text}{quote}", quote = self.quote));
+        };
+        let spelling = match &value {
+            Value::Bool(value) => value.to_string(),
+            Value::Int(value) => value.to_string(),
+            Value::Float(value) => format!("{:?}", value.0),
+        };
+        (core_value(&spelling).as_ref() == Some(&value)
+            && yaml_1_1_value(&spelling).is_some_and(|(read, _)| read == value))
+        .then_some(spelling)
+    }
+
+    /// The message suffix naming the fix, once the config enables it.
+    pub(crate) fn note(self, old: &str, new: &str) -> String {
+        if self.enabled {
+            format!("; unsafe fix: {old} -> {new}")
+        } else {
+            String::new()
+        }
     }
 }
 

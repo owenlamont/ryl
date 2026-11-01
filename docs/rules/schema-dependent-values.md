@@ -78,13 +78,27 @@ config.yaml
   3:9       error    plain "1_000" is a string in YAML 1.2 but a number in YAML 1.1  (schema-dependent-values)
   4:7       error    plain "08" is an integer in YAML 1.2 but a string in YAML 1.1  (schema-dependent-values)
   5:10      error    plain "y" is a string in YAML 1.2 but a boolean in YAML 1.1  (schema-dependent-values)
+
+5 unsafe fixes available with `--fix --unsafe-fixes`.
 ```
 
 ## Automatic fixing
 
-None. Quoting, retyping or rewriting the value each needs the author's intent:
-`22:22` may be a time of day or a port mapping, and `08` a zero-padded string or the
-number 8.
+No safe fix. Quoting, retyping or rewriting the value each needs the author's
+intent: `22:22` may be a time of day or a port mapping, and `08` a zero-padded string
+or the number 8. An [unsafe fix](../rules.md#unsafe-fixes) applies the reading
+[`source-version`](../yaml-version.md#unsafe-fixes-and-source-version) names:
+
+| Scalar | `source-version = "1.2"` (default) | `source-version = "1.1"` |
+| :--- | :--- | :--- |
+| `2026-10-10` | `"2026-10-10"` | left alone |
+| `22:22`, `1:30.5` | `"22:22"`, `"1:30.5"` | `1342`, `90.5` |
+| `1_000`, `0b1010` | `"1_000"`, `"0b1010"` | `1000`, `10` |
+| `08` | `8` | left alone |
+| `y` | `"y"` | left alone |
+
+Under `"1.1"` a timestamp has no YAML 1.2 type, and YAML 1.1 readers disagree on
+`08` and `y`, so those keep their report.
 
 ## Related rules
 
