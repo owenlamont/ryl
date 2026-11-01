@@ -261,7 +261,8 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
-          sccache: ${{ github.event_name != 'release' }}
+          # sccache passes cc-rs's MSVC `/WX-` to cl.exe as a source file, failing mimalloc.
+          sccache: false
       - name: Upload wheels (Windows)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
