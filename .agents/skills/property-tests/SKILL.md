@@ -29,7 +29,9 @@ cases unless they pin `cases` themselves; `PROPTEST_CASES` still overrides a pin
 any newly-persisted seeds in `tests/proptest-regressions/`.
 
 **A release gate, or an integration branch's tip, runs every suite at its default
-count**, not only the touched ones. A seed it finds becomes a regression test plus a fix.
+count**, not only the touched ones. Any failure a property run finds, in any branch, gets
+the fix plus a named deterministic regression test that reproduces it without proptest,
+in the branch where it was found; a committed seed alone is not enough.
 
 ## Coverage and CI
 
