@@ -207,8 +207,9 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   property-test generator(s) so the new/updated syntax is actually exercised. Before
   committing, run every suite at its default count, plus a **20× run of each new
   `proptest!` function only** (`PROPTEST_CASES=<20 × its cases> cargo test --release
-  --test integration <suite>::<name> -- --exact`), under 10 minutes. Release gates run
-  every suite at its default count. See the `property-tests` dev skill.
+  --test integration <suite>::<name> -- --exact`), under 10 minutes. A release, and a
+  nightly workflow, soak every suite with fresh seeds instead. See the
+  `property-tests` dev skill.
 - The full corpus runs (output parity over every corpus repo and profile, and the
   preservation/idempotence check) take hours, so they are optional tools, never a PR or
   release gate. PRs and releases rely on the test and property suites plus

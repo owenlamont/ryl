@@ -1,0 +1,54 @@
+name: Property Soak
+on:
+  schedule:
+    - cron: '0 17 * * *'  # 01:00 UTC+8
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+
+      - name: Install Python 3.15 for inline scripts
+        run: uv python install 3.15
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91
+        with:
+          tool: cargo-nextest
+
+      # The formatter property suites check values against the YAML reference parser.
+      - name: Install Node for the YAML reference parser
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+
+      - name: Fetch the YAML test suite and reference parser
+        run: git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite tests/yaml-reference-parser
+
+      - name: Soak the property suites
+        run: uv run --script scripts/property_soak.py --minutes 60
+
+      - name: Upload the failing seed
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: proptest-regressions
+          path: |-
+            tests/proptest-regressions/
+            crates/ryl-yaml-parser/tests/proptest-regressions/
+          if-no-files-found: ignore
