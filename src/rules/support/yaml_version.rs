@@ -213,7 +213,7 @@ impl Respelling {
             source: cfg.source_version(),
             quote: if single { '\'' } else { '"' },
             enabled: cfg.applies_unsafe_fix(rule),
-            hinted: cfg.hints_unsafe_fixes(),
+            hinted: cfg.hints_unsafe_fixes() && cfg.fix().allows_rule(rule),
         }
     }
 

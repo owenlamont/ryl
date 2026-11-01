@@ -1039,16 +1039,17 @@ impl YamlLintConfig {
         self.unsafe_fix.source_version.unwrap_or_default()
     }
 
-    /// Whether `--fix` applies `rule`'s unsafe fix: `unsafe-fixes` is on or
-    /// `lint.extend-safe-fixes` names the rule.
+    /// Whether `--fix` applies `rule`'s unsafe fix: `lint.fixable` allows the rule, and
+    /// `unsafe-fixes` is on or `lint.extend-safe-fixes` names it.
     #[must_use]
     pub fn applies_unsafe_fix(&self, rule: &str) -> bool {
-        self.unsafe_fix.unsafe_fixes == Some(true)
-            || self
-                .unsafe_fix
-                .extend_safe_fixes
-                .iter()
-                .any(|promoted| promoted.id() == rule)
+        self.fix.allows_rule(rule)
+            && (self.unsafe_fix.unsafe_fixes == Some(true)
+                || self
+                    .unsafe_fix
+                    .extend_safe_fixes
+                    .iter()
+                    .any(|promoted| promoted.id() == rule))
     }
 
     /// Whether `ryl check` advertises unsafe fixes it did not apply; an explicit

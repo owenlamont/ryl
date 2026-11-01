@@ -172,6 +172,13 @@ fn extend_safe_fixes_promotes_one_rule_and_unfixable_blocks_it() {
         format!("unsafe-fixes = true\n[lint]\nunfixable = [\"octal-values\"]\n{RULES}");
     let (_, output, fixed) = ryl_with(&blocked, content, &["check", "--fix"]);
     assert_eq!(fixed, "a: \"yes\"\nb: 0777\n", "{output}");
+    assert!(!output.contains("0777 -> 777"), "{output}");
+    let hinted = blocked.replace("unsafe-fixes = true\n", "");
+    let (_, output, _) = ryl_with(&hinted, content, &["check"]);
+    assert!(
+        output.contains("1 unsafe fix available"),
+        "a blocked rule's fix is not advertised: {output}"
+    );
 }
 
 #[test]
@@ -221,8 +228,15 @@ fn effective_config_round_trips_the_unsafe_fix_settings() {
     let reloaded = YamlLintConfig::from_toml_str(&original.to_toml_string()).unwrap();
     assert_eq!(reloaded.source_version(), SourceVersion::Yaml11);
     assert!(!reloaded.hints_unsafe_fixes());
-    assert!(reloaded.applies_unsafe_fix("truthy"));
-    assert!(!reloaded.applies_unsafe_fix("octal-values"));
+    assert!(reloaded.applies_unsafe_fix("schema-dependent-values"));
+    assert!(
+        !reloaded.applies_unsafe_fix("octal-values"),
+        "fixable, not promoted"
+    );
+    assert!(
+        !reloaded.applies_unsafe_fix("truthy"),
+        "promoted, not fixable"
+    );
     assert!(reloaded.fix().allows_rule("schema-dependent-values"));
     assert!(!reloaded.fix().allows_rule("truthy"));
     let error =
