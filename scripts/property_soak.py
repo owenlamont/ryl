@@ -203,6 +203,7 @@ def main(
     )
     schedule = suites(json.loads(listing.stdout))
     env = child_env(os.environ, cases=cases)
+    typer.echo(f"Soaking {len(schedule)} suites for {minutes:g} min, {cases} cases/run")
     deadline = time.monotonic() + minutes * 60.0
     run_suite = _runner(env)
 
