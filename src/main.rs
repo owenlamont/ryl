@@ -485,7 +485,8 @@ fn cli_config_flags(args: &LintArgs) -> CliConfigFlags {
                 enable.clone()
             }
         }),
-        enable_all: enable.contains(&"ALL"),
+        enable_all: enable.contains(&"ALL")
+            && !enable.contains(&ryl::rules::yaml_directive::ID),
         disable: if args.source.disable.contains(&"ALL") {
             ALL_RULE_IDS.to_vec()
         } else {

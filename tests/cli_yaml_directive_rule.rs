@@ -94,6 +94,10 @@ fn document_start_present_false_rejects_yaml_directive_by_name() {
             "[lint.rules]\ndocument-start = { present = false }\n".to_string(),
             &["check", "--enable", "yaml-directive,document-start"][..],
         ),
+        (
+            "[lint.rules]\ndocument-start = { present = false }\n".to_string(),
+            &["check", "--enable", "ALL", "--enable", "yaml-directive"][..],
+        ),
     ] {
         let (code, output, _) = ryl_with(&config, "a: 1\n", args);
         assert_eq!(code, 2, "{args:?}: {output}");
