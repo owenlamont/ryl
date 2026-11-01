@@ -68,6 +68,82 @@ fn fix_is_offered_only_under_target_1_2() {
         fixed, input,
         "stamping 1.2 under target 1.1 drops 1.1 quoting"
     );
+    let input = "%YAML 1.1\n---\na: yes\n";
+    let (code, output, fixed) = ryl_with(config, input, &["check", "--fix"]);
+    assert_eq!(
+        (code, output.as_str(), fixed.as_str()),
+        (0, "", input),
+        "target 1.1 neither reports nor migrates a 1.1 document"
+    );
+}
+
+#[test]
+fn fix_migrates_each_yaml_1_1_scalar_to_a_1_2_spelling_of_its_value() {
+    let (code, output, fixed) = ryl_with(
+        TARGET_1_2,
+        "%YAML 1.1 # keep\n---\nyes: on\nb: 0777\nc: 22:22\nd: 1:30.5\ne: 1_000\n\
+         f: 0b1010\ng: !!bool yes\nh: -0777\n\
+         i: [~, .inf, .NaN, <<, 0x1F, -0x1_f, 0x1_f, 6_0:00:00.5, 1.5e+3, 1_0.5_, &x 1:0:0]\n\
+         m: [-1:30.5, No]\n\
+         j: [\"yes\", ! on, !!str off, ._5]\nk: !!int 0_777\nl: !!float 1_0.5\n",
+        &["check", "--fix"],
+    );
+    assert_eq!(code, 0, "{output}");
+    assert_eq!(
+        fixed,
+        "%YAML 1.2 # keep\n---\ntrue: true\nb: 0o777\nc: 1342\nd: 90.5\ne: 1000\n\
+         f: 10\ng: !!bool true\nh: -511\n\
+         i: [~, .inf, .NaN, <<, 0x1F, -31, 0x1f, 216000.5, 1.5e+3, 10.5, &x 3600]\n\
+         m: [-90.5, false]\n\
+         j: [\"yes\", ! on, !!str off, ._5]\nk: !!int 0o777\nl: !!float 10.5\n"
+    );
+}
+
+#[test]
+fn migration_declines_a_document_holding_a_value_1_2_cannot_carry() {
+    let declining = [
+        "%YAML 1.1\n---\na: yes\nb: 08\n",
+        "%YAML 1.1\n---\na: yes\nb: 0b_\n",
+        "%YAML 1.1\n---\na: yes\nb: !!int yes\n",
+        "%YAML 1.1\n---\na: yes\nb: !!bool 'yes'\n",
+        "%YAML 1.0\n---\na: yes\nb: 2026-10-10\n",
+    ]
+    .join("...\n");
+    let input = format!("%YAML 1.1\n---\na: yes\n...\n{declining}");
+    let (code, output, fixed) = ryl_with(TARGET_1_2, &input, &["check", "--fix"]);
+    assert_eq!(fixed, format!("%YAML 1.2\n---\na: true\n...\n{declining}"));
+    assert_eq!(code, 1, "{output}");
+    let older: Vec<&str> = output
+        .lines()
+        .filter(|line| line.contains("is older than target-version \"1.2\""))
+        .map(|line| line.split_whitespace().next().unwrap())
+        .collect();
+    assert_eq!(older, ["5:1", "10:1", "15:1", "20:1", "25:1"], "{output}");
+    assert!(
+        output.contains("version directive \"%YAML 1.0\""),
+        "{output}"
+    );
+}
+
+#[test]
+fn migration_never_half_applies_around_a_disabled_line() {
+    for (input, fixed) in [
+        (
+            "%YAML 1.1\n---\na: yes\nb: 0777 # ryl disable-line rule:yaml-directive\n",
+            None,
+        ),
+        (
+            "%YAML 1.1 # ryl disable-line rule:yaml-directive\n---\na: 1\n",
+            None,
+        ),
+        (
+            "%YAML 1.1 # ryl disable-line rule:yaml-directive\n---\na: yes\n",
+            Some("%YAML 1.1 # ryl disable-line rule:yaml-directive\n---\na: true\n"),
+        ),
+    ] {
+        let (_, output, after) = ryl_with(TARGET_1_2, input, &["check", "--fix"]);
+        assert_eq!(after, fixed.unwrap_or(input), "{output}");
+    }
 }
 
 #[test]

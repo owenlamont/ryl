@@ -31,8 +31,9 @@ use ast::{
     InlineComment, Layout, NewlineStyle, Node, Scalar, SeqBody,
 };
 use config::{
-    named_config, parse_for_compare, reference_safe_eof_append, safe_fix_configs,
-    safe_fix_rule_diagnostics, synthetic_base_dir, synthetic_path,
+    named_config, parse_for_compare, parse_for_compare_migrated,
+    reference_safe_eof_append, safe_fix_configs, safe_fix_rule_diagnostics,
+    synthetic_base_dir, synthetic_path,
 };
 use strategy::arb_document;
 
@@ -134,12 +135,17 @@ proptest! {
             && last_line.bytes().all(|byte| byte == b' ')
             && document.entries.last().and_then(|entry| last_block_scalar(&entry.value))
                 .is_some_and(|spec| spec.chomp == Some('+') && spec.trailing_comment.is_none());
-        let Some(before) = parse_for_compare(&input) else {
+        if parse_for_compare(&input).is_none() {
             return Ok(());
-        };
+        }
         for prepared in safe_fix_configs() {
             let cfg_name = prepared.name;
             let cfg = &prepared.cfg;
+            let before = parse_for_compare_migrated(&input, cfg).ok_or_else(|| {
+                TestCaseError::fail(format!(
+                    "migration broke a parseable document under config '{cfg_name}'; input {input:?}"
+                ))
+            })?;
             let fixed =
                 apply_safe_fixes(&input, cfg, synthetic_path(), synthetic_base_dir());
             let after = parse_for_compare(&fixed).ok_or_else(|| {

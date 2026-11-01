@@ -193,8 +193,7 @@ fn collect_layout_diagnostics(
         base_dir,
         yaml_directive,
         analysis,
-        no_config,
-        message
+        value
     );
     lint_rule!(
         diagnostics,

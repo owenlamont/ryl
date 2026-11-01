@@ -5,6 +5,15 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Added
+
+- Under `target-version = "1.2"`, `yaml-directive` reports a document that declares
+  `%YAML 1.1` or `1.0`, and its safe fix migrates the document to 1.2 in one edit:
+  `yes` becomes `true`, `0777` becomes `0o777`, `22:22` becomes `1342`, `1_000` becomes
+  `1000`, and the directive becomes `%YAML 1.2`. A document holding a date, or a value
+  YAML 1.1 readers disagree on (`08`, `1e5`, `y`), keeps its report and is left as is.
+  ([#365](https://github.com/owenlamont/ryl/issues/365))
+
 ### Changed
 
 - `ryl check` sorts each file's diagnostics by line, column, then rule ID, as yamllint

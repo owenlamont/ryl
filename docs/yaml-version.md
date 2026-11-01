@@ -23,7 +23,8 @@ whose readers must load ryl's output to the same values, as ruff's
   (`'no'` becomes `no`, `'1_000'` becomes `1_000`).
 - `truthy` flags only the 1.2 booleans (`True`, `FALSE`), not `yes` or `on`.
 - [`schema-dependent-values`](rules/schema-dependent-values.md) goes quiet.
-- [`yaml-directive`](rules/yaml-directive.md) offers its `%YAML 1.2` fix.
+- [`yaml-directive`](rules/yaml-directive.md) offers its `%YAML 1.2` fix, and
+  reports a `%YAML 1.1` document, whose fix migrates it to 1.2.
 
 Some readers called YAML 1.2 still resolve 1.1 types: ruamel.yaml's default
 loader and go-yaml v3 read `1_000`, `0b1010` and `2026-10-10` as non-strings.
@@ -48,10 +49,35 @@ ryl honours it per document, and it overrides `target-version`:
 
 Under an explicit `%YAML 1.1` the value-resolving rules follow 1.1:
 `quoted-strings` keeps quotes that are load-bearing under 1.1 and `truthy`
-flags the 1.1 boolean words. ryl never rewrites a `%YAML 1.1` document to
-1.2: `--fix` only makes edits that preserve the value under the document's
-*declared* version. The `truthy` fix only re-cases `True`/`FALSE` and the
-like, which are the same boolean under both versions.
+flags the 1.1 boolean words. `--fix` only makes edits that preserve the value
+under the document's *declared* version. The `truthy` fix only re-cases
+`True`/`FALSE` and the like, which are the same boolean under both versions.
+
+### Migrating a `%YAML 1.1` document to 1.2
+
+Under `target-version = "1.2"`, [`yaml-directive`](rules/yaml-directive.md)
+reports each document that declares `%YAML 1.1` (or `1.0`), and `--fix`
+migrates it in one edit: every plain scalar whose 1.1 value 1.2 reads
+differently gets a 1.2 spelling of the same value, keys included, and the
+directive becomes `%YAML 1.2`.
+
+| `%YAML 1.1` | `%YAML 1.2` |
+| :--- | :--- |
+| `yes`, `No`, `on`, `OFF` | `true`, `false` |
+| `0777`, `-0777` | `0o777`, `-511` |
+| `22:22`, `1:30.5` | `1342`, `90.5` |
+| `1_000`, `0b1010`, `-0x1F` | `1000`, `10`, `-31` |
+| `!!bool yes` | `!!bool true` |
+
+The scalars and the directive change together because neither half is safe
+alone: `0o777` is a string to PyYAML and ruamel.yaml's 1.1 mode, so respelling
+it before the directive changes would move its value.
+
+The fix leaves a document alone, and its report stands, when a scalar has no
+1.2 core spelling (a timestamp such as `2026-10-10`) or when 1.1 readers
+disagree on its value: PyYAML reads `08`, `1e5`, `-.5`, `y` and `0o777` as
+strings, while go-yaml or ruamel.yaml's 1.1 mode read them as numbers or
+booleans. Rewrite or quote those by hand. A merge key `<<` stays as it is.
 
 Unless a document declares `%YAML 1.2` or `target-version = "1.2"` is set,
 `quoted-strings` and `ryl format` keep the quotes on any scalar YAML 1.1 reads

@@ -189,6 +189,7 @@ mod property_markdown_fix;
 mod property_markdown_format;
 mod property_report;
 mod property_safe_fix;
+mod property_yaml_migration;
 mod quote_cache;
 mod report_formats;
 mod resolve_ctx_empty_parent;

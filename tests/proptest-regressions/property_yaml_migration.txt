@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d0e3e12f2cf3038e0eb02ece5d683da0b0281c4b50d1440acdc8c3f9d5b6530b # shrinks to documents = [Document { yaml_1_1: true, entries: [(("! on", Keep), Value)] }]

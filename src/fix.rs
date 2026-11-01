@@ -1518,7 +1518,7 @@ pub(crate) fn rewrite<'a>(
                 passes.yaml_directive.as_ref(),
                 passes,
                 tracking.edited,
-                yaml_directive::fix,
+                |text, cfg| yaml_directive::fix(text, cfg, &passes.per_line),
             );
         current = output;
         if !truthy && !ordered && !declared {
