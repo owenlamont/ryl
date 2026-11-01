@@ -52,10 +52,14 @@ pip install ryl                     # pip
 cargo install ryl                   # cargo
 pixi global install ryl             # conda-forge
 winget install owenlamont.ryl       # winget (Windows)
+brew install ryl                    # Homebrew
+scoop bucket add orb https://github.com/o-l-a-v/scoop-bucket
+scoop install ryl                   # Scoop (Windows, community bucket)
 ```
 
 Building from source (`cargo install`, or a `pip` sdist) needs Rust 1.99.1 or
-newer. The prebuilt wheels, npm, conda-forge and winget packages do not.
+newer. The prebuilt wheels, npm, conda-forge, winget and Scoop packages do not,
+and Homebrew builds with its own Rust where it has no prebuilt bottle.
 
 In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-action):
 

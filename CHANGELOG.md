@@ -5,6 +5,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+## v0.28.0
+
 ### Added
 
 - The top-level TOML setting `target-version = "1.1" | "1.2"` names the oldest YAML
@@ -21,6 +23,9 @@ summarize user-visible changes from the tagged commits and published release rec
   `08`-style leading zeros, and `y`/`n`. It reports only in documents with no
   `%YAML` directive under `target-version = "1.1"`.
   ([#600](https://github.com/owenlamont/ryl/issues/600))
+- The README and installation docs list Homebrew (`brew install ryl`) and the
+  community-maintained Scoop bucket.
+  ([#895](https://github.com/owenlamont/ryl/issues/895))
 
 ### Changed
 

@@ -34,6 +34,22 @@ toolchain.
     winget install owenlamont.ryl
     ```
 
+=== "Homebrew"
+
+    ```bash
+    brew install ryl
+    ```
+
+=== "Scoop (Windows)"
+
+    ```powershell
+    scoop bucket add orb https://github.com/o-l-a-v/scoop-bucket
+    scoop install ryl
+    ```
+
+    The bucket is community-maintained by
+    [o-l-a-v](https://github.com/o-l-a-v/scoop-bucket).
+
 === "Prebuilt binary"
 
     Download a release artifact from the
