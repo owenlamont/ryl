@@ -319,3 +319,26 @@ fn present_false_coexists_with_document_start_present_false() {
     let (code, output, _) = ryl_with(&config, "a: 1\n", &["check"]);
     assert_eq!((code, output.as_str()), (0, ""));
 }
+
+#[test]
+fn present_false_fix_keeps_every_line_around_a_suppression() {
+    let (_, output, fixed) = ryl_with(
+        FORBID,
+        "%YAML 1.1\n---\na: yes\nb: 1 # ryl disable-line rule:yaml-directive\n",
+        &["check", "--fix"],
+    );
+    assert_eq!(
+        fixed, "---\na: true\nb: 1 # ryl disable-line rule:yaml-directive\n",
+        "{output}"
+    );
+    let config = format!(
+        "{FORBID}[lint.rules.quoted-strings]\nrequired = \"only-when-needed\"\n\
+         [[lint.per-line-ignores]]\nregex = '^%YAML'\nrules = [\"yaml-directive\"]\n"
+    );
+    let input = "%YAML 1.1\n---\na: yes\nb: \"no\"\n";
+    let (_, output, fixed) = ryl_with(&config, input, &["check", "--fix"]);
+    assert_eq!(
+        fixed, "%YAML 1.1\n---\na: true\nb: \"no\"\n",
+        "a kept 1.1 directive keeps the quotes a 1.1 reader needs: {output}"
+    );
+}

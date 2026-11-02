@@ -321,13 +321,10 @@ proptest! {
         let directive = Directive::Forbidden { target_1_1 };
         let input = render(&documents, None);
         let expected = render(&documents, Some(directive));
-        let fixed = yaml_directive::fix(&input, &cfg, &[]);
-        prop_assert_eq!(
-            fixed.as_deref().unwrap_or(&input),
-            expected.as_str(),
-            "input {:?}",
-            input
-        );
+        let fixed = (0..3).fold(input.clone(), |text, _| {
+            yaml_directive::fix(&text, &cfg, &[]).unwrap_or(text)
+        });
+        prop_assert_eq!(fixed.as_str(), expected.as_str(), "input {:?}", input);
         let forbidden = "found forbidden version directive";
         prop_assert_eq!(reports(&input, cfg, forbidden), documents.len());
         prop_assert_eq!(

@@ -17,8 +17,9 @@
 //!
 //! With `present = false` the fix migrates the same way, under either target, then deletes
 //! each directive declaring 1.2 or later, whose document ryl reads as 1.2 without one.
-//! Under target 1.1 a 1.1 reader must load the undeclared result alike, so a respelling
-//! it reads differently (`0o755`) declines the document.
+//! Under target 1.1 the migration respells beneath the `%YAML 1.1` directive, deleted
+//! only once nothing is left to respell, and a respelling a 1.1 reader reads differently
+//! (`0o755`) declines the document.
 
 use std::borrow::Cow;
 
@@ -126,10 +127,8 @@ fn older_directives(buffer: &str, cfg: Config) -> impl Iterator<Item = Directive
 }
 
 /// Migrates the `%YAML 1.1` documents when any can be, else stamps the undeclared ones,
-/// so one pass never mixes line edits with line inserts for the reconcile to align.
-/// Without `present`, the migrated text is reconciled before its directives are deleted,
-/// in the same pass: under target 1.1, a `%YAML 1.2` left for the next pass would let
-/// the formatter drop quotes a 1.1 reader needs.
+/// or without `present` removes the settled directives, so one pass never mixes line
+/// edits with line inserts or deletions for the reconcile to align.
 #[must_use]
 pub fn fix(
     buffer: &str,
@@ -143,22 +142,46 @@ pub fn fix(
     let input = source.analysis();
     let migrated = migrate(input, *cfg, per_line);
     if cfg.present {
-        return migrated.or_else(|| stamp(input, *cfg));
+        migrated.or_else(|| stamp(input, *cfg))
+    } else {
+        migrated.or_else(|| remove(input, *cfg, per_line))
     }
-    remove(migrated.as_deref().unwrap_or(buffer), per_line).or(migrated)
 }
 
-fn remove(buffer: &str, per_line: &[PerLineRuleApply<'_>]) -> Option<String> {
+/// Deletes each directive declaring 1.2 or later, and each `%YAML 1.1` one whose
+/// document reads alike under 1.2, having nothing left to respell.
+fn remove(
+    input: Analysis<'_>,
+    cfg: Config,
+    per_line: &[PerLineRuleApply<'_>],
+) -> Option<String> {
+    let buffer = input.text();
+    let settled = migrations(input, cfg)
+        .into_iter()
+        .filter(|(_, respellings)| respellings.is_empty())
+        .map(|(directive, _)| directive);
     let edits = collect_directives(buffer)
-        .iter()
+        .into_iter()
         .filter(|directive| !resolves_as_yaml_1_1(Some(directive.version)))
-        .filter_map(|directive| removal(buffer, directive))
+        .chain(settled)
+        .filter_map(|directive| removal(buffer, &directive))
         .collect();
-    let output = render(buffer, edits)?;
-    let source = TextVersion::new(buffer);
-    let output = Directives::parse_per_line_with_analysis(source.analysis(), per_line)
-        .reconcile(ID, buffer, &output);
-    (output != buffer).then_some(output)
+    reconciled(input, &render(buffer, edits)?, per_line)
+}
+
+/// `output` with every line a per-line directive disables restored, when it still
+/// differs from `input` and resolves to the same values.
+fn reconciled(
+    input: Analysis<'_>,
+    output: &str,
+    per_line: &[PerLineRuleApply<'_>],
+) -> Option<String> {
+    let buffer = input.text();
+    let output = Directives::parse_per_line_with_analysis(input, per_line)
+        .reconcile(ID, buffer, output);
+    (output != buffer
+        && values_match(input, TextVersion::new(output.as_str()).analysis()))
+    .then_some(output)
 }
 
 /// Deletes the directive's line, or `None` when a comment shares it, since rewriting
@@ -180,23 +203,32 @@ fn migrate(
     cfg: Config,
     per_line: &[PerLineRuleApply<'_>],
 ) -> Option<String> {
-    let buffer = input.text();
-    // YAML 1.1 reads a raw NEL, LS or PS as a line break and 1.2 as content.
-    if buffer.contains(['\u{85}', '\u{2028}', '\u{2029}']) {
-        return None;
-    }
-    let output = render(buffer, migration_edits(input, cfg))?;
-    let output = Directives::parse_per_line_with_analysis(input, per_line)
-        .reconcile(ID, buffer, &output);
-    (output != buffer
-        && values_match(input, TextVersion::new(output.as_str()).analysis()))
-    .then_some(output)
+    // Under target 1.1 the directive stays until `remove`, so a suppressed removal still
+    // leaves a document every 1.1 reader loads alike.
+    let edits = migrations(input, cfg)
+        .into_iter()
+        .filter(|(_, respellings)| cfg.targets_1_2 || !respellings.is_empty())
+        .flat_map(|(directive, respellings)| {
+            let stamp = (directive.start, directive.end, "%YAML 1.2".to_owned());
+            cfg.targets_1_2
+                .then_some(stamp)
+                .into_iter()
+                .chain(respellings)
+        })
+        .collect();
+    reconciled(input, &render(input.text(), edits)?, per_line)
 }
 
-fn migration_edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
+/// Each `%YAML 1.1` document's directive with the respellings carrying its values over
+/// to 1.2, leaving out a document that declines.
+fn migrations(input: Analysis<'_>, cfg: Config) -> Vec<(Directive, Vec<Edit>)> {
+    // YAML 1.1 reads a raw NEL, LS or PS as a line break and 1.2 as content.
+    if input.text().contains(['\u{85}', '\u{2028}', '\u{2029}']) {
+        return Vec::new();
+    }
     let mut directives = older_directives(input.text(), cfg);
-    let mut edits = Vec::new();
-    let mut document: Option<Vec<Edit>> = None;
+    let mut migrations = Vec::new();
+    let mut document: Option<(Directive, Vec<Edit>)> = None;
     for (event, span) in input.event_iter() {
         match event {
             Event::DocumentStart(_, version) => {
@@ -209,12 +241,10 @@ fn migration_edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
                     .filter(|directive| {
                         cfg.present || removal(input.text(), directive).is_some()
                     })
-                    .map(|directive| {
-                        vec![(directive.start, directive.end, "%YAML 1.2".to_owned())]
-                    });
+                    .map(|directive| (directive, Vec::new()));
             }
             Event::Scalar(text, style, _, tag) => {
-                let Some(pending) = document.as_mut() else {
+                let Some((_, pending)) = document.as_mut() else {
                     continue;
                 };
                 let suffix = tag.as_deref().map(tag_suffix);
@@ -232,11 +262,11 @@ fn migration_edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
                     Migration::Respell(_) | Migration::Decline => document = None,
                 }
             }
-            Event::DocumentEnd => edits.extend(document.take().into_iter().flatten()),
+            Event::DocumentEnd => migrations.extend(document.take()),
             _ => {}
         }
     }
-    edits
+    migrations
 }
 
 /// Whether every scalar of `after` resolves, under its document's version, to the value
