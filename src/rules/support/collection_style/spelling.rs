@@ -75,6 +75,11 @@ impl Fragment {
         self.empty
     }
 
+    /// Whether the fragment, a node's properties, holds both an anchor and a tag.
+    pub(super) fn paired(&self, buffer: &str) -> bool {
+        buffer[self.range.start..self.range.end].contains([' ', '\t'])
+    }
+
     pub(super) fn selected(
         mut self,
         input: &str,
@@ -126,7 +131,6 @@ enum Part {
     },
     Copy(Range),
     SpaceCopy(Range),
-    CommaCopy(Range),
     Break(usize),
     Structure(Structure),
 }
@@ -173,10 +177,6 @@ impl Recipe {
 
     pub(super) fn space_copy(&mut self, fragment: Fragment) {
         self.fragment(fragment, Part::SpaceCopy);
-    }
-
-    pub(super) fn comma_copy(&mut self, fragment: Fragment) {
-        self.fragment(fragment, Part::CommaCopy);
     }
 
     pub(super) fn line(&mut self, column: usize) {
@@ -234,9 +234,6 @@ impl Selected {
                 Part::SpaceCopy(range) => {
                     (FragmentPart::Spaces(1), Some(source(range)))
                 }
-                Part::CommaCopy(range) => {
-                    (FragmentPart::Text(", "), Some(source(range)))
-                }
                 Part::Break(column) => (FragmentPart::Break(*column), None),
                 Part::Structure(structure) => {
                     (FragmentPart::Structure(*structure), None)
@@ -244,6 +241,30 @@ impl Selected {
             };
             [Some(first), second].into_iter().flatten()
         })
+    }
+
+    /// Whether the recipe writes the same tokens and line breaks as the source it
+    /// replaces, leaving spacing and indentation to the other passes.
+    pub(super) fn written(&self, buffer: &str) -> bool {
+        let mut spelled = String::new();
+        for part in &self.recipe.parts {
+            match part {
+                Part::Text(text) => spelled.push_str(text),
+                Part::Copy(range) | Part::SpaceCopy(range) => {
+                    spelled.push_str(&buffer[range.start..range.end]);
+                }
+                Part::Break(_) => spelled.push('\n'),
+                Part::FlowGap { .. } | Part::CommentGap { .. } | Part::Structure(_) => {
+                }
+            }
+        }
+        let tokens = |text: &str| {
+            text.replace("\r\n", "\n")
+                .split(['\n', '\r'])
+                .map(|line| line.replace([' ', '\t'], ""))
+                .collect::<Vec<_>>()
+        };
+        tokens(&spelled) == tokens(&buffer[self.site.start..self.site.end])
     }
 
     pub(super) fn comment_spacing(

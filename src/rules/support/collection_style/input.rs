@@ -42,6 +42,26 @@ impl KeyGap {
     }
 }
 
+/// Where an outermost flow collection lands: `column` is the final column after what
+/// precedes it, ending at byte `before`, and `base` the final column its expanded entries
+/// indent from.
+pub(super) struct Placement {
+    before: usize,
+    pub(super) column: usize,
+    pub(super) base: usize,
+    pub(super) lead: bool,
+    pub(super) nested_dash: bool,
+}
+
+impl Placement {
+    pub(super) const fn boundary(&self) -> Boundary {
+        Boundary(self.before)
+    }
+    pub(super) const fn edit(&self, end: Boundary) -> EditSite {
+        EditSite::new(self.before, end.0)
+    }
+}
+
 pub(super) struct FlowSite<'a> {
     start: usize,
     end: usize,
@@ -94,6 +114,7 @@ impl<'a> Outer<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct Initial<'a> {
     source: Analysis<'a>,
     sites: &'a [Site],
@@ -116,6 +137,13 @@ impl<'a> Initial<'a> {
             sites,
             comments,
             selected: None,
+        }
+    }
+
+    pub(super) const fn unselected(self) -> Self {
+        Self {
+            selected: None,
+            ..self
         }
     }
 
@@ -265,11 +293,10 @@ impl<'a> Initial<'a> {
             self.source,
             line_start..self.line_end(line_start),
         );
-        let indicators = if let Some((_, _, projection)) = self.selected {
-            indicators.selected(projection)
-        } else {
-            indicators
-        };
+        let (_, _, projection) = self
+            .selected
+            .expect("a block collection turns flow only once its edits are selected");
+        let indicators = indicators.selected(projection);
         FlowSite {
             start,
             end,
@@ -277,6 +304,100 @@ impl<'a> Initial<'a> {
                 || self.comments.touches(start),
             indicators,
         }
+    }
+
+    /// The end of whatever precedes `node`'s properties: its key's `:`, its `-`, or the
+    /// line start.
+    pub(super) fn lead_start(&self, node: usize) -> usize {
+        self.source.text()[..self.properties_start(node)]
+            .trim_end_matches(super::is_space)
+            .len()
+    }
+
+    pub(super) fn start_of(&self, node: usize) -> usize {
+        self.sites[node].start
+    }
+
+    /// Where `node`'s anchor and tag start, else the node itself.
+    pub(super) fn properties_start(&self, node: usize) -> usize {
+        let buffer = self.source.text();
+        let mut start = self.sites[node].start;
+        loop {
+            let trimmed = buffer[..start].trim_end_matches(super::is_space);
+            let token = trimmed.rfind(super::is_space).map_or(0, |at| at + 1);
+            if !buffer[token..trimmed.len()].starts_with(['&', '!']) {
+                return start;
+            }
+            start = token;
+        }
+    }
+
+    pub(super) fn placement(
+        &self,
+        node: usize,
+        column: usize,
+        base: usize,
+    ) -> Placement {
+        let before = self.lead_start(node);
+        let text = self.source.text();
+        Placement {
+            before,
+            column,
+            base,
+            // Re-indenting puts entries after `- - [` no deeper than the inner `-`.
+            nested_dash: text[..before].ends_with('-')
+                && self.line_content(before) + 1 != before,
+            lead: !self.source.text()[self.line_start(before)..before]
+                .trim_start_matches([' ', '\t'])
+                .is_empty(),
+        }
+    }
+
+    /// The first byte of the line holding `at` past its indentation.
+    pub(super) fn line_content(&self, at: usize) -> usize {
+        let start = self.line_start(at);
+        start + self.source.text()[start..at].len()
+            - self.source.text()[start..at]
+                .trim_start_matches([' ', '\t'])
+                .len()
+    }
+
+    pub(super) fn comment_near(&self, node: usize) -> bool {
+        let start = self.lead_start(node);
+        self.comments
+            .between(start, self.line_end(self.sites[node].end))
+            || self.comments.touches(start)
+    }
+
+    pub(super) fn text(&self) -> &'a str {
+        self.source.text()
+    }
+
+    /// Whether a line break separates flow collection `node`'s brackets and `entries`,
+    /// each given by its first and last node, outside the entries themselves.
+    pub(super) fn breaks_between(
+        &self,
+        node: usize,
+        entries: impl Iterator<Item = (usize, usize)>,
+    ) -> bool {
+        let starts = self.source.byte_line_starts();
+        let line = |at: usize| starts.partition_point(|&start| start <= at);
+        let site = &self.sites[node];
+        let mut previous = line(site.start);
+        for (first, last) in entries {
+            if line(self.sites[first].start) != previous {
+                return true;
+            }
+            previous = line(self.sites[last].end);
+        }
+        line(site.end - 1) != previous
+    }
+
+    pub(super) fn spans_lines(&self, node: usize) -> bool {
+        let site = &self.sites[node];
+        let starts = self.source.byte_line_starts();
+        starts.partition_point(|&at| at <= site.start)
+            != starts.partition_point(|&at| at < site.end)
     }
 
     pub(super) fn outer(&self, node: usize) -> Outer<'a> {

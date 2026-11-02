@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::config::YamlLintConfig;
 use crate::config_schema::{
-    CollectionStyleTarget, FormatTable, LineEndingTarget, MarkerTarget,
+    CollectionStyleTarget, ExpandTarget, FormatTable, LineEndingTarget, MarkerTarget,
     QuoteStyleTarget,
 };
 use crate::fix::{
@@ -134,12 +134,8 @@ impl Passes<'static> {
                     indent,
                 }
             }),
-            collection_style: Some(collection_style_config(cfg, indent, skip)).filter(
-                |style| {
-                    style.sequences != CollectionStyleTarget::Preserve
-                        || style.mappings != CollectionStyleTarget::Preserve
-                },
-            ),
+            collection_style: Some(collection_style_config(cfg, indent, skip))
+                .filter(collection_style::Config::restyles),
             per_line: Vec::new(),
         }
     }
@@ -158,9 +154,23 @@ fn collection_style_config(
             target
         }
     };
+    let expand = |target, rule| {
+        if skip.contains(&rule) {
+            ExpandTarget::Preserve
+        } else {
+            target
+        }
+    };
     collection_style::Config {
         sequences: style(table.sequence_style, brackets::ID),
         mappings: style(table.mapping_style, braces::ID),
+        shape: collection_style::Shape {
+            sequences: expand(table.sequence_expand, brackets::ID),
+            mappings: expand(table.mapping_expand, braces::ID),
+            padding: usize::from(table.brace_spacing),
+            indent_sequences: table.indent_sequences,
+            dash_on_own_line: table.dash_on_own_line,
+        },
         indent,
         width: line_length(cfg),
         require_consistent_indent: cfg.indent_width().is_none(),

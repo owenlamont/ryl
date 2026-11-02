@@ -27,9 +27,18 @@ summarize user-visible changes from the tagged commits and published release rec
   ones left out ("N unsafe fixes available with `--fix --unsafe-fixes`"), and
   `ryl server` offers them as quick fixes outside "Fix all".
   ([#365](https://github.com/owenlamont/ryl/issues/365))
+- `[format] sequence-expand` and `mapping-expand` (`"preserve"`, `"auto"`, `"always"`,
+  `"never"`, default `"preserve"`) set the line breaks inside flow collections: one line,
+  or prettier's one entry per line with a trailing comma, or `"auto"` to pick one line
+  where it fits `line-length`. ([#649](https://github.com/owenlamont/ryl/issues/649))
 
 ### Changed
 
+- **Behaviour change for `sequence-style = "flow"` / `mapping-style = "flow"`:** a flow
+  collection too long for `line-length` on one line, which `ryl format` used to leave
+  alone, now becomes block, and each collection nested in it stays flow only where it
+  fits. Under `brace-spacing = true` the fit now counts the braces' padding.
+  ([#649](https://github.com/owenlamont/ryl/issues/649))
 - `ryl check` sorts each file's diagnostics by line, column, then rule ID, as yamllint
   and ruff do, rather than grouping them by rule. Files stay in input order.
   ([#905](https://github.com/owenlamont/ryl/issues/905))

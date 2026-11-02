@@ -80,18 +80,26 @@ impl<'a> RetainedClosing<'a> {
         })
     }
 
-    pub(crate) fn follows(&self) -> bool {
+    /// Whether a line break separates the trailing comma from the closing bracket it
+    /// precedes, `None` where no bracket follows.
+    pub(crate) fn closer(&self) -> Option<bool> {
         let mut from = self.comma + 1;
+        let mut broken = false;
         loop {
             match self.bytes.get(from) {
-                Some(b' ' | b'\t' | b'\n' | b'\r') => from += 1,
+                Some(b'\n' | b'\r') => {
+                    broken = true;
+                    from += 1;
+                }
+                Some(b' ' | b'\t') => from += 1,
                 Some(b'#') => {
                     from += self.bytes[from..]
                         .iter()
                         .position(|&byte| matches!(byte, b'\n' | b'\r'))
                         .unwrap_or(self.bytes.len() - from);
                 }
-                next => return matches!(next, Some(b']' | b'}')),
+                Some(b']' | b'}') => return Some(broken),
+                _ => return None,
             }
         }
     }

@@ -1,6 +1,7 @@
 //! `ryl format`'s `[format] sequence-style` and `mapping-style`: flow collections
 //! rewritten in block style and leaf block ones in flow style, each entry's text copied
-//! as written.
+//! as written; and `sequence-expand` / `mapping-expand`: flow collections respelled on
+//! one line or one entry per line.
 
 mod context;
 mod input;
@@ -11,7 +12,7 @@ pub(crate) use spelling::{Form, FragmentPart, Selected, Structure};
 
 use ryl_yaml_parser::{Event, StructureStyle};
 
-use crate::config_schema::CollectionStyleTarget;
+use crate::config_schema::{CollectionStyleTarget, ExpandTarget};
 use crate::directives::disables_file;
 use crate::lint::{LintProblem, Severity};
 use crate::rules::support::span_utils::BytePos;
@@ -23,9 +24,32 @@ use crate::text_version::model::NodeKind as Kind;
 pub struct Config {
     pub sequences: CollectionStyleTarget,
     pub mappings: CollectionStyleTarget,
+    pub shape: Shape,
     pub indent: u8,
     pub width: u16,
     pub require_consistent_indent: bool,
+}
+
+/// The `[format]` settings that shape a respelled collection: the line-break targets for
+/// flow sequences and mappings, brace padding, and the block layout settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shape {
+    pub sequences: ExpandTarget,
+    pub mappings: ExpandTarget,
+    pub padding: usize,
+    pub indent_sequences: bool,
+    pub dash_on_own_line: bool,
+}
+
+impl Config {
+    /// Whether any collection could change style or line breaks.
+    #[must_use]
+    pub fn restyles(&self) -> bool {
+        self.sequences != CollectionStyleTarget::Preserve
+            || self.mappings != CollectionStyleTarget::Preserve
+            || self.shape.sequences != ExpandTarget::Preserve
+            || self.shape.mappings != ExpandTarget::Preserve
+    }
 }
 
 /// A collection the pass rewrites, or leaves alone for `refused`.
@@ -43,12 +67,17 @@ impl Finding {
     pub fn into_problem(self) -> LintProblem {
         let reason = self
             .refused
-            .expect("only a refused conversion to block becomes a problem");
+            .expect("only a refused conversion becomes a problem");
+        let change = if self.to_flow {
+            "change line breaks"
+        } else {
+            "convert to block"
+        };
         LintProblem {
             line: self.line,
             column: self.column,
             level: Severity::Error,
-            message: format!("cannot convert to block safely: {reason}"),
+            message: format!("cannot {change} safely: {reason}"),
             rule: Some(self.rule),
             hidden_unsafe_fix: false,
         }
@@ -194,20 +223,23 @@ impl Plan {
             .map(|&(_, finding)| finding)
     }
 
-    /// Whether no collection ends in flow style where `cfg` asks for block, the only
-    /// conversion a refusal can name.
+    /// Whether no collection ends in flow style where `cfg` asks for block, and none
+    /// keeps line breaks its target rejects, the conversions a refusal can name.
     pub(crate) fn settles(&self, cfg: Config) -> bool {
-        self.sites.iter().enumerate().all(|(index, site)| {
-            let target = match self.nodes[index].kind() {
-                Kind::Mapping => cfg.mappings,
-                Kind::Sequence => cfg.sequences,
-                Kind::Scalar | Kind::Alias => return true,
-            };
-            target != CollectionStyleTarget::Block
-                || !self
-                    .covering(index)
-                    .map_or(site.flow, |finding| self.findings[finding].to_flow)
-        })
+        self.findings
+            .iter()
+            .all(|finding| finding.refused.is_none())
+            && self.sites.iter().enumerate().all(|(index, site)| {
+                let target = match self.nodes[index].kind() {
+                    Kind::Mapping => cfg.mappings,
+                    Kind::Sequence => cfg.sequences,
+                    Kind::Scalar | Kind::Alias => return true,
+                };
+                target != CollectionStyleTarget::Block
+                    || !self
+                        .covering(index)
+                        .map_or(site.flow, |finding| self.findings[finding].to_flow)
+            })
     }
 
     pub(crate) fn reconsider(
@@ -257,7 +289,7 @@ impl Plan {
                 )
             })
             .collect();
-        let geometry = indentation::CollectionGeometry::selected(source, positions);
+        let geometry = indentation::CollectionGeometry::selected(positions);
         let directives = source.directives();
         let enabled = |target, rule| {
             (!directives.disables_any(rule) && !disables_file(source.text()))
@@ -273,26 +305,32 @@ impl Plan {
             &geometry,
             enabled(cfg.sequences, brackets::ID),
             enabled(cfg.mappings, braces::ID),
-            usize::from(cfg.indent),
-            usize::from(cfg.width),
+            (usize::from(cfg.indent), usize::from(cfg.width)),
+            cfg.shape,
         );
+        let initial = input::Initial::new(source, &sites, &self.comments);
+        let column = |byte| {
+            layout
+                .collection_position(byte, targets, &coordinates)
+                .column
+        };
         let mut more = Vec::new();
         for index in pending {
             let site = &self.sites[index];
-            let flowed = planner.flowed(index);
-            let to_flow = flowed.is_some();
             let document = source
                 .parsed()
                 .document_starts
                 .partition_point(|&line| line < site.line)
                 .saturating_sub(1);
             let refused = targets.refused.get(document).is_some_and(Option::is_some);
-            let recipe = flowed.or_else(|| {
-                (!refused && planner.outermost_candidate(index))
-                    .then(|| planner.outermost(index).ok())
-                    .flatten()
-            });
-            if let Some(recipe) = recipe {
+            let restyled = if let Some(recipe) = planner.flowed(index) {
+                Some((recipe, true))
+            } else if refused {
+                None
+            } else {
+                planner.placed(index, &placement(&self.nodes, &initial, index, column))
+            };
+            if let Some((recipe, to_flow)) = restyled {
                 let finding = self.findings.len();
                 self.findings.push(Finding {
                     line: site.line,
@@ -343,7 +381,7 @@ impl Plan {
         {
             return false;
         }
-        let geometry = indentation::CollectionGeometry::new(source, None);
+        let geometry = indentation::CollectionGeometry::default();
         let projection =
             crate::format::layout::projection::Projection::new(source, edits);
         let planner = target::Planner::new(
@@ -356,8 +394,8 @@ impl Plan {
             &geometry,
             Some(cfg.sequences),
             Some(cfg.mappings),
-            usize::from(cfg.indent),
-            usize::from(cfg.width),
+            (usize::from(cfg.indent), usize::from(cfg.width)),
+            cfg.shape,
         );
         let mut replacements = std::collections::HashMap::new();
         for part in self.selections().flat_map(Selected::fragments) {
@@ -434,7 +472,7 @@ pub(crate) fn settled_with_view<'a>(
     cfg: Config,
     indent: Option<&indentation::Config>,
 ) -> (Plan, Option<crate::format::layout::frame::FrameRows<'a>>) {
-    let mut plan = select(input, cfg, indent);
+    let mut plan = select(input, cfg);
     let view = skip_reindent_dependent(
         input,
         &mut plan,
@@ -444,20 +482,18 @@ pub(crate) fn settled_with_view<'a>(
     (plan, view)
 }
 
-pub(crate) fn select(
-    input: Analysis<'_>,
-    cfg: Config,
-    indent: Option<&indentation::Config>,
-) -> Plan {
+pub(crate) fn select(input: Analysis<'_>, cfg: Config) -> Plan {
     let buffer = input.text();
-    if cfg.sequences == CollectionStyleTarget::Preserve
-        && cfg.mappings == CollectionStyleTarget::Preserve
-    {
+    if !cfg.restyles() {
         return Plan::default();
     }
     if !input.event_iter().any(|(event, _)| match event {
-        Event::SequenceStart(style, ..) => changes_style(cfg.sequences, style),
-        Event::MappingStart(style, ..) => changes_style(cfg.mappings, style),
+        Event::SequenceStart(style, ..) => {
+            changes_style(cfg.sequences, cfg.shape.sequences, style)
+        }
+        Event::MappingStart(style, ..) => {
+            changes_style(cfg.mappings, cfg.shape.mappings, style)
+        }
         _ => false,
     }) {
         return Plan::default();
@@ -474,15 +510,15 @@ pub(crate) fn select(
         sites,
         comments,
     } = input::observe(input);
-    let geometry = indentation::CollectionGeometry::new(input, indent.copied());
+    let geometry = indentation::CollectionGeometry::default();
     let planner = target::Planner::new(
         &nodes,
         input::Initial::new(input, &sites, &comments),
         &geometry,
         style(cfg.sequences, brackets::ID),
         style(cfg.mappings, braces::ID),
-        usize::from(cfg.indent),
-        usize::from(cfg.width),
+        (usize::from(cfg.indent), usize::from(cfg.width)),
+        cfg.shape,
     );
     let mut recipes = Vec::new();
     let mut findings = Vec::new();
@@ -499,14 +535,22 @@ pub(crate) fn select(
             refused,
             to_flow,
         };
-        if let Some(edit) = planner.flowed(index) {
-            findings.push(finding(None, true));
-            recipes.push((edit, findings.len() - 1));
+        if planner.refuses_comment(index) {
+            findings.push(finding(Some("a comment is in the way"), true));
         }
         if !planner.outermost_candidate(index) {
             continue;
         }
-        let outcome = planner.outermost(index);
+        let outcome = planner.outermost(index, None);
+        // A nested `flow` or line-break target needs final columns and spellings, so
+        // `reconsider` converts the collection; a refusal is reported either way.
+        let deferred = cfg.sequences == CollectionStyleTarget::Flow
+            || cfg.mappings == CollectionStyleTarget::Flow
+            || cfg.shape.sequences != ExpandTarget::Preserve
+            || cfg.shape.mappings != ExpandTarget::Preserve;
+        if deferred && outcome.is_ok() {
+            continue;
+        }
         findings.push(finding(outcome.as_ref().err().copied(), false));
         if let Ok(edit) = outcome {
             recipes.push((edit, findings.len() - 1));
@@ -526,12 +570,34 @@ pub(crate) fn select(
     }
 }
 
-fn changes_style(target: CollectionStyleTarget, style: StructureStyle) -> bool {
-    matches!(
-        (target, style),
+/// Where the outermost collection `index` sits, given each byte's final `column`.
+fn placement(
+    nodes: &[crate::text_version::model::Node],
+    initial: &input::Initial<'_>,
+    index: usize,
+    column: impl Fn(usize) -> usize,
+) -> input::Placement {
+    let before = initial.lead_start(index);
+    let base = match nodes[index].parent() {
+        // A mapping's column: its `?` or its first key's properties.
+        Some(parent) if nodes[parent].kind() == Kind::Mapping => initial
+            .properties_start(nodes[parent].children()[0])
+            .min(initial.start_of(parent)),
+        _ => initial.line_content(before),
+    };
+    initial.placement(index, column(before), column(base))
+}
+
+fn changes_style(
+    target: CollectionStyleTarget,
+    expand: ExpandTarget,
+    style: StructureStyle,
+) -> bool {
+    match (target, style) {
         (CollectionStyleTarget::Block, StructureStyle::Flow)
-            | (CollectionStyleTarget::Flow, StructureStyle::Block)
-    )
+        | (CollectionStyleTarget::Flow, _) => true,
+        _ => expand != ExpandTarget::Preserve && style == StructureStyle::Flow,
+    }
 }
 
 fn skip_reindent_dependent<'a>(

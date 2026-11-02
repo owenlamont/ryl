@@ -136,6 +136,10 @@ pub struct FormatTable {
     pub sequence_style: CollectionStyleTarget,
     /// Collection style for mappings; `preserve` leaves each as written.
     pub mapping_style: CollectionStyleTarget,
+    /// Line breaks inside flow sequences; `preserve` leaves each as written.
+    pub sequence_expand: ExpandTarget,
+    /// Line breaks inside flow mappings; `preserve` leaves each as written.
+    pub mapping_expand: ExpandTarget,
     /// Whether a block sequence under a mapping key is indented past the key.
     pub indent_sequences: bool,
     /// Whether a block mapping in a block sequence starts on the line after its `-`.
@@ -157,6 +161,8 @@ impl Default for FormatTable {
             max_blank_lines: 2,
             sequence_style: CollectionStyleTarget::Preserve,
             mapping_style: CollectionStyleTarget::Preserve,
+            sequence_expand: ExpandTarget::Preserve,
+            mapping_expand: ExpandTarget::Preserve,
             indent_sequences: true,
             dash_on_own_line: false,
         }
@@ -237,6 +243,19 @@ pub enum CollectionStyleTarget {
     Preserve,
     Block,
     Flow,
+}
+
+/// Whether a flow collection sits on one line or spreads one entry per line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExpandTarget {
+    Preserve,
+    /// One line where it fits `line-length`, else one entry per line.
+    Auto,
+    /// One entry per line.
+    Always,
+    /// One line.
+    Never,
 }
 
 pub type TomlRulesTable = RulesTable<

@@ -20,6 +20,8 @@ quote-style = "double"
 brace-spacing = true
 comment-spacing = 1
 max-blank-lines = 1
+sequence-expand = "auto"
+mapping-expand = "auto"
 ```
 
 `brace-spacing = true` produces `{ a: 1 }` while leaving `{}` tight.
@@ -49,9 +51,13 @@ if retaining existing quotes matters more than normalizing their style.
 ### Long lines
 
 Prettier expands a long flow sequence into multiple lines at its print width.
-ryl preserves the flow sequence by default. `fold-long-lines = true` folds
-eligible scalar text at `line-length`; it cannot reproduce Prettier's collection
-layout, and may fold scalars that Prettier keeps on one line.
+ryl preserves the flow sequence by default; `sequence-expand = "auto"` and
+`mapping-expand = "auto"` write Prettier's expanded layout instead. Two cases still
+differ: where a collection fits alone on the line after its key, Prettier moves it there
+on one line and ryl expands it; and in a sequence entry (`- [`) ryl indents the entries
+as its `indentation` rule expects, two past the `-` rather than past the `[`.
+`fold-long-lines = true` folds eligible scalar text at `line-length`, and may fold
+scalars that Prettier keeps on one line.
 
 ### Layout and markers
 

@@ -137,34 +137,14 @@ impl Width {
     }
 }
 
-pub(crate) struct CollectionGeometry<'a> {
-    source: Analysis<'a>,
-    config: Option<Config>,
-    layout: OnceCell<(Layout<'a>, Targets)>,
-    positions: Option<Vec<(usize, usize)>>,
-}
+/// The final column of each collection site, by byte.
+#[derive(Default)]
+pub(crate) struct CollectionGeometry(Vec<(usize, usize)>);
 
-impl<'a> CollectionGeometry<'a> {
-    pub(crate) const fn new(source: Analysis<'a>, config: Option<Config>) -> Self {
-        Self {
-            source,
-            config,
-            layout: OnceCell::new(),
-            positions: None,
-        }
-    }
-
-    pub(crate) fn selected(
-        source: Analysis<'a>,
-        mut positions: Vec<(usize, usize)>,
-    ) -> Self {
+impl CollectionGeometry {
+    pub(crate) fn selected(mut positions: Vec<(usize, usize)>) -> Self {
         positions.sort_unstable_by_key(|&(at, _)| at);
-        Self {
-            source,
-            config: None,
-            layout: OnceCell::new(),
-            positions: Some(positions),
-        }
+        Self(positions)
     }
 
     pub(crate) fn width(
@@ -172,37 +152,11 @@ impl<'a> CollectionGeometry<'a> {
         at: crate::rules::support::span_utils::BytePos,
         characters: usize,
     ) -> Width {
-        if let Some(positions) = &self.positions {
-            let index = positions
-                .binary_search_by_key(&at.get(), |&(at, _)| at)
-                .expect("selected geometry covers each collection site");
-            return Width(positions[index].1 + characters);
-        }
-        let source = self.source.text();
-        let start = source[..at.get()]
-            .rfind(['\n', '\r'])
-            .map_or(0, |byte| byte + 1);
-        let width = source[start..at.get()].chars().count() + characters;
-        Width(self.config.map_or(width, |config| {
-            let (layout, targets) = self.layout.get_or_init(|| {
-                let layout = Layout::new(self.source, &config);
-                let candidates = layout.targets(
-                    &config,
-                    &[],
-                    &crate::rules::quoted_strings::Styles::default(),
-                    false,
-                );
-                let (targets, _) = candidates.settle(&layout);
-                (layout, targets)
-            });
-            let origin = self
-                .source
-                .byte_line_starts()
-                .partition_point(|&byte| byte <= at.get())
-                - 1;
-            let line = layout.project_line(origin, at.get());
-            width.saturating_add_signed(targets.deltas()[line])
-        }))
+        let index = self
+            .0
+            .binary_search_by_key(&at.get(), |&(at, _)| at)
+            .expect("selected geometry covers each collection site");
+        Width(self.0[index].1 + characters)
     }
 }
 

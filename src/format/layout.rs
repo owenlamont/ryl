@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::config_schema::ExpandTarget;
 use crate::fix::{PassTracking, Passes};
 use crate::rules::support::collection_style;
 use crate::rules::support::span_utils::BytePos;
@@ -262,7 +263,7 @@ fn prepare_selected<'a>(
                     );
                     if native || implicit {
                         drop(plan);
-                        finish_selected(input, passes, cache, config, collections)
+                        finish_selected(input, passes, cache, collections)
                     } else {
                         finish_candidate(
                             LayoutTargets(plan),
@@ -280,7 +281,6 @@ fn finish_selected(
     input: Analysis<'_>,
     passes: &Passes<'_>,
     cache: &mut HashMap<String, Option<bool>>,
-    config: collection_style::Config,
     collections: &mut collection_style::Plan,
 ) -> Result<(Option<Candidate>, Kept), Fallback> {
     converted_presentation(input, passes, cache, collections, None).and_then(
@@ -294,45 +294,11 @@ fn finish_selected(
                     &spellings,
                 )
             });
+            // `close_implicit` already ran: a plan reconsidered after a select-time
+            // conversion has no `flow` mapping target for it to act on.
             converted_targets(input, passes, frame, rows, presentation).and_then(
-                |LayoutTargets(plan)| {
-                    if !collections.close_implicit(
-                        input,
-                        config,
-                        &spellings,
-                        &plan.styles,
-                        &plan.layout,
-                        plan.targets.candidates(),
-                    ) {
-                        return finish_candidate(
-                            LayoutTargets(plan),
-                            passes,
-                            std::mem::take(collections),
-                        );
-                    }
-                    let mut presentation = Presentation {
-                        edits: Vec::new(),
-                        styles: plan.styles,
-                        magic: plan.magic,
-                        rules: plan.rules,
-                        guard: plan.guard,
-                        retained: None,
-                    };
-                    presentation.collection_spacing(passes, collections);
-                    let (frame, rows) = frame::Frame::with_edits(
-                        input,
-                        input.byte_line_starts(),
-                        collections,
-                        &spellings,
-                    );
-                    converted_targets(input, passes, frame, rows, presentation)
-                        .and_then(|targets| {
-                            finish_candidate(
-                                targets,
-                                passes,
-                                std::mem::take(collections),
-                            )
-                        })
+                |targets| {
+                    finish_candidate(targets, passes, std::mem::take(collections))
                 },
             )
         },
@@ -503,6 +469,17 @@ fn format_document_refused(
     Ok((output, true))
 }
 
+/// Under `ryl format`, whether a trailing comma before an own-line `]` or `}` stays: a
+/// `preserve` collection can be spread, with its commas, by a nested `always` one.
+fn trailing_commas(passes: &Passes<'_>) -> Option<bool> {
+    passes.preserve_events.then(|| {
+        passes.collection_style.is_some_and(|cfg| {
+            cfg.shape.sequences != ExpandTarget::Preserve
+                || cfg.shape.mappings != ExpandTarget::Preserve
+        })
+    })
+}
+
 /// Whether `text` is a stream of LF-only blank lines that the resolved passes empty, so its
 /// candidate needs no line records; with no block scalar it cannot be ambiguous, so it skips
 /// the probe.
@@ -634,6 +611,7 @@ impl Presentation {
             .and_then(|cfg| brackets::format_sites(cfg, input));
         let mut comma_edits = Vec::new();
         let mut closing_edits = Vec::new();
+        let trailing_commas = trailing_commas(passes);
         let mut depth = 0usize;
         for &(at, ch) in input.flow_sites() {
             if let Some(edits) = &mut braces {
@@ -655,7 +633,7 @@ impl Presentation {
                     );
                     let closing = commas::Closing::new(
                         passes.commas,
-                        passes.preserve_events,
+                        trailing_commas,
                         braces::closing_policy(
                             passes.braces.as_ref(),
                             Guard::permission(
