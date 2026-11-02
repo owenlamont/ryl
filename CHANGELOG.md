@@ -45,6 +45,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- With `fold-long-lines` and `dash-on-own-line`, `ryl format` no longer folds a scalar
+  whose trailing comment keeps its mapping on the `-` line, which let a second run move
+  the mapping below the `-`. ([#913](https://github.com/owenlamont/ryl/pull/913))
 - With `fold-long-lines`, a `disable-line rule:line-length` comment above a flow
   collection that `sequence-style` or `mapping-style` turns into block form no longer
   stops `ryl format` folding the first entry, which a second run then folded.

@@ -128,7 +128,7 @@ impl<'a> Planner<'a> {
                 }
                 _ => self.measure_member(members[0], pos, false, facts)?,
             };
-            pos = self.initial.after_entry(members[members.len() - 1]);
+            pos = self.next_entry(members);
         }
         Some(characters)
     }
@@ -178,6 +178,22 @@ impl<'a> Planner<'a> {
         self.initial.collection(index).braced()
             && !self.nodes[index].children().is_empty()
             && self.governed(index)
+    }
+
+    /// Where the flow entry after `members`, a sequence entry or a key and its value,
+    /// starts: past an empty value's `:` too.
+    fn next_entry(&self, members: &[usize]) -> Boundary {
+        match *members {
+            [key, value] => {
+                let gap = self.initial.key_gap(key);
+                if gap.own().present() {
+                    self.initial.after_value(value, &gap)
+                } else {
+                    self.initial.after_entry(value)
+                }
+            }
+            _ => self.initial.after_entry(members[0]),
+        }
     }
 
     /// Whether `index` spreads over lines wherever it sits.
@@ -283,14 +299,19 @@ impl<'a> Planner<'a> {
         }
         let entries =
             expanded.then(|| place.base + self.indent * (1 + usize::from(value)));
-        recipe.append(self.spell(index, entries)?);
+        self.spell(index, entries, &mut recipe)?;
         let selected = place.edit(self.initial.end(index)).select(recipe);
         (!selected.written(self.initial.text())).then_some((selected, true))
     }
 
-    /// The flow collection `index` on one line, or one entry per line at column
+    /// Appends the flow collection `index` on one line, or one entry per line at column
     /// `entries`; `None` where [`Self::one`] has no width for a one-line form.
-    fn spell(&self, index: usize, entries: Option<usize>) -> Option<Recipe> {
+    fn spell(
+        &self,
+        index: usize,
+        entries: Option<usize>,
+        recipe: &mut Recipe,
+    ) -> Option<()> {
         let node = &self.nodes[index];
         let mapping = node.kind() == Kind::Mapping;
         let (container, open, close) = if mapping {
@@ -298,7 +319,6 @@ impl<'a> Planner<'a> {
         } else {
             (Container::Sequence, "[", "]")
         };
-        let mut recipe = Recipe::new();
         recipe.structure(Structure::Start {
             node: index,
             kind: container,
@@ -318,13 +338,13 @@ impl<'a> Planner<'a> {
                 recipe.text(", ");
             }
             match *members {
-                [key, value] => self.pair(key, value, pos, entries, &mut recipe)?,
-                _ => self.member(members[0], pos, (entries, 1, false), &mut recipe)?,
+                [key, value] => self.pair(key, value, pos, entries, recipe)?,
+                _ => self.member(members[0], pos, (entries, 1, false), recipe)?,
             }
             if entries.is_some() {
                 recipe.text(",");
             }
-            pos = self.initial.after_entry(members[members.len() - 1]);
+            pos = self.next_entry(members);
         }
         if let Some(column) = entries {
             recipe.line(column - self.indent);
@@ -337,7 +357,7 @@ impl<'a> Planner<'a> {
             form: Form::Flow,
         });
         recipe.text(close);
-        Some(recipe)
+        Some(())
     }
 
     fn pair(
@@ -410,8 +430,7 @@ impl<'a> Planner<'a> {
         }
         let entries =
             expanded.map(|column| column + self.indent * (1 + usize::from(value)));
-        recipe.append(self.spell(index, entries)?);
-        Some(())
+        self.spell(index, entries, recipe)
     }
 
     fn target(&self, kind: Kind) -> Option<CollectionStyleTarget> {
@@ -496,6 +515,13 @@ impl<'a> Planner<'a> {
         if self.expand_target(Kind::Mapping) == ExpandTarget::Always {
             return None;
         }
+        // Measured on its own line under `dash-on-own-line`, the flow form sits after
+        // `- ` instead, where `flowed` measures it on the next run.
+        let column = if self.shape.dash_on_own_line {
+            (column + 2).saturating_sub(self.indent)
+        } else {
+            column
+        };
         let (body, characters) = self.flow_body(index, false)?;
         (column + characters <= self.width).then_some(body)
     }
@@ -720,40 +746,39 @@ impl<'a> Planner<'a> {
                 dashes + 1
             };
             self.shift_to(column, col);
-            let body = self.block(index, self.initial.open(index), col)?;
             let mut recipe = Recipe::new();
             if dashes != 0 {
                 recipe.text(" ");
             }
-            recipe.append(body);
+            self.block(index, self.initial.open(index), col, &mut recipe)?;
             return Ok(self.initial.compact_edit(index, &outer).select(recipe));
         }
         let col = node.parent().map_or(0, |parent| {
             self.initial.column(parent).characters() + self.indent
         });
         self.shift_to(column, col);
-        let body = self.block(index, self.initial.open(index), col)?;
         let mut recipe = Recipe::new();
         if let Some(comment) = outer.take_comment() {
             recipe.comment_gap(&comment);
             recipe.copy(comment);
         }
         recipe.line(col);
-        recipe.append(body);
+        self.block(index, self.initial.open(index), col, &mut recipe)?;
         Ok(self.initial.block_edit(index, &outer).select(recipe))
     }
 
+    /// Appends `index` in block style at column `col`.
     fn block(
         &self,
         index: usize,
         mut pos: Boundary,
         col: usize,
-    ) -> Result<Recipe, &'static str> {
+        recipe: &mut Recipe,
+    ) -> Result<(), &'static str> {
         let node = &self.nodes[index];
         if self.initial.has_comment(index) {
             return Err("it holds a comment");
         }
-        let mut recipe = Recipe::new();
         let container = if node.kind() == Kind::Sequence {
             Container::Sequence
         } else {
@@ -775,7 +800,7 @@ impl<'a> Planner<'a> {
                     && node.parent().is_some_and(|parent| {
                         self.nodes[parent].kind() == Kind::Sequence
                     });
-                recipe.append(self.item(child, pos, (col, compact))?);
+                self.item(child, pos, (col, compact), recipe)?;
                 pos = self.initial.after_entry(child);
             }
         } else {
@@ -821,7 +846,6 @@ impl<'a> Planner<'a> {
                 }
                 let colon =
                     col + key_text.characters() + usize::from(kind == Kind::Alias) + 1;
-                let value_text = self.value(value, gap.block_start(), (col, colon))?;
                 if entry != 0 {
                     recipe.line(col);
                 }
@@ -832,7 +856,7 @@ impl<'a> Planner<'a> {
                 }
                 recipe.structure(Structure::Value(value));
                 recipe.text(":");
-                recipe.append(value_text);
+                self.value(value, gap.block_start(), (col, colon), recipe)?;
                 pos = self.initial.after_value(value, &gap);
             }
         }
@@ -841,7 +865,7 @@ impl<'a> Planner<'a> {
             kind: container,
             form: Form::Block,
         });
-        Ok(recipe)
+        Ok(())
     }
 
     /// The sequence item `index` after its `-` at column `dash`, `compact` after another
@@ -851,15 +875,15 @@ impl<'a> Planner<'a> {
         index: usize,
         pos: Boundary,
         (dash, compact): (usize, bool),
-    ) -> Result<Recipe, &'static str> {
+        recipe: &mut Recipe,
+    ) -> Result<(), &'static str> {
         let site = self.initial.collection(index);
         let col = self.item_column(index, dash);
         if site.flow() && !site.braced() {
-            return self.block(index, pos, col);
+            return self.block(index, pos, col, recipe);
         }
         let start = self.at(dash) + 2 + self.initial.property_width(pos, index);
         if !self.to_block(index) && !self.splits(index, start) {
-            let mut recipe = Recipe::new();
             if !self.respaced(index) {
                 recipe.copy(self.copy(index, pos)?);
             } else if compact
@@ -867,21 +891,17 @@ impl<'a> Planner<'a> {
             {
                 return Err("a nested collection would spread after a second `-`");
             } else {
-                self.member(index, pos, (Some(self.at(dash)), 2, false), &mut recipe)
+                self.member(index, pos, (Some(self.at(dash)), 2, false), recipe)
                     .ok_or("an entry spans lines")?;
             }
-            return Ok(recipe);
+            return Ok(());
         }
         let properties = single(self.initial.properties(pos, index))?;
-        let body = self.block(index, self.initial.open(index), col)?;
-        if properties.empty() {
-            return Ok(body);
+        if !properties.empty() {
+            recipe.copy(properties);
+            recipe.line(col);
         }
-        let mut recipe = Recipe::new();
-        recipe.copy(properties);
-        recipe.line(col);
-        recipe.append(body);
-        Ok(recipe)
+        self.block(index, self.initial.open(index), col, recipe)
     }
 
     /// The mapping value `index` of a key at column `col` whose `:` ends at `colon`.
@@ -890,8 +910,8 @@ impl<'a> Planner<'a> {
         index: usize,
         pos: Boundary,
         (col, colon): (usize, usize),
-    ) -> Result<Recipe, &'static str> {
-        let mut recipe = Recipe::new();
+        recipe: &mut Recipe,
+    ) -> Result<(), &'static str> {
         if !self.to_block(index)
             && !self.splits(
                 index,
@@ -899,14 +919,9 @@ impl<'a> Planner<'a> {
             )
         {
             if self.respaced(index) {
-                self.member(
-                    index,
-                    pos,
-                    (Some(self.at(col)), colon - col, true),
-                    &mut recipe,
-                )
-                .ok_or("an entry spans lines")?;
-                return Ok(recipe);
+                return self
+                    .member(index, pos, (Some(self.at(col)), colon - col, true), recipe)
+                    .ok_or("an entry spans lines");
             }
             let fragment = self.copy(index, pos)?;
             if fragment.empty() {
@@ -914,17 +929,15 @@ impl<'a> Planner<'a> {
             } else {
                 recipe.space_copy(fragment);
             }
-            return Ok(recipe);
+            return Ok(());
         }
         let properties = single(self.initial.properties(pos, index))?;
         let inner = col + self.body_indent(index);
-        let body = self.block(index, self.initial.open(index), inner)?;
         if !properties.empty() {
             recipe.space_copy(properties);
         }
         recipe.line(inner);
-        recipe.append(body);
-        Ok(recipe)
+        self.block(index, self.initial.open(index), inner, recipe)
     }
 
     fn copy(&self, index: usize, pos: Boundary) -> Result<Fragment, &'static str> {

@@ -298,6 +298,40 @@ fn a_refused_conversion_is_placed_after_a_reshaped_one() {
 }
 
 #[test]
+fn folding_leaves_a_scalar_whose_comment_keeps_its_dash() {
+    let input = "? k\n: - double: \"it's a long value: y\"  # w\n    b: 1\n";
+    for style in ["", "sequence-style = 'block'\n"] {
+        formats(
+            input,
+            &format!(
+                "line-length = 30\n[format]\nfold-long-lines = true\n{style}\
+                 indent-sequences = false\ndash-on-own-line = true\n"
+            ),
+            input,
+        );
+    }
+}
+
+#[test]
+fn an_empty_value_keeps_its_colon_with_its_own_key() {
+    formats(
+        "{a: , b: c}\n",
+        "[format]\nmapping-expand = 'always'\n",
+        "{\n  a:,\n  b: c,\n}\n",
+    );
+}
+
+#[test]
+fn a_converted_implicit_pair_is_measured_where_flowed_measures_it() {
+    formats(
+        "k: [a: b, xxxxx]\n",
+        "indent-width = 3\nline-length = 11\n[format]\nsequence-style = 'flow'\n\
+         mapping-style = 'flow'\ndash-on-own-line = true\n",
+        "k:\n   - {a: b}\n   - xxxxx\n",
+    );
+}
+
+#[test]
 fn an_alias_key_keeps_its_space_before_the_colon() {
     formats(
         "a: &a x\nk: {*a : b}\n",

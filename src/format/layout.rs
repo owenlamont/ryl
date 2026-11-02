@@ -1736,6 +1736,16 @@ impl DocumentPlan<'_> {
                     .byte_line_starts()
                     .partition_point(|&start| start <= scalar.content.start)
                     - 1;
+                // Folding would move the comment that keeps this line's dash in place.
+                let projected = self.layout.project_line(line, scalar.content.start);
+                if self
+                    .layout
+                    .kept_dash_lines
+                    .iter()
+                    .any(|&(kept, _)| kept == projected + 1)
+                {
+                    return Ok(());
+                }
                 let frozen_owner = (!reindents
                     || (!self.targets.refused().is_empty()
                         && self.layout.frozen(self.targets.refused(), line)))
