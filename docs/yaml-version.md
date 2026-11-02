@@ -14,6 +14,16 @@ between the two versions, so files drift toward spellings both read alike. Set
 target-version = "1.2"
 ```
 
+Two top-level settings name a YAML version, and neither needs setting:
+
+| Setting | Question it answers | Default | What it changes |
+| :--- | :--- | :--- | :--- |
+| `target-version` | Which readers must the output suit? | `"1.1"` | What the rules flag and what `ryl format` and `--fix` write |
+| `source-version` | Which version did the author of an undeclared document mean? | `"1.2"` | Only the direction of an [unsafe fix](#unsafe-fixes-and-source-version) |
+
+A `%YAML` directive states a document's version outright, so no unsafe fix
+applies to that document and `source-version` plays no part in it.
+
 `target-version` is a top-level TOML setting (`[tool.ryl]` in
 `pyproject.toml`); YAML configs cannot set it. It names the oldest YAML version
 whose readers must load ryl's output to the same values, as ruff's
@@ -93,6 +103,58 @@ same to a 1.1 consumer such as PyYAML. The set is PyYAML's 1.1 resolver plus
 `0o` octal, `y`, `Y`, `n` and `N`, which go-yaml v2 (used by Kubernetes) loads
 as booleans, and go-yaml's float spellings (`'08'`, `'1e5'`, `'-.5'`, `'0_8'`),
 which PyYAML reads as strings.
+
+### Unsafe fixes and `source-version`
+
+A document with no directive under the default `target-version = "1.1"` must
+mean the same to both versions, but a scalar such as `yes` already does not: a
+string to 1.2, a boolean to PyYAML. Rewriting it picks one reading, so
+`truthy`, `octal-values` and `schema-dependent-values` offer an
+[unsafe fix](rules.md#unsafe-fixes) that applies only under `--unsafe-fixes`,
+`unsafe-fixes = true` or `lint.extend-safe-fixes`. The top-level
+`source-version` says which reading the author meant, and the fix writes a
+spelling both versions read that way:
+
+| Scalar | `source-version = "1.2"` (default) | `source-version = "1.1"` |
+| :--- | :--- | :--- |
+| `yes`, `off` | `"yes"`, `"off"` | `true`, `false` |
+| `0777`, `0o17` | `777`, `15` | `511`, left alone |
+| `1_000`, `0b1010` | `"1_000"`, `"0b1010"` | `1000`, `10` |
+| `22:22`, `1:30.5` | `"22:22"`, `"1:30.5"` | `1342`, `90.5` |
+| `08` | `8` | left alone |
+| `2026-10-10`, `y` | `"2026-10-10"`, `"y"` | left alone |
+
+Under `"1.1"` the fix leaves a scalar alone where the migration above declines:
+YAML 1.1 readers disagree on it (`08`, `0o17`, `y`), or YAML 1.2
+has no type for it (a timestamp). Either way it leaves alone an integer past 64
+bits, which go-yaml reads as a float. Quotes follow `quoted-strings`'
+`quote-type = "single"` when that rule is on, and a boolean takes the first
+spelling `truthy`'s `allowed-values` permits.
+
+```toml
+source-version = "1.1"
+```
+
+`source-version` steers only the fix: every rule, the formatter and the value
+checks still read an undeclared document as YAML 1.2. Like any setting, the
+nearest config wins, so a PyYAML-era subtree can carry its own
+`source-version = "1.1"`.
+
+### Migrating undeclared YAML 1.1 files
+
+Files with no `%YAML` directive that were written for a YAML 1.1 reader such as
+PyYAML take two passes to move to 1.2. Under `target-version = "1.2"` ryl reads
+them as 1.2, where `yes` is already a string, so nothing flags it and
+`source-version` has no effect; ryl warns when a config sets both.
+
+1. Keep the default `target-version = "1.1"`, set `source-version = "1.1"`,
+   and run `ryl check --fix --unsafe-fixes`. Each scalar takes a spelling
+   both versions read as 1.1 did (`yes` becomes `true`, `0777` becomes `511`).
+   Review what remains flagged: the fix leaves alone the scalars listed above.
+2. Set `target-version = "1.2"` and drop `source-version`.
+
+Declaring `%YAML 1.1` in each file instead hands the conversion to the
+[`yaml-directive` migration](#migrating-a-yaml-11-document-to-12) in one pass.
 
 ### What `%YAML 1.2` does for each reader
 

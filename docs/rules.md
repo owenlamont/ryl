@@ -21,7 +21,8 @@ For configuration discovery, presets, and file selection, see
 - [Comments](#comments) &mdash; comment placement and spacing
 - [Values](#values) &mdash; numeric, string, and boolean value formats
 
-Rules that auto-fix are marked with :wrench: in the **Fix** column. Most layout
+Rules that auto-fix are marked with :wrench: in the **Fix** column, and rules with an
+[unsafe fix](#unsafe-fixes) with :warning:. Most layout
 rules are also enforced by [`ryl format`](formatter.md); the
 [Formatter](formatter.md#conflicting-lint-rules) page lists which, and the options that
 conflict with it.
@@ -70,10 +71,10 @@ conflict with it.
 | Rule | Description | Fix |
 | :--- | :--- | :---: |
 | [`float-values`](rules/float-values.md) | Float value formats. |  |
-| [`octal-values`](rules/octal-values.md) | Octal value formats. |  |
+| [`octal-values`](rules/octal-values.md) | Octal value formats. | :warning: |
 | [`quoted-strings`](rules/quoted-strings.md) | Quoted string styles and when to require quotes. | :wrench: |
-| [`schema-dependent-values`](rules/schema-dependent-values.md) | Plain values YAML 1.1 and 1.2 read differently (`2026-10-10`, `22:22`, `1_000`). |  |
-| [`truthy`](rules/truthy.md) | Truthy values like `yes`, `no`, `on`, `off`. | :wrench: |
+| [`schema-dependent-values`](rules/schema-dependent-values.md) | Plain values YAML 1.1 and 1.2 read differently (`2026-10-10`, `22:22`, `1_000`). | :warning: |
+| [`truthy`](rules/truthy.md) | Truthy values like `yes`, `no`, `on`, `off`. | :wrench: :warning: |
 
 ## Severity levels
 
@@ -163,3 +164,38 @@ Control which rules apply fixes with `fixable`/`unfixable` in the `[lint]` table
 fixable = ["ALL"]
 unfixable = ["comments"]
 ```
+
+### Unsafe fixes
+
+A safe fix never changes what a value means. An **unsafe** fix may: it picks one
+meaning where readers disagree, so it applies only when you opt in, as with ruff.
+`truthy`, `octal-values` and `schema-dependent-values` offer one for a plain scalar
+that YAML 1.1 and 1.2 readers load differently (see
+[YAML version compatibility](yaml-version.md#unsafe-fixes-and-source-version)).
+
+`ryl check` counts the fixes it left out:
+
+```console
+$ ryl check config.yaml
+config.yaml
+  1:10      error    truthy value should be one of [false, true]  (truthy)
+
+1 unsafe fix available with `--fix --unsafe-fixes`.
+```
+
+Apply every unsafe fix with `--unsafe-fixes` or the top-level setting, or one rule's
+with `extend-safe-fixes`, which lets plain `--fix` apply it:
+
+```toml
+unsafe-fixes = true
+
+[lint]
+extend-safe-fixes = ["octal-values"]
+```
+
+`--diff` previews them, and once the config enables a fix its message names the old
+and new spelling (`; unsafe fix: yes -> "yes"`). `--no-unsafe-fixes` overrides the setting,
+and `unsafe-fixes = false` also silences the count. `unfixable` blocks a rule's unsafe
+fix too, and `ryl format` never applies one. In an editor, `ryl server` offers each
+rule's unsafe fixes as a quick fix, kept out of "Fix all" until the config applies
+them.

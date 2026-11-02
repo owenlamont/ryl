@@ -51,7 +51,9 @@
         "key-ordering",
         "new-line-at-end-of-file",
         "new-lines",
+        "octal-values",
         "quoted-strings",
+        "schema-dependent-values",
         "trailing-spaces",
         "truthy",
         "yaml-directive"
@@ -100,7 +102,9 @@
         "key-ordering",
         "new-line-at-end-of-file",
         "new-lines",
+        "octal-values",
         "quoted-strings",
+        "schema-dependent-values",
         "trailing-spaces",
         "truthy",
         "yaml-directive"
@@ -275,6 +279,16 @@
       "additionalProperties": false,
       "description": "The `[lint]` table.",
       "properties": {
+        "extend-safe-fixes": {
+          "description": "Rules whose unsafe fix `--fix` applies as if it were safe.",
+          "items": {
+            "$ref": "#/$defs/UnsafeFixRule"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "fixable": {
           "description": "Rules `--fix` may fix (default `[\"ALL\"]`).",
           "items": {
@@ -2455,6 +2469,13 @@
       },
       "type": "object"
     },
+    "SourceVersion": {
+      "enum": [
+        "1.1",
+        "1.2"
+      ],
+      "type": "string"
+    },
     "SpacesMode": {
       "enum": [
         "consistent"
@@ -2521,6 +2542,15 @@
       "enum": [
         "sort",
         "keep"
+      ],
+      "type": "string"
+    },
+    "UnsafeFixRule": {
+      "description": "A rule with an unsafe fix, accepted by `lint.extend-safe-fixes`.",
+      "enum": [
+        "octal-values",
+        "schema-dependent-values",
+        "truthy"
       ],
       "type": "string"
     }
@@ -2713,6 +2743,17 @@
       "deprecated": true,
       "description": "Deprecated: use `lint.rules`."
     },
+    "source-version": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceVersion"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The YAML version an undeclared document's author meant; it steers only the\ndirection of unsafe fixes (default `\"1.2\"`)."
+    },
     "target-version": {
       "anyOf": [
         {
@@ -2723,6 +2764,13 @@
         }
       ],
       "description": "The oldest YAML version whose readers must load `ryl format` and `--fix` output\nto the same values (default `\"1.1\"`)."
+    },
+    "unsafe-fixes": {
+      "description": "Apply unsafe fixes with `--fix` and `--diff` (default false).",
+      "type": [
+        "boolean",
+        "null"
+      ]
     }
   },
   "title": "ryl TOML config",

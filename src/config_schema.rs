@@ -51,6 +51,13 @@ pub struct TomlConfig {
     /// to the same values (default `"1.1"`).
     #[serde(rename = "target-version")]
     pub target_version: Option<TargetVersion>,
+    /// The YAML version an undeclared document's author meant; it steers only the
+    /// direction of unsafe fixes (default `"1.2"`).
+    #[serde(rename = "source-version")]
+    pub source_version: Option<SourceVersion>,
+    /// Apply unsafe fixes with `--fix` and `--diff` (default false).
+    #[serde(rename = "unsafe-fixes")]
+    pub unsafe_fixes: Option<bool>,
     /// Linter settings: rule configuration, fix policy, and rule ignores.
     pub lint: Option<LintTable>,
     /// Formatter settings.
@@ -86,6 +93,9 @@ pub struct LintTable {
     pub fixable: Option<Vec<FixableRuleSelector>>,
     /// Rules `--fix` must not fix, overriding `fixable`.
     pub unfixable: Option<Vec<FixRuleName>>,
+    /// Rules whose unsafe fix `--fix` applies as if it were safe.
+    #[serde(rename = "extend-safe-fixes")]
+    pub extend_safe_fixes: Option<Vec<UnsafeFixRule>>,
     /// Per-file rule ignores.
     #[serde(rename = "per-file-ignores")]
     pub per_file_ignores: Option<BTreeMap<String, Vec<RuleSelector>>>,
@@ -179,6 +189,39 @@ pub enum TargetVersion {
     Yaml11,
     #[serde(rename = "1.2")]
     Yaml12,
+}
+
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema,
+)]
+pub enum SourceVersion {
+    #[serde(rename = "1.1")]
+    Yaml11,
+    #[default]
+    #[serde(rename = "1.2")]
+    Yaml12,
+}
+
+/// A rule with an unsafe fix, accepted by `lint.extend-safe-fixes`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+pub enum UnsafeFixRule {
+    #[serde(rename = "octal-values")]
+    OctalValues,
+    #[serde(rename = "schema-dependent-values")]
+    SchemaDependentValues,
+    #[serde(rename = "truthy")]
+    Truthy,
+}
+
+impl UnsafeFixRule {
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::OctalValues => "octal-values",
+            Self::SchemaDependentValues => "schema-dependent-values",
+            Self::Truthy => "truthy",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
@@ -392,6 +435,7 @@ impl TomlConfig {
             unfixable: lint
                 .unfixable
                 .or_else(|| fix.and_then(|fix| fix.unfixable.clone())),
+            extend_safe_fixes: lint.extend_safe_fixes,
             per_file_ignores: lint
                 .per_file_ignores
                 .or_else(|| self.per_file_ignores.clone()),
@@ -632,8 +676,12 @@ pub enum FixableRuleSelector {
     NewLineAtEndOfFile,
     #[serde(rename = "new-lines")]
     NewLines,
+    #[serde(rename = "octal-values")]
+    OctalValues,
     #[serde(rename = "quoted-strings")]
     QuotedStrings,
+    #[serde(rename = "schema-dependent-values")]
+    SchemaDependentValues,
     #[serde(rename = "trailing-spaces")]
     TrailingSpaces,
     #[serde(rename = "truthy")]
@@ -671,8 +719,12 @@ pub enum FixRuleName {
     NewLineAtEndOfFile,
     #[serde(rename = "new-lines")]
     NewLines,
+    #[serde(rename = "octal-values")]
+    OctalValues,
     #[serde(rename = "quoted-strings")]
     QuotedStrings,
+    #[serde(rename = "schema-dependent-values")]
+    SchemaDependentValues,
     #[serde(rename = "trailing-spaces")]
     TrailingSpaces,
     #[serde(rename = "truthy")]
@@ -1614,9 +1666,18 @@ pub struct NormalizedConfig {
     pub line_length: Option<NonZeroU16>,
     pub indent_width: Option<NonZeroU8>,
     pub target_version: Option<TargetVersion>,
+    pub unsafe_fix: UnsafeFixConfig,
     pub fix: Option<NormalizedFixConfig>,
     pub rules: BTreeMap<String, YamlOwned>,
     pub yaml_directive_from_all: bool,
+}
+
+/// Which unsafe fixes apply, and which reading of an undeclared document they keep.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UnsafeFixConfig {
+    pub unsafe_fixes: Option<bool>,
+    pub extend_safe_fixes: Vec<UnsafeFixRule>,
+    pub source_version: Option<SourceVersion>,
 }
 
 #[derive(Debug, Clone, Default)]
