@@ -3844,33 +3844,35 @@ loads your files. Each reader below loaded eight undeclared plain scalars
 (`yes`, `on`, `0777`, `0o17`, `1_000`, `0b1010`, `22:22`, `2026-10-10`) into
 a generic map or object, then the same file under `%YAML 1.2` and `%YAML 1.1`.
 **1.1** or **1.2** means all eight took that version's value, and "no change"
-means the directive changed no value. [In Defense of YAML][posit-yaml] covers
+means the directive changed no value. "Version option" names the loader
+setting that changes which version's values the reader resolves, each run to
+confirm the change. [In Defense of YAML][posit-yaml] covers
 why the two versions differ.
 
 Last verified: 2026-11-02.
 
-| Reader | Version | Undeclared | `%YAML 1.2` | `%YAML 1.1` | Used by |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| PyYAML `safe_load` | 6.0.3 | 1.1 | No change | No change | yamllint, Ansible |
-| ruamel.yaml, default and `typ='safe'` | 0.19.1 | 1.2, except `1_000`, `0b1010` and `2026-10-10` load as non-strings | No change | 1.1 | pre-commit-hooks |
-| py-yaml12 | 0.2.0 | 1.2 | No change | No change | |
-| `gopkg.in/yaml.v2`, `go.yaml.in/yaml/v2` | 2.4.0, 2.4.4 | 1.1, except `0o17` is 15 and `22:22` and `2026-10-10` are strings | Rejected | No change | |
-| `sigs.k8s.io/yaml` | 1.6.0 | As go-yaml v2, with numbers as `float64` | Rejected | No change | Kubernetes, Helm |
-| `gopkg.in/yaml.v3`, `go.yaml.in/yaml/v3` | 3.0.1, 3.0.6 | `yes`, `on` and `22:22` are strings, but `0777` is 511, `1_000` and `0b1010` integers and `2026-10-10` a time; into a `bool` field `yes` is `true` | Rejected | No change | |
-| `go.yaml.in/yaml/v4` | 4.0.0-rc.8 (pre-release) | As go-yaml v3 | Rejected | No change | Docker Compose (pins rc.6) |
-| goccy/go-yaml | 1.19.2 | 1.2, except `0777` is 511 and `1_000` and `0b1010` are integers | No change | No change | |
-| js-yaml | 5.5.0 | 1.2 | No change | No change | |
-| js-yaml | 4.3.2 | 1.2, except `0b1010` is 10 and `2026-10-10` a `Date` | No change | No change | ESLint (`@eslint/eslintrc`) |
-| `yaml` (eemeli) | 2.9.1 | 1.2 | No change | 1.1 | Prettier |
-| `yaml` with `version: '1.1'` | 2.9.1 | 1.1 | 1.2 | No change | |
-| Psych `safe_load` with `permitted_classes: [Date]` (Ruby 4.0.9); without it the date is an error | 5.3.1 | 1.1, except `22:22` is 80520 | No change | No change | |
-| SnakeYAML | 2.7 | 1.1 | No change | No change | Spring Boot, Jackson 2.x |
-| SnakeYAML Engine, default `JsonSchema` | 3.2 | Every scalar a string, `0777` and `0o17` included | No change | No change | |
-| SnakeYAML Engine, `CoreSchema` | 3.2 | 1.2 | No change | No change | |
-| YamlDotNet | 18.1.0 | Every scalar a string; into a `bool` or `int` field `yes` is `true`, `0777` 511, `1_000` 1000 and `0b1010` 10 | No change | No change | |
-| serde_yaml (deprecated) | 0.9.34 | 1.2, except `0777` is a string and `0b1010` is 10 | No change | No change | |
-| serde_yml | 0.0.13 | 1.2 | No change | No change | |
-| saphyr | 0.3.3 | 1.2 | No change | No change | |
+| Reader | Version | Undeclared | `%YAML 1.2` | `%YAML 1.1` | Version option | Used by |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| PyYAML `safe_load` | 6.0.3 | 1.1 | No change | No change | No | yamllint, Ansible |
+| ruamel.yaml, default and `typ='safe'` | 0.19.1 | 1.2, except `1_000`, `0b1010` and `2026-10-10` load as non-strings | No change | 1.1 | `yaml.version = (1, 1)`, or via `%YAML` | pre-commit-hooks |
+| py-yaml12 | 0.2.0 | 1.2 | No change | No change | No | |
+| `gopkg.in/yaml.v2`, `go.yaml.in/yaml/v2` | 2.4.0, 2.4.4 | 1.1, except `0o17` is 15 and `22:22` and `2026-10-10` are strings | Rejected | No change | No | |
+| `sigs.k8s.io/yaml` | 1.6.0 | As go-yaml v2, with numbers as `float64` | Rejected | No change | No | Kubernetes, Helm |
+| `gopkg.in/yaml.v3`, `go.yaml.in/yaml/v3` | 3.0.1, 3.0.6 | `yes`, `on` and `22:22` are strings, but `0777` is 511, `1_000` and `0b1010` integers and `2026-10-10` a time; into a `bool` field `yes` is `true` | Rejected | No change | No | |
+| `go.yaml.in/yaml/v4` | 4.0.0-rc.8 (pre-release) | As go-yaml v3 | Rejected | No change | No | Docker Compose (pins rc.6) |
+| goccy/go-yaml | 1.19.2 | 1.2, except `0777` is 511 and `1_000` and `0b1010` are integers | No change | No change | No | |
+| js-yaml | 5.5.0 | 1.2 | No change | No change | `schema: YAML11_SCHEMA` | |
+| js-yaml | 4.3.2 | 1.2, except `0b1010` is 10 and `2026-10-10` a `Date` | No change | No change | No | ESLint (`@eslint/eslintrc`) |
+| `yaml` (eemeli) | 2.9.1 | 1.2 | No change | 1.1 | `version`, or via `%YAML` | Prettier |
+| `yaml` with `version: '1.1'` | 2.9.1 | 1.1 | 1.2 | No change | `version`, or via `%YAML` | |
+| Psych `safe_load` with `permitted_classes: [Date]` (Ruby 4.0.9); without it the date is an error | 5.3.1 | 1.1, except `22:22` is 80520 | No change | No change | No | |
+| SnakeYAML | 2.7 | 1.1 | No change | No change | No | Spring Boot, Jackson 2.x |
+| SnakeYAML Engine, default `JsonSchema` | 3.2 | Every scalar a string, `0777` and `0o17` included | No change | No change | `setSchema`, 1.2 schemas only | |
+| SnakeYAML Engine, `CoreSchema` | 3.2 | 1.2 | No change | No change | `setSchema`, 1.2 schemas only | |
+| YamlDotNet | 18.1.0 | Every scalar a string; into a `bool` or `int` field `yes` is `true`, `0777` 511, `1_000` 1000 and `0b1010` 10 | No change | No change | No | |
+| serde_yaml (deprecated) | 0.9.34 | 1.2, except `0777` is a string and `0b1010` is 10 | No change | No change | No | |
+| serde_yml | 0.0.13 | 1.2 | No change | No change | No | |
+| saphyr | 0.3.3 | 1.2 | No change | No change | No | |
 
 "Rejected" means the reader refuses the whole file
 (`found incompatible YAML document`), so Kubernetes, Helm and Docker Compose
