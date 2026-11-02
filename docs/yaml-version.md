@@ -14,6 +14,16 @@ between the two versions, so files drift toward spellings both read alike. Set
 target-version = "1.2"
 ```
 
+Two top-level settings name a YAML version, and neither needs setting:
+
+| Setting | Question it answers | Default | What it changes |
+| :--- | :--- | :--- | :--- |
+| `target-version` | Which readers must the output suit? | `"1.1"` | What the rules flag and what `ryl format` and `--fix` write |
+| `source-version` | Which version did the author of an undeclared document mean? | `"1.2"` | Only the direction of an [unsafe fix](#unsafe-fixes-and-source-version) |
+
+A `%YAML` directive states a document's version outright, so no unsafe fix
+applies to that document and `source-version` plays no part in it.
+
 `target-version` is a top-level TOML setting (`[tool.ryl]` in
 `pyproject.toml`); YAML configs cannot set it. It names the oldest YAML version
 whose readers must load ryl's output to the same values, as ruff's
