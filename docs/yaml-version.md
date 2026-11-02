@@ -190,7 +190,7 @@ Last verified: 2026-11-02.
 | SnakeYAML | 2.7 | 1.1 | No change | No change | No | Spring Boot, Jackson 2.x |
 | SnakeYAML Engine, default `JsonSchema` | 3.2 | Every scalar a string, `0777` and `0o17` included | No change | No change | `setSchema`, 1.2 schemas only | |
 | SnakeYAML Engine, `CoreSchema` | 3.2 | 1.2 | No change | No change | `setSchema`, 1.2 schemas only | |
-| YamlDotNet | 18.1.0 | Every scalar a string; into a `bool` or `int` field `yes` is `true`, `0777` 511, `1_000` 1000 and `0b1010` 10 | No change | No change | No | |
+| YamlDotNet | 18.1.0 | Every scalar a string; into a `bool` or `int` field `yes` is `true`, `0777` 511, `1_000` 1000 and `0b1010` 10 | No change | No change | `WithAttemptingUnquotedStringTypeDeserialization` reads `0777` as 777; nothing selects 1.1 | |
 | serde_yaml (deprecated) | 0.9.34 | 1.2, except `0777` is a string and `0b1010` is 10 | No change | No change | No | |
 | serde_yml | 0.0.13 | 1.2 | No change | No change | No | |
 | saphyr | 0.3.3 | 1.2 | No change | No change | No | |
