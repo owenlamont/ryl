@@ -1681,6 +1681,17 @@ fn finalize_context(
         };
         deprecation_notice(config_path, &remedy, *used)
     }));
+    if cfg.source_version() == SourceVersion::Yaml11
+        && cfg.target_version() == TargetVersion::Yaml12
+    {
+        notices.push(format!(
+            "warning: {}: `source-version = \"1.1\"` has no effect under \
+             `target-version = \"1.2\"`; to convert YAML 1.1 files, run \
+             `ryl check --fix --unsafe-fixes` under `target-version = \"1.1\"` first \
+             (https://ryl-docs.pages.dev/yaml-version/#migrating-undeclared-yaml-11-files)",
+            config_path.display()
+        ));
+    }
     Ok(ConfigContext {
         config: cfg,
         base_dir,

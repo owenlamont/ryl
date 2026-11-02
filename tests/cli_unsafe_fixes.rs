@@ -130,6 +130,18 @@ fn only_an_undeclared_document_under_target_1_1_is_fixed() {
 }
 
 #[test]
+fn source_1_1_under_target_1_2_warns_that_it_has_no_effect() {
+    let warning =
+        "`source-version = \"1.1\"` has no effect under `target-version = \"1.2\"`";
+    for (target, warns) in [("1.2", true), ("1.1", false)] {
+        let config =
+            format!("source-version = \"1.1\"\ntarget-version = \"{target}\"\n{RULES}");
+        let (_, output, _) = ryl_with(&config, "a: 1\n", &["check"]);
+        assert_eq!(output.contains(warning), warns, "target {target}: {output}");
+    }
+}
+
+#[test]
 fn messages_name_the_fix_only_once_the_config_enables_it() {
     let (_, output, _) = ryl_with(RULES, "a: yes\n", &["check"]);
     assert!(

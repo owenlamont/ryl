@@ -140,6 +140,22 @@ checks still read an undeclared document as YAML 1.2. Like any setting, the
 nearest config wins, so a PyYAML-era subtree can carry its own
 `source-version = "1.1"`.
 
+### Migrating undeclared YAML 1.1 files
+
+Files with no `%YAML` directive that were written for a YAML 1.1 reader such as
+PyYAML take two passes to move to 1.2. Under `target-version = "1.2"` ryl reads
+them as 1.2, where `yes` is already a string, so nothing flags it and
+`source-version` has no effect; ryl warns when a config sets both.
+
+1. Keep the default `target-version = "1.1"`, set `source-version = "1.1"`,
+   and run `ryl check --fix --unsafe-fixes`. Each scalar takes a spelling
+   both versions read as 1.1 did (`yes` becomes `true`, `0777` becomes `511`).
+   Review what remains flagged: the fix leaves alone the scalars listed above.
+2. Set `target-version = "1.2"` and drop `source-version`.
+
+Declaring `%YAML 1.1` in each file instead hands the conversion to the
+[`yaml-directive` migration](#migrating-a-yaml-11-document-to-12) in one pass.
+
 ### What `%YAML 1.2` does for each reader
 
 Declaring `%YAML 1.2` does not make every reader follow 1.2:
