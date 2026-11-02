@@ -1,5 +1,5 @@
 //! Property tests for the unsafe fixes of `truthy`, `octal-values` and
-//! `schema-dependent-values` in an undeclared document under `target-version = "1.1"`.
+//! `schema-dependent-values` in an undeclared document under `target-version = "1.1"`, and their absence elsewhere.
 //!
 //! The generator draws each scalar's value first and spells, per `source-version`, the
 //! fix it expects, so the oracle never shares the fixer's resolver. Every expected
@@ -13,6 +13,9 @@
 //!  * fixing that output again changes nothing;
 //!  * with unsafe fixes off each unapplied fix is counted for the hint and no message
 //!    names one; with them on none is counted and each applied fix's message names it.
+//!  * under `target-version = "1.2"`, or in a document with a `%YAML` directive, neither
+//!    `unsafe-fixes` nor `source-version` changes the output, and no diagnostic counts
+//!    or names an unsafe fix.
 
 use std::path::Path;
 use std::sync::LazyLock;
@@ -258,6 +261,7 @@ struct Variant {
     unsafe_fixes: bool,
     single_quotes: bool,
     quotes_forbidden: bool,
+    target_1_2: bool,
 }
 
 impl Variant {
@@ -269,6 +273,7 @@ impl Variant {
             unsafe_fixes: bits & 2 != 0,
             single_quotes: bits & 4 != 0,
             quotes_forbidden: bits & 8 != 0,
+            target_1_2: false,
         }
     }
 
@@ -279,6 +284,9 @@ impl Variant {
         }
         if self.unsafe_fixes {
             text.push_str("unsafe-fixes = true\n");
+        }
+        if self.target_1_2 {
+            text.push_str("target-version = \"1.2\"\n");
         }
         text.push_str(
             "[lint.rules]\ntruthy = \"enable\"\noctal-values = \"enable\"\n\
@@ -390,5 +398,41 @@ proptest! {
             if variant.unsafe_fixes { (0, fixes) } else { (fixes, 0) };
         prop_assert_eq!(hidden, hidden_expected, "{:?}", found);
         prop_assert_eq!(named, named_expected, "{:?}", found);
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
+            "tests/proptest-regressions/property_unsafe_fix.txt",
+        ))),
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn unsafe_fixes_and_source_version_are_inert_under_target_1_2_or_a_directive(
+        entries in prop::collection::vec(
+            (arb_scalar(), prop_oneof![Just(Place::Value), Just(Place::Key), Just(Place::Flow)]),
+            1..=6,
+        ),
+        (target_1_2, directive) in (any::<bool>(), prop::sample::select(&["", "%YAML 1.1\n---\n", "%YAML 1.2\n---\n"][..]))
+            .prop_filter("an undeclared document under target 1.1 is the other suite's", |(target_1_2, directive)| *target_1_2 || !directive.is_empty()),
+        quoting in 0..4u8,
+    ) {
+        let (path, base) = (Path::new("x.yaml"), Path::new("."));
+        let input = format!("{directive}{}", render(&entries, |text, _| text.to_owned()));
+        let mut outputs = (0..4u8).map(|bits| {
+            let cfg = Variant { target_1_2, ..Variant::from_bits(bits | quoting << 2) }.config();
+            let found = findings(&input, &cfg);
+            prop_assert!(
+                found.iter().all(|(message, hidden)| !hidden && !message.contains("; unsafe fix: ")),
+                "{:?}", found
+            );
+            Ok(apply_safe_fixes(&input, &cfg, path, base))
+        });
+        let first = outputs.next().expect("four variants")?;
+        for output in outputs {
+            prop_assert_eq!(&output?, &first, "input {:?}", input);
+        }
     }
 }
