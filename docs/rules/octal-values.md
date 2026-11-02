@@ -50,8 +50,19 @@ permissions: 0o755
 
 ## Automatic fixing
 
-This rule does not auto-fix; rewriting an integer literal requires
-deciding whether the intended value is octal, decimal, or a string.
+No safe fix; rewriting an integer literal requires deciding whether the
+intended value is octal, decimal, or a string. In a document with no `%YAML`
+directive under the default `target-version = "1.1"`, an
+[unsafe fix](../rules.md#unsafe-fixes) writes the decimal value
+[`source-version`](../yaml-version.md#unsafe-fixes-and-source-version) reads:
+
+| Literal | `source-version = "1.2"` (default) | `source-version = "1.1"` |
+| :--- | :--- | :--- |
+| `0755` | `755` | `493` |
+| `-0755` | `-755` | `-493` |
+| `0o755` | `493` | left alone |
+
+YAML 1.1 readers disagree on `0o755` (a string to PyYAML), so it has no 1.1 fix.
 
 ## Related rules
 

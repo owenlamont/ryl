@@ -2494,6 +2494,7 @@ fn g11_document_refusal_does_not_exempt_a_new_duplicate_line_violation() {
         level: ryl::lint::Severity::Error,
         message: "cannot re-indent this document safely".to_owned(),
         rule: Some("indentation"),
+        hidden_unsafe_fix: false,
     }];
     assert!(!consistency::refused(
         input,

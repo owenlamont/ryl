@@ -3465,6 +3465,104 @@ fn per_rule_fix_all_sorts_keys() {
     assert_eq!(text_edit.new_text, "a: 2\nb: 1\n");
 }
 
+/// Each offered action's title, kind and whole-document replacement text.
+fn action_edits(actions: &[CodeActionOrCommand]) -> Vec<(String, String, String)> {
+    actions
+        .iter()
+        .filter_map(|action| {
+            let CodeActionOrCommand::CodeAction(action) = action else {
+                return None;
+            };
+            let Some(DocumentChanges::Edits(edits)) = action
+                .edit
+                .as_ref()
+                .and_then(|edit| edit.document_changes.as_ref())
+            else {
+                return None;
+            };
+            let OneOf::Left(text_edit) = &edits[0].edits[0] else {
+                return None;
+            };
+            Some((
+                action.title.clone(),
+                action.kind.as_ref()?.as_str().to_owned(),
+                text_edit.new_text.clone(),
+            ))
+        })
+        .collect()
+}
+
+#[test]
+fn unsafe_fixes_are_quickfixes_until_the_config_applies_them() {
+    let rules = "[lint.rules]\ntruthy = \"enable\"\noctal-values = \"enable\"\n";
+    let text = "a: yes\nb: 0777\nc: True\n";
+    let diagnostics = || {
+        vec![
+            diag("truthy", 0, 3),
+            diag("octal-values", 1, 3),
+            diag("truthy", 2, 3),
+        ]
+    };
+    let offered = |config: &str, text: &str| {
+        let dir = project(config);
+        let (mut client, _init) = Client::launch(None, None);
+        let doc = file_uri(dir.path(), "x.yaml");
+        client.did_open(doc.clone(), text);
+        let _ = client.diagnostics();
+        let actions = client
+            .code_action_with_diagnostics(doc, diagnostics())
+            .expect("actions offered");
+        action_edits(&actions)
+    };
+    let edit = |actions: &[(String, String, String)], title: &str| {
+        actions
+            .iter()
+            .find(|(offered, ..)| offered == title)
+            .map(|(_, kind, text)| (kind.clone(), text.clone()))
+    };
+    let actions = offered(rules, text);
+    assert_eq!(
+        edit(&actions, "Fix all ryl problems").map(|(_, text)| text),
+        Some("a: yes\nb: 0777\nc: true\n".to_owned()),
+        "fix-all leaves unsafe fixes out: {actions:?}"
+    );
+    assert_eq!(
+        edit(&actions, "Fix all truthy problems (unsafe fix)"),
+        Some((
+            "quickfix".to_owned(),
+            "a: \"yes\"\nb: 0777\nc: true\n".to_owned()
+        ))
+    );
+    assert_eq!(
+        edit(&actions, "Fix all octal-values problems (unsafe fix)"),
+        Some((
+            "quickfix".to_owned(),
+            "a: yes\nb: 777\nc: True\n".to_owned()
+        ))
+    );
+    assert_eq!(edit(&actions, "Fix all octal-values problems"), None);
+    let actions = offered(rules, "c: True\n");
+    assert_eq!(
+        edit(&actions, "Fix all truthy problems (unsafe fix)"),
+        None,
+        "no unsafe action that only repeats the safe one: {actions:?}"
+    );
+    let actions = offered(&format!("unsafe-fixes = true\n{rules}"), text);
+    assert_eq!(
+        edit(&actions, "Fix all octal-values problems"),
+        Some((
+            "source.fixAll.ryl.octal-values".to_owned(),
+            "a: yes\nb: 777\nc: True\n".to_owned()
+        ))
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|(title, ..)| title.ends_with("(unsafe fix)")),
+        "{actions:?}"
+    );
+}
+
 fn warning_text(message: &Message) -> Option<String> {
     let Message::Notification(note) = message else {
         return None;

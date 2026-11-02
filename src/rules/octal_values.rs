@@ -1,12 +1,16 @@
 //! `octal-values`: flag implicit (`0777`, `-0777`) and/or explicit (`0o777`) octal
 //! integers, which surprise readers expecting decimal. Mirrors yamllint's `octal-values`,
-//! which skips the signed form YAML 1.1 reads as octal too. No safe
-//! `--fix`: resolving `010` needs the author's intent (integer 8, integer 10, or the
-//! string "010"), which the source alone cannot disambiguate.
+//! which skips the signed form YAML 1.1 reads as octal too. No safe `--fix`: resolving
+//! `010` needs the author's intent (integer 8, integer 10, or the string "010"). In a
+//! document YAML 1.1 and 1.2 readers must both load, an unsafe fix writes the decimal
+//! `source-version` reads (`0777` is 777 under `"1.2"`, 511 under `"1.1"`).
 
-use ryl_yaml_parser::{Event, ScalarStyle, Span, SpannedEventReceiver};
+use ryl_yaml_parser::{Event, ScalarStyle};
 
-use crate::config::YamlLintConfig;
+use crate::config::{TargetVersion, YamlLintConfig};
+use crate::rules::support::span_utils::{BytePos, apply_replacements};
+use crate::rules::support::yaml_version::{Readers, Respelling, event_version};
+use crate::text_version::{Analysis, TextVersion};
 
 pub const ID: &str = "octal-values";
 
@@ -14,6 +18,8 @@ pub const ID: &str = "octal-values";
 pub struct Config {
     forbid_implicit: bool,
     forbid_explicit: bool,
+    target: TargetVersion,
+    respelling: Respelling,
 }
 
 impl Config {
@@ -22,15 +28,19 @@ impl Config {
         Self {
             forbid_implicit: cfg.rule_option_bool(ID, "forbid-implicit-octal", true),
             forbid_explicit: cfg.rule_option_bool(ID, "forbid-explicit-octal", true),
+            target: cfg.target_version(),
+            respelling: Respelling::resolve(cfg, ID),
         }
     }
 
-    const fn forbid_implicit(&self) -> bool {
-        self.forbid_implicit
-    }
-
-    const fn forbid_explicit(&self) -> bool {
-        self.forbid_explicit
+    fn message(&self, value: &str) -> Option<String> {
+        if self.forbid_implicit && is_implicit_octal(value) {
+            Some(format!("forbidden implicit octal value \"{value}\""))
+        } else if self.forbid_explicit && is_explicit_octal(value) {
+            Some(format!("forbidden explicit octal value \"{value}\""))
+        } else {
+            None
+        }
     }
 }
 
@@ -39,72 +49,58 @@ pub struct Violation {
     pub line: usize,
     pub column: usize,
     pub message: String,
+    pub hidden_unsafe_fix: bool,
 }
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    check_with_analysis(
-        crate::text_version::TextVersion::new(buffer).analysis(),
-        cfg,
-    )
+    check_with_analysis(TextVersion::new(buffer).analysis(), cfg)
 }
 
-pub(crate) fn check_with_analysis(
-    input: crate::text_version::Analysis<'_>,
-    cfg: &Config,
-) -> Vec<Violation> {
-    let mut receiver = OctalValuesReceiver::new(cfg);
+pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
+    walk(input, cfg).0
+}
+
+#[must_use]
+pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
+    let replacements = walk(TextVersion::new(buffer).analysis(), cfg).1;
+    (!replacements.is_empty()).then(|| apply_replacements(buffer, replacements))
+}
+
+type Replacement = (BytePos, BytePos, String);
+
+fn walk(input: Analysis<'_>, cfg: &Config) -> (Vec<Violation>, Vec<Replacement>) {
+    let respelling = cfg.respelling;
+    let mut readers = Readers::of(None, cfg.target);
+    let mut diagnostics = Vec::new();
+    let mut replacements = Vec::new();
     for (event, span) in input.event_iter() {
-        receiver.on_event(event, span);
-    }
-    receiver.diagnostics
-}
-
-struct OctalValuesReceiver<'cfg> {
-    config: &'cfg Config,
-    diagnostics: Vec<Violation>,
-}
-
-impl<'cfg> OctalValuesReceiver<'cfg> {
-    const fn new(config: &'cfg Config) -> Self {
-        Self {
-            config,
-            diagnostics: Vec::new(),
-        }
-    }
-
-    fn handle_scalar(&mut self, span: Span, value: &str) {
-        let line = span.end.line();
-        let column = span.end.col() + 1;
-
-        if self.config.forbid_implicit() && is_implicit_octal(value) {
-            self.diagnostics.push(Violation {
-                line,
-                column,
-                message: format!("forbidden implicit octal value \"{value}\""),
-            });
-            return;
-        }
-
-        if self.config.forbid_explicit() && is_explicit_octal(value) {
-            self.diagnostics.push(Violation {
-                line,
-                column,
-                message: format!("forbidden explicit octal value \"{value}\""),
-            });
-        }
-    }
-}
-
-impl SpannedEventReceiver<'_> for OctalValuesReceiver<'_> {
-    fn on_event(&mut self, event: Event<'_>, span: Span) {
-        if let Event::Scalar(value, style, _, tag) = event {
-            if tag.is_some() || !matches!(style, ScalarStyle::Plain) {
-                return;
+        match event {
+            Event::DocumentStart(_, version) => {
+                readers = Readers::of(version.map(event_version), cfg.target);
             }
-            self.handle_scalar(span, value.as_ref());
+            Event::Scalar(value, ScalarStyle::Plain, _, None) => {
+                let Some(mut message) = cfg.message(&value) else {
+                    continue;
+                };
+                let edit = (readers == Readers::Both)
+                    .then(|| respelling.edit(input.text(), span, &value))
+                    .flatten();
+                if let Some((_, _, spelling)) = &edit {
+                    message.push_str(&respelling.note(&value, spelling));
+                }
+                diagnostics.push(Violation {
+                    line: span.end.line(),
+                    column: span.end.col() + 1,
+                    message,
+                    hidden_unsafe_fix: edit.is_some() && respelling.hidden(),
+                });
+                replacements.extend(edit.filter(|_| respelling.enabled()));
+            }
+            _ => {}
         }
     }
+    (diagnostics, replacements)
 }
 
 fn is_implicit_octal(value: &str) -> bool {

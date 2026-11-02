@@ -1,7 +1,9 @@
 //! `truthy`: flag YAML 1.1 boolean-ish words (`yes`/`no`/`on`/`off`/`True`/…) that are
 //! plain strings under the YAML 1.2 core schema and so a portability trap. Mirrors
 //! yamllint's `truthy`. Safe `--fix` re-cases `True`/`FALSE`/… to an allowed spelling of
-//! the same boolean; `yes`/`no`/`on`/`off` need a quoting-or-type choice, so stay manual.
+//! the same boolean. In a document YAML 1.1 and 1.2 readers must both load, an unsafe
+//! fix rewrites `yes`/`no`/`on`/`off` to the spelling both read as `source-version` does:
+//! quoted under `"1.2"`, an allowed `true`/`false` under `"1.1"`.
 
 use std::collections::HashSet;
 
@@ -13,7 +15,9 @@ use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::span_utils::{
     BytePos, apply_replacements, marker_byte_offset,
 };
-use crate::rules::support::yaml_version::{Readers, Version, event_version};
+use crate::rules::support::yaml_version::{
+    Readers, Respelling, Version, event_version,
+};
 
 pub const ID: &str = "truthy";
 
@@ -31,6 +35,7 @@ pub struct Config {
     allowed_display: String,
     pub check_keys: bool,
     target: TargetVersion,
+    respelling: Respelling,
 }
 
 impl Config {
@@ -75,6 +80,7 @@ impl Config {
             allowed_display,
             check_keys,
             target: cfg.target_version(),
+            respelling: Respelling::resolve(cfg, ID),
         }
     }
 
@@ -101,6 +107,7 @@ pub struct Violation {
     pub line: usize,
     pub column: usize,
     pub message: String,
+    pub hidden_unsafe_fix: bool,
 }
 
 struct TruthyState<'cfg> {
@@ -138,32 +145,52 @@ impl<'cfg> TruthyState<'cfg> {
 
     fn handle_scalar(
         &mut self,
-        style: ScalarStyle,
+        buffer: &str,
+        plain_untagged: bool,
         value: &str,
-        tagged: bool,
         span: Span,
         diagnostics: &mut Vec<Violation>,
         replacements: &mut Vec<Replacement>,
     ) {
         let context = self.walker.begin_node();
-        if !tagged
-            && matches!(style, ScalarStyle::Plain)
+        if plain_untagged
             && (!context.active() || self.config.check_keys)
             && self.is_bad_truthy(value)
         {
-            diagnostics.push(Violation {
-                line: span.start.line(),
-                column: span.start.col() + 1,
-                message: format!(
-                    "truthy value should be one of {}",
-                    self.config.allowed_display()
-                ),
-            });
+            let mut message = format!(
+                "truthy value should be one of {}",
+                self.config.allowed_display()
+            );
+            let respelling = self.config.respelling;
+            let mut hidden_unsafe_fix = false;
             if let Some(target) = self.config.fix_target(value) {
                 let start = marker_byte_offset(span.start);
                 let end = BytePos::new(start.get() + value.len());
                 replacements.push((start, end, target.to_owned()));
+            } else if let Some((start, end, spelling)) = (self.readers == Readers::Both)
+                .then(|| respelling.edit(buffer, span, value))
+                .flatten()
+                .and_then(|(start, end, spelling)| {
+                    let spelling = match self.config.fix_target(&spelling) {
+                        Some(target) => target.to_owned(),
+                        None if spelling.starts_with(['"', '\'']) => spelling,
+                        None => return None,
+                    };
+                    Some((start, end, spelling))
+                })
+            {
+                message.push_str(&respelling.note(value, &spelling));
+                hidden_unsafe_fix = respelling.hidden();
+                if respelling.enabled() {
+                    replacements.push((start, end, spelling));
+                }
             }
+            diagnostics.push(Violation {
+                line: span.start.line(),
+                column: span.start.col() + 1,
+                message,
+                hidden_unsafe_fix,
+            });
         }
 
         self.walker.finish_node(context);
@@ -172,16 +199,18 @@ impl<'cfg> TruthyState<'cfg> {
 
 type Replacement = (BytePos, BytePos, String);
 
-struct TruthyReceiver<'cfg> {
+struct TruthyReceiver<'cfg, 'text> {
+    buffer: &'text str,
     state: TruthyState<'cfg>,
     diagnostics: Vec<Violation>,
     replacements: Vec<Replacement>,
 }
 
 #[allow(clippy::missing_const_for_fn)]
-impl<'cfg> TruthyReceiver<'cfg> {
-    fn new(cfg: &'cfg Config) -> Self {
+impl<'cfg, 'text> TruthyReceiver<'cfg, 'text> {
+    fn new(cfg: &'cfg Config, buffer: &'text str) -> Self {
         Self {
+            buffer,
             state: TruthyState::new(cfg),
             diagnostics: Vec::new(),
             replacements: Vec::new(),
@@ -189,7 +218,7 @@ impl<'cfg> TruthyReceiver<'cfg> {
     }
 }
 
-impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
+impl SpannedEventReceiver<'_> for TruthyReceiver<'_, '_> {
     fn on_event(&mut self, event: Event<'_>, span: Span) {
         match event {
             Event::StreamStart => self.state.document_start(None),
@@ -203,11 +232,10 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
             }
             Event::MappingStart(_, _, _) => self.state.walker.enter_mapping((), ()),
             Event::Scalar(value, style, _, tag) => {
-                let tagged = tag.is_some();
                 self.state.handle_scalar(
-                    style,
+                    self.buffer,
+                    tag.is_none() && style == ScalarStyle::Plain,
                     value.as_ref(),
-                    tagged,
                     span,
                     &mut self.diagnostics,
                     &mut self.replacements,
@@ -219,11 +247,11 @@ impl SpannedEventReceiver<'_> for TruthyReceiver<'_> {
     }
 }
 
-fn walk<'cfg>(
-    input: crate::text_version::Analysis<'_>,
+fn walk<'cfg, 'text>(
+    input: crate::text_version::Analysis<'text>,
     cfg: &'cfg Config,
-) -> TruthyReceiver<'cfg> {
-    let mut receiver = TruthyReceiver::new(cfg);
+) -> TruthyReceiver<'cfg, 'text> {
+    let mut receiver = TruthyReceiver::new(cfg, input.text());
     for (event, span) in input.event_iter() {
         receiver.on_event(event, span);
     }

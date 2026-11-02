@@ -46,6 +46,8 @@ pub struct LintProblem {
     pub level: Severity,
     pub message: String,
     pub rule: Option<&'static str>,
+    /// Carries an unsafe fix this run's config leaves unapplied.
+    pub hidden_unsafe_fix: bool,
 }
 
 struct NullSink;
@@ -85,11 +87,12 @@ pub fn lint_markdown_file(
 }
 
 macro_rules! emit_problems {
-    ($diagnostics:expr, $rule:ident, $hits:expr, $level:expr, $message:expr) => {
+    ($diagnostics:expr, $rule:ident, $hits:expr, $level:expr, $message:expr, $hidden:expr) => {
         $diagnostics.extend($hits.into_iter().map(|hit| $crate::lint::LintProblem {
             line: hit.line,
             column: hit.column,
             level: $level,
+            hidden_unsafe_fix: $hidden(&hit),
             message: $message(hit),
             rule: Some($rule::ID),
         }))
@@ -122,6 +125,12 @@ macro_rules! lint_rule {
             $m::check_with_analysis($input, &$m::Config::resolve($cfg)),
             |hit: $m::Violation| hit.message);
     };
+    ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, unsafe_fix) => {
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check_with_analysis($input, &$m::Config::resolve($cfg)),
+            |hit: $m::Violation| hit.message,
+            |hit: &$m::Violation| hit.hidden_unsafe_fix);
+    };
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, message) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
             $m::check_with_analysis($input, $m::Config::resolve($cfg)),
@@ -148,10 +157,13 @@ macro_rules! lint_rule {
             |hit: $m::Violation| hit.message);
     };
     (@gated $d:ident, $cfg:expr, $path:expr, $base:expr, $m:ident, $hits:expr, $message:expr) => {
+        lint_rule!(@gated $d, $cfg, $path, $base, $m, $hits, $message, |_: &_| false);
+    };
+    (@gated $d:ident, $cfg:expr, $path:expr, $base:expr, $m:ident, $hits:expr, $message:expr, $hidden:expr) => {
         if let Some(level) = $cfg.rule_level($m::ID)
             && !$cfg.is_rule_ignored($m::ID, $path, $base)
         {
-            emit_problems!($d, $m, $hits, level.into(), $message);
+            emit_problems!($d, $m, $hits, level.into(), $message, $hidden);
         }
     };
 }
@@ -247,7 +259,8 @@ fn collect_value_diagnostics(
         path,
         base_dir,
         octal_values,
-        analysis
+        analysis,
+        unsafe_fix
     );
     lint_rule!(
         diagnostics,
@@ -277,7 +290,16 @@ fn collect_value_diagnostics(
         quoted_strings,
         analysis
     );
-    lint_rule!(diagnostics, cfg, input, path, base_dir, truthy, analysis);
+    lint_rule!(
+        diagnostics,
+        cfg,
+        input,
+        path,
+        base_dir,
+        truthy,
+        analysis,
+        unsafe_fix
+    );
     lint_rule!(
         diagnostics,
         cfg,
@@ -285,7 +307,8 @@ fn collect_value_diagnostics(
         path,
         base_dir,
         schema_dependent_values,
-        analysis
+        analysis,
+        unsafe_fix
     );
 }
 
@@ -496,6 +519,7 @@ fn syntax_problem(err: &ryl_yaml_parser::ScanError) -> LintProblem {
         level: Severity::Error,
         message: format!("syntax error: {} (syntax)", err.info()),
         rule: None,
+        hidden_unsafe_fix: false,
     }
 }
 
@@ -538,6 +562,7 @@ fn unsupported_version_error(content: &str) -> Option<LintProblem> {
                   required) (syntax)"
             .to_string(),
         rule: None,
+        hidden_unsafe_fix: false,
     })
 }
 
@@ -553,6 +578,7 @@ fn higher_minor_version_warning(content: &str) -> Option<LintProblem> {
             directive.version.0, directive.version.1
         ),
         rule: None,
+        hidden_unsafe_fix: false,
     })
 }
 

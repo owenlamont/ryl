@@ -50,6 +50,7 @@ impl Finding {
             level: Severity::Error,
             message: format!("cannot convert to block safely: {reason}"),
             rule: Some(self.rule),
+            hidden_unsafe_fix: false,
         }
     }
 }

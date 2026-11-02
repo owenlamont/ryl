@@ -39,6 +39,10 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    `FixRule` name map and both selector conversions in `src/config.rs`, the rule in
    `fix.rs`'s `SAFE_FIX_RULE_IDS`, a `Passes` field with its rewrite-loop step (and the
    `Passes` literal in `format.rs`), and `SUPPRESSED` when the rule shapes a whole file.
+   An unsafe fix needs the same config variants, `UNSAFE_FIX_RULE_IDS` instead of
+   `SAFE_FIX_RULE_IDS`, `UnsafeFixRule`, a `Passes` field gated on
+   `applies_unsafe_fix`, and a `hidden_unsafe_fix` on its `Violation` (the `unsafe_fix`
+   `lint_rule!` arm) for the hint.
 5. **Tests**: add the rule to `property_check`'s `collect_spans` + a `RULE_TRIGGERS`
    row; if it has a safe `--fix`, also `SAFE_FIX_RULES`, the safe-fix generator and
    `property_fix_convergence`. Add a CLI test `tests/cli_<rule>_rule.rs` (use the shared

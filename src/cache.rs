@@ -242,10 +242,10 @@ impl Drop for TempPath {
 }
 
 #[derive(Deserialize)]
-struct CachedProblem(usize, usize, u8, String, Option<String>);
+struct CachedProblem(usize, usize, u8, String, Option<String>, bool);
 
 #[derive(Serialize)]
-struct CachedProblemRef<'a>(usize, usize, u8, &'a str, Option<&'a str>);
+struct CachedProblemRef<'a>(usize, usize, u8, &'a str, Option<&'a str>, bool);
 
 fn decode_problems(cached: Vec<CachedProblem>) -> Option<Vec<LintProblem>> {
     cached
@@ -266,6 +266,7 @@ fn decode_problems(cached: Vec<CachedProblem>) -> Option<Vec<LintProblem>> {
                 level,
                 message: problem.3,
                 rule,
+                hidden_unsafe_fix: problem.5,
             })
         })
         .collect()
@@ -281,6 +282,7 @@ fn encode_problems(problems: &[LintProblem]) -> Vec<CachedProblemRef<'_>> {
                 u8::from(problem.level != Severity::Error),
                 &problem.message,
                 problem.rule,
+                problem.hidden_unsafe_fix,
             )
         })
         .collect()

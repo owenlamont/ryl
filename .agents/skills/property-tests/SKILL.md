@@ -102,6 +102,15 @@ Failing inputs are persisted at `tests/proptest-regressions/property_safe_fix.tx
 and replayed first on every run. That file is committed to git so the regression
 follows the codebase, not the developer's machine.
 
+## Property Tests For Unsafe Fixes
+
+`tests/property_unsafe_fix.rs` draws scalars `truthy`, `octal-values` and
+`schema-dependent-values` flag in an undeclared document under target 1.1, spells each
+one's expected fix per `source-version` independently of the fixer, and asserts the
+`apply_safe_fixes` output byte-for-byte across source version, `unsafe-fixes` on/off and
+`quoted-strings` single quotes, plus idempotence and the hint flags. A new unsafe fix
+extends its generator and `fix::UNSAFE_FIX_RULE_IDS`.
+
 ## Property Tests For `key-ordering`'s Fix
 
 `tests/property_key_ordering_fix.rs` has its own generator of nested and
@@ -363,7 +372,10 @@ the unsafe-trigger subset in that rule's module-level doc comment instead.
   no rewrite is universally safe.
 - `octal-values` — Resolving `010` requires knowing whether the user meant
   the integer `8`, the integer `10`, or the string `"010"`; the YAML source
-  alone cannot disambiguate.
+  alone cannot disambiguate. Its unsafe fix takes the answer from `source-version`.
+- `schema-dependent-values` — Same as `octal-values`: `22:22` is a string or 1342
+  depending on the reader, so only the unsafe fix, steered by `source-version`, rewrites
+  it.
 - `tags` — Rewriting or removing a flagged tag changes the node's resolved
   type (`!!omap` to a plain mapping, `!env` to a string, …) or requires
   guessing the intended value, so no rewrite is universally safe.

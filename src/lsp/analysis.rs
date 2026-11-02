@@ -8,7 +8,10 @@ use lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString, TextEdit};
 use sha2::{Digest, Sha256};
 
 use crate::config::{SourceKind, YamlLintConfig};
-use crate::fix::{Rewrite, SAFE_FIX_RULE_IDS, apply_safe_fixes_filtered, rewrite_str};
+use crate::fix::{
+    Rewrite, SAFE_FIX_RULE_IDS, UNSAFE_FIX_RULE_IDS, apply_safe_fixes_filtered,
+    rewrite_str,
+};
 use crate::lint::{LintProblem, Severity, lint_str};
 use crate::lsp::encoding::{PositionEncoding, full_range, problem_range};
 use crate::markdown_embed::lint_markdown_str;
@@ -111,9 +114,9 @@ pub(crate) fn rewrite_edit_with_notices(
     (edit, notices)
 }
 
-/// The whole-document edit applying only `rule`'s safe fix, or `None` when nothing
-/// changes, `rule` has no safe fix, or `kind` is not plain YAML (the markdown fix path
-/// has no per-rule variant).
+/// The whole-document edit applying only the fixes `cfg` applies for `rule`, or `None`
+/// when nothing changes, `rule` has no fix, or `kind` is not plain YAML (the markdown fix
+/// path has no per-rule variant).
 #[must_use]
 pub fn fix_rule_edit(
     text: &str,
@@ -124,12 +127,16 @@ pub fn fix_rule_edit(
     enc: PositionEncoding,
     rule: &str,
 ) -> Option<TextEdit> {
-    if matches!(kind, SourceKind::Markdown) || !SAFE_FIX_RULE_IDS.contains(&rule) {
+    let fix_rules = || {
+        SAFE_FIX_RULE_IDS
+            .iter()
+            .chain(&UNSAFE_FIX_RULE_IDS)
+            .copied()
+    };
+    if matches!(kind, SourceKind::Markdown) || !fix_rules().any(|id| id == rule) {
         return None;
     }
-    let skip: Vec<&str> = SAFE_FIX_RULE_IDS
-        .iter()
-        .copied()
+    let skip: Vec<&str> = fix_rules()
         .filter(|id| *id != rule)
         .chain(std::iter::once(crate::rules::indentation::ID))
         .collect();

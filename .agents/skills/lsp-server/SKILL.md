@@ -75,9 +75,12 @@ forces an answer: having streamed, the request can no longer be held open.
 ## Other capabilities
 
 `source.fixAll.ryl` + per-rule `source.fixAll.ryl.<rule>` (via `fix::SAFE_FIX_RULE_IDS`,
-YAML only) + `quickfix` disable-rule inserts (`# ryl disable-line` / first-line
-`# ryl disable-file`; the disable-line is suppressed for a diagnostic inside a block
-scalar, where a `#` would be content not a directive, via `protected_scalar_lines`);
+plus a `fix::UNSAFE_FIX_RULE_IDS` rule whose unsafe fix the config applies; YAML only) +
+a `quickfix` "Fix all `<rule>` problems (unsafe fix)" for one the config leaves off, never
+under `source.fixAll`, which `codeActionsOnSave` runs + `quickfix` disable-rule inserts
+(`# ryl disable-line` / first-line `# ryl disable-file`; the disable-line is suppressed
+for a diagnostic inside a block scalar, where a `#` would be content not a directive,
+via `protected_scalar_lines`);
 `textDocument/formatting` (`ryl format` via `rewrite_str`, no enabled rule needed; no range
 formatting); hover (rule + message + docs link for a covered diagnostic);
 anchor/alias `rename` + `prepareRename` (parser scanner tokens, document-scoped, YAML

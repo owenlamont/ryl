@@ -10,6 +10,10 @@
 //!  * a document with a declining scalar, and every `%YAML 1.2` document, is untouched;
 //!  * every `%YAML 1.1` document is reported, and only the declined ones still are;
 //!  * the fix is idempotent.
+//!
+//! With `present = false` under either target, every directive is reported, and a
+//! migrated or `%YAML 1.2` document loses its directive; under target 1.1 a document is
+//! declined too when a respelling is one `PyYAML` reads as a string (`0o777`).
 
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
@@ -26,11 +30,27 @@ enum Outcome {
 
 type Scalar = (String, Outcome);
 
-static CONFIG: LazyLock<yaml_directive::Config> = LazyLock::new(|| {
-    let cfg = YamlLintConfig::from_toml_str("target-version = \"1.2\"\n")
-        .expect("target 1.2 config parses");
+fn config(toml: &str) -> yaml_directive::Config {
+    let cfg = YamlLintConfig::from_toml_str(toml).expect("config parses");
     yaml_directive::Config::resolve(&cfg)
+}
+
+static CONFIG: LazyLock<yaml_directive::Config> =
+    LazyLock::new(|| config("target-version = \"1.2\"\n"));
+
+static FORBID: LazyLock<[yaml_directive::Config; 2]> = LazyLock::new(|| {
+    ["1.1", "1.2"].map(|target| {
+        config(&format!(
+            "target-version = \"{target}\"\n[lint.rules.yaml-directive]\npresent = false\n"
+        ))
+    })
 });
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Directive {
+    Present,
+    Forbidden { target_1_1: bool },
+}
 
 fn underscored(digits: String) -> impl Strategy<Value = String> {
     prop::collection::vec(prop::bool::weighted(0.2), digits.len()).prop_map(
@@ -199,16 +219,26 @@ struct Document {
 }
 
 impl Document {
-    fn declines(&self) -> bool {
-        self.entries
-            .iter()
-            .any(|((_, outcome), _)| matches!(outcome, Outcome::Decline))
+    fn declines(&self, directive: Directive) -> bool {
+        let target_1_1 = directive == Directive::Forbidden { target_1_1: true };
+        self.entries.iter().any(|((_, outcome), _)| match outcome {
+            Outcome::Decline => true,
+            Outcome::Respell(spelling) => target_1_1 && spelling.contains("0o"),
+            Outcome::Keep => false,
+        })
     }
 
-    fn render(&self, migrated: bool) -> String {
-        let migrated = migrated && self.yaml_1_1 && !self.declines();
+    fn render(&self, fixed: Option<Directive>) -> String {
+        let migrated =
+            fixed.is_some_and(|directive| self.yaml_1_1 && !self.declines(directive));
+        let removed = matches!(fixed, Some(Directive::Forbidden { .. }))
+            && (migrated || !self.yaml_1_1);
         let minor = if self.yaml_1_1 && !migrated { 1 } else { 2 };
-        let mut out = format!("%YAML 1.{minor}\n---\n");
+        let mut out = if removed {
+            "---\n".to_owned()
+        } else {
+            format!("%YAML 1.{minor}\n---\n")
+        };
         for (index, ((text, outcome), place)) in self.entries.iter().enumerate() {
             let text = match outcome {
                 Outcome::Respell(spelling) if migrated => spelling,
@@ -233,18 +263,18 @@ fn arb_document() -> impl Strategy<Value = Document> {
         .prop_map(|(yaml_1_1, entries)| Document { yaml_1_1, entries })
 }
 
-fn render(documents: &[Document], migrated: bool) -> String {
+fn render(documents: &[Document], fixed: Option<Directive>) -> String {
     documents
         .iter()
-        .map(|document| document.render(migrated))
+        .map(|document| document.render(fixed))
         .collect::<Vec<_>>()
         .join("...\n")
 }
 
-fn older_reports(text: &str) -> usize {
-    yaml_directive::check(text, *CONFIG)
+fn reports(text: &str, cfg: yaml_directive::Config, message: &str) -> usize {
+    yaml_directive::check(text, cfg)
         .iter()
-        .filter(|violation| violation.message.contains("is older than"))
+        .filter(|violation| violation.message.contains(message))
         .count()
 }
 
@@ -260,8 +290,8 @@ proptest! {
     fn migration_matches_the_independently_spelled_yaml_1_2_text(
         documents in prop::collection::vec(arb_document(), 1..=3)
     ) {
-        let input = render(&documents, false);
-        let expected = render(&documents, true);
+        let input = render(&documents, None);
+        let expected = render(&documents, Some(Directive::Present));
         let fixed = yaml_directive::fix(&input, &CONFIG, &[]);
         prop_assert_eq!(
             fixed.as_deref().unwrap_or(&input),
@@ -270,12 +300,40 @@ proptest! {
             input
         );
         prop_assert_eq!(fixed.is_some(), input != expected);
+        let older = "is older than";
         let yaml_1_1 = documents.iter().filter(|document| document.yaml_1_1);
-        prop_assert_eq!(older_reports(&input), yaml_1_1.clone().count());
+        prop_assert_eq!(reports(&input, *CONFIG, older), yaml_1_1.clone().count());
         prop_assert_eq!(
-            older_reports(&expected),
-            yaml_1_1.filter(|document| document.declines()).count()
+            reports(&expected, *CONFIG, older),
+            yaml_1_1
+                .filter(|document| document.declines(Directive::Present))
+                .count()
         );
         prop_assert_eq!(yaml_directive::fix(&expected, &CONFIG, &[]), None);
+    }
+
+    #[test]
+    fn present_false_migrates_then_removes_each_directive_it_can(
+        documents in prop::collection::vec(arb_document(), 1..=3),
+        target_1_1 in any::<bool>(),
+    ) {
+        let cfg = FORBID[usize::from(!target_1_1)];
+        let directive = Directive::Forbidden { target_1_1 };
+        let input = render(&documents, None);
+        let expected = render(&documents, Some(directive));
+        let fixed = (0..3).fold(input.clone(), |text, _| {
+            yaml_directive::fix(&text, &cfg, &[]).unwrap_or(text)
+        });
+        prop_assert_eq!(fixed.as_str(), expected.as_str(), "input {:?}", input);
+        let forbidden = "found forbidden version directive";
+        prop_assert_eq!(reports(&input, cfg, forbidden), documents.len());
+        prop_assert_eq!(
+            reports(&expected, cfg, forbidden),
+            documents
+                .iter()
+                .filter(|document| document.yaml_1_1 && document.declines(directive))
+                .count()
+        );
+        prop_assert_eq!(yaml_directive::fix(&expected, &cfg, &[]), None);
     }
 }

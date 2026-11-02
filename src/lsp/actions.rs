@@ -1,7 +1,9 @@
 //! The code actions `ryl server` offers: the whole-file `source.fixAll.ryl`, a per-rule
-//! `source.fixAll.ryl.<rule>` for each safe-fixable rule with a diagnostic, and `quickfix`
-//! actions inserting a `# ryl disable-line` (per rule/line) or a first-line
-//! `# ryl disable-file` (mirroring [`crate::directives`]).
+//! `source.fixAll.ryl.<rule>` for each rule with a diagnostic and a fix the config
+//! applies, and `quickfix` actions applying one rule's unsafe fixes the config leaves off,
+//! inserting a `# ryl disable-line` (per rule/line) or a first-line `# ryl disable-file`
+//! (mirroring [`crate::directives`]). An unsafe fix stays out of every `source.fixAll`
+//! kind, which `editor.codeActionsOnSave` runs, until the config applies it.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -17,7 +19,7 @@ use lsp_types::{
 };
 
 use crate::config::{SourceKind, YamlLintConfig};
-use crate::fix::{Rewrite, SAFE_FIX_RULE_IDS};
+use crate::fix::{Rewrite, SAFE_FIX_RULE_IDS, UNSAFE_FIX_RULE_IDS};
 use crate::lsp::analysis::{fix_rule_edit, rewrite_edit_with_notices};
 use crate::lsp::encoding::{PositionEncoding, position_at};
 use crate::rules::ALL_RULE_IDS;
@@ -73,18 +75,24 @@ pub(crate) fn build_with_notices(
         ));
     }
 
+    let rule_edit = |cfg: &YamlLintConfig, rule| {
+        fix_rule_edit(
+            input.text,
+            input.path,
+            cfg,
+            input.base_dir,
+            input.kind,
+            input.enc,
+            rule,
+        )
+    };
     for rule in fixable_rules_present(&context.diagnostics) {
         let kind = format!("{FIX_ALL_KIND}.{rule}");
-        if admits(context.only.as_deref(), &kind)
-            && let Some(edit) = fix_rule_edit(
-                input.text,
-                input.path,
-                input.cfg,
-                input.base_dir,
-                input.kind,
-                input.enc,
-                rule,
-            )
+        let applied =
+            SAFE_FIX_RULE_IDS.contains(&rule) || input.cfg.applies_unsafe_fix(rule);
+        if applied
+            && admits(context.only.as_deref(), &kind)
+            && let Some(edit) = rule_edit(input.cfg, rule)
         {
             actions.push(entry(
                 format!("Fix all {rule} problems"),
@@ -92,6 +100,27 @@ pub(crate) fn build_with_notices(
                 input,
                 edit,
             ));
+        }
+        if UNSAFE_FIX_RULE_IDS.contains(&rule)
+            && !input.cfg.applies_unsafe_fix(rule)
+            && admits(context.only.as_deref(), CodeActionKind::QUICKFIX.as_str())
+        {
+            let mut unsafe_cfg = input.cfg.clone();
+            unsafe_cfg.set_unsafe_fixes(true);
+            if let Some(edit) = rule_edit(&unsafe_cfg, rule).filter(|edit| {
+                applied
+                    .then(|| rule_edit(input.cfg, rule))
+                    .flatten()
+                    .as_ref()
+                    != Some(edit)
+            }) {
+                actions.push(entry(
+                    format!("Fix all {rule} problems (unsafe fix)"),
+                    CodeActionKind::QUICKFIX.as_str(),
+                    input,
+                    edit,
+                ));
+            }
         }
     }
 
@@ -167,13 +196,18 @@ fn has_ryl_diagnostic(diagnostics: &[Diagnostic]) -> bool {
         .any(|diagnostic| diagnostic.source.as_deref() == Some("ryl"))
 }
 
-/// Safe-fixable rules with at least one diagnostic, in fix-application order (independent
-/// of diagnostic order) so the offered actions are deterministic.
+/// Rules with a safe or unsafe fix and at least one diagnostic, in fix-application order
+/// (independent of diagnostic order) so the offered actions are deterministic.
 fn fixable_rules_present(diagnostics: &[Diagnostic]) -> Vec<&'static str> {
     let present: HashSet<&str> =
         diagnostics.iter().filter_map(diagnostic_rule).collect();
     SAFE_FIX_RULE_IDS
         .iter()
+        .chain(
+            UNSAFE_FIX_RULE_IDS
+                .iter()
+                .filter(|rule| !SAFE_FIX_RULE_IDS.contains(rule)),
+        )
         .copied()
         .filter(|rule| present.contains(rule))
         .collect()

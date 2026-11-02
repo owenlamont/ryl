@@ -28,6 +28,7 @@ fn problem(
         level,
         message: message.to_string(),
         rule,
+        hidden_unsafe_fix: false,
     }
 }
 
