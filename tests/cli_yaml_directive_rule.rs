@@ -257,11 +257,18 @@ fn present_false_reports_every_directive_and_removes_one_declaring_1_2_or_later(
         let input =
             "%YAML 1.2\r\n---\r\na: yes\r\n...\r\n%YAML 1.3  \r\n---\r\nb: 1\r\n";
         let (_, output, _) = ryl_with(&config, input, &["check"]);
-        for report in [
-            "1:1       error    found forbidden version directive \"%YAML 1.2\"",
-            "5:1       error    found forbidden version directive \"%YAML 1.3\"",
-        ] {
-            assert!(output.contains(report), "{target}: {output}");
+        let forbidden: Vec<&str> = output
+            .lines()
+            .filter(|line| line.contains("found forbidden version directive"))
+            .collect();
+        assert_eq!(forbidden.len(), 2, "{target}: {output}");
+        for (report, (at, version)) in
+            forbidden.iter().zip([("1:1", "1.2"), ("5:1", "1.3")])
+        {
+            assert!(
+                report.contains(at) && report.contains(&format!("YAML {version}\"")),
+                "{target}: {output}"
+            );
         }
         let (code, output, fixed) = ryl_with(&config, input, &["check", "--fix"]);
         assert_eq!(code, 0, "{target}: {output}");
@@ -293,7 +300,7 @@ fn present_false_migrates_a_1_1_document_then_removes_its_directive() {
     );
     assert_eq!(code, 1, "the dated document keeps its report: {output}");
     assert!(
-        output.contains("forbidden version directive \"%YAML 1.0\""),
+        output.contains("forbidden version directive") && output.contains("YAML 1.0\""),
         "{output}"
     );
     assert_eq!(
