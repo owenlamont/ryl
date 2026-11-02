@@ -184,7 +184,7 @@ Last verified: 2026-11-02.
 | js-yaml | 4.3.2 | 1.2, except `0b1010` is 10 and `2026-10-10` a `Date` | No change | No change | ESLint (`@eslint/eslintrc`) |
 | `yaml` (eemeli) | 2.9.1 | 1.2 | No change | 1.1 | Prettier |
 | `yaml` with `version: '1.1'` | 2.9.1 | 1.1 | 1.2 | No change | |
-| Psych `safe_load` (Ruby 4.0.9) | 5.3.1 | 1.1, except `22:22` is 80520 | No change | No change | |
+| Psych `safe_load` with `permitted_classes: [Date]` (Ruby 4.0.9); without it the date is an error | 5.3.1 | 1.1, except `22:22` is 80520 | No change | No change | |
 | SnakeYAML | 2.7 | 1.1 | No change | No change | Spring Boot, Jackson 2.x |
 | SnakeYAML Engine, default `JsonSchema` | 3.2 | Every scalar a string, `0777` and `0o17` included | No change | No change | |
 | SnakeYAML Engine, `CoreSchema` | 3.2 | 1.2 | No change | No change | |
