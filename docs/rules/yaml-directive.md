@@ -25,7 +25,7 @@ it also reports a document that declares `%YAML 1.1` or `1.0`.
     files that Kubernetes, Helm, Docker Compose or another program built on
     go-yaml loads. Not every Go parser has the bug: goccy/go-yaml accepts the
     directive. PyYAML accepts it but ignores it. See
-    [What `%YAML 1.2` does for each reader](../yaml-version.md#what-yaml-12-does-for-each-reader).
+    [Which YAML version each reader follows](../yaml-version.md#which-yaml-version-each-reader-follows).
 
 ## Configuration
 

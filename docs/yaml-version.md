@@ -5,7 +5,7 @@
 ryl parses YAML with its own fork of [granit-parser][granit]. It resolves a
 document with no `%YAML` directive under the YAML 1.2 core schema, as the spec
 directs. By default (`target-version = "1.1"`), `ryl format` and `--fix` write
-output that YAML 1.1 readers such as [PyYAML][pyyaml] and go-yaml load to the
+output that YAML 1.1 readers such as [PyYAML][pyyaml] and go-yaml v2 load to the
 same values, and the value rules flag plain scalars whose meaning differs
 between the two versions, so files drift toward spellings both read alike. Set
 `target-version = "1.2"` once every consumer is a YAML 1.2 reader.
@@ -38,7 +38,8 @@ whose readers must load ryl's output to the same values, as ruff's
 
 Some readers called YAML 1.2 still resolve 1.1 types: ruamel.yaml's default
 loader and go-yaml v3 read `1_000`, `0b1010` and `2026-10-10` as non-strings.
-Keep the default if such a reader loads your files.
+Keep the default if such a reader loads your files; see
+[which YAML version each reader follows](#which-yaml-version-each-reader-follows).
 
   [granit]: https://github.com/bourumir-wyngs/granit-parser
   [pyyaml]: https://pyyaml.org/
@@ -156,22 +157,52 @@ them as 1.2, where `yes` is already a string, so nothing flags it and
 Declaring `%YAML 1.1` in each file instead hands the conversion to the
 [`yaml-directive` migration](#migrating-a-yaml-11-document-to-12) in one pass.
 
-### What `%YAML 1.2` does for each reader
+## Which YAML version each reader follows
 
-Declaring `%YAML 1.2` does not make every reader follow 1.2:
+Few readers follow one YAML version throughout, and a `%YAML` directive does
+not switch most of them. Pick `target-version` for the oldest reader that
+loads your files. Each reader below loaded eight undeclared plain scalars
+(`yes`, `on`, `0777`, `0o17`, `1_000`, `0b1010`, `22:22`, `2026-10-10`) into
+a generic map or object, then the same file under `%YAML 1.2` and `%YAML 1.1`.
+**1.1** or **1.2** means all eight took that version's value, and "no change"
+means the directive changed no value. [In Defense of YAML][posit-yaml] covers
+why the two versions differ.
 
-| Reader | `%YAML 1.2` |
-| :--- | :--- |
-| PyYAML | Ignored: still reads `yes` as `True`. |
-| ruamel.yaml, goccy/go-yaml | Accepted. |
-| go-yaml v2, v3 and v4, `sigs.k8s.io/yaml` | The whole file is rejected (`found incompatible YAML document`), so Kubernetes, Helm and Docker Compose cannot load it. |
+Last verified: 2026-11-02.
 
-The go-yaml rejection breaks both specs. YAML 1.2.2
+| Reader | Version | Undeclared | `%YAML 1.2` | `%YAML 1.1` | Used by |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| PyYAML `safe_load` | 6.0.3 | 1.1 | No change | No change | yamllint, Ansible |
+| ruamel.yaml, default and `typ='safe'` | 0.19.1 | 1.2, except `1_000`, `0b1010` and `2026-10-10` load as non-strings | No change | 1.1 | pre-commit-hooks |
+| py-yaml12 | 0.2.0 | 1.2 | No change | No change | |
+| `gopkg.in/yaml.v2`, `go.yaml.in/yaml/v2` | 2.4.0, 2.4.4 | 1.1, except `0o17` is 15 and `22:22` and `2026-10-10` are strings | Rejected | No change | |
+| `sigs.k8s.io/yaml` | 1.6.0 | As go-yaml v2, with numbers as `float64` | Rejected | No change | Kubernetes, Helm |
+| `gopkg.in/yaml.v3`, `go.yaml.in/yaml/v3` | 3.0.1, 3.0.6 | `yes`, `on` and `22:22` are strings, but `0777` is 511, `1_000` and `0b1010` integers and `2026-10-10` a time; into a `bool` field `yes` is `true` | Rejected | No change | |
+| `go.yaml.in/yaml/v4` | 4.0.0-rc.8 (pre-release) | As go-yaml v3 | Rejected | No change | Docker Compose (pins rc.6) |
+| goccy/go-yaml | 1.19.2 | 1.2, except `0777` is 511 and `1_000` and `0b1010` are integers | No change | No change | |
+| js-yaml | 5.5.0 | 1.2 | No change | No change | |
+| js-yaml | 4.3.2 | 1.2, except `0b1010` is 10 and `2026-10-10` a `Date` | No change | No change | ESLint (`@eslint/eslintrc`) |
+| `yaml` (eemeli) | 2.9.1 | 1.2 | No change | 1.1 | Prettier |
+| `yaml` with `version: '1.1'` | 2.9.1 | 1.1 | 1.2 | No change | |
+| Psych `safe_load` (Ruby 4.0.9) | 5.3.1 | 1.1, except `22:22` is 80520 | No change | No change | |
+| SnakeYAML | 2.7 | 1.1 | No change | No change | Spring Boot, Jackson 2.x |
+| SnakeYAML Engine, default `JsonSchema` | 3.2 | Every scalar a string, `0777` and `0o17` included | No change | No change | |
+| SnakeYAML Engine, `CoreSchema` | 3.2 | 1.2 | No change | No change | |
+| YamlDotNet | 18.1.0 | Every scalar a string; into a `bool` or `int` field `yes` is `true`, `0777` 511, `1_000` 1000 and `0b1010` 10 | No change | No change | |
+| serde_yaml (deprecated) | 0.9.34 | 1.2, except `0777` is a string and `0b1010` is 10 | No change | No change | |
+| serde_yml | 0.0.13 | 1.2 | No change | No change | |
+| saphyr | 0.3.3 | 1.2 | No change | No change | |
+
+"Rejected" means the reader refuses the whole file
+(`found incompatible YAML document`), so Kubernetes, Helm and Docker Compose
+cannot load a file declaring `%YAML 1.2`. The go-yaml rejection breaks both specs. YAML 1.2.2
 [§6.8.1](https://yaml.org/spec/1.2.2/#681-yaml-directives) says a 1.2 processor
 *must* accept `%YAML 1.2`, and YAML 1.1
 [§7.1.1](https://yaml.org/spec/1.1/#id895631) says a 1.1 processor *should*
 process a higher minor version with a warning. go-yaml accepts exactly `1.1` and
 rejects every other version, although its README claims most of YAML 1.2.
+
+  [posit-yaml]: https://opensource.posit.co/blog/2026-05-21_in-defense-of-yaml/
 
 ## What is different in YAML 1.2
 
