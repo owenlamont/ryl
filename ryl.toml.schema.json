@@ -2459,7 +2459,7 @@
         "yaml-directive": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RuleEntryForNoOptions"
+              "$ref": "#/$defs/RuleEntryForDocumentPresenceOptions"
             },
             {
               "type": "null"

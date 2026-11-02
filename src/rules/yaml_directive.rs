@@ -1,6 +1,7 @@
 //! `yaml-directive`: require a `%YAML` version directive before every document, so each
 //! declares the version its plain scalars resolve under, and under
-//! `target-version = "1.2"` report one declaring `%YAML 1.1` or `1.0`.
+//! `target-version = "1.2"` report one declaring `%YAML 1.1` or `1.0`; with
+//! `present = false`, forbid every `%YAML` directive instead.
 //! Sources: YAML 1.2.2 §6.8.1, YAML 1.1 type repository.
 //!
 //! Safe `--fix` stamps `%YAML 1.2`, the version ryl reads an undeclared document as, so
@@ -13,6 +14,11 @@
 //! value under 1.1 (`0o777` is a string to `PyYAML`). A document holding a scalar with no
 //! 1.2 core spelling, or one `PyYAML` reads as a string and other 1.1 readers do not,
 //! keeps its report and no fix.
+//!
+//! With `present = false` the fix migrates the same way, under either target, then deletes
+//! each directive declaring 1.2 or later, whose document ryl reads as 1.2 without one.
+//! Under target 1.1 a 1.1 reader must load the undeclared result alike, so a respelling
+//! it reads differently (`0o755`) declines the document.
 
 use std::borrow::Cow;
 
@@ -20,7 +26,7 @@ use ryl_yaml_parser::{Event, ScalarStyle, Tag};
 
 use crate::config::{TargetVersion, YamlLintConfig};
 use crate::directives::{Directives, PerLineRuleApply};
-use crate::rules::support::line_syntax::buffer_newline;
+use crate::rules::support::line_syntax::{buffer_newline, first_line_break};
 use crate::rules::support::span_utils::{BytePos, marker_byte_offset};
 use crate::rules::support::yaml_version::{
     Directive, Migration, Value, collect_directives, event_version, migration,
@@ -36,6 +42,7 @@ pub const MESSAGE: &str = "missing version directive \"%YAML\"";
 
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
+    present: bool,
     targets_1_2: bool,
     end_marker_forbidden: bool,
 }
@@ -44,10 +51,16 @@ impl Config {
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
         Self {
+            present: cfg.rule_option_bool(ID, "present", true),
             targets_1_2: cfg.target_version() == TargetVersion::Yaml12,
             end_marker_forbidden: cfg.rule_level(document_end::ID).is_some()
                 && !document_end::Config::resolve(cfg).requires_marker(),
         }
+    }
+
+    #[must_use]
+    pub const fn requires_directive(&self) -> bool {
+        self.present
     }
 }
 
@@ -64,6 +77,25 @@ pub fn check(buffer: &str, cfg: Config) -> Vec<Violation> {
 }
 
 pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Violation> {
+    if !cfg.present {
+        return collect_directives(input.text())
+            .into_iter()
+            .map(
+                |Directive {
+                     line,
+                     column,
+                     version: (major, minor),
+                     ..
+                 }| Violation {
+                    line,
+                    column,
+                    message: format!(
+                        "found forbidden version directive \"%YAML {major}.{minor}\""
+                    ),
+                },
+            )
+            .collect();
+    }
     let missing = document_start::starts(input)
         .filter(|start| !start.declared)
         .map(|start| Violation {
@@ -86,7 +118,7 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Viola
 }
 
 fn older_directives(buffer: &str, cfg: Config) -> impl Iterator<Item = Directive> {
-    cfg.targets_1_2
+    (cfg.targets_1_2 || !cfg.present)
         .then(|| collect_directives(buffer))
         .into_iter()
         .flatten()
@@ -95,18 +127,52 @@ fn older_directives(buffer: &str, cfg: Config) -> impl Iterator<Item = Directive
 
 /// Migrates the `%YAML 1.1` documents when any can be, else stamps the undeclared ones,
 /// so one pass never mixes line edits with line inserts for the reconcile to align.
+/// Without `present`, the migrated text is reconciled before its directives are deleted,
+/// in the same pass: under target 1.1, a `%YAML 1.2` left for the next pass would let
+/// the formatter drop quotes a 1.1 reader needs.
 #[must_use]
 pub fn fix(
     buffer: &str,
     cfg: &Config,
     per_line: &[PerLineRuleApply<'_>],
 ) -> Option<String> {
-    if !cfg.targets_1_2 {
+    if cfg.present && !cfg.targets_1_2 {
         return None;
     }
     let source = TextVersion::new(buffer);
     let input = source.analysis();
-    migrate(input, *cfg, per_line).or_else(|| stamp(input, *cfg))
+    let migrated = migrate(input, *cfg, per_line);
+    if cfg.present {
+        return migrated.or_else(|| stamp(input, *cfg));
+    }
+    remove(migrated.as_deref().unwrap_or(buffer), per_line).or(migrated)
+}
+
+fn remove(buffer: &str, per_line: &[PerLineRuleApply<'_>]) -> Option<String> {
+    let edits = collect_directives(buffer)
+        .iter()
+        .filter(|directive| !resolves_as_yaml_1_1(Some(directive.version)))
+        .filter_map(|directive| removal(buffer, directive))
+        .collect();
+    let output = render(buffer, edits)?;
+    let source = TextVersion::new(buffer);
+    let output = Directives::parse_per_line_with_analysis(source.analysis(), per_line)
+        .reconcile(ID, buffer, &output);
+    (output != buffer).then_some(output)
+}
+
+/// Deletes the directive's line, or `None` when a comment shares it, since rewriting
+/// that line beside deleted ones would misalign the reconcile.
+fn removal(buffer: &str, directive: &Directive) -> Option<Edit> {
+    let rest = &buffer[directive.end.get()..];
+    let (at, newline) = first_line_break(rest).unwrap_or((rest.len(), ""));
+    rest[..at]
+        .trim_start_matches([' ', '\t'])
+        .is_empty()
+        .then(|| {
+            let end = BytePos::new(directive.end.get() + at + newline.len());
+            (directive.start, end, String::new())
+        })
 }
 
 fn migrate(
@@ -134,11 +200,16 @@ fn migration_edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
     for (event, span) in input.event_iter() {
         match event {
             Event::DocumentStart(_, version) => {
-                document =
-                    resolves_as_yaml_1_1(version.map(event_version)).then(|| {
-                        let directive = directives.next().expect(
+                document = resolves_as_yaml_1_1(version.map(event_version))
+                    .then(|| {
+                        directives.next().expect(
                             "a document declaring YAML 1.1 follows its directive",
-                        );
+                        )
+                    })
+                    .filter(|directive| {
+                        cfg.present || removal(input.text(), directive).is_some()
+                    })
+                    .map(|directive| {
                         vec![(directive.start, directive.end, "%YAML 1.2".to_owned())]
                     });
             }
@@ -149,12 +220,16 @@ fn migration_edits(input: Analysis<'_>, cfg: Config) -> Vec<Edit> {
                 let suffix = tag.as_deref().map(tag_suffix);
                 match migration(&text, style == ScalarStyle::Plain, suffix.as_deref()) {
                     Migration::Keep => {}
-                    Migration::Respell(spelling) => {
+                    Migration::Respell(spelling)
+                        if cfg.targets_1_2
+                            || value(&spelling, true, suffix.as_deref(), true)
+                                == value(&text, true, suffix.as_deref(), true) =>
+                    {
                         let start = marker_byte_offset(span.start);
                         let end = BytePos::new(start.get() + text.len());
                         pending.push((start, end, spelling));
                     }
-                    Migration::Decline => document = None,
+                    Migration::Respell(_) | Migration::Decline => document = None,
                 }
             }
             Event::DocumentEnd => edits.extend(document.take().into_iter().flatten()),

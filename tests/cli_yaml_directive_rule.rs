@@ -245,3 +245,77 @@ fn config_all_ignores_yaml_directive_beside_document_start_present_false() {
         )
     );
 }
+
+const FORBID: &str = "[lint.rules.yaml-directive]\npresent = false\n";
+
+#[test]
+fn present_false_reports_every_directive_and_removes_one_declaring_1_2_or_later() {
+    for target in ["1.1", "1.2"] {
+        let config = format!("target-version = \"{target}\"\n{FORBID}");
+        let (code, output, fixed) = ryl_with(&config, "a: yes\n", &["check"]);
+        assert_eq!((code, fixed.as_str()), (0, "a: yes\n"), "{output}");
+        let input =
+            "%YAML 1.2\r\n---\r\na: yes\r\n...\r\n%YAML 1.3  \r\n---\r\nb: 1\r\n";
+        let (_, output, _) = ryl_with(&config, input, &["check"]);
+        for report in [
+            "1:1       error    found forbidden version directive \"%YAML 1.2\"",
+            "5:1       error    found forbidden version directive \"%YAML 1.3\"",
+        ] {
+            assert!(output.contains(report), "{target}: {output}");
+        }
+        let (code, output, fixed) = ryl_with(&config, input, &["check", "--fix"]);
+        assert_eq!(code, 0, "{target}: {output}");
+        assert_eq!(fixed, "---\r\na: yes\r\n...\r\n---\r\nb: 1\r\n", "{target}");
+    }
+}
+
+#[test]
+fn present_false_keeps_a_directive_sharing_its_line_with_a_comment() {
+    for input in [
+        "%YAML 1.2 # ryl disable-line rule:yaml-directive\n---\na: 1\n",
+        "# ryl disable-line rule:yaml-directive\n%YAML 1.2\n---\na: 1\n",
+        "%YAML 1.1 # keep\n---\na: yes\n",
+    ] {
+        let config = format!("target-version = \"1.2\"\n{FORBID}");
+        let (code, output, fixed) = ryl_with(&config, input, &["check", "--fix"]);
+        assert_eq!(fixed, input, "{output}");
+        assert_eq!(code, i32::from(input.contains("keep")), "{output}");
+    }
+}
+
+#[test]
+fn present_false_migrates_a_1_1_document_then_removes_its_directive() {
+    let input = "%YAML 1.1\n---\nmode: 0755\non: yes\nt: 1:30.5\n...\n%YAML 1.0\n---\nd: 2026-10-10\n";
+    let (code, output, fixed) = ryl_with(
+        &format!("target-version = \"1.2\"\n{FORBID}"),
+        input,
+        &["check", "--fix"],
+    );
+    assert_eq!(code, 1, "the dated document keeps its report: {output}");
+    assert!(
+        output.contains("forbidden version directive \"%YAML 1.0\""),
+        "{output}"
+    );
+    assert_eq!(
+        fixed,
+        "---\nmode: 0o755\ntrue: true\nt: 90.5\n...\n%YAML 1.0\n---\nd: 2026-10-10\n"
+    );
+}
+
+#[test]
+fn present_false_under_target_1_1_declines_a_spelling_a_1_1_reader_reads_differently() {
+    let input = "%YAML 1.1\n---\non: yes\nt: 1:30.5\nh: -0x1F\n...\n%YAML 1.1\n---\nmode: 0755\n";
+    let (code, output, fixed) = ryl_with(FORBID, input, &["check", "--fix"]);
+    assert_eq!(code, 1, "PyYAML reads 0o755 as a string: {output}");
+    assert_eq!(
+        fixed,
+        "---\ntrue: true\nt: 90.5\nh: -31\n...\n%YAML 1.1\n---\nmode: 0755\n"
+    );
+}
+
+#[test]
+fn present_false_coexists_with_document_start_present_false() {
+    let config = format!("{FORBID}[lint.rules.document-start]\npresent = false\n");
+    let (code, output, _) = ryl_with(&config, "a: 1\n", &["check"]);
+    assert_eq!((code, output.as_str()), (0, ""));
+}

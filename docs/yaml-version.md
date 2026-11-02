@@ -70,7 +70,9 @@ Under `target-version = "1.2"`, [`yaml-directive`](rules/yaml-directive.md)
 reports each document that declares `%YAML 1.1` (or `1.0`), and `--fix`
 migrates it in one edit: every plain scalar whose 1.1 value 1.2 reads
 differently gets a 1.2 spelling of the same value, keys included, and the
-directive becomes `%YAML 1.2`.
+directive becomes `%YAML 1.2`. With the rule's `present = false`, the fix
+removes the directive instead, under either target; under `"1.1"` it skips a
+document needing `0o777`, which PyYAML reads as a string.
 
 | `%YAML 1.1` | `%YAML 1.2` |
 | :--- | :--- |

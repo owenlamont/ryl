@@ -902,8 +902,8 @@ impl YamlLintConfig {
         }
     }
 
-    /// Drops `yaml-directive` with a warning when only `ALL` enabled it beside
-    /// `document-start`'s `present = false`, since the explicit option wins.
+    /// Drops a `yaml-directive` requiring directives, with a warning, when only `ALL`
+    /// enabled it beside `document-start`'s `present = false`: the explicit option wins.
     ///
     /// # Errors
     /// Returns an error when a named `yaml-directive` meets that `present = false`.
@@ -915,6 +915,7 @@ impl YamlLintConfig {
         if self.rule_level(yaml_directive::ID).is_none()
             || self.rule_level(document_start::ID).is_none()
             || document_start::Config::resolve(self).requires_marker()
+            || !yaml_directive::Config::resolve(self).requires_directive()
         {
             return Ok(None);
         }

@@ -14,6 +14,10 @@ summarize user-visible changes from the tagged commits and published release rec
   PyYAML reads as a string and other 1.1 readers do not (`08`, `1e5`, `y`), keeps its
   report and is left as is.
   ([#365](https://github.com/owenlamont/ryl/issues/365))
+- `yaml-directive` gains `present = false`, which forbids `%YAML` directives:
+  its safe fix removes a `%YAML 1.2` one, and migrates a `%YAML 1.1` document before
+  removing its directive. It runs beside `document-start` with `present = false`.
+  ([#365](https://github.com/owenlamont/ryl/issues/365))
 - Unsafe fixes, as in ruff: `--unsafe-fixes` (or `unsafe-fixes = true`) applies them
   with `check --fix` and `--diff`, and `lint.extend-safe-fixes` promotes one rule's.
   `truthy`, `octal-values` and `schema-dependent-values` gain one for a plain scalar

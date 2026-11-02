@@ -909,7 +909,7 @@ pub struct RulesTable<
     #[serde(rename = "unicode-line-breaks")]
     pub unicode_line_breaks: Option<RuleEntry<NoOptions>>,
     #[serde(rename = "yaml-directive")]
-    pub yaml_directive: Option<RuleEntry<NoOptions>>,
+    pub yaml_directive: Option<RuleEntry<DocumentPresenceOptions>>,
     #[serde(flatten, default)]
     #[schemars(skip)]
     extra: BTreeMap<String, toml::Value>,
