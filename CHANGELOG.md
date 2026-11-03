@@ -31,6 +31,9 @@ summarize user-visible changes from the tagged commits and published release rec
   `"never"`, default `"preserve"`) set the line breaks inside flow collections: one line,
   or prettier's one entry per line with a trailing comma, or `"auto"` to pick one line
   where it fits `line-length`. ([#649](https://github.com/owenlamont/ryl/issues/649))
+- `[format] property-order` (`"preserve"`, `"anchor-first"`, `"tag-first"`, default
+  `"preserve"`) writes each node's anchor and tag in one order; `"tag-first"` matches
+  prettier. ([#913](https://github.com/owenlamont/ryl/pull/913))
 
 ### Changed
 

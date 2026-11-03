@@ -26,7 +26,7 @@ pub fn arb_format_config() -> impl Strategy<Value = String> {
             any::<bool>(),
             any::<bool>(),
         ),
-        (expand(), expand()),
+        (expand(), expand(), prop::sample::select(vec!["preserve", "anchor-first", "tag-first"])),
     )
         .prop_map(
             |(
@@ -42,7 +42,7 @@ pub fn arb_format_config() -> impl Strategy<Value = String> {
                     dash,
                     preview,
                 ),
-                (sequence_expand, mapping_expand),
+                (sequence_expand, mapping_expand, property_order),
             )| {
                 let indent = indent.map_or_else(String::new, |width| {
                     format!("indent-width = {width}\n")
@@ -57,7 +57,8 @@ pub fn arb_format_config() -> impl Strategy<Value = String> {
                      comment-starting-space = '{}'\nmax-blank-lines = {blanks}\n\
                      sequence-style = '{sequence}'\nmapping-style = '{mapping}'\n\
                      indent-sequences = {sequences}\ndash-on-own-line = {dash}\n\
-                     sequence-expand = '{sequence_expand}'\nmapping-expand = '{mapping_expand}'\n",
+                     sequence-expand = '{sequence_expand}'\nmapping-expand = '{mapping_expand}'\n\
+                     property-order = '{property_order}'\n",
                     marker(start),
                     marker(end),
                     marker(comment),

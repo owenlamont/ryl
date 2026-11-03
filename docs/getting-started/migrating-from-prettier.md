@@ -22,6 +22,7 @@ comment-spacing = 1
 max-blank-lines = 1
 sequence-expand = "auto"
 mapping-expand = "auto"
+property-order = "tag-first"
 ```
 
 `brace-spacing = true` produces `{ a: 1 }` while leaving `{}` tight.

@@ -228,6 +228,11 @@
           "description": "Opt in to unstable style changes before a minor release promotes them to stable.",
           "type": "boolean"
         },
+        "property-order": {
+          "$ref": "#/$defs/PropertyOrderTarget",
+          "default": "preserve",
+          "description": "Order of a node's anchor and tag; `preserve` leaves each as written."
+        },
         "quote-style": {
           "$ref": "#/$defs/QuoteStyleTarget",
           "default": "single",
@@ -549,6 +554,27 @@
         "rules"
       ],
       "type": "object"
+    },
+    "PropertyOrderTarget": {
+      "description": "The order a node's anchor and tag are written in.",
+      "oneOf": [
+        {
+          "enum": [
+            "preserve"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "anchor-first",
+          "description": "`&a !!seq`, as eemeli's `yaml` and libfyaml write them.",
+          "type": "string"
+        },
+        {
+          "const": "tag-first",
+          "description": "`!!seq &a`, as prettier and the YAML spec's examples write them.",
+          "type": "string"
+        }
+      ]
     },
     "QuoteStyleTarget": {
       "enum": [

@@ -23,6 +23,7 @@ use guard::Guard;
 pub(crate) use guard::Permission;
 mod pieces;
 pub(crate) mod projection;
+mod properties;
 pub(crate) use pieces::Piece;
 pub(crate) use pieces::PlanEdit;
 pub(crate) use pieces::Replacement;
@@ -334,7 +335,12 @@ fn converted_presentation<'a>(
         )
     };
     presentation.and_then(|mut presentation| {
-        presentation.spacing(input, passes.colons, passes.hyphens);
+        presentation.spacing(
+            input,
+            passes.colons,
+            passes.hyphens,
+            passes.property_order,
+        );
         presentation.edits.extend(prefixes);
         presentation.settle().map(|()| {
             let changed = presentation.collection_spacing(passes, collections);
@@ -591,7 +597,12 @@ impl Presentation {
     ) -> Result<Self, Fallback> {
         Self::pre_scan(input, passes, cache).and_then(|mut presentation| {
             presentation.comments(input, passes, layout);
-            presentation.spacing(input, passes.colons, passes.hyphens);
+            presentation.spacing(
+                input,
+                passes.colons,
+                passes.hyphens,
+                passes.property_order,
+            );
             presentation.settle().map(|()| presentation)
         })
     }
@@ -607,6 +618,7 @@ impl Presentation {
             passes
                 .hyphens
                 .filter(|cfg| *cfg != hyphens::Config::format()),
+            passes.property_order,
         );
     }
 
@@ -615,12 +627,16 @@ impl Presentation {
         input: Analysis<'_>,
         colons: Option<colons::Config>,
         hyphens: Option<hyphens::Config>,
+        order: Option<crate::config_schema::PropertyOrderTarget>,
     ) {
         if let Some(cfg) = colons {
             self.extend(colons::ID, colons::edits(input, &cfg));
         }
         if let Some(cfg) = hyphens {
             self.extend(hyphens::ID, hyphens::edits(input, &cfg));
+        }
+        if let Some(order) = order {
+            self.extend(properties::ID, properties::edits(input, order));
         }
     }
 

@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::config::YamlLintConfig;
 use crate::config_schema::{
     CollectionStyleTarget, ExpandTarget, FormatTable, LineEndingTarget, MarkerTarget,
-    QuoteStyleTarget,
+    PropertyOrderTarget, QuoteStyleTarget,
 };
 use crate::fix::{
     NewlinePolicy, ParsedInput, PassTracking, Passes, ReindentCache, rewrite_parse_gate,
@@ -99,6 +99,8 @@ impl Passes<'static> {
             )),
             colons: on(colons::ID).then_some(colons::Config::format()),
             hyphens: on(hyphens::ID).then_some(hyphens::Config::format()),
+            property_order: Some(table.property_order)
+                .filter(|&order| order != PropertyOrderTarget::Preserve),
             final_newline: on(new_line_at_end_of_file::ID).then(|| {
                 NewlinePolicy::Configured(
                     new_lines::expected_newline(

@@ -140,6 +140,8 @@ pub struct FormatTable {
     pub sequence_expand: ExpandTarget,
     /// Line breaks inside flow mappings; `preserve` leaves each as written.
     pub mapping_expand: ExpandTarget,
+    /// Order of a node's anchor and tag; `preserve` leaves each as written.
+    pub property_order: PropertyOrderTarget,
     /// Whether a block sequence under a mapping key is indented past the key.
     pub indent_sequences: bool,
     /// Whether a block mapping in a block sequence starts on the line after its `-`.
@@ -163,6 +165,7 @@ impl Default for FormatTable {
             mapping_style: CollectionStyleTarget::Preserve,
             sequence_expand: ExpandTarget::Preserve,
             mapping_expand: ExpandTarget::Preserve,
+            property_order: PropertyOrderTarget::Preserve,
             indent_sequences: true,
             dash_on_own_line: false,
         }
@@ -243,6 +246,17 @@ pub enum CollectionStyleTarget {
     Preserve,
     Block,
     Flow,
+}
+
+/// The order a node's anchor and tag are written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum PropertyOrderTarget {
+    Preserve,
+    /// `&a !!seq`, as eemeli's `yaml` and libfyaml write them.
+    AnchorFirst,
+    /// `!!seq &a`, as prettier and the YAML spec's examples write them.
+    TagFirst,
 }
 
 /// Whether a flow collection sits on one line or spreads one entry per line.

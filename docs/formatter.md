@@ -114,6 +114,7 @@ sequence-style = "preserve"
 mapping-style = "preserve"
 sequence-expand = "preserve"
 mapping-expand = "preserve"
+property-order = "preserve"
 indent-sequences = true
 dash-on-own-line = false
 ```
@@ -136,6 +137,7 @@ dash-on-own-line = false
 | `mapping-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for mappings. See [Collection style](#collection-style). |
 | `sequence-expand` | `"preserve"` | `"preserve"`, `"auto"`, `"always"`, `"never"` | Line breaks inside flow sequences. See [Flow line breaks](#flow-line-breaks). |
 | `mapping-expand` | `"preserve"` | `"preserve"`, `"auto"`, `"always"`, `"never"` | Line breaks inside flow mappings. See [Flow line breaks](#flow-line-breaks). |
+| `property-order` | `"preserve"` | `"preserve"`, `"anchor-first"`, `"tag-first"` | The order of a node's anchor and tag on one line: `&a !!seq` or `!!seq &a`. |
 
 Comment spacing targets leave ytt `#@` directives unchanged, including the gap
 between an inline directive and its YAML content.
@@ -195,6 +197,7 @@ double quotes to single, and can indent flush sequences. Migration writes
 | `mapping-style = "preserve"` | Restyling a collection is opt-in |
 | `sequence-expand = "preserve"` | Rewrapping a flow collection is opt-in |
 | `mapping-expand = "preserve"` | Rewrapping a flow collection is opt-in |
+| `property-order = "preserve"` | Writers split: prettier and the spec's examples put the tag first, eemeli's `yaml` and libfyaml the anchor |
 | `indent-sequences = true` | prettier also indents them |
 | `dash-on-own-line = false` | prettier writes `- name: web` |
 | `preview = false` | Preview styles are opt-in, as in ruff |

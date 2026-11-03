@@ -436,6 +436,35 @@ fn a_converted_implicit_pair_with_a_collection_value_stays_block() {
     );
 }
 
+const PROPERTIES: &str = "f: &a !!seq [x, y]\ng: !!map &b {k: v}\ns: &c !!str |\n  text\nm: !!map &d\n  k: v\n";
+
+#[test]
+fn property_order_anchor_first_puts_each_anchor_before_its_tag() {
+    formats(
+        PROPERTIES,
+        "[format]\nproperty-order = 'anchor-first'\n",
+        "f: &a !!seq [x, y]\ng: &b !!map {k: v}\ns: &c !!str |\n  text\nm: &d !!map\n  k: v\n",
+    );
+}
+
+#[test]
+fn property_order_tag_first_puts_each_tag_before_its_anchor() {
+    formats(
+        PROPERTIES,
+        "[format]\nproperty-order = 'tag-first'\n",
+        "f: !!seq &a [x, y]\ng: !!map &b {k: v}\ns: !!str &c |\n  text\nm: !!map &d\n  k: v\n",
+    );
+}
+
+#[test]
+fn property_order_preserve_keeps_each_order() {
+    formats(
+        PROPERTIES,
+        "[format]\nproperty-order = 'preserve'\n",
+        PROPERTIES,
+    );
+}
+
 #[test]
 fn never_collapses_and_preserve_keeps_the_other_kind() {
     formats(
