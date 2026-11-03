@@ -658,7 +658,8 @@ fn placement(
             .min(initial.start_of(parent)),
         _ => initial.line_content(before),
     };
-    initial.placement(index, column(before), column(base))
+    let line = column(initial.line_content(before));
+    initial.placement(index, column(before), (column(base), line))
 }
 
 fn changes_style(

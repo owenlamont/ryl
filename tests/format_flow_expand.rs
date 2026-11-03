@@ -54,6 +54,51 @@ fn auto_moves_a_value_that_fits_alone_to_the_next_line() {
 }
 
 #[test]
+fn a_trailing_comment_stays_on_the_opening_bracket_line() {
+    let auto = |width| format!("line-length = {width}\n{AUTO}");
+    formats(
+        "k: [aaaa, bbbb]  # c\ns:\n  - {aaaa: 1, bbbb: 2}  # d\n",
+        &auto(14),
+        "k: [  # c\n  aaaa,\n  bbbb,\n ]\ns:\n  - {  # d\n    aaaa: 1,\n    bbbb: 2,\n   }\n",
+    );
+    formats(
+        "top:\n  k: [aaaa, bbbb]  # c\n",
+        &auto(16),
+        "top:\n  k: [  # c\n    aaaa,\n    bbbb,\n   ]\n",
+    );
+}
+
+#[test]
+fn a_spread_collection_with_a_comment_after_its_bracket_keeps_its_lines() {
+    formats(
+        "a: [true,\n  tail,\n  ]  # s\n",
+        &format!("line-length = 80\n{AUTO}"),
+        "a: [true,\n    tail,\n ]  # s\n",
+    );
+}
+
+#[test]
+fn a_commented_value_formatting_joins_onto_a_dash_line_stays_on_one_line() {
+    formats(
+        "-\n  k: [aaaa, bbbb]  # c\n",
+        &format!("line-length = 12\n{AUTO}"),
+        "- k: [aaaa, bbbb]  # c\n",
+    );
+}
+
+#[test]
+fn a_commented_value_after_a_dash_stays_on_one_line() {
+    let input = "- k: [aaaa, bbbb]  # c\n";
+    formats(input, &format!("line-length = 12\n{AUTO}"), input);
+}
+
+#[test]
+fn a_trailing_comment_is_left_out_of_the_width() {
+    let input = "k: [aaaa, bbbb]  # a long trailing comment\n";
+    formats(input, &format!("line-length = 15\n{AUTO}"), input);
+}
+
+#[test]
 fn auto_moves_a_nested_value_counting_its_trailing_comma() {
     let config = |width| {
         format!(
@@ -100,13 +145,13 @@ fn a_spread_child_spreads_its_parents() {
 }
 
 #[test]
-fn a_collection_near_a_comment_stays_with_a_notice() {
+fn a_collection_holding_a_comment_stays_with_a_notice() {
     let input = "c: [a, b]  # keep\nd: {a: 1,  # inner\n  b: 2}\n";
     let toml = "[format]\nsequence-expand = 'always'\nmapping-expand = 'never'\n";
     formats(
         input,
         toml,
-        "c: [a, b]  # keep\nd: {a: 1,  # inner\n    b: 2}\n",
+        "c: [  # keep\n  a,\n  b,\n ]\nd: {a: 1,  # inner\n    b: 2}\n",
     );
     let cfg = YamlLintConfig::from_toml_str(toml).unwrap();
     let notices: Vec<_> = refusals(input, &cfg)
@@ -114,11 +159,7 @@ fn a_collection_near_a_comment_stays_with_a_notice() {
         .map(|problem| (problem.line, problem.message))
         .collect();
     let message = "cannot change line breaks safely: a comment is in the way";
-    assert_eq!(
-        notices,
-        [(1, message.to_owned()), (2, message.to_owned())],
-        "{notices:?}"
-    );
+    assert_eq!(notices, [(2, message.to_owned())], "{notices:?}");
 }
 
 #[test]

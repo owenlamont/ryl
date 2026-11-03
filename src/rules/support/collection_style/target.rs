@@ -267,7 +267,9 @@ impl<'a> Planner<'a> {
     pub(super) fn refuses_comment(&self, index: usize) -> bool {
         self.restyle_candidate(index)
             && !self.is_key(index)
-            && self.initial.comment_near(index)
+            && (self.initial.comment_inside(index)
+                || self.initial.trailing_comment(index)
+                    && self.initial.spans_lines(index))
             && match self.expand_target(self.nodes[index].kind()) {
                 ExpandTarget::Always => !self.initial.spans_lines(index),
                 ExpandTarget::Never => self.initial.spans_lines(index),
@@ -298,7 +300,12 @@ impl<'a> Planner<'a> {
         place: &Placement,
     ) -> Option<(Selected, bool)> {
         let node = &self.nodes[index];
-        if self.initial.comment_near(index) {
+        if self.initial.comment_inside(index) {
+            return None;
+        }
+        let trailing = self.initial.trailing_comment(index);
+        // Respelling would move a comment trailing a `]` on a later line than its `[`.
+        if trailing && self.initial.spans_lines(index) {
             return None;
         }
         let properties =
@@ -322,19 +329,30 @@ impl<'a> Planner<'a> {
         let value = node
             .parent()
             .is_some_and(|parent| self.nodes[parent].kind() == Kind::Mapping);
-        let next_line = self.one(index).filter(|_| value).map(|characters| {
-            place.base
-                + self.indent
-                + properties.characters()
-                + usize::from(!properties.empty())
-                + characters
-        });
+        // As in prettier, a trailing comment keeps `[` on the key line; the comment stays
+        // on that line, after `[`, so it keeps its place among the data.
+        let hugged = value && trailing;
+        let next_line =
+            self.one(index)
+                .filter(|_| value && !hugged)
+                .map(|characters| {
+                    place.base
+                        + self.indent
+                        + properties.characters()
+                        + usize::from(!properties.empty())
+                        + characters
+                });
         let fit = self.fit(index, end, next_line);
-        if fit == Fit::Expanded && place.nested_dash {
+        // Re-indenting would put entries no deeper than a key after a `-` on its line.
+        if fit == Fit::Expanded
+            && (place.nested_dash
+                || self.joins_dash(index)
+                || hugged && place.line != place.base)
+        {
             return None;
         }
         let mut recipe = Recipe::new();
-        if fit != Fit::Inline && value {
+        if fit != Fit::Inline && value && !hugged {
             recipe.line(place.base + self.indent);
         } else if place.lead {
             recipe.text(" ");
@@ -343,10 +361,27 @@ impl<'a> Planner<'a> {
             recipe.copy(properties);
             recipe.text(" ");
         }
-        let entries = (fit == Fit::Expanded)
-            .then(|| place.base + self.indent * (1 + usize::from(value)));
-        self.spell(index, entries, &mut recipe)?;
-        let selected = place.edit(self.initial.end(index)).select(recipe);
+        let entries = (fit == Fit::Expanded).then(|| {
+            if hugged {
+                place.line + self.indent
+            } else {
+                place.base + self.indent * (1 + usize::from(value))
+            }
+        });
+        let mut outer = self.initial.outer(index);
+        let comment = (trailing && fit == Fit::Expanded)
+            .then(|| outer.take_comment())
+            .flatten();
+        if comment.is_some() && outer.ytt_directive() {
+            return None;
+        }
+        let end = if comment.is_some() {
+            self.initial.line_end_of(index)
+        } else {
+            self.initial.end(index)
+        };
+        self.spell(index, (entries, comment), &mut recipe)?;
+        let selected = place.edit(end).select(recipe);
         (!selected.written(self.initial.text())).then_some((selected, true))
     }
 
@@ -355,7 +390,7 @@ impl<'a> Planner<'a> {
     fn spell(
         &self,
         index: usize,
-        entries: Option<usize>,
+        (entries, comment): (Option<usize>, Option<Fragment>),
         recipe: &mut Recipe,
     ) -> Option<()> {
         let node = &self.nodes[index];
@@ -371,6 +406,10 @@ impl<'a> Planner<'a> {
             form: Form::Flow,
         });
         recipe.text(open);
+        if let Some(comment) = comment {
+            recipe.comment_gap(&comment);
+            recipe.copy(comment);
+        }
         if entries.is_none() {
             recipe.flow_gap(index, container);
         }
@@ -521,7 +560,7 @@ impl<'a> Planner<'a> {
         }
         let entries = (fit == Fit::Expanded)
             .then(|| column + self.indent * (1 + usize::from(value)));
-        self.spell(index, entries, recipe)
+        self.spell(index, (entries, None), recipe)
     }
 
     fn target(&self, kind: Kind) -> Option<CollectionStyleTarget> {
@@ -741,6 +780,22 @@ impl<'a> Planner<'a> {
         } else {
             None
         }
+    }
+
+    /// Whether `index`, keeping its `[` on its key's line for a trailing comment, is the
+    /// first value of a mapping that formatting joins onto its `-` line.
+    fn joins_dash(&self, index: usize) -> bool {
+        let node = &self.nodes[index];
+        node.position() == 1
+            && !self.shape.dash_on_own_line
+            && self.initial.trailing_comment(index)
+            && node.parent().is_some_and(|mapping| {
+                self.nodes[mapping].kind() == Kind::Mapping
+                    && self.nodes[mapping].parent().is_some_and(|item| {
+                        self.nodes[item].kind() == Kind::Sequence
+                            && !self.initial.collection(item).flow()
+                    })
+            })
     }
 
     /// The final column a block body converted from the outermost collection `index`

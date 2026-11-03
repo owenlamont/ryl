@@ -330,9 +330,20 @@ bracket on its own line stays, where `ryl format` otherwise removes it. Each nes
 collection is judged at
 its own line, and one that must spread spreads its parents too. A sequence entry keeps
 its `[` on the `-` line, re-indented as the `indentation` rule expects; one after a
-second `-` on the line, as in `- - [`, stays as written rather than spread. A collection
-that holds or is followed by a comment stays as written, with a notice on stderr where
-its target rejects its current form. With `*-style = "flow"`, a collection that fits on
+second `-` on the line, as in `- - [`, stays as written rather than spread. A comment
+after a collection is left out of the width and rules out the move to the next line. A
+spread collection keeps its `[` and the comment on the key line, so the comment keeps
+its place among the data:
+
+```yaml
+key: [  # note
+  alpha-package-name,
+  beta-package-name,
+ ]
+```
+
+A collection that holds a comment stays as written, with a notice on stderr where its
+target rejects its current form. With `*-style = "flow"`, a collection that fits on
 one line keeps its `*-expand` layout, and under `"always"` a block collection stays
 block rather than become a spread flow one.
 

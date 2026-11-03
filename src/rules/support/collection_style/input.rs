@@ -49,6 +49,8 @@ pub(super) struct Placement {
     before: usize,
     pub(super) column: usize,
     pub(super) base: usize,
+    /// The final column of the content of the line holding `before`.
+    pub(super) line: usize,
     pub(super) lead: bool,
     pub(super) nested_dash: bool,
 }
@@ -342,7 +344,7 @@ impl<'a> Initial<'a> {
         &self,
         node: usize,
         column: usize,
-        base: usize,
+        (base, line): (usize, usize),
     ) -> Placement {
         let before = self.lead_start(node);
         let text = self.source.text();
@@ -350,6 +352,7 @@ impl<'a> Initial<'a> {
             before,
             column,
             base,
+            line,
             // Re-indenting puts entries after `- - [` no deeper than the inner `-`.
             nested_dash: text[..before].ends_with('-')
                 && self.line_content(before) + 1 != before,
@@ -368,11 +371,22 @@ impl<'a> Initial<'a> {
                 .len()
     }
 
-    pub(super) fn comment_near(&self, node: usize) -> bool {
+    /// Whether a comment sits in `node` or between it and what precedes it.
+    pub(super) fn comment_inside(&self, node: usize) -> bool {
         let start = self.lead_start(node);
-        self.comments
-            .between(start, self.line_end(self.sites[node].end))
+        self.comments.between(start, self.sites[node].end)
             || self.comments.touches(start)
+    }
+
+    /// The end of the line `node` ends on.
+    pub(super) fn line_end_of(&self, node: usize) -> Boundary {
+        Boundary(self.line_end(self.sites[node].end))
+    }
+
+    /// Whether a comment follows `node` on its last line.
+    pub(super) fn trailing_comment(&self, node: usize) -> bool {
+        let end = self.sites[node].end;
+        self.comments.between(end, self.line_end(end))
     }
 
     pub(super) fn text(&self) -> &'a str {
