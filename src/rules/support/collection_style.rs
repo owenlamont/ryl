@@ -41,6 +41,46 @@ pub struct Shape {
     pub dash_on_own_line: bool,
 }
 
+/// Each scalar's width, by start, as the quote pass spells it once every collection is
+/// in block style, for the keys a conversion to block moves out of flow context.
+#[derive(Default)]
+pub(crate) struct BlockSpellings(Vec<(usize, usize)>);
+
+impl BlockSpellings {
+    pub(crate) fn new(mut widths: Vec<(usize, usize)>) -> Self {
+        widths.sort_unstable();
+        Self(widths)
+    }
+
+    fn width(&self, start: usize) -> Option<usize> {
+        self.0
+            .binary_search_by_key(&start, |&(at, _)| at)
+            .ok()
+            .map(|index| self.0[index].1)
+    }
+}
+
+/// Every collection in block style, for the quote pass behind [`BlockSpellings`].
+pub(crate) struct BlockLayout {
+    forms: Forms,
+    root_keys: Vec<usize>,
+}
+
+impl crate::rules::quoted_strings::ConvertedLayout for BlockLayout {
+    fn forms(&self) -> &Forms {
+        &self.forms
+    }
+
+    fn generated_key(&self, _end: usize) -> bool {
+        true
+    }
+
+    fn column(&self, start: usize) -> usize {
+        // A key of the root mapping lands at column 0 in block style.
+        usize::from(self.root_keys.binary_search(&start).is_err())
+    }
+}
+
 impl Config {
     /// Whether any collection could change style or line breaks.
     #[must_use]
@@ -193,6 +233,35 @@ impl Plan {
     pub(crate) fn is_empty(&self) -> bool {
         self.recipes.is_empty()
     }
+
+    /// The plan's collections all in block style, or `None` with nothing to reconsider.
+    pub(crate) fn block_layout(&self) -> Option<BlockLayout> {
+        (!self.pending.is_empty()).then(|| BlockLayout {
+            forms: Forms::new(
+                self.nodes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, node)| {
+                        matches!(node.kind(), Kind::Sequence | Kind::Mapping)
+                    })
+                    .map(|(index, _)| (index, Form::Block))
+                    .collect(),
+            ),
+            root_keys: self
+                .nodes
+                .iter()
+                .zip(&self.sites)
+                .filter(|(node, _)| {
+                    node.position().is_multiple_of(2)
+                        && node.parent().is_some_and(|parent| {
+                            self.nodes[parent].kind() == Kind::Mapping
+                                && self.nodes[parent].parent().is_none()
+                        })
+                })
+                .map(|(_, site)| site.start)
+                .collect(),
+        })
+    }
     pub(crate) fn rules(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.findings
             .iter()
@@ -246,10 +315,13 @@ impl Plan {
         &mut self,
         source: Analysis<'_>,
         cfg: Config,
-        edits: &[crate::format::layout::PlanEdit],
+        (edits, trailing): (
+            &[crate::format::layout::PlanEdit],
+            &[crate::format::layout::PlanEdit],
+        ),
         styles: &crate::rules::quoted_strings::Styles,
         (layout, targets): (&indentation::Layout<'_>, &indentation::Candidates),
-        trailing: &[crate::format::layout::PlanEdit],
+        block: &BlockSpellings,
     ) -> bool {
         let pending: Vec<_> = self
             .pending
@@ -307,7 +379,8 @@ impl Plan {
             enabled(cfg.mappings, braces::ID),
             (usize::from(cfg.indent), usize::from(cfg.width)),
             cfg.shape,
-        );
+        )
+        .with_block_spellings(block);
         let initial = input::Initial::new(source, &sites, &self.comments);
         let column = |byte| {
             layout

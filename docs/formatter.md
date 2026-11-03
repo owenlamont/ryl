@@ -298,8 +298,9 @@ nested:
 
 `sequence-expand` and `mapping-expand` set where a flow collection of that kind breaks
 its lines; the default `"preserve"` leaves them as written. `"never"` puts each on one
-line, `"always"` puts each entry on its own line, and `"auto"` does either: one line
-where it fits `line-length`, else one entry per line. A spread collection follows
+line, `"always"` puts each entry on its own line, and `"auto"` picks the first that fits
+`line-length`: one line where it starts, then, for a mapping value, one line alone on the
+line after its key, else one entry per line. A spread collection follows
 prettier: its opening bracket goes on the line after its key, and every entry ends in a
 comma:
 

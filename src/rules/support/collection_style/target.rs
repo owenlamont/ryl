@@ -4,9 +4,9 @@ use crate::config_schema::{CollectionStyleTarget, ExpandTarget};
 use crate::rules::{indentation, quoted_strings};
 use crate::text_version::model::{Container, Node, NodeKind as Kind};
 
-use super::Shape;
 use super::input::{Boundary, Initial, Placement};
 use super::spelling::{Form, Fragment, Recipe, Selected, Structure};
+use super::{BlockSpellings, Shape};
 
 pub(super) struct Planner<'a> {
     nodes: &'a [Node],
@@ -19,6 +19,28 @@ pub(super) struct Planner<'a> {
     shape: Shape,
     facts: OnceCell<Vec<Facts>>,
     shift: Cell<isize>,
+    block: Option<&'a BlockSpellings>,
+}
+
+/// Where a flow collection's line breaks go.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fit {
+    /// On one line where it starts.
+    Inline,
+    /// On one line, alone on the line after its key.
+    NextLine,
+    /// One entry per line.
+    Expanded,
+}
+
+/// A sequence entry or (`value`) mapping value on a line starting at column `entries`,
+/// after `prefix` characters and before a `comma`; `entries` is `None` on one line.
+#[derive(Clone, Copy)]
+struct Member {
+    entries: Option<usize>,
+    prefix: usize,
+    value: bool,
+    comma: bool,
 }
 
 /// What [`Planner`] measures of each node once, bottom-up.
@@ -49,7 +71,26 @@ impl<'a> Planner<'a> {
             shape,
             facts: OnceCell::new(),
             shift: Cell::new(0),
+            block: None,
         }
+    }
+
+    pub(super) const fn with_block_spellings(
+        mut self,
+        block: &'a BlockSpellings,
+    ) -> Self {
+        self.block = Some(block);
+        self
+    }
+
+    /// The width of `key`, copied from `pos`, once its mapping is in block style.
+    fn block_key_width(&self, key: usize, pos: Boundary, copied: &Fragment) -> usize {
+        let Some(block) = self.block else {
+            return copied.characters();
+        };
+        let written = self.initial.unselected().entry(pos, key).characters();
+        let scalar = self.initial.written_width(key);
+        written - scalar + block.width(self.initial.start_of(key)).unwrap_or(scalar)
     }
 
     fn expand_target(&self, kind: Kind) -> ExpandTarget {
@@ -278,17 +319,22 @@ impl<'a> Planner<'a> {
         if !self.governed(index) {
             return None;
         }
-        let expanded = self.expands(index, end);
-        if expanded && place.nested_dash
-            || !expanded && !self.initial.spans_lines(index)
-        {
-            return None;
-        }
         let value = node
             .parent()
             .is_some_and(|parent| self.nodes[parent].kind() == Kind::Mapping);
+        let next_line = self.one(index).filter(|_| value).map(|characters| {
+            place.base
+                + self.indent
+                + properties.characters()
+                + usize::from(!properties.empty())
+                + characters
+        });
+        let fit = self.fit(index, end, next_line);
+        if fit == Fit::Expanded && place.nested_dash {
+            return None;
+        }
         let mut recipe = Recipe::new();
-        if expanded && value {
+        if fit != Fit::Inline && value {
             recipe.line(place.base + self.indent);
         } else if place.lead {
             recipe.text(" ");
@@ -297,8 +343,8 @@ impl<'a> Planner<'a> {
             recipe.copy(properties);
             recipe.text(" ");
         }
-        let entries =
-            expanded.then(|| place.base + self.indent * (1 + usize::from(value)));
+        let entries = (fit == Fit::Expanded)
+            .then(|| place.base + self.indent * (1 + usize::from(value)));
         self.spell(index, entries, &mut recipe)?;
         let selected = place.edit(self.initial.end(index)).select(recipe);
         (!selected.written(self.initial.text())).then_some((selected, true))
@@ -339,7 +385,17 @@ impl<'a> Planner<'a> {
             }
             match *members {
                 [key, value] => self.pair(key, value, pos, entries, recipe)?,
-                _ => self.member(members[0], pos, (entries, 1, false), recipe)?,
+                _ => self.member(
+                    members[0],
+                    pos,
+                    Member {
+                        entries,
+                        prefix: 0,
+                        value: false,
+                        comma: true,
+                    },
+                    recipe,
+                )?,
             }
             if entries.is_some() {
                 recipe.text(",");
@@ -386,18 +442,49 @@ impl<'a> Planner<'a> {
         }
         recipe.structure(Structure::Value(value));
         recipe.text(":");
-        self.member(value, gap.flow_start(), (entries, width + 2, true), recipe)
+        let member = Member {
+            entries,
+            prefix: width + 1,
+            value: true,
+            comma: true,
+        };
+        self.member(value, gap.flow_start(), member, recipe)
     }
 
-    /// Appends `index`, a sequence entry or (`value`) a mapping value, on a line holding
-    /// `prefix` characters besides it and its properties from column `entries`.
+    /// How `index` is laid out, given the column its one-line form would end at after
+    /// what precedes it and, for a mapping value, alone on the next line; `None` where
+    /// it cannot sit on one line.
+    fn fit(
+        &self,
+        index: usize,
+        inline: Option<usize>,
+        next_line: Option<usize>,
+    ) -> Fit {
+        if !self.expands(index, inline) {
+            Fit::Inline
+        } else if self.expand_target(self.nodes[index].kind()) == ExpandTarget::Auto
+            && next_line.is_some_and(|end| end <= self.width)
+        {
+            Fit::NextLine
+        } else {
+            Fit::Expanded
+        }
+    }
+
+    /// Appends `index`, a sequence entry or mapping value, per `member`.
     fn member(
         &self,
         index: usize,
         pos: Boundary,
-        (entries, prefix, value): (Option<usize>, usize, bool),
+        member: Member,
         recipe: &mut Recipe,
     ) -> Option<()> {
+        let Member {
+            entries,
+            prefix,
+            value,
+            comma,
+        } = member;
         if !self.initial.collection(index).braced()
             || self.nodes[index].children().is_empty()
         {
@@ -410,26 +497,30 @@ impl<'a> Planner<'a> {
             return Some(());
         }
         let properties = single(self.initial.properties(pos, index)).ok()?;
-        let lead = usize::from(value)
-            + properties.characters()
-            + usize::from(!properties.empty());
-        let expanded = entries.filter(|&column| {
-            let end = self
+        let props = properties.characters() + usize::from(!properties.empty());
+        let fit = entries.map_or(Fit::Inline, |column| {
+            let one = self
                 .one(index)
-                .map(|characters| column + prefix + lead + characters);
-            self.expands(index, end)
+                .map(|width| width + props + usize::from(comma));
+            self.fit(
+                index,
+                one.map(|width| column + prefix + usize::from(value) + width),
+                one.filter(|_| value)
+                    .map(|width| column + self.indent + width),
+            )
         });
-        match expanded {
-            Some(column) if value => recipe.line(column + self.indent),
-            None if value => recipe.text(" "),
+        let column = entries.unwrap_or(0);
+        match fit {
+            Fit::Inline if value => recipe.text(" "),
+            Fit::NextLine | Fit::Expanded if value => recipe.line(column + self.indent),
             _ => {}
         }
         if !properties.empty() {
             recipe.copy(properties);
             recipe.text(" ");
         }
-        let entries =
-            expanded.map(|column| column + self.indent * (1 + usize::from(value)));
+        let entries = (fit == Fit::Expanded)
+            .then(|| column + self.indent * (1 + usize::from(value)));
         self.spell(index, entries, recipe)
     }
 
@@ -839,8 +930,10 @@ impl<'a> Planner<'a> {
                 {
                     return Err("a plain key's `:` has no space after it");
                 }
-                let colon =
-                    col + key_text.characters() + usize::from(kind == Kind::Alias) + 1;
+                let colon = col
+                    + self.block_key_width(key, pos, &key_text)
+                    + usize::from(kind == Kind::Alias)
+                    + 1;
                 if entry != 0 {
                     recipe.line(col);
                 }
@@ -886,8 +979,18 @@ impl<'a> Planner<'a> {
             {
                 return Err("a nested collection would spread after a second `-`");
             } else {
-                self.member(index, pos, (Some(self.at(dash)), 2, false), recipe)
-                    .ok_or("an entry spans lines")?;
+                self.member(
+                    index,
+                    pos,
+                    Member {
+                        entries: Some(self.at(dash)),
+                        prefix: 2,
+                        value: false,
+                        comma: false,
+                    },
+                    recipe,
+                )
+                .ok_or("an entry spans lines")?;
             }
             return Ok(());
         }
@@ -915,7 +1018,17 @@ impl<'a> Planner<'a> {
         {
             if self.respaced(index) {
                 return self
-                    .member(index, pos, (Some(self.at(col)), colon - col, true), recipe)
+                    .member(
+                        index,
+                        pos,
+                        Member {
+                            entries: Some(self.at(col)),
+                            prefix: colon - col,
+                            value: true,
+                            comma: false,
+                        },
+                        recipe,
+                    )
                     .ok_or("an entry spans lines");
             }
             let fragment = self.copy(index, pos)?;

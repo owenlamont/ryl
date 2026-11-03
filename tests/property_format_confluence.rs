@@ -235,9 +235,12 @@ fn spread_flow_collections_converge_under_each_expand_target() {
         words: vec!["alpha".into(), "beta".into(), "delta".into()],
         amount: 2,
     };
-    for expand in ["auto", "always", "never"] {
+    // At width 12 the `q -  s` and `q -  m` values overflow their key line but fit alone
+    // on the next one.
+    for (expand, width) in [("auto", 80), ("auto", 12), ("always", 80), ("never", 80)] {
         let cfg = YamlLintConfig::from_toml_str(&format!(
-            "[format]\nsequence-expand = '{expand}'\nmapping-expand = '{expand}'\n"
+            "line-length = {width}\n[format]\nsequence-expand = '{expand}'\n\
+             mapping-expand = '{expand}'\n"
         ))
         .unwrap();
         let input = document.render(&[], &cfg);

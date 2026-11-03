@@ -32,13 +32,46 @@ fn auto_writes_prettiers_layout_where_a_line_overflows() {
          empty-val: {aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: }\n\
          al: [*a, *a]\n",
         AUTO,
-        "items:\n  [\n    first-item-with-long-name,\n    second-item-with-long-name,\n    third,\n    fourth,\n    fx,\n  ]\n\
+        "items:\n  [first-item-with-long-name, second-item-with-long-name, third, fourth, fx]\n\
          short: [a, b]\n\
-         top:\n  nested:\n    {\n      alpha-key-long: 1,\n      beta-key-long:\n        [\n          x-value-long-one,\n          y-value-long-two,\n          z-value-long-3,\n          w-value-long-four,\n        ],\n    }\n\
+         top:\n  nested:\n    {\n      alpha-key-long: 1,\n      beta-key-long:\n        \
+         [x-value-long-one, y-value-long-two, z-value-long-3, w-value-long-four],\n    }\n\
          anch:\n  &a !!seq [\n    first-item-with-long-name,\n    second-item-with-long-name,\n    third,\n    fourth,\n  ]\n\
          pairs:\n  [\n    a: 1,\n    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: 2,\n    cccccccccccccccccccccccccccc: 3,\n  ]\n\
          empty-val:\n  {\n    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:,\n  }\n\
          al: [*a, *a]\n",
+    );
+}
+
+#[test]
+fn auto_moves_a_value_that_fits_alone_to_the_next_line() {
+    let auto = |width| format!("line-length = {width}\n{AUTO}");
+    let input = "k: [aaaa, bbbb]\n";
+    formats(input, &auto(15), input);
+    formats(input, &auto(14), "k:\n  [aaaa, bbbb]\n");
+    formats(input, &auto(13), "k:\n  [\n    aaaa,\n    bbbb,\n  ]\n");
+    formats("k:\n  [aaaa, bbbb]\n", &auto(15), input);
+}
+
+#[test]
+fn auto_moves_a_nested_value_counting_its_trailing_comma() {
+    let config = |width| {
+        format!(
+            "line-length = {width}\n[format]\nsequence-expand = 'auto'\n\
+             mapping-expand = 'always'\n"
+        )
+    };
+    let input = "m: {k: [aaaa, bbbb]}\n";
+    formats(input, &config(20), "m:\n  {\n    k: [aaaa, bbbb],\n  }\n");
+    formats(
+        input,
+        &config(19),
+        "m:\n  {\n    k:\n      [aaaa, bbbb],\n  }\n",
+    );
+    formats(
+        input,
+        &config(18),
+        "m:\n  {\n    k:\n      [\n        aaaa,\n        bbbb,\n      ],\n  }\n",
     );
 }
 
@@ -142,6 +175,17 @@ fn flow_style_measures_children_under_an_anchor_and_a_tag_from_their_key() {
         "[format]\nsequence-style = 'block'\nmapping-style = 'flow'\n",
         "x:\n  o'41': &a3 !!str\n    '9223372036854775808': '2002-12-14'\n    0o+7: ! \
          {':&\"{&🦀': !!bool FALSE, --- x: &a2 !!str '2002-12-14', z: 0o+7}\n",
+    );
+}
+
+// `"a}b"` needs quotes only in flow, so the child's line is 30 characters in block style
+// and would be 32 with the flow spelling.
+#[test]
+fn flow_style_measures_a_converted_key_as_spelled_in_block() {
+    formats(
+        "q: {r: {\"a}b\": {c: xxxxxxxxxxxxxxxx}, s: yyyyyyyyyyyyyyyyyyyyyyyy}}\n",
+        "line-length = 30\n[format]\nsequence-style = 'flow'\nmapping-style = 'flow'\n",
+        "q:\n  r:\n    a}b: {c: xxxxxxxxxxxxxxxx}\n    s: yyyyyyyyyyyyyyyyyyyyyyyy\n",
     );
 }
 

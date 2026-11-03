@@ -52,10 +52,10 @@ if retaining existing quotes matters more than normalizing their style.
 
 Prettier expands a long flow sequence into multiple lines at its print width.
 ryl preserves the flow sequence by default; `sequence-expand = "auto"` and
-`mapping-expand = "auto"` write Prettier's expanded layout instead. Two cases still
-differ: where a collection fits alone on the line after its key, Prettier moves it there
-on one line and ryl expands it; and in a sequence entry (`- [`) ryl indents the entries
-as its `indentation` rule expects, two past the `-` rather than past the `[`.
+`mapping-expand = "auto"` write Prettier's layout instead, including its move of a
+value that fits alone on the line after its key. In a sequence entry (`- [`) ryl still
+indents the entries as its `indentation` rule expects, two past the `-` rather than
+past the `[`.
 `fold-long-lines = true` folds eligible scalar text at `line-length`, and may fold
 scalars that Prettier keeps on one line.
 

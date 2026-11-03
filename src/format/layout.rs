@@ -204,10 +204,10 @@ fn prepare_converted<'a>(
             if collections.reconsider(
                 input,
                 config,
-                &plan.edits,
+                (&plan.edits, &trailing),
                 &plan.styles,
                 (&plan.layout, plan.targets.candidates()),
-                &trailing,
+                &block_spellings(input, passes, cache, collections),
             ) {
                 drop(plan);
                 prepare_selected(input, passes, cache, config, collections, false, None)
@@ -248,10 +248,10 @@ fn prepare_selected<'a>(
                         && collections.reconsider(
                             input,
                             config,
-                            &spellings,
+                            (&spellings, &trailing),
                             &plan.styles,
                             (&plan.layout, plan.targets.candidates()),
-                            &trailing,
+                            &block_spellings(input, passes, cache, collections),
                         );
                     let implicit = collections.close_implicit(
                         input,
@@ -467,6 +467,44 @@ fn format_document_refused(
     output.release_tokens();
     *source = TextVersion::new(String::new());
     Ok((output, true))
+}
+
+/// Each scalar's width as the quote pass spells it with every collection in block style,
+/// for the planner to measure the keys a conversion moves out of flow; one extra quote
+/// pass, run only with collections left to reconsider.
+fn block_spellings(
+    input: Analysis<'_>,
+    passes: &Passes<'_>,
+    cache: &mut HashMap<String, Option<bool>>,
+    collections: &collection_style::Plan,
+) -> collection_style::BlockSpellings {
+    let (Some(cfg), Some(layout)) =
+        (passes.quoted_strings.as_ref(), collections.block_layout())
+    else {
+        return collection_style::BlockSpellings::default();
+    };
+    let guard = Guard::new(input, passes);
+    let spaced_colon = colons::Guarantees::new(
+        passes.colons,
+        Guard::permission(guard.as_deref(), colons::ID),
+    );
+    let widths = quoted_strings::format_replacements(
+        input,
+        cfg,
+        cache,
+        passes.preserve_events,
+        &spaced_colon,
+        Some(&layout),
+    )
+    .into_iter()
+    .filter(|(start, end, _)| {
+        guard
+            .as_ref()
+            .is_none_or(|guard| guard.allows(quoted_strings::ID, *start, *end))
+    })
+    .map(|(start, _, spelling)| (start.get(), spelling.into_text().chars().count()))
+    .collect();
+    collection_style::BlockSpellings::new(widths)
 }
 
 /// Under `ryl format`, whether a trailing comma before an own-line `]` or `}` stays: a

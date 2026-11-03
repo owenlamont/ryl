@@ -318,6 +318,12 @@ impl<'a> Initial<'a> {
         self.sites[node].start
     }
 
+    /// The characters `node` is written with in the source.
+    pub(super) fn written_width(&self, node: usize) -> usize {
+        let site = &self.sites[node];
+        self.source.text()[site.start..site.end].chars().count()
+    }
+
     /// Where `node`'s anchor and tag start, else the node itself.
     pub(super) fn properties_start(&self, node: usize) -> usize {
         let buffer = self.source.text();
