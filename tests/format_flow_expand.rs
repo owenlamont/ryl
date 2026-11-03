@@ -498,3 +498,12 @@ fn an_anchored_item_under_dash_on_own_line_is_measured_beside_its_dash() {
         "k:\n    - &a\n      b:\n          c: [xx, yy]\n",
     );
 }
+
+#[test]
+fn a_quoted_key_ending_in_a_tag_like_word_is_not_split_from_its_value() {
+    formats(
+        "k:\n  - a:  # c\n      \"\u{feff}e !-\":\n        [\n          x,\n        ]\n",
+        "line-length = 16\n[format]\nquote-style = 'double'\nsequence-expand = 'auto'\n",
+        "k:\n  - a:  # c\n      \"\u{feff}e !-\":\n        [x]\n",
+    );
+}

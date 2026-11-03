@@ -333,7 +333,10 @@ impl<'a> Initial<'a> {
         loop {
             let trimmed = buffer[..start].trim_end_matches(super::is_space);
             let token = trimmed.rfind(super::is_space).map_or(0, |at| at + 1);
-            if !buffer[token..trimmed.len()].starts_with(['&', '!']) {
+            // A token ending in `:` is the tail of a key such as `"e !-":`, not a
+            // property.
+            let word = &buffer[token..trimmed.len()];
+            if !word.starts_with(['&', '!']) || word.ends_with(':') {
                 return start;
             }
             start = token;
