@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::config::YamlLintConfig;
 use crate::config_schema::{
     CollectionStyleTarget, ExpandTarget, FormatTable, LineEndingTarget, MarkerTarget,
-    PropertyOrderTarget, QuoteStyleTarget,
+    PropertyOrderTarget, ProseWrap, QuoteStyleTarget,
 };
 use crate::fix::{
     NewlinePolicy, ParsedInput, PassTracking, Passes, ReindentCache, rewrite_parse_gate,
@@ -21,6 +21,7 @@ use crate::rules::{
 use crate::text_version::{Analysis, TextVersion};
 
 pub(crate) mod layout;
+mod prose;
 
 /// The rules `ryl format` applies, whatever the lint config enables.
 pub const FORMAT_RULE_IDS: [&str; 16] = [
@@ -133,11 +134,12 @@ impl Passes<'static> {
             schema_dependent_values: None,
             key_ordering: None,
             yaml_directive: None,
-            line_length: (table.fold_long_lines && on(line_length::ID)).then(|| {
-                line_length::Fold {
-                    width: line_length(cfg),
-                    indent,
-                }
+            line_length: ((table.fold_long_lines.unwrap_or(false)
+                || table.prose_wrap == Some(ProseWrap::Always))
+                && on(line_length::ID))
+            .then(|| line_length::Fold {
+                width: line_length(cfg),
+                indent,
             }),
             collection_style: Some(collection_style_config(cfg, indent, skip))
                 .filter(collection_style::Config::restyles),
@@ -331,7 +333,7 @@ fn format_tracked(
     let _recording =
         layout::stats::Recording::start(path, input.len(), tracking.strict_input);
     let passes = Passes::format(cfg, input, skip);
-    let source = TextVersion::new(input);
+    let mut source = TextVersion::new(input);
     let prefetched = std::mem::take(&mut parsed.prefetched);
     if prefetched {
         layout::stats::prefetched();
@@ -351,6 +353,33 @@ fn format_tracked(
             .take()
             .expect("format tokens are transferred once"),
     );
+    if cfg
+        .format()
+        .targets()
+        .prose_wrap
+        .is_some_and(|mode| mode != ProseWrap::Preserve)
+        && !skip.contains(&line_length::ID)
+    {
+        if source.analysis().parsed().strict_error().is_some() {
+            let Some(repaired) = crate::fix::repair(source.analysis(), &passes) else {
+                return TextVersion::new(input.to_string());
+            };
+            source = repaired;
+            tracking.edited.push(indentation::ID);
+            tracking.strict_input = Some(true);
+        }
+        let directives = crate::directives::Directives::parse_per_line_with_analysis(
+            source.analysis(),
+            &passes.per_line,
+        );
+        match prose::join(&mut source, &directives) {
+            prose::Join::Unchanged => {}
+            prose::Join::Changed => {
+                tracking.edited.push(line_length::ID);
+            }
+            prose::Join::Refused => return TextVersion::new(input.to_string()),
+        }
+    }
     crate::fix::rewrite(input, source, &passes, tracking)
 }
 

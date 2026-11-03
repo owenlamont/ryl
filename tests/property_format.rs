@@ -2355,6 +2355,155 @@ fn g11_does_not_report_value_bearing_spaces_after_formatting_header_and_comment(
 }
 
 #[test]
+fn bare_cr_refusal_mapping_survives_an_independent_prose_join() {
+    let input = "a:  !!str |3+  \r   s3t1   \r\r #a\r# x466h6b\rwhuj60:\r  -   a  : [{ é :  [ \"é\tvalue\" ,y ] }  , [ False  , { é :  [ \"é\tvalue\" ,y ] }  , \"0o+7\"  , { é :  [ \"é\tvalue\" ,y ] } ]  , \"&\\\"!🦀'@\u{a0} \",]\t\t#  @overlay/match missing_ok=True\r      # ascii é🦀 tail\r      b :  [ { é :  [ \"é\tvalue\" ,y ] },'🦀\u{a0}',{ é :  [ \"é\tvalue\" ,y ] }, ]\t\t#  g2 qres\r  -  \"#a32\r\r       #zd\r       jxgta5\"\r  -   {\"a\": 1:30,  \"#\\\"#b\u{feff}\\\\—\": { é :  [ \"é\tvalue\" ,y ] },  '?\u{a0}é:': \"tRUE\",  e'v8jer: { é :  [ \"é\tvalue\" ,y ] }}\rcollection_0:  !!str |3+  \r   s3t1   \rcollection_1:  !!str |3+  \r   s3t1   \rcollection_2:  !!str |3+  \r   s3t1   \rcollection_3:  !!str |3+  \r   s3t1   ";
+    let table = "line-length = 7\n[format]\nquote-style = 'double'\nkeep-quotes = true\nline-ending = 'native'\ndocument-start = 'preserve'\ndocument-end = 'preserve'\nprose-wrap = 'always'\nbrace-spacing = false\npreview = true\ncomment-spacing = 222\ncomment-starting-space = 'preserve'\nmax-blank-lines = 39\nsequence-style = 'flow'\nmapping-style = 'preserve'\nindent-sequences = true\ndash-on-own-line = true\nsequence-expand = 'auto'\nmapping-expand = 'never'\nproperty-order = 'preserve'\n\n";
+    let cfg =
+        YamlLintConfig::from_toml_str(&consistency::agreeing_lint(table)).unwrap();
+    assert!(ryl::format::conflicts(&cfg).is_empty());
+    let (formatted, notices) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.unwrap();
+    assert_ne!(output, input);
+    check_values(input, &output).unwrap();
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let problems: Vec<_> =
+        lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir())
+            .into_iter()
+            .filter(|problem| {
+                !consistency::content_whitespace(
+                    &output,
+                    problem.rule,
+                    problem.line,
+                    problem.column,
+                ) && !consistency::closing_comma(
+                    &output,
+                    problem.rule,
+                    problem.line,
+                    problem.column,
+                )
+            })
+            .collect();
+    assert!(!problems.is_empty());
+    assert!(
+        problems.iter().all(|problem| consistency::refused(
+            input, &output, problem, &notices, &before
+        )),
+        "{problems:?}: {notices:?}"
+    );
+    let mut changed = problems[0].clone();
+    changed.column += 1;
+    assert!(!consistency::refused(
+        input, &output, &changed, &notices, &before
+    ));
+    changed = problems[0].clone();
+    changed.message.push_str(" changed");
+    assert!(!consistency::refused(
+        input, &output, &changed, &notices, &before
+    ));
+    assert!(!consistency::refused(
+        input,
+        &output,
+        &problems[0],
+        &[],
+        &before
+    ));
+    let wrong_ending = if ryl::rules::new_lines::platform_newline() == "\n" {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let changed_output = output.replacen('\r', wrong_ending, 1);
+    let changed_problem = lint_str(
+        &changed_output,
+        synthetic_path(),
+        &cfg,
+        synthetic_base_dir(),
+    )
+    .into_iter()
+    .find(|problem| problem.rule == Some("new-lines") && problem.line == 1)
+    .unwrap();
+    assert!(!consistency::refused(
+        input,
+        &changed_output,
+        &changed_problem,
+        &notices,
+        &before
+    ));
+}
+
+#[test]
+fn unchanged_colon_refusals_survive_multiline_scalar_reflow() {
+    let input = "%YAML 1.2\r---\r  #  yamllint disable-line rule:line-length\rokqz51  :   hg\r    t4ger\r    q9l\r  \rx_m7i2c: { \"{!世}>]{\" : {'b'  :  'it''s \\ x: y',x__  :  { é :  [ \"é\tvalue\" ,y ] },tail \t  :  'it''s \\ x: y',tail \t  :  { é :  [ \"é\tvalue\" ,y ] }}  , c2_u : 'it''s \\ x: y', } \t \t #  lwtlp5 🦀   \r   #fi\r0o1000000000000000000000: >+ \r \r  hy\r  #ag\r  bzj   \r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r # after \t\r  #  yamllint disable-line rule:line-length\rcollection_0  :   hg\r    t4ger\r    q9l\r  #  yamllint disable-line rule:line-length\rcollection_1  :   hg\r    t4ger\r    q9l\r---\r  #  yamllint disable-line rule:line-length\rokqz51  :   hg\r    t4ger\r    q9l\r  \rx_m7i2c: { \"{!世}>]{\" : {'b'  :  'it''s \\ x: y',x__  :  { é :  [ \"é\tvalue\" ,y ] },tail \t  :  'it''s \\ x: y',tail \t  :  { é :  [ \"é\tvalue\" ,y ] }}  , c2_u : 'it''s \\ x: y', } \t \t #  lwtlp5 🦀   \r   #fi\r0o1000000000000000000000: >+ \r \r  hy\r  #ag\r  bzj   \r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r\r # after \t\r  #  yamllint disable-line rule:line-length\rcollection_0  :   hg\r    t4ger\r    q9l\r  #  yamllint disable-line rule:line-length\rcollection_1  :   hg\r    t4ger\r    q9l\r...\r\r\r\r";
+    let table = "indent-width = 189\nline-length = 52567\n[format]\nquote-style = 'preserve'\nkeep-quotes = false\nline-ending = 'auto'\ndocument-start = 'add'\ndocument-end = 'preserve'\nprose-wrap = 'never'\nbrace-spacing = true\npreview = true\ncomment-spacing = 143\ncomment-starting-space = 'add'\nmax-blank-lines = 133\nsequence-style = 'preserve'\nmapping-style = 'preserve'\nindent-sequences = false\ndash-on-own-line = true\nsequence-expand = 'auto'\nmapping-expand = 'auto'\nproperty-order = 'anchor-first'\n\n";
+    let cfg =
+        YamlLintConfig::from_toml_str(&consistency::agreeing_lint(table)).unwrap();
+    let (formatted, notices) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.unwrap();
+    assert_ne!(input, output);
+    check_values(input, &output).unwrap();
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert!(!problems.is_empty());
+    assert!(
+        problems.iter().all(|problem| consistency::refused(
+            input, &output, problem, &notices, &before
+        )),
+        "{problems:?}: {notices:?}"
+    );
+}
+
+#[test]
+fn unchanged_quote_type_refusals_survive_prose_reflow() {
+    let input = "a: '#kv\n   #q10d47'\n# ascii é🦀 tail\n0o1000000000000000000000: |3+  \n   \n   s7\n   #u94 \n   obtmfs   \n\ncollection_0: '#kv\n   #q10d47'\n&a0 : '#kv\n   #q10d47'\n*a0 : '#kv\n   #q10d47'\ncollection_3: '#kv\n   #q10d47'\n";
+    let cfg = YamlLintConfig::from_toml_str(&consistency::agreeing_lint("indent-width = 102\nline-length = 42\n[format]\nquote-style = 'double'\nkeep-quotes = true\nline-ending = 'lf'\ndocument-start = 'preserve'\ndocument-end = 'preserve'\nprose-wrap = 'never'\nbrace-spacing = false\npreview = true\ncomment-spacing = 228\ncomment-starting-space = 'add'\nmax-blank-lines = 221\nsequence-style = 'flow'\nmapping-style = 'flow'\nindent-sequences = false\ndash-on-own-line = false\nsequence-expand = 'preserve'\nmapping-expand = 'auto'\nproperty-order = 'anchor-first'\n\n")).unwrap();
+    let (formatted, notices) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.unwrap();
+    assert_ne!(input, output);
+    check_values(input, &output).unwrap();
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert!(
+        problems
+            .iter()
+            .any(|problem| problem.rule == Some("quoted-strings"))
+    );
+    assert!(
+        problems
+            .iter()
+            .all(|problem| consistency::content_whitespace(
+                &output,
+                problem.rule,
+                problem.line,
+                problem.column
+            ) || consistency::refused(
+                input, &output, problem, &notices, &before
+            )),
+        "{problems:?}: {notices:?}"
+    );
+}
+
+#[test]
 fn g11_refusal_exempts_only_the_reported_line_and_concern() {
     let table = "[format]\ndash-on-own-line = true\ndocument-start = 'add'\n";
     let cfg =

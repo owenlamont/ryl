@@ -107,6 +107,7 @@ pub struct LintTable {
 /// The `[format]` table: `ryl format`'s targets.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields, default, rename_all = "kebab-case")]
+#[schemars(extend("not" = json!({"required": ["prose-wrap", "fold-long-lines"]})))]
 #[expect(
     clippy::struct_excessive_bools,
     reason = "each bool is an independent `[format]` key"
@@ -123,7 +124,13 @@ pub struct FormatTable {
     /// Whether to add a missing `...` document end marker.
     pub document_end: MarkerTarget,
     /// Whether to split plain, quoted and `>` scalar lines longer than `line-length` at spaces.
-    pub fold_long_lines: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("default" = false))]
+    pub fold_long_lines: Option<bool>,
+    /// Whether to preserve, wrap or join physical prose lines.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("default" = "preserve"))]
+    pub prose_wrap: Option<ProseWrap>,
     /// Whether to pad the inside of a non-empty flow mapping's braces with one space.
     pub brace_spacing: bool,
     /// Opt in to unstable style changes before a minor release promotes them to stable.
@@ -158,7 +165,8 @@ impl Default for FormatTable {
             line_ending: LineEndingTarget::Lf,
             document_start: MarkerTarget::Preserve,
             document_end: MarkerTarget::Preserve,
-            fold_long_lines: false,
+            fold_long_lines: None,
+            prose_wrap: None,
             brace_spacing: false,
             preview: false,
             comment_spacing: NonZeroU8::new(2).expect("2 is non-zero"),
@@ -173,6 +181,17 @@ impl Default for FormatTable {
             dash_on_own_line: false,
         }
     }
+}
+
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProseWrap {
+    #[default]
+    Preserve,
+    Always,
+    Never,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
@@ -1575,6 +1594,11 @@ pub(crate) fn format_keys(input: &str, pyproject: bool) -> BTreeSet<String> {
 /// Returns an error if the typed TOML config violates semantic rules not captured by
 /// deserialization alone.
 pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
+    if config.format.as_ref().is_some_and(|format| {
+        format.fold_long_lines.is_some() && format.prose_wrap.is_some()
+    }) {
+        return Err("invalid config: `format.prose-wrap` and `format.fold-long-lines` cannot be used together; remove `fold-long-lines` to use `prose-wrap`".to_string());
+    }
     if config.extra.contains_key("extends") {
         return Err(
             "invalid config: extends is not supported in TOML configuration"

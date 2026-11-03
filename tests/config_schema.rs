@@ -11,6 +11,72 @@ use ryl::config_schema::{
 use serde_json::{Value, json};
 
 #[test]
+fn prose_wrap_and_legacy_folding_are_exclusive_even_when_false() {
+    let schema = schema_value();
+    let validator = validator_for(&schema).unwrap();
+    let format = properties_for_ref(&schema, "format");
+    assert_eq!(format["fold-long-lines"]["default"], false);
+    assert_eq!(format["prose-wrap"]["default"], "preserve");
+    for text in [
+        "[format]\n",
+        "[format]\nfold-long-lines = false\n",
+        "[format]\nfold-long-lines = true\n",
+    ] {
+        let typed = parse_toml_config_str(text, false).unwrap().unwrap();
+        validate_toml_config(&typed).unwrap();
+        let serialized = toml::to_string(&toml_config_to_value(&typed)).unwrap();
+        assert!(!serialized.contains("prose-wrap"));
+        assert!(validator.is_valid(&toml_to_json(&serialized)));
+        ryl::config::YamlLintConfig::from_toml_str(&serialized).unwrap();
+    }
+    for mode in ["preserve", "always", "never"] {
+        for fold in [true, false] {
+            let text =
+                format!("[format]\nprose-wrap = '{mode}'\nfold-long-lines = {fold}\n");
+            let typed = parse_toml_config_str(&text, false).unwrap().unwrap();
+            let error = validate_toml_config(&typed).unwrap_err();
+            assert!(error.contains("remove `fold-long-lines`"), "{error}");
+            assert!(!validator.is_valid(&toml_to_json(&text)));
+        }
+        let text = format!("[format]\nprose-wrap = '{mode}'\n");
+        let typed = parse_toml_config_str(&text, false).unwrap().unwrap();
+        validate_toml_config(&typed).unwrap();
+        assert!(validator.is_valid(&toml_to_json(&text)));
+        let serialized = toml::to_string(&toml_config_to_value(&typed)).unwrap();
+        ryl::config::YamlLintConfig::from_toml_str(&serialized).unwrap();
+    }
+    assert!(
+        ryl::config::YamlLintConfig::from_toml_str(
+            "[format]\nprose-wrap = 'sometimes'\n"
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn pyproject_prose_wrap_conflicts_reject_explicit_legacy_false() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("pyproject.toml");
+    let yaml = dir.path().join("input.yaml");
+    fs::write(
+        &config,
+        "[tool.ryl.format]\nprose-wrap = 'never'\nfold-long-lines = false\n",
+    )
+    .unwrap();
+    fs::write(&yaml, "a: hello\n  world\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["format", "--no-cache", "-c"])
+        .arg(&config)
+        .arg(&yaml)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("remove `fold-long-lines`")
+    );
+}
+
+#[test]
 fn quote_retention_is_a_boolean_formatter_target_with_a_false_default() {
     assert!(
         !ryl::config::YamlLintConfig::from_toml_str("[format]\n")

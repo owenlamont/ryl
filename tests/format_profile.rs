@@ -1,10 +1,9 @@
-//! The formatter page documents every `[format]` default twice, in the full example and
-//! the key table, and gives each a rationale in the profile table; all three must match
-//! `FormatTable::default()` and the top-level defaults `ryl format` uses.
+//! The preferred example/profile agree with effective formatter defaults; the key
+//! table additionally documents the mutually exclusive legacy folding setting.
 
 use std::collections::BTreeMap;
 
-use ryl::config_schema::FormatTable;
+use ryl::config_schema::{FormatTable, ProseWrap};
 use ryl::format::{DEFAULT_INDENT_WIDTH, DEFAULT_LINE_LENGTH};
 
 fn page() -> String {
@@ -40,8 +39,11 @@ fn rows(lines: &[&str]) -> BTreeMap<String, String> {
 }
 
 fn expected() -> toml::Table {
-    let mut defaults = toml::Table::try_from(FormatTable::default())
-        .expect("the [format] table serializes");
+    let mut defaults = toml::Table::try_from(FormatTable {
+        prose_wrap: Some(ProseWrap::default()),
+        ..FormatTable::default()
+    })
+    .expect("the [format] table serializes");
     defaults.insert("line-length".into(), i64::from(DEFAULT_LINE_LENGTH).into());
     defaults.insert(
         "indent-width".into(),
@@ -70,6 +72,13 @@ fn the_configuration_example_and_key_table_show_every_default() {
         .into_iter()
         .map(|(key, default)| (key, toml_value(&default)))
         .collect();
+    format.insert(
+        "fold-long-lines".into(),
+        FormatTable::default()
+            .fold_long_lines
+            .unwrap_or(false)
+            .into(),
+    );
     assert_eq!(table, format);
 }
 

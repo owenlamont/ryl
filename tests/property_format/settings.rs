@@ -13,7 +13,7 @@ pub fn arb_format_config() -> impl Strategy<Value = String> {
             prop::sample::select(vec!["lf", "cr-lf", "native", "auto"]),
             any::<bool>(),
             any::<bool>(),
-            any::<bool>(),
+            prop::sample::select(vec!["fold-long-lines = false", "fold-long-lines = true", "prose-wrap = 'preserve'", "prose-wrap = 'always'", "prose-wrap = 'never'"]),
         ),
         (
             any::<bool>(),
@@ -52,7 +52,7 @@ pub fn arb_format_config() -> impl Strategy<Value = String> {
                     "{indent}line-length = {length}\n[format]\n\
                      quote-style = '{quote}'\nkeep-quotes = {keep_quotes}\nline-ending = '{ending}'\n\
                      document-start = '{}'\ndocument-end = '{}'\n\
-                     fold-long-lines = {fold}\nbrace-spacing = {brace}\n\
+                     {fold}\nbrace-spacing = {brace}\n\
                      preview = {preview}\ncomment-spacing = {gap}\n\
                      comment-starting-space = '{}'\nmax-blank-lines = {blanks}\n\
                      sequence-style = '{sequence}'\nmapping-style = '{mapping}'\n\
