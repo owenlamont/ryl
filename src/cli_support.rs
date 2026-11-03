@@ -280,6 +280,7 @@ pub struct CliConfigFlags {
     pub enable_all: bool,
     pub disable: Vec<&'static str>,
     pub exclude: Option<Vec<String>>,
+    pub unsafe_fixes: Option<bool>,
 }
 
 impl CliConfigFlags {
@@ -299,6 +300,9 @@ impl CliConfigFlags {
             cfg.restrict_rules(rules);
         }
         cfg.disable_rules(&self.disable);
+        if let Some(enabled) = self.unsafe_fixes {
+            cfg.set_unsafe_fixes(enabled);
+        }
         if let Some(patterns) = &self.exclude {
             cfg.replace_exclude(patterns)?;
         }

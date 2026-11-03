@@ -4,7 +4,7 @@ use serde::Serialize;
 use super::{
     LintTable, MarkdownTable, NormalizedConfig, NormalizedFixConfig,
     NormalizedMarkdown, NormalizedPerLineIgnore, PerLineIgnore, RuleSelector,
-    RulesTable, StringOrVec, TomlConfig, YamlConfig,
+    RulesTable, StringOrVec, TomlConfig, UnsafeFixConfig, YamlConfig,
 };
 
 pub(crate) fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
@@ -169,6 +169,11 @@ pub fn normalize_toml_config(config: &TomlConfig) -> NormalizedConfig {
         line_length: config.line_length,
         indent_width: config.indent_width,
         target_version: config.target_version,
+        unsafe_fix: UnsafeFixConfig {
+            unsafe_fixes: config.unsafe_fixes,
+            extend_safe_fixes: lint.extend_safe_fixes.clone().unwrap_or_default(),
+            source_version: config.source_version,
+        },
         fix: normalize_fix_policy(&lint),
         rules,
         yaml_directive_from_all,
@@ -212,6 +217,7 @@ pub fn normalize_yaml_config(config: &YamlConfig) -> NormalizedConfig {
         line_length: None,
         indent_width: None,
         target_version: None,
+        unsafe_fix: UnsafeFixConfig::default(),
         fix: None,
         rules: config
             .rules
@@ -366,6 +372,13 @@ pub fn normalized_config_to_toml_value(config: &NormalizedConfig) -> toml::Value
     insert_serialized(&mut table, "line-length", config.line_length.as_ref());
     insert_serialized(&mut table, "indent-width", config.indent_width.as_ref());
     insert_serialized(&mut table, "target-version", config.target_version.as_ref());
+    let unsafe_fix = &config.unsafe_fix;
+    insert_serialized(
+        &mut table,
+        "source-version",
+        unsafe_fix.source_version.as_ref(),
+    );
+    insert_serialized(&mut table, "unsafe-fixes", unsafe_fix.unsafe_fixes.as_ref());
 
     let lint = normalized_lint_to_toml_table(config);
     if !lint.is_empty() {
@@ -383,6 +396,10 @@ fn normalized_lint_to_toml_table(
     if let Some(fix) = config.fix.as_ref() {
         insert_serialized(&mut table, "fixable", Some(&fix.fixable));
         insert_serialized(&mut table, "unfixable", Some(&fix.unfixable));
+    }
+    let promoted = &config.unsafe_fix.extend_safe_fixes;
+    if !promoted.is_empty() {
+        insert_serialized(&mut table, "extend-safe-fixes", Some(promoted));
     }
     if !config.per_file_ignores.is_empty() {
         insert_serialized(

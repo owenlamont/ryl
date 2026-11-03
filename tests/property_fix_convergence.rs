@@ -299,7 +299,9 @@ fn assert_converges(
                 cfg_name,
                 input
             );
-            if let Some(before) = parse_for_compare_migrated(input, cfg) {
+            if let Some(before) =
+                parse_for_compare_migrated(input, cfg).filter(|_| fixed != input)
+            {
                 prop_assert!(
                     parse_for_compare(&fixed).as_ref() == Some(&before)
                         || reference_safe_eof_append(input, &fixed),

@@ -41,6 +41,7 @@ pub(crate) fn unsupported_cr_skip() -> LintProblem {
                   the markdown file to LF or CRLF line endings"
             .to_string(),
         rule: None,
+        hidden_unsafe_fix: false,
     }
 }
 

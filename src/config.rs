@@ -26,7 +26,9 @@ use crate::format::FormatSettings;
 
 pub(crate) mod legacy_yaml;
 
-pub use crate::config_schema::{FixRuleName as FixRule, RuleLevel, TargetVersion};
+pub use crate::config_schema::{
+    FixRuleName as FixRule, RuleLevel, SourceVersion, TargetVersion, UnsafeFixConfig,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind {
@@ -231,6 +233,7 @@ pub struct YamlLintConfig {
     line_length: Option<NonZeroU16>,
     indent_width: Option<NonZeroU8>,
     target_version: Option<TargetVersion>,
+    unsafe_fix: UnsafeFixConfig,
     locale: Option<String>,
     fix: FixConfig,
     deprecated_keys: Vec<DeprecatedKeyUse>,
@@ -528,7 +531,9 @@ impl FixRule {
             "key-ordering" => Some(Self::KeyOrdering),
             "new-line-at-end-of-file" => Some(Self::NewLineAtEndOfFile),
             "new-lines" => Some(Self::NewLines),
+            "octal-values" => Some(Self::OctalValues),
             "quoted-strings" => Some(Self::QuotedStrings),
+            "schema-dependent-values" => Some(Self::SchemaDependentValues),
             "trailing-spaces" => Some(Self::TrailingSpaces),
             "truthy" => Some(Self::Truthy),
             "yaml-directive" => Some(Self::YamlDirective),
@@ -618,6 +623,7 @@ impl Default for YamlLintConfig {
             line_length: None,
             indent_width: None,
             target_version: None,
+            unsafe_fix: UnsafeFixConfig::default(),
             locale: None,
             fix: FixConfig::default(),
             deprecated_keys: Vec::new(),
@@ -896,8 +902,8 @@ impl YamlLintConfig {
         }
     }
 
-    /// Drops `yaml-directive` with a warning when only `ALL` enabled it beside
-    /// `document-start`'s `present = false`, since the explicit option wins.
+    /// Drops a `yaml-directive` requiring directives, with a warning, when only `ALL`
+    /// enabled it beside `document-start`'s `present = false`: the explicit option wins.
     ///
     /// # Errors
     /// Returns an error when a named `yaml-directive` meets that `present = false`.
@@ -909,6 +915,7 @@ impl YamlLintConfig {
         if self.rule_level(yaml_directive::ID).is_none()
             || self.rule_level(document_start::ID).is_none()
             || document_start::Config::resolve(self).requires_marker()
+            || !yaml_directive::Config::resolve(self).requires_directive()
         {
             return Ok(None);
         }
@@ -1028,6 +1035,36 @@ impl YamlLintConfig {
         self.target_version.unwrap_or_default()
     }
 
+    #[must_use]
+    pub fn source_version(&self) -> SourceVersion {
+        self.unsafe_fix.source_version.unwrap_or_default()
+    }
+
+    /// Whether `--fix` applies `rule`'s unsafe fix: `lint.fixable` allows the rule, and
+    /// `unsafe-fixes` is on or `lint.extend-safe-fixes` names it.
+    #[must_use]
+    pub fn applies_unsafe_fix(&self, rule: &str) -> bool {
+        self.fix.allows_rule(rule)
+            && (self.unsafe_fix.unsafe_fixes == Some(true)
+                || self
+                    .unsafe_fix
+                    .extend_safe_fixes
+                    .iter()
+                    .any(|promoted| promoted.id() == rule))
+    }
+
+    /// Whether `ryl check` advertises unsafe fixes it did not apply; an explicit
+    /// `unsafe-fixes = false` silences it, as in ruff.
+    #[must_use]
+    pub const fn hints_unsafe_fixes(&self) -> bool {
+        self.unsafe_fix.unsafe_fixes.is_none()
+    }
+
+    /// Override `unsafe-fixes`, as `--unsafe-fixes` and `--no-unsafe-fixes` do.
+    pub const fn set_unsafe_fixes(&mut self, enabled: bool) {
+        self.unsafe_fix.unsafe_fixes = Some(enabled);
+    }
+
     fn from_toml_str_with_env(
         s: &str,
         envx: Option<&dyn Env>,
@@ -1136,6 +1173,7 @@ impl YamlLintConfig {
         self.line_length = normalized.line_length;
         self.indent_width = normalized.indent_width;
         self.target_version = normalized.target_version;
+        self.unsafe_fix = normalized.unsafe_fix;
 
         if let Some(fix) = normalized.fix.as_ref() {
             self.fix = typed_fix_config(fix);
@@ -1477,6 +1515,12 @@ fn normalized_fix_selector(selector: FixRuleSelector) -> TomlFixableRuleSelector
             TomlFixableRuleSelector::KeyOrdering
         }
         FixRuleSelector::Rule(FixRule::NewLines) => TomlFixableRuleSelector::NewLines,
+        FixRuleSelector::Rule(FixRule::OctalValues) => {
+            TomlFixableRuleSelector::OctalValues
+        }
+        FixRuleSelector::Rule(FixRule::SchemaDependentValues) => {
+            TomlFixableRuleSelector::SchemaDependentValues
+        }
         FixRuleSelector::Rule(FixRule::QuotedStrings) => {
             TomlFixableRuleSelector::QuotedStrings
         }
@@ -1517,6 +1561,7 @@ fn normalized_config_from_runtime(config: &YamlLintConfig) -> NormalizedConfig {
         line_length: config.line_length,
         indent_width: config.indent_width,
         target_version: config.target_version,
+        unsafe_fix: config.unsafe_fix.clone(),
         fix: normalized_fix_config(&config.fix),
         rules: config
             .rules
@@ -1555,6 +1600,12 @@ fn typed_fix_selector(selector: TomlFixableRuleSelector) -> FixRuleSelector {
             FixRuleSelector::Rule(FixRule::KeyOrdering)
         }
         TomlFixableRuleSelector::NewLines => FixRuleSelector::Rule(FixRule::NewLines),
+        TomlFixableRuleSelector::OctalValues => {
+            FixRuleSelector::Rule(FixRule::OctalValues)
+        }
+        TomlFixableRuleSelector::SchemaDependentValues => {
+            FixRuleSelector::Rule(FixRule::SchemaDependentValues)
+        }
         TomlFixableRuleSelector::QuotedStrings => {
             FixRuleSelector::Rule(FixRule::QuotedStrings)
         }
@@ -1631,6 +1682,17 @@ fn finalize_context(
         };
         deprecation_notice(config_path, &remedy, *used)
     }));
+    if cfg.source_version() == SourceVersion::Yaml11
+        && cfg.target_version() == TargetVersion::Yaml12
+    {
+        notices.push(format!(
+            "warning: {}: `source-version = \"1.1\"` has no effect under \
+             `target-version = \"1.2\"`; to convert YAML 1.1 files, run \
+             `ryl check --fix --unsafe-fixes` under `target-version = \"1.1\"` first \
+             (https://ryl-docs.pages.dev/yaml-version/#migrating-undeclared-yaml-11-files)",
+            config_path.display()
+        ));
+    }
     Ok(ConfigContext {
         config: cfg,
         base_dir,

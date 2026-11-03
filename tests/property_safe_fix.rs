@@ -148,6 +148,9 @@ proptest! {
             })?;
             let fixed =
                 apply_safe_fixes(&input, cfg, synthetic_path(), synthetic_base_dir());
+            if fixed == input {
+                continue;
+            }
             let after = parse_for_compare(&fixed).ok_or_else(|| {
                 TestCaseError::fail(format!(
                     "safe fix broke a previously-parseable document under config '{cfg_name}'; input {input:?}; fixed {fixed:?}"

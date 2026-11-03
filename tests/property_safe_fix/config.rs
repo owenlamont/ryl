@@ -197,7 +197,16 @@ static SAFE_FIX_CONFIGS: LazyLock<Vec<PreparedConfig>> = LazyLock::new(|| {
         .map(|(name, comments)| {
             (*name, format!("{COMMON_SAFE_FIX_RULES_TOML}\n{comments}"))
         })
-        .chain([("target-1.2-toml", target_1_2)]);
+        .chain([
+            ("target-1.2-toml", target_1_2),
+            (
+                "forbid-directive-toml",
+                format!(
+                    "{COMMON_SAFE_FIX_RULES_TOML}\n[rules.comments]\n\
+                     [rules.yaml-directive]\npresent = false\n"
+                ),
+            ),
+        ]);
     for (name, toml) in tomls {
         let dir = TempDir::new().expect("create tempdir for TOML config");
         let toml_path = dir.path().join(".ryl.toml");

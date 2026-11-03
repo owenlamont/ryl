@@ -124,6 +124,8 @@ impl Passes<'static> {
                 0,
             )),
             truthy: None,
+            octal_values: None,
+            schema_dependent_values: None,
             key_ordering: None,
             yaml_directive: None,
             line_length: (table.fold_long_lines && on(line_length::ID)).then(|| {
@@ -201,6 +203,7 @@ fn refusals_with_analysis(
             message: "cannot format this file safely: block scalar value may change"
                 .to_string(),
             rule: Some(indentation::ID),
+            hidden_unsafe_fix: false,
         }];
     }
     if !unsettled {
@@ -469,25 +472,21 @@ pub(crate) fn unfixed(
     } else {
         Vec::new()
     };
-    let kept = reindented
-        .kept_dash_lines
-        .iter()
-        .map(|&(line, column)| LintProblem {
-            line,
-            column,
-            level: Severity::Error,
-            message:
-                "cannot move this mapping below its `-`: a comment follows the `-`"
-                    .to_string(),
-            rule: Some(hyphens::ID),
-        });
-    let notice = |line, column| LintProblem {
+    let notice = |rule, message: &str, (line, column)| LintProblem {
         line,
         column,
         level: Severity::Error,
-        message: "cannot re-indent this document safely".to_string(),
-        rule: Some(indentation::ID),
+        message: message.to_owned(),
+        rule: Some(rule),
+        hidden_unsafe_fix: false,
     };
+    let kept = reindented.kept_dash_lines.iter().map(|&at| {
+        let message =
+            "cannot move this mapping below its `-`: a comment follows the `-`";
+        notice(hyphens::ID, message, at)
+    });
+    let reindent =
+        |at| notice(indentation::ID, "cannot re-indent this document safely", at);
     let mut problems: Vec<LintProblem> = reindented
         .refused
         .iter()
@@ -496,10 +495,10 @@ pub(crate) fn unfixed(
             let sites: Vec<_> = inconsistent
                 .iter()
                 .filter(|(line, _)| refusal.lines.contains(line))
-                .map(|&(line, column)| notice(line, column))
+                .map(|&at| reindent(at))
                 .collect();
             if sites.is_empty() {
-                vec![notice(*refusal.lines.start(), 1)]
+                vec![reindent((*refusal.lines.start(), 1))]
             } else {
                 sites
             }
@@ -564,6 +563,7 @@ fn refused_spacing(
             level: Severity::Error,
             message,
             rule: Some(rule),
+            hidden_unsafe_fix: false,
         })
         .collect()
 }
