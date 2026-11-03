@@ -262,7 +262,7 @@ pub(crate) struct Closing<'a>(target::Closing<'a>);
 impl<'a> Closing<'a> {
     pub(crate) const fn new(
         config: Option<Config>,
-        preserve: bool,
+        preserve: Option<bool>,
         mapping: crate::rules::support::flow_collection::ClosingPolicy<'a>,
         sequence: crate::rules::support::flow_collection::ClosingPolicy<'a>,
         permission: crate::format::layout::Permission<'a>,

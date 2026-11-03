@@ -27,15 +27,34 @@ summarize user-visible changes from the tagged commits and published release rec
   ones left out ("N unsafe fixes available with `--fix --unsafe-fixes`"), and
   `ryl server` offers them as quick fixes outside "Fix all".
   ([#365](https://github.com/owenlamont/ryl/issues/365))
+- `[format] sequence-expand` and `mapping-expand` (`"preserve"`, `"auto"`, `"always"`,
+  `"never"`, default `"preserve"`) set the line breaks inside flow collections: one line,
+  or prettier's one entry per line with a trailing comma, or `"auto"` to pick one line
+  where it fits `line-length`. ([#649](https://github.com/owenlamont/ryl/issues/649))
+- `[format] property-order` (`"preserve"`, `"anchor-first"`, `"tag-first"`, default
+  `"preserve"`) writes each node's anchor and tag in one order; `"tag-first"` matches
+  prettier. ([#913](https://github.com/owenlamont/ryl/pull/913))
 
 ### Changed
 
+- **Behaviour change for `sequence-style = "flow"` / `mapping-style = "flow"`:** a flow
+  collection too long for `line-length` on one line, which `ryl format` used to leave
+  alone, now becomes block, and each collection nested in it stays flow only where it
+  fits. Under `brace-spacing = true` the fit now counts the braces' padding.
+  ([#649](https://github.com/owenlamont/ryl/issues/649))
+- `indentation` expects a block body after a value's anchor and tag
+  (`a: &x !!map`) `indent-width` past its key, as after a lone anchor or tag, rather
+  than at the anchor's column as yamllint does; `ryl format` re-indents such bodies
+  once. ([#913](https://github.com/owenlamont/ryl/pull/913))
 - `ryl check` sorts each file's diagnostics by line, column, then rule ID, as yamllint
   and ruff do, rather than grouping them by rule. Files stay in input order.
   ([#905](https://github.com/owenlamont/ryl/issues/905))
 
 ### Fixed
 
+- With `fold-long-lines` and `dash-on-own-line`, `ryl format` no longer folds a scalar
+  whose trailing comment keeps its mapping on the `-` line, which let a second run move
+  the mapping below the `-`. ([#913](https://github.com/owenlamont/ryl/pull/913))
 - With `fold-long-lines`, a `disable-line rule:line-length` comment above a flow
   collection that `sequence-style` or `mapping-style` turns into block form no longer
   stops `ryl format` folding the first entry, which a second run then folded.

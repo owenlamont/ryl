@@ -8,6 +8,32 @@
       ],
       "type": "string"
     },
+    "ExpandTarget": {
+      "description": "Whether a flow collection sits on one line or spreads one entry per line.",
+      "oneOf": [
+        {
+          "enum": [
+            "preserve"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "auto",
+          "description": "One line where it fits `line-length`, else one entry per line.",
+          "type": "string"
+        },
+        {
+          "const": "always",
+          "description": "One entry per line.",
+          "type": "string"
+        },
+        {
+          "const": "never",
+          "description": "One line.",
+          "type": "string"
+        }
+      ]
+    },
     "FilesTable": {
       "additionalProperties": false,
       "description": "File-to-source-kind glob mapping (ryl-only; TOML). Each kind selects which\nfiles are linted as that kind. A file matching more than one kind is an error.",
@@ -179,6 +205,11 @@
           "default": "lf",
           "description": "Line ending; `native` is the platform's, `auto` the one most of the file uses."
         },
+        "mapping-expand": {
+          "$ref": "#/$defs/ExpandTarget",
+          "default": "preserve",
+          "description": "Line breaks inside flow mappings; `preserve` leaves each as written."
+        },
         "mapping-style": {
           "$ref": "#/$defs/CollectionStyleTarget",
           "default": "preserve",
@@ -197,10 +228,20 @@
           "description": "Opt in to unstable style changes before a minor release promotes them to stable.",
           "type": "boolean"
         },
+        "property-order": {
+          "$ref": "#/$defs/PropertyOrderTarget",
+          "default": "preserve",
+          "description": "Order of a node's anchor and tag; `preserve` leaves each as written."
+        },
         "quote-style": {
           "$ref": "#/$defs/QuoteStyleTarget",
           "default": "single",
           "description": "Preferred quote for strings that need quoting; `preserve` leaves quoting alone."
+        },
+        "sequence-expand": {
+          "$ref": "#/$defs/ExpandTarget",
+          "default": "preserve",
+          "description": "Line breaks inside flow sequences; `preserve` leaves each as written."
         },
         "sequence-style": {
           "$ref": "#/$defs/CollectionStyleTarget",
@@ -513,6 +554,27 @@
         "rules"
       ],
       "type": "object"
+    },
+    "PropertyOrderTarget": {
+      "description": "The order a node's anchor and tag are written in.",
+      "oneOf": [
+        {
+          "enum": [
+            "preserve"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "anchor-first",
+          "description": "`&a !!seq`, as eemeli's `yaml` and libfyaml write them.",
+          "type": "string"
+        },
+        {
+          "const": "tag-first",
+          "description": "`!!seq &a`, as prettier and the YAML spec's examples write them.",
+          "type": "string"
+        }
+      ]
     },
     "QuoteStyleTarget": {
       "enum": [

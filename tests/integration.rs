@@ -163,6 +163,7 @@ mod format_collection_style;
 mod format_colons_hyphens;
 mod format_conflict_probe;
 mod format_detection;
+mod format_flow_expand;
 mod format_fold_golden;
 mod format_indentation;
 mod format_parse_reuse;

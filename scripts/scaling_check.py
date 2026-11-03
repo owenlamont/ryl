@@ -95,6 +95,9 @@ STRUCTURE: Final[dict[str, Callable[[int], str]]] = {
     "big-flow": lambda size: (
         "k: [" + ", ".join(f"{{a: {i}, b: [x, y]}}" for i in range(size // 20)) + "]\n"
     ),
+    "deep-flow": lambda size: repeat(
+        "k{i}: " + "[alpha-entry, " * 60 + "x" + ", omega]" * 60 + "\n", size
+    ),
     "long-block-scalar": lambda size: (
         "k: |\n" + repeat("  line {i} of a long block scalar\n", size)
     ),
@@ -243,6 +246,13 @@ def series(binary: str) -> Iterator[Series]:
             name=f"format {family}",
             command=(binary, "format", "--no-cache"),
             inputs=inputs,
+        )
+        yield Series(
+            name=f"format expand {family}",
+            command=(binary, "format", "--no-cache"),
+            inputs=inputs,
+            config="[format]\nsequence-style = 'flow'\nmapping-style = 'flow'\n"
+            "sequence-expand = 'auto'\nmapping-expand = 'auto'\n",
         )
         yield Series(
             name=f"format --markdown {family}",

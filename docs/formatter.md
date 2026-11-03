@@ -112,6 +112,9 @@ max-blank-lines = 2
 preview = false
 sequence-style = "preserve"
 mapping-style = "preserve"
+sequence-expand = "preserve"
+mapping-expand = "preserve"
+property-order = "preserve"
 indent-sequences = true
 dash-on-own-line = false
 ```
@@ -132,6 +135,9 @@ dash-on-own-line = false
 | `preview` | `false` | `true`, `false` | Opt in to style changes before they become stable. See [Preview style](#preview-style). |
 | `sequence-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for sequences. See [Collection style](#collection-style). |
 | `mapping-style` | `"preserve"` | `"preserve"`, `"block"`, `"flow"` | Collection style for mappings. See [Collection style](#collection-style). |
+| `sequence-expand` | `"preserve"` | `"preserve"`, `"auto"`, `"always"`, `"never"` | Line breaks inside flow sequences. See [Flow line breaks](#flow-line-breaks). |
+| `mapping-expand` | `"preserve"` | `"preserve"`, `"auto"`, `"always"`, `"never"` | Line breaks inside flow mappings. See [Flow line breaks](#flow-line-breaks). |
+| `property-order` | `"preserve"` | `"preserve"`, `"anchor-first"`, `"tag-first"` | The order of a node's anchor and tag on one line: `&a !!seq` or `!!seq &a`. |
 
 Comment spacing targets leave ytt `#@` directives unchanged, including the gap
 between an inline directive and its YAML content.
@@ -189,6 +195,9 @@ double quotes to single, and can indent flush sequences. Migration writes
 | `max-blank-lines = 2` | Keeps short gaps between content |
 | `sequence-style = "preserve"` | Restyling a collection is opt-in |
 | `mapping-style = "preserve"` | Restyling a collection is opt-in |
+| `sequence-expand = "preserve"` | Rewrapping a flow collection is opt-in |
+| `mapping-expand = "preserve"` | Rewrapping a flow collection is opt-in |
+| `property-order = "preserve"` | Writers split: prettier and the spec's examples put the tag first, eemeli's `yaml` and libfyaml the anchor |
 | `indent-sequences = true` | prettier also indents them |
 | `dash-on-own-line = false` | prettier writes `- name: web` |
 | `preview = false` | Preview styles are opt-in, as in ruff |
@@ -269,8 +278,77 @@ the scalar header.
 With `"flow"`, a block collection of scalars and aliases that is not the document root
 becomes one flow line, such as `items: [one, two]`, when it holds no comment and the
 line fits `line-length`. Block scalars, multi-line or empty entries, and plain scalars
-holding `,[]{}` or starting with `:` or `?` keep it block. Flow collections already
-written are left alone, even long ones.
+holding `,[]{}` or starting with `:` or `?` keep it block. A flow collection whose one
+line would not fit `line-length` becomes block, and each collection nested in it is
+then judged the same way at its new position:
+
+```yaml
+# before, with line-length = 30
+nested: [[alpha, beta], [delta, epsilon, zeta, eta]]
+```
+
+```yaml
+# after, with both set to "flow"
+nested:
+  - [alpha, beta]
+  - - delta
+    - epsilon
+    - zeta
+    - eta
+```
+
+## Flow line breaks
+
+`sequence-expand` and `mapping-expand` set where a flow collection of that kind breaks
+its lines; the default `"preserve"` leaves them as written. `"never"` puts each on one
+line, `"always"` puts each entry on its own line, and `"auto"` picks the first that fits
+`line-length`: one line where it starts, then, for a mapping value, one line alone on the
+line after its key, else one entry per line. A spread collection follows
+prettier: its opening bracket goes on the line after its key, and every entry ends in a
+comma:
+
+```yaml
+# before
+items: [first-item-with-long-name, second-item-with-long-name, third, fourth, fifth]
+short: [
+  a, b,
+  ]
+```
+
+```yaml
+# after, with sequence-expand = "auto"
+items:
+  [
+    first-item-with-long-name,
+    second-item-with-long-name,
+    third,
+    fourth,
+    fifth,
+  ]
+short: [a, b]
+```
+
+A trailing comma does not keep a collection spread; with either key set, one before a
+bracket on its own line stays, where `ryl format` otherwise removes it. Each nested
+collection is judged at
+its own line, and one that must spread spreads its parents too. A sequence entry keeps
+its `[` on the `-` line, re-indented as the `indentation` rule expects; one after a
+second `-` on the line, as in `- - [`, stays as written rather than spread. A comment
+after a collection is left out of the width and rules out the move to the next line. A
+spread collection keeps its `[` and the comment on the key line, so the comment keeps
+its place among the data:
+
+```yaml
+key: [  # note
+  alpha-package-name,
+  beta-package-name,
+ ]
+```
+
+A collection that holds a comment stays as written, with a notice on stderr where its
+target rejects its current form. With `*-style = "flow"`, a collection that fits on
+one line keeps its `*-expand` layout, and under `"always"` a block collection stays
+block rather than become a spread flow one.
 
 ## Quote style
 

@@ -38,7 +38,7 @@ See the [formatter settings](../formatter.md#configuration) for other options.
 | `max_line_length: 0` | `[format] fold-long-lines = false` (default) |
 | `max_line_length: 40` | Approximately: top-level `line-length = 40` and `[format] fold-long-lines = true` |
 
-At 40 columns, yamlfmt wraps plain scalars differently and wraps flow sequences that ryl leaves on one line.
+At 40 columns, yamlfmt wraps plain scalars differently and wraps flow sequences that ryl leaves on one line unless `sequence-expand` is set.
 
 ## Deliberate differences
 

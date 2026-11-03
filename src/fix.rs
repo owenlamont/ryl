@@ -1636,6 +1636,7 @@ pub(crate) struct Passes<'a> {
     pub(crate) brackets: Option<brackets::Config>,
     pub(crate) colons: Option<colons::Config>,
     pub(crate) hyphens: Option<hyphens::Config>,
+    pub(crate) property_order: Option<crate::config_schema::PropertyOrderTarget>,
     pub(crate) final_newline: Option<NewlinePolicy>,
     pub(crate) quoted_strings: Option<quoted_strings::Config>,
     pub(crate) trailing_spaces: bool,
@@ -1700,6 +1701,7 @@ impl<'a> Passes<'a> {
             brackets: on(brackets::ID).then(|| brackets::Config::resolve(cfg)),
             colons: on(colons::ID).then(|| colons::Config::resolve(cfg)),
             hyphens: on(hyphens::ID).then(|| hyphens::Config::resolve(cfg)),
+            property_order: None,
             final_newline: on(new_line_at_end_of_file::ID).then_some(newline),
             quoted_strings: on(quoted_strings::ID)
                 .then(|| quoted_strings::Config::resolve(cfg)),

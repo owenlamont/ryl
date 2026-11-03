@@ -24,7 +24,8 @@ pub(super) fn select(
 
 pub(crate) struct Closing<'a> {
     config: Option<Config>,
-    preserve: bool,
+    /// Under `ryl format`, whether a trailing comma before an own-line `]` or `}` stays.
+    preserve: Option<bool>,
     mapping: crate::rules::support::flow_collection::ClosingPolicy<'a>,
     sequence: crate::rules::support::flow_collection::ClosingPolicy<'a>,
     permission: crate::format::layout::Permission<'a>,
@@ -33,7 +34,7 @@ pub(crate) struct Closing<'a> {
 impl<'a> Closing<'a> {
     pub(super) const fn new(
         config: Option<Config>,
-        preserve: bool,
+        preserve: Option<bool>,
         mapping: crate::rules::support::flow_collection::ClosingPolicy<'a>,
         sequence: crate::rules::support::flow_collection::ClosingPolicy<'a>,
         permission: crate::format::layout::Permission<'a>,
@@ -57,8 +58,10 @@ impl<'a> Closing<'a> {
         )>,
     ) -> bool {
         use crate::rules::support::flow_collection::CollectionKind;
-        if self.preserve && initial.follows() {
-            return true;
+        if let Some(keep) = self.preserve
+            && let Some(broken) = initial.closer()
+        {
+            return !(keep && broken);
         }
         let Some(edit) = edit else {
             return false;

@@ -198,6 +198,22 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
                 format,
             ),
             toml_pass(
+                "format/expand-auto",
+                "line-length = 30\n[format]\nsequence-expand = 'auto'\nmapping-expand = 'auto'\n",
+                format,
+            ),
+            toml_pass(
+                "format/expand-always-never",
+                "[format]\nsequence-expand = 'always'\nmapping-expand = 'never'\nbrace-spacing = true\n",
+                format,
+            ),
+            toml_pass(
+                "format/flow-expand-auto",
+                "indent-width = 4\nline-length = 40\n[format]\nsequence-style = 'flow'\n\
+                 mapping-style = 'flow'\nsequence-expand = 'auto'\nmapping-expand = 'auto'\n",
+                format,
+            ),
+            toml_pass(
                 "format/indent-4-flush",
                 "indent-width = 4\n[format]\nindent-sequences = false\ndash-on-own-line = true\n",
                 format,
