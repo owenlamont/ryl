@@ -23,7 +23,7 @@ impl<'a> Refusals<'a> {
     }
 
     pub(super) fn line(&mut self, line: usize) {
-        if self.permissions.is_disabled(super::ID, line + 1) {
+        if self.permissions.is_rule_disabled(super::ID, line + 1) {
             self.refuse(line, Cause::Disabled);
         }
     }

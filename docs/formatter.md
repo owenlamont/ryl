@@ -463,7 +463,8 @@ and LF line endings, ryl leaves the region unchanged with a notice and `--check`
 `ryl format` honours the same [inline directives](directives.md) as `ryl check`: a
 `# ryl disable-file` comment leaves the file alone, and
 `# ryl disable rule:quoted-strings` or `disable-line rule:quoted-strings` stops
-that rule's formatting where it applies. There is no format-only directive.
+that rule's formatting where it applies. For formatter-only node or region suppression,
+use [`format-ignore` or `format-disable` / `format-enable`](directives.md#formatter-only-suppression).
 Lint configuration's `[[lint.per-line-ignores]]` and `[lint.per-file-ignores]` suppress
 lint findings and safe `check --fix` edits, but do not gate `ryl format`.
 

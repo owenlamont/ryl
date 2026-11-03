@@ -93,6 +93,7 @@ fn arb_scalar() -> impl Strategy<Value = Scalar> {
     prop_oneof![
         4 => arb_plain_value().prop_map(Scalar::Plain),
         1 => Just(Scalar::Plain("tail \t".to_owned())),
+        1 => prop::sample::select(vec!["&empty", "!!str", "&empty !!str", "!!str &empty"]).prop_map(|value| Scalar::Plain(value.to_owned())),
         4 => arb_quoted_payload().prop_map(Scalar::SingleQuoted),
         4 => arb_quoted_payload().prop_map(Scalar::DoubleQuoted),
         1 => arb_yaml_1_1_ambiguous().prop_map(Scalar::Plain),

@@ -19,6 +19,7 @@ mod settlement;
 mod shape;
 pub(crate) use shape::SplitTargets;
 
+pub(crate) use rewrite::reindent_scoped;
 pub(crate) use rewrite::reindent_with_analysis;
 pub(crate) use rewrite::{Candidates, Layout, Targets};
 pub use rewrite::{Cause, Refusal, Reindented, fix, reindent};
@@ -242,6 +243,7 @@ enum Kind {
     BlockSequenceStart,
     BlockEnd,
     BlockEntry,
+    FlowEntry,
     FlowMappingStart,
     FlowMappingEnd,
     FlowSequenceStart,
@@ -252,6 +254,19 @@ enum Kind {
     Scalar { style: LayoutStyle, empty: bool },
     Marker,
     Other,
+}
+
+impl Kind {
+    fn closes_property_value(self) -> bool {
+        matches!(
+            self,
+            Self::Key { .. }
+                | Self::BlockEnd
+                | Self::FlowMappingEnd
+                | Self::FlowSequenceEnd
+                | Self::FlowEntry
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -277,6 +292,62 @@ impl Token {
     fn is(self, kinds: &[Kind]) -> bool {
         kinds.contains(&self.kind)
     }
+}
+
+pub(crate) fn block_collection_headers(input: Analysis<'_>) -> Vec<usize> {
+    use ryl_yaml_parser::{Event, StructureStyle};
+    let starts = normalized_line_starts(input);
+    let mut tokens = normalized_tokens(input, &starts);
+    let mut headers = Vec::new();
+    let mut parents: Vec<(bool, bool)> = Vec::new();
+    for (event, _) in input.event_iter() {
+        if event.is_node()
+            && let Some((true, first)) = parents.last_mut()
+        {
+            if *first {
+                *first = false;
+            } else {
+                tokens
+                    .find(|token| token.kind == Kind::BlockEntry)
+                    .expect("each block sequence child has an entry");
+            }
+        }
+        match event {
+            Event::MappingStart(style, ..) | Event::SequenceStart(style, ..) => {
+                let sequence = matches!(event, Event::SequenceStart(..));
+                let block = style == StructureStyle::Block;
+                if block {
+                    let token = tokens
+                        .find(|token| {
+                            matches!(
+                                (sequence, token.kind),
+                                (false, Kind::BlockMappingStart)
+                                    | (
+                                        true,
+                                        Kind::BlockSequenceStart | Kind::BlockEntry
+                                    )
+                            )
+                        })
+                        .expect("each block collection has an opening token");
+                    let at = if token.kind == Kind::BlockSequenceStart {
+                        tokens
+                            .find(|token| token.kind == Kind::BlockEntry)
+                            .expect("a block sequence has a first entry")
+                            .start
+                    } else {
+                        token.start
+                    };
+                    headers.push(at);
+                }
+                parents.push((block && sequence, true));
+            }
+            Event::MappingEnd | Event::SequenceEnd => {
+                parents.pop().expect("each collection end has a start");
+            }
+            _ => {}
+        }
+    }
+    headers
 }
 
 pub(crate) fn normalized_line_starts(input: Analysis<'_>) -> Cow<'_, [usize]> {
@@ -410,6 +481,7 @@ impl Normalizer<'_> {
                     empty: *empty && start == end,
                 }
             }
+            LexicalKind::FlowEntry => Kind::FlowEntry,
             _ => Kind::Other,
         };
         let token = Token {
@@ -513,6 +585,7 @@ struct UnexpectedToken;
 
 struct Analyzer<'a> {
     initial: input::Initial<'a>,
+    format_constraints: Option<&'a crate::directives::Directives>,
     check_multi_line_strings: bool,
     stack: Vec<Parent>,
     cur_line: usize,
@@ -559,6 +632,7 @@ impl<'a> Analyzer<'a> {
     fn new(initial: input::Initial<'a>, cfg: &Config, mode: Mode) -> Self {
         Self {
             initial,
+            format_constraints: None,
             check_multi_line_strings: cfg.check_multi_line_strings,
             stack: vec![Parent::new(ParentKind::Root, 0)],
             cur_line: 0,
@@ -740,6 +814,13 @@ impl<'a> Analyzer<'a> {
     }
 
     fn expected(&mut self, token: &Token, found: isize) -> isize {
+        if self
+            .format_constraints
+            .is_some_and(|permissions| permissions.pins_format_header(token.start))
+            && self.initial.source_leading(token.start)
+        {
+            return found;
+        }
         let top = self.top();
         match token.kind {
             Kind::FlowMappingEnd | Kind::FlowSequenceEnd => top.line_indent.max(
@@ -858,9 +939,7 @@ impl<'a> Analyzer<'a> {
             }
             _ => next,
         };
-        if next.is(&[Kind::BlockEnd, Kind::FlowMappingEnd, Kind::FlowSequenceEnd])
-            || matches!(next.kind, Kind::Key { .. })
-        {
+        if next.kind.closes_property_value() {
             return Ok(());
         }
         let indent = self.value_indent(key, next, next.line == prev_line);
@@ -893,7 +972,7 @@ impl<'a> Analyzer<'a> {
             return;
         }
         self.paired = false;
-        if next.line > token.line {
+        if next.line > token.line && !next.kind.closes_property_value() {
             let key = self.below_top();
             let indent = self.value_indent(key, next, false);
             let value = self
@@ -953,7 +1032,9 @@ impl<'a> Analyzer<'a> {
                 }
                 ParentKind::BlockEntry => {
                     if token.kind != Kind::BlockEntry
-                        && token.kind != Kind::Property
+                        && (token.kind != Kind::Property
+                            || next
+                                .is_some_and(|next| next.kind.closes_property_value()))
                         && self.below_top().implicit_block_seq
                         && !next_is(&[Kind::BlockEntry])
                     {
@@ -964,7 +1045,12 @@ impl<'a> Analyzer<'a> {
                     }
                 }
                 ParentKind::Value => {
-                    if token.kind == Kind::Value || token.kind == Kind::Property {
+                    // An empty value with properties has no scalar token to close its frame.
+                    if token.kind == Kind::Value
+                        || token.kind == Kind::Property
+                            && !next
+                                .is_some_and(|next| next.kind.closes_property_value())
+                    {
                         false
                     } else {
                         self.stack.pop();
@@ -972,11 +1058,7 @@ impl<'a> Analyzer<'a> {
                     }
                 }
                 ParentKind::Key => {
-                    next_is(&[
-                        Kind::BlockEnd,
-                        Kind::FlowMappingEnd,
-                        Kind::FlowSequenceEnd,
-                    ]) || next.is_some_and(|next| matches!(next.kind, Kind::Key { .. }))
+                    next.is_some_and(|next| next.kind.closes_property_value())
                 }
                 ParentKind::Root => false,
             };
@@ -999,7 +1081,13 @@ impl<'a> Analyzer<'a> {
     /// fixes its column, and a continuation with the line it starts on.
     fn carry_scalar_lines(&mut self, token: &Token, style: LayoutStyle) {
         let block = style.is_block();
-        let delta = if !block {
+        let fixed = self.format_constraints.is_some_and(|permissions| {
+            (token.line + 1..=token.end_line + 1)
+                .any(|line| permissions.is_format_disabled(line))
+        });
+        let delta = if fixed {
+            0
+        } else if !block {
             // A continuation follows its token, but one deeper than its collection stays so.
             (token.line + 1..=last_line(token))
                 .filter_map(|line| self.initial.continuation_indent(line))

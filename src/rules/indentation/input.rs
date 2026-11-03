@@ -46,6 +46,13 @@ impl<'a> GapInitial<'a> {
 }
 
 impl<'a> Initial<'a> {
+    pub(super) fn source_leading(self, at: usize) -> bool {
+        let first = self.text[..at].rfind(['\n', '\r']).map_or(0, |at| at + 1);
+        self.text[first..at]
+            .trim_matches([' ', '\t', '\u{feff}'])
+            .is_empty()
+    }
+
     pub(super) fn scalar(
         self,
         token: &super::Token,

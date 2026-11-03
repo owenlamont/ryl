@@ -846,6 +846,7 @@ proptest! {
     #[test]
     fn every_format_pass_keeps_the_guarantee(input in prop_oneof![
         3 => arb_document_with_properties().prop_map(|document| document.render()),
+        1 => crate::property::suppression::arb_document().prop_map(|document| document.text),
         1 => properties::arb_quoted_document(),
         1 => properties::arb_whitespace_block_scalar(),
         1 => (1usize..=4, 1usize..=4).prop_map(|(colon, dash)| {
@@ -2793,8 +2794,25 @@ proptest! {
         let format = || ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
         let expected = serial.install(format);
         let actual = parallel.install(format);
-        prop_assert_eq!(&actual, &expected);
+        prop_assert_eq!(&actual, &expected, "body {:?}; settings {:?}; newline {:?}", body, settings, newline);
         let again = parallel.install(|| ryl::format::format_str(&actual, &cfg, synthetic_path(), &[]));
-        prop_assert_eq!(actual, again);
+        prop_assert_eq!(actual, again, "body {:?}; settings {:?}; newline {:?}", body, settings, newline);
+    }
+}
+
+#[test]
+fn annotations_count_delayed_property_only_empty_values_before_comments() {
+    for property in ["&empty", "!!str", "&empty !!str", "!!str &empty"] {
+        let flow = format!("root: {{ value: {property} }}\n# following\nafter: 1\n");
+        let block = format!("root:\n  value: {property}\n# following\nafter: 1\n");
+        assert_eq!(
+            representation::annotations(&flow),
+            representation::annotations(&block)
+        );
+        let moved = format!("root:\n# following\n  value: {property}\nafter: 1\n");
+        assert_ne!(
+            representation::annotations(&block),
+            representation::annotations(&moved)
+        );
     }
 }

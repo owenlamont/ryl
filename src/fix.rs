@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::Path;
@@ -1626,6 +1627,7 @@ impl NewlinePolicy {
 #[derive(Clone)]
 pub(crate) struct Passes<'a> {
     pub(crate) preserve_events: bool,
+    pub(crate) directive_scope: crate::directives::Scope,
     pub(crate) new_lines: Option<new_lines::Config>,
     pub(crate) comments: Option<comments::Config>,
     pub(crate) indentation: Option<indentation::Config>,
@@ -1682,6 +1684,7 @@ impl<'a> Passes<'a> {
         };
         Self {
             preserve_events: false,
+            directive_scope: crate::directives::Scope::Lint,
             new_lines: on(new_lines::ID).then(|| new_lines::Config::resolve(cfg)),
             comments: on(comments::ID).then(|| comments::Config::resolve(cfg)),
             indentation: None,
@@ -1803,14 +1806,20 @@ pub(crate) fn repair(
     passes: &Passes,
 ) -> Option<TextVersion<'static>> {
     let target = passes.repair_indentation?;
-    let spaced = separate_flow_keys(input).map(TextVersion::observed);
+    let spaced = match separate_flow_keys(input, passes.directive_scope)? {
+        Cow::Borrowed(_) => None,
+        Cow::Owned(text) => Some(TextVersion::observed(text)),
+    };
     let source = spaced.as_ref().map_or(input, TextVersion::analysis);
-    let repaired = Directives::parse_per_line_with_analysis(source, &passes.per_line)
-        .reconcile(
-            indentation::ID,
-            source.text(),
-            &indentation::reindent_with_analysis(source, &target).0.text,
-        );
+    let repaired =
+        Directives::scoped_per_line(source, &passes.per_line, passes.directive_scope)
+            .reconcile(
+                indentation::ID,
+                source.text(),
+                &indentation::reindent_scoped(source, &target, passes.directive_scope)
+                    .0
+                    .text,
+            );
     if repaired == input.text() {
         return None;
     }
@@ -1831,7 +1840,10 @@ pub(crate) fn repair(
 
 /// `input` with a space after each flow `?` that a flow indicator follows, which relaxed
 /// parsing reads as an empty explicit key.
-fn separate_flow_keys(input: Analysis<'_>) -> Option<String> {
+fn separate_flow_keys(
+    input: Analysis<'_>,
+    scope: crate::directives::Scope,
+) -> Option<Cow<'_, str>> {
     let flow_key = |error: &ryl_yaml_parser::ScanError| {
         matches!(
             error.kind(),
@@ -1840,22 +1852,26 @@ fn separate_flow_keys(input: Analysis<'_>) -> Option<String> {
             }
         )
     };
+    let directives = Directives::scoped(input, scope);
     let mut error = input
         .parsed()
         .strict_error()
         .filter(|e| flow_key(e))
         .cloned();
-    let mut spaced: Option<String> = None;
+    let mut spaced = Cow::Borrowed(input.text());
     while let Some(found) = error {
+        if directives.is_disabled(indentation::ID, found.marker().line()) {
+            return None;
+        }
         let at = found
             .marker()
             .byte_offset()
             .expect("string input has byte offsets");
-        let text = spaced.get_or_insert_with(|| input.text().to_owned());
+        let text = spaced.to_mut();
         text.insert(at + 1, ' ');
         error = crate::lint::scan(text, true).err().filter(flow_key);
     }
-    spaced
+    Some(spaced)
 }
 
 fn rule_enabled(

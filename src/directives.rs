@@ -9,6 +9,7 @@
 //! buffer (a file or an embedded Markdown region).
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -88,6 +89,13 @@ enum Action {
     DisableLine,
 }
 
+#[derive(Clone, Copy, Default)]
+pub(crate) enum Scope {
+    #[default]
+    Lint,
+    Format,
+}
+
 struct Parsed {
     action: Action,
     /// `None` means "all rules" (a bare directive with no `rule:` token).
@@ -160,6 +168,9 @@ pub struct PerLineRuleApply<'a> {
 /// Resolved disable state for one buffer.
 #[derive(Clone, Default)]
 pub struct Directives {
+    format_lines: Vec<Range<usize>>,
+    format_mappings: Vec<usize>,
+    format_prefixes: Vec<Range<usize>>,
     /// `(line, rules disabled from that line onward)`, in ascending line order.
     block_snapshots: Vec<(usize, HashSet<&'static str>)>,
     line_disabled: HashMap<usize, HashSet<&'static str>>,
@@ -170,6 +181,33 @@ pub struct Directives {
 }
 
 impl Directives {
+    pub(crate) fn scoped(
+        input: crate::text_version::Analysis<'_>,
+        scope: Scope,
+    ) -> Self {
+        Self::scoped_per_line(input, &[], scope)
+    }
+
+    pub(crate) fn scoped_per_line(
+        input: crate::text_version::Analysis<'_>,
+        per_line: &[PerLineRuleApply<'_>],
+        scope: Scope,
+    ) -> Self {
+        let mut directives = Self::parse_per_line_with_analysis(input, per_line);
+        if matches!(scope, Scope::Format) {
+            directives
+                .format_lines
+                .clone_from(&input.format_suppression().lines);
+            directives
+                .format_mappings
+                .clone_from(&input.format_suppression().mappings);
+            directives
+                .format_prefixes
+                .clone_from(&input.format_suppression().prefixes);
+        }
+        directives
+    }
+
     /// Parse all directives in `buffer`. A buffer with no directive keyword skips the
     /// comment scan and returns an empty set, so directive-less files pay no parsing cost.
     #[must_use]
@@ -238,14 +276,14 @@ impl Directives {
         directives
     }
 
-    pub(crate) fn parse_projected(
+    pub(crate) fn parse_format_projected(
         input: crate::text_version::Analysis<'_>,
         frame: &crate::format::layout::frame::Frame,
         lines: &[crate::format::layout::VirtualLine<'_>],
     ) -> Self {
         let comments =
             crate::rules::support::comments_scan::collect_comments_with_analysis(input);
-        Self::from_comments(comments.iter().map(|comment| {
+        let mut directives = Self::from_comments(comments.iter().map(|comment| {
             let at = crate::rules::support::span_utils::marker_byte_offset(
                 comment.span.start,
             )
@@ -258,7 +296,27 @@ impl Directives {
                 Placement::Above
             };
             (position.line + 1, placement, comment.text.as_str())
-        }))
+        }));
+        directives
+            .format_prefixes
+            .clone_from(&input.format_suppression().prefixes);
+        directives
+            .format_lines
+            .extend(input.format_suppression().lines.iter().map(|range| {
+                let starts = input.byte_line_starts();
+                let first = starts[(range.start - 1).min(starts.len() - 1)];
+                let last = starts
+                    .get(range.end - 1)
+                    .copied()
+                    .unwrap_or(input.text().len());
+                let first = frame.source_position(input, first, false).line + 1;
+                let last = frame
+                    .source_position(input, last.saturating_sub(1), false)
+                    .line
+                    + 2;
+                first..last
+            }));
+        directives
     }
 
     /// Parse inline directives, then layer config `per-line-ignores` on top as a virtual
@@ -313,6 +371,41 @@ impl Directives {
     /// Whether `rule` is disabled on `line` (1-based).
     #[must_use]
     pub fn is_disabled(&self, rule: &str, line: usize) -> bool {
+        self.is_format_disabled(line) || self.is_rule_disabled(rule, line)
+    }
+
+    pub(crate) fn pins_format_header(&self, at: usize) -> bool {
+        let before = self
+            .format_prefixes
+            .partition_point(|range| range.start <= at);
+        before > 0 && at <= self.format_prefixes[before - 1].end
+    }
+
+    pub(crate) fn allows_format_prefix_edit(&self, start: usize, end: usize) -> bool {
+        let before = self
+            .format_prefixes
+            .partition_point(|range| range.end <= start);
+        self.format_prefixes.get(before).is_none_or(|range| {
+            if start == end {
+                start < range.start
+            } else {
+                end <= range.start
+            }
+        })
+    }
+
+    pub(crate) fn is_format_mapping_disabled(&self, at: usize) -> bool {
+        self.format_mappings.binary_search(&at).is_ok()
+    }
+
+    pub(crate) fn is_format_disabled(&self, line: usize) -> bool {
+        let before = self
+            .format_lines
+            .partition_point(|range| range.start <= line);
+        before > 0 && self.format_lines[before - 1].contains(&line)
+    }
+
+    pub(crate) fn is_rule_disabled(&self, rule: &str, line: usize) -> bool {
         self.file_wide.contains(rule)
             || self
                 .block_snapshots
@@ -329,7 +422,8 @@ impl Directives {
     /// Whether `rule` is disabled anywhere, used to skip reconciliation in `--fix`.
     #[must_use]
     pub fn disables_any(&self, rule: &str) -> bool {
-        self.file_wide.contains(rule)
+        !self.format_lines.is_empty()
+            || self.file_wide.contains(rule)
             || self.line_disabled.values().any(|set| set.contains(rule))
             || self
                 .block_snapshots

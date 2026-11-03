@@ -365,7 +365,13 @@ fn converted_targets<'a>(
             false,
         )
     });
-    let mut layout = indentation::Layout::converted(input, &cfg, frame, rows);
+    let mut layout = indentation::Layout::converted(
+        input,
+        &cfg,
+        frame,
+        rows,
+        passes.directive_scope,
+    );
     layout.trimmed = passes.trailing_spaces;
     layout.restyle(presentation.restyled());
     presentation.comments(input, passes, &mut layout);
@@ -959,7 +965,8 @@ impl Presentation {
     ) -> Result<(indentation::Layout<'a>, indentation::Candidates, Self), Fallback>
     {
         facts::prepare_input(input, passes.line_length.is_some()).and_then(|()| {
-            let mut layout = indentation::Layout::format(input, cfg);
+            let mut layout =
+                indentation::Layout::format(input, cfg, passes.directive_scope);
             layout.trimmed = passes.trailing_spaces;
             Self::new(input, passes, &mut layout, cache).map(|mut presentation| {
                 for start in layout.joined_starts() {
@@ -998,7 +1005,8 @@ impl Presentation {
     ) -> Result<(indentation::Layout<'a>, indentation::Candidates, Self), Fallback>
     {
         let mut presentation = Self::pre_scan(input, passes, cache)?;
-        let mut layout = indentation::Layout::format(input, cfg);
+        let mut layout =
+            indentation::Layout::format(input, cfg, passes.directive_scope);
         layout.trimmed = passes.trailing_spaces;
         layout.restyle(presentation.restyled());
         layout.collapse_scalars(&presentation.edits);

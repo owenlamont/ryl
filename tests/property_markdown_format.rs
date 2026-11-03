@@ -81,7 +81,7 @@ fn corpus_markdown_regions() {
 }
 
 fn arb_markdown() -> impl Strategy<Value = String> {
-    (wrap::arb_markdown_doc(), properties::arb_quoted_document()).prop_flat_map(|(host, quoted)| {
+    (wrap::arb_markdown_doc(), properties::arb_quoted_document(), crate::property::suppression::arb_document()).prop_flat_map(|(host, quoted, suppressed)| {
         prop::collection::vec(
             properties::arb_document_with_properties(),
             host.sections.len() + usize::from(host.front.is_some()),
@@ -101,6 +101,7 @@ fn arb_markdown() -> impl Strategy<Value = String> {
             let mut markdown = wrap::MarkdownDoc { front, sections, newline: host.newline }.render();
             markdown.push_str("\n# café\n\n```text\nuntouched: [1,2]\n```\n\n<!-- ordinary Markdown -->\n");
             markdown.push_str(&format!("\n```yaml\n{quoted}```\n"));
+            markdown.push_str(&format!("\n```yaml\n{}```\n", suppressed.text));
             markdown
         })
     })
@@ -184,6 +185,32 @@ fn run_invariants(markdown: &str) -> Result<(), TestCaseError> {
         check_config(markdown, &pass.name, &pass.cfg)?;
     }
     Ok(())
+}
+
+#[test]
+fn formatter_ignore_keeps_indentless_conversion_idempotent_in_markdown() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/format_suppression/indentless.txt"
+    ))
+    .unwrap();
+    let input = fixture["markdown"].as_str().unwrap();
+    let config = fixture["config"].as_str().unwrap();
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(config).unwrap();
+    check_config(input, config, &cfg).unwrap();
+    assert!(format(input, &cfg).contains("convert:\n- 3\n- 4\n"));
+}
+
+#[test]
+fn formatter_ignore_keeps_expanded_sibling_valid_in_markdown() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/format_suppression/expanded-sibling.txt"
+    ))
+    .unwrap();
+    let input = fixture["markdown"].as_str().unwrap();
+    let config = fixture["config"].as_str().unwrap();
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(config).unwrap();
+    run_invariants(input).unwrap();
+    check_config(input, config, &cfg).unwrap();
 }
 
 proptest! {

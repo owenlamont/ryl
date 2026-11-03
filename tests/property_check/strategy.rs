@@ -238,6 +238,8 @@ fn arb_bare_value() -> impl Strategy<Value = String> {
         Just("[ ]".to_string()),
         Just("{}".to_string()),
         Just("&anchor value".to_string()),
+        prop::sample::select(vec!["&empty", "!!str", "&empty !!str", "!!str &empty"])
+            .prop_map(str::to_owned),
         Just("*anchor".to_string()),
         Just("[&anchor value, *anchor]".to_string()),
         Just("[&anchor value, &anchor other, *anchor, *missing]".to_string()),

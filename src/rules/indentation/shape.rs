@@ -59,6 +59,10 @@ impl<'a> TightJoins<'a> {
         }
     }
 
+    pub(super) fn mapping_allowed(&self, at: usize) -> bool {
+        !self.permissions.is_format_mapping_disabled(at)
+    }
+
     fn allowed(&self, line: usize) -> bool {
         match self.spaces {
             SpacesSetting::Fixed(1) => false,
@@ -126,6 +130,7 @@ pub(super) fn from_tokens(
         || start.kind != Kind::BlockMappingStart
         || permissions.is_disabled(hyphens::ID, entry.line + 1)
         || permissions.is_disabled(hyphens::ID, start.line + 1)
+        || permissions.is_format_mapping_disabled(start.start)
     {
         return None;
     }

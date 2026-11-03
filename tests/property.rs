@@ -20,5 +20,7 @@ pub(super) mod settings;
 pub(super) mod stack;
 #[path = "property_safe_fix/strategy.rs"]
 pub(super) mod strategy;
+#[path = "property_format/suppression.rs"]
+pub(super) mod suppression;
 #[path = "property_markdown_fix/wrap.rs"]
 pub(super) mod wrap;

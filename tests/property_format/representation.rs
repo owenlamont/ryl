@@ -92,6 +92,7 @@ struct Recorder {
     /// whether it is a block node's start.
     starts: Vec<(usize, usize, bool)>,
     comments: Vec<Comment>,
+    comment_lines: Vec<usize>,
     dash_comments: BTreeSet<(usize, usize)>,
     /// the parser numbers anchors internally; ordinals of first definition are what the
     /// alias graph means.
@@ -102,6 +103,19 @@ struct Recorder {
 }
 
 impl Recorder {
+    fn count_delayed_empty_scalar(&mut self, line: usize) {
+        for (comment, &comment_line) in
+            self.comments.iter_mut().zip(&self.comment_lines)
+        {
+            if comment_line > line
+                && (!comment.inline || comment.ytt)
+                && comment.after_events == self.counted
+            {
+                comment.after_events += 1;
+            }
+        }
+    }
+
     fn inline_after_events(&self, line: usize) -> usize {
         let Some(&(last, ..)) = self.starts.last() else {
             return self.counted;
@@ -205,6 +219,7 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
                         self.counted
                     }
                 };
+                self.comment_lines.push(line);
                 self.comments.push(Comment {
                     after_events,
                     inline,
@@ -231,6 +246,9 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
             },
             Event::MappingEnd => Node::MappingEnd,
             Event::Scalar(value, style, anchor, tag) => {
+                if style == ScalarStyle::Plain && span.start == span.end {
+                    self.count_delayed_empty_scalar(line);
+                }
                 let corrected =
                     matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
                         .then(|| span.end.byte_offset())
