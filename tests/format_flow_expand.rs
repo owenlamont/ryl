@@ -93,6 +93,21 @@ fn a_commented_value_after_a_dash_stays_on_one_line() {
 }
 
 #[test]
+fn a_collection_in_a_key_value_entry_of_a_flow_sequence_is_respelled_too() {
+    formats(
+        "k: [a: [x, y]]\n",
+        "[format]\nsequence-expand = 'always'\n",
+        "k:\n  [\n    a:\n      [\n        x,\n        y,\n      ],\n  ]\n",
+    );
+}
+
+#[test]
+fn a_trailing_ytt_directive_keeps_its_collection_on_one_line() {
+    let input = "k: [aaaa, bbbb]  #@ overlay/match by=\"name\"\n";
+    formats(input, "[format]\nsequence-expand = 'always'\n", input);
+}
+
+#[test]
 fn a_trailing_comment_is_left_out_of_the_width() {
     let input = "k: [aaaa, bbbb]  # a long trailing comment\n";
     formats(input, &format!("line-length = 15\n{AUTO}"), input);

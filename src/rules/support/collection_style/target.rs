@@ -146,32 +146,45 @@ impl<'a> Planner<'a> {
         let mut pos = self.initial.open(index);
         for members in node.children().chunks(step) {
             characters += match *members {
-                [key, value] => {
-                    let kind = self.nodes[key].kind();
-                    if matches!(kind, Kind::Sequence | Kind::Mapping) {
-                        return None;
-                    }
-                    let key_width = self.copy(key, pos).ok()?.characters()
-                        + usize::from(kind == Kind::Alias);
-                    let gap = self.initial.key_gap(key);
-                    if gap.own().present() {
-                        key_width
-                            + 1
-                            + self.measure_member(
-                                value,
-                                gap.flow_start(),
-                                true,
-                                facts,
-                            )?
-                    } else {
-                        key_width
-                    }
-                }
+                [key, value] => self.measure_pair(key, value, pos, facts)?,
                 _ => self.measure_member(members[0], pos, false, facts)?,
             };
             pos = self.next_entry(members);
         }
         Some(characters)
+    }
+
+    fn measure_pair(
+        &self,
+        key: usize,
+        value: usize,
+        pos: Boundary,
+        facts: &[Facts],
+    ) -> Option<usize> {
+        let kind = self.nodes[key].kind();
+        if matches!(kind, Kind::Sequence | Kind::Mapping) {
+            return None;
+        }
+        let key_width =
+            self.copy(key, pos).ok()?.characters() + usize::from(kind == Kind::Alias);
+        let gap = self.initial.key_gap(key);
+        if !gap.own().present() {
+            return Some(key_width);
+        }
+        Some(
+            key_width
+                + 1
+                + self.measure_member(value, gap.flow_start(), true, facts)?,
+        )
+    }
+
+    /// The key and value of `index` where it is a `key: value` entry of a flow sequence.
+    fn implicit_pair(&self, index: usize) -> Option<(usize, usize)> {
+        let site = self.initial.collection(index);
+        match *self.nodes[index].children() {
+            [key, value] if site.flow() && !site.braced() => Some((key, value)),
+            _ => None,
+        }
     }
 
     fn measure_member(
@@ -181,6 +194,9 @@ impl<'a> Planner<'a> {
         value: bool,
         facts: &[Facts],
     ) -> Option<usize> {
+        if let Some((key, pair_value)) = self.implicit_pair(index) {
+            return self.measure_pair(key, pair_value, pos, facts);
+        }
         if !self.initial.collection(index).braced()
             || self.nodes[index].children().is_empty()
         {
@@ -524,6 +540,9 @@ impl<'a> Planner<'a> {
             value,
             comma,
         } = member;
+        if let Some((key, pair_value)) = self.implicit_pair(index) {
+            return self.pair(key, pair_value, pos, entries, recipe);
+        }
         if !self.initial.collection(index).braced()
             || self.nodes[index].children().is_empty()
         {
