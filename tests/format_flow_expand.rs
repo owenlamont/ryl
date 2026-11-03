@@ -488,3 +488,13 @@ fn never_collapses_and_preserve_keeps_the_other_kind() {
         "a: [x, y]\nb: {k: [p, q]}\nc: {k: 1,\n    j: 2}\n",
     );
 }
+
+#[test]
+fn an_anchored_item_under_dash_on_own_line_is_measured_beside_its_dash() {
+    formats(
+        "k:\n  - &a {b: {c: [xx, yy]}}\n",
+        "indent-width = 4\nline-length = 22\n[format]\nmapping-style = 'block'\n\
+         dash-on-own-line = true\nsequence-expand = 'auto'\nmapping-expand = 'auto'\n",
+        "k:\n    - &a\n      b:\n          c: [xx, yy]\n",
+    );
+}

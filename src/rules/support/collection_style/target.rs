@@ -856,7 +856,12 @@ impl<'a> Planner<'a> {
     /// The column a block body converted from sequence item `index` starts at, after
     /// its `-` at `dash`.
     fn item_column(&self, index: usize, dash: usize) -> usize {
-        if self.nodes[index].kind() == Kind::Mapping && self.shape.dash_on_own_line {
+        // Properties keep the item's body beside its dash, so `dash-on-own-line` cannot
+        // move it.
+        if self.nodes[index].kind() == Kind::Mapping
+            && self.shape.dash_on_own_line
+            && self.initial.properties_start(index) == self.initial.start_of(index)
+        {
             dash + self.indent
         } else {
             dash + 2
