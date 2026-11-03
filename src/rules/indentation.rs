@@ -525,6 +525,9 @@ struct Analyzer<'a> {
     scalar_owners: Option<Vec<(usize, usize)>>,
     block_tails: Vec<BlockTail>,
     gaps: Vec<Gap>,
+    /// Whether the last value pushed starts with an anchor and a tag on one line, so
+    /// its indent waits for the second of them to show where its body starts.
+    paired: bool,
 }
 
 /// The line after a block scalar whose body ends before it, with the body's shift and a
@@ -575,6 +578,7 @@ impl<'a> Analyzer<'a> {
             scalar_owners: None,
             block_tails: Vec::new(),
             gaps: Vec::new(),
+            paired: false,
         }
     }
 
@@ -827,6 +831,7 @@ impl<'a> Analyzer<'a> {
                 });
             }
             Kind::Value => self.push_value(prev, next, nextnext)?,
+            Kind::Property => self.settle_paired(token, prev, next),
             _ => {}
         }
         Ok(())
@@ -858,18 +863,46 @@ impl<'a> Analyzer<'a> {
         {
             return Ok(());
         }
+        let indent = self.value_indent(key, next, next.line == prev_line);
+        self.stack.push(Parent::new(ParentKind::Value, indent));
+        self.paired = next.kind == Kind::Property
+            && nextnext.is_some_and(|after| {
+                after.kind == Kind::Property && after.line == next.line
+            });
+        Ok(())
+    }
+
+    /// The indent of `key`'s value, whose first token is `next`.
+    fn value_indent(&mut self, key: Parent, next: &Token, same_line: bool) -> isize {
         let next_column = self.column(next);
-        let indent = if key.explicit_key {
+        if key.explicit_key {
             self.detect_indent(key.indent, next_column)
-        } else if next.line == prev_line {
+        } else if same_line {
             next_column
         } else if next.is(&[Kind::BlockSequenceStart, Kind::BlockEntry]) {
             self.sequence_value_indent(key.indent, next_column)
         } else {
             self.detect_indent(key.indent, next_column)
-        };
-        self.stack.push(Parent::new(ParentKind::Value, indent));
-        Ok(())
+        }
+    }
+
+    /// Indents a value led by an anchor and a tag from its key, as a lone one is, once
+    /// the second shows its body starts on a later line.
+    fn settle_paired(&mut self, token: &Token, prev: Option<&Token>, next: &Token) {
+        if !(self.paired && prev.is_some_and(|prev| prev.kind == Kind::Property)) {
+            return;
+        }
+        self.paired = false;
+        if next.line > token.line {
+            let key = self.below_top();
+            let indent = self.value_indent(key, next, false);
+            let value = self
+                .stack
+                .last_mut()
+                .expect("a paired value is on the stack");
+            value.indent = indent;
+            value.line_indent = indent;
+        }
     }
 
     fn sequence_value_indent(

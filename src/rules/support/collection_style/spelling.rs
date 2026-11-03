@@ -75,11 +75,6 @@ impl Fragment {
         self.empty
     }
 
-    /// Whether the fragment, a node's properties, holds both an anchor and a tag.
-    pub(super) fn paired(&self, buffer: &str) -> bool {
-        buffer[self.range.start..self.range.end].contains([' ', '\t'])
-    }
-
     pub(super) fn selected(
         mut self,
         input: &str,

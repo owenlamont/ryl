@@ -39,6 +39,10 @@ summarize user-visible changes from the tagged commits and published release rec
   alone, now becomes block, and each collection nested in it stays flow only where it
   fits. Under `brace-spacing = true` the fit now counts the braces' padding.
   ([#649](https://github.com/owenlamont/ryl/issues/649))
+- `indentation` expects a block body after a value's anchor and tag
+  (`a: &x !!map`) `indent-width` past its key, as after a lone anchor or tag, rather
+  than at the anchor's column as yamllint does; `ryl format` re-indents such bodies
+  once. ([#913](https://github.com/owenlamont/ryl/pull/913))
 - `ryl check` sorts each file's diagnostics by line, column, then rule ID, as yamllint
   and ruff do, rather than grouping them by rule. Files stay in input order.
   ([#905](https://github.com/owenlamont/ryl/issues/905))

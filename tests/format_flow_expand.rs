@@ -132,14 +132,16 @@ fn flow_style_turns_an_overflowing_collection_into_block_level_by_level() {
     );
 }
 
-// Re-indenting puts a block body after an anchor and a tag at their column, not
-// `indent-width` past its key.
+// The nested mapping's line is 76 characters under its key, and would be 81 at the
+// anchor's column.
 #[test]
-fn flow_style_measures_children_under_paired_properties_at_their_column() {
+fn flow_style_measures_children_under_an_anchor_and_a_tag_from_their_key() {
     formats(
-        "collection_2: &a9 !local [&a8 [&a7 ! '---'], \"tab\\there\", \"café \\\"quoted\\\"\"]\n",
-        "line-length = 30\n[format]\nsequence-style = 'flow'\nmapping-style = 'flow'\n",
-        "collection_2: &a9 !local\n              - &a8\n                - &a7 ! ---\n              - \"tab\\there\"\n              - café \"quoted\"\n",
+        "x: {o'41': &a3 !!str {\"9223372036854775808\": \"2002-12-14\", '0o+7': ! {':&\"{&🦀': \
+         !!bool FALSE, \"--- x\": &a2 !!str '2002-12-14', z: '0o+7'}}}\n",
+        "[format]\nsequence-style = 'block'\nmapping-style = 'flow'\n",
+        "x:\n  o'41': &a3 !!str\n    '9223372036854775808': '2002-12-14'\n    0o+7: ! \
+         {':&\"{&🦀': !!bool FALSE, --- x: &a2 !!str '2002-12-14', z: 0o+7}\n",
     );
 }
 

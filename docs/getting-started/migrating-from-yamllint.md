@@ -382,6 +382,22 @@ an error (and `--fix`/`--diff` skip with a notice) telling you to convert the fi
 LF or CRLF. The YAML *inside* an LF/CRLF Markdown host (itself free of bare `\r`) is
 linted CR-aware like any other.
 
+### A block body after an anchor and a tag
+
+`indentation` expects a block body after a value's anchor and tag, as in
+`a: &x !!map`, `indent-width` past its key, as it does after a lone anchor or tag.
+yamllint expects that body at the anchor's column instead, because it looks past only
+one property before the body:
+
+```yaml
+k:
+  a: &x !!map
+    b: 1   # ryl: correct; yamllint: "expected 5 but found 4"
+```
+
+**Why ryl differs:** an anchor and a tag together are still the value's properties,
+and where the body starts should not depend on how many of them there are.
+
 ### Strict indentation
 
 ryl rejects under-indented flow collections and scalar continuations that yamllint's

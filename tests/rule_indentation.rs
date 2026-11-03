@@ -619,3 +619,24 @@ fn bom_between_documents_keeps_block_scalar_indentation() {
     assert_eq!(output.text, "é: x\n...\n\u{feff}---\né: |\n    😀\n");
     assert!(indentation::check(&output.text, &cfg).is_empty());
 }
+
+#[test]
+fn a_body_after_an_anchor_and_a_tag_indents_from_its_key() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let input = "k:\n  a: &x !!map\n        b: 1\n  c: &y\n        d: 1\n  \
+                 g: &z !!seq\n        - h\n  s: &w !!str x\n";
+    let output = indentation::reindent(input, &cfg);
+    assert_eq!(
+        output.text,
+        "k:\n  a: &x !!map\n    b: 1\n  c: &y\n    d: 1\n  g: &z !!seq\n    - h\n  \
+         s: &w !!str x\n"
+    );
+    assert_eq!(
+        indentation::check("k:\n  a: &x !!map\n     b: 1\n", &cfg),
+        vec![Violation {
+            line: 3,
+            column: 6,
+            message: "wrong indentation: expected 4 but found 5".to_string(),
+        }]
+    );
+}

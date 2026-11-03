@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
-use ryl::config_schema::CollectionStyleTarget;
+use ryl::config_schema::{CollectionStyleTarget, ExpandTarget};
 
 use crate::property::{config::synthetic_path, reference, representation};
 
@@ -83,8 +83,19 @@ impl Document {
              copy{colon}*root\n{blanks}"
         ));
         let targets = cfg.format().targets();
-        if on("brackets") && targets.sequence_style != CollectionStyleTarget::Preserve {
+        // Under `always`, a `flow` target leaves a block collection block.
+        let keeps_block = |style, expand| {
+            style == CollectionStyleTarget::Flow && expand == ExpandTarget::Always
+        };
+        if on("brackets")
+            && targets.sequence_style != CollectionStyleTarget::Preserve
+            && !keeps_block(targets.sequence_style, targets.sequence_expand)
+        {
             text.push_str(&format!("{quote}q -  s{quote}{colon}\n{pad}{dash}z\n"));
+        } else if on("brackets") && targets.sequence_expand != ExpandTarget::Preserve {
+            text.push_str(&format!(
+                "{quote}q -  s{quote}{colon}[\n{pad}z{comma}\n{pad}]\n"
+            ));
         } else {
             text.push_str(&format!(
                 "{quote}q -  s{quote}{colon}[{bracket}z{bracket}]\n"
@@ -92,6 +103,10 @@ impl Document {
         }
         if on("braces") && targets.mapping_style == CollectionStyleTarget::Block {
             text.push_str(&format!("{quote}q -  m{quote}{colon}\n{pad}a{colon}z\n"));
+        } else if on("braces") && targets.mapping_expand != ExpandTarget::Preserve {
+            text.push_str(&format!(
+                "{quote}q -  m{quote}{colon}{{\n{pad}a{colon}z\n{pad}}}\n"
+            ));
         } else {
             text.push_str(&format!(
                 "{quote}q -  m{quote}{colon}{{{brace}a{colon}z{brace}}}\n"
@@ -134,15 +149,18 @@ fn arb_config() -> impl Strategy<Value = String> {
         1u8..=4,
         prop::sample::select(vec!["preserve", "block", "flow"]),
         prop::sample::select(vec!["preserve", "block", "flow"]),
+        prop::sample::select(vec!["preserve", "auto", "always", "never"]),
+        prop::sample::select(vec!["preserve", "auto", "always", "never"]),
     )
-        .prop_map(|(indent, width, double, crlf, brace, sequences, dash, gap, sequence, mapping)| {
+        .prop_map(|(indent, width, double, crlf, brace, sequences, dash, gap, sequence, mapping, sequence_expand, mapping_expand)| {
             format!(
                 "indent-width = {indent}\nline-length = {width}\n[format]\n\
                  quote-style = '{}'\nline-ending = '{}'\nbrace-spacing = {brace}\n\
                  indent-sequences = {sequences}\ndash-on-own-line = {dash}\n\
                  comment-spacing = {gap}\ncomment-starting-space = 'add'\n\
                  document-start = 'add'\ndocument-end = 'add'\nmax-blank-lines = 0\n\
-                 fold-long-lines = true\nsequence-style = '{sequence}'\nmapping-style = '{mapping}'\n",
+                 fold-long-lines = true\nsequence-style = '{sequence}'\nmapping-style = '{mapping}'\n\
+                 sequence-expand = '{sequence_expand}'\nmapping-expand = '{mapping_expand}'\n",
                 if double { "double" } else { "single" },
                 if crlf { "cr-lf" } else { "lf" },
             )
@@ -208,6 +226,27 @@ fn every_scrambler_changes_presentation_and_converges() {
         assert_ne!(format(&scrambled, &cfg), scrambled, "{rules:?}");
         check_confluence(&input, &scrambled, &|text| format(text, &cfg))
             .unwrap_or_else(|error| panic!("{rules:?}: {error}"));
+    }
+}
+
+#[test]
+fn spread_flow_collections_converge_under_each_expand_target() {
+    let document = Document {
+        words: vec!["alpha".into(), "beta".into(), "delta".into()],
+        amount: 2,
+    };
+    for expand in ["auto", "always", "never"] {
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[format]\nsequence-expand = '{expand}'\nmapping-expand = '{expand}'\n"
+        ))
+        .unwrap();
+        let input = document.render(&[], &cfg);
+        for rules in [vec!["brackets"], vec!["braces"]] {
+            let scrambled = document.render(&rules, &cfg);
+            assert_ne!(input, scrambled, "{expand} {rules:?}");
+            check_confluence(&input, &scrambled, &|text| format(text, &cfg))
+                .unwrap_or_else(|error| panic!("{expand} {rules:?}: {error}"));
+        }
     }
 }
 

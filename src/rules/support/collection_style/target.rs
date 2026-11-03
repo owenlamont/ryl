@@ -655,15 +655,10 @@ impl<'a> Planner<'a> {
     /// The final column a block body converted from the outermost collection `index`
     /// starts at.
     fn body_column(&self, index: usize, place: &Placement) -> usize {
-        let properties = self.initial.properties(place.boundary(), index);
         match self.nodes[index]
             .parent()
             .map(|parent| self.nodes[parent].kind())
         {
-            // Re-indenting puts a body after an anchor and a tag at their column.
-            _ if properties.paired(self.initial.text()) => {
-                place.column + usize::from(place.lead)
-            }
             Some(Kind::Mapping) => place.base + self.body_indent(index),
             Some(_) => self.item_column(index, place.column - 1),
             None => 0,
