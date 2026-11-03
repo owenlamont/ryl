@@ -161,9 +161,16 @@ impl Spelling {
     pub(super) fn materialize(selected: target::Selected, retained: &str) -> Self {
         let text = match selected.into_recipe() {
             target::Recipe::Text(text) => text,
-            target::Recipe::SingleRetainedMultiline => {
+            target::Recipe::RetainedMultiline(QuoteStyle::Single) => {
                 quote_value(&retained.replace("\\\"", "\""), QuoteStyle::Single)
             }
+            target::Recipe::RetainedMultiline(QuoteStyle::Double) => format!(
+                "\"{}\"",
+                retained
+                    .replace("''", "'")
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"")
+            ),
         };
         Self(text)
     }

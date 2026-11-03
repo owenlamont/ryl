@@ -200,6 +200,11 @@
           "description": "Whether a block sequence under a mapping key is indented past the key.",
           "type": "boolean"
         },
+        "keep-quotes": {
+          "default": false,
+          "description": "Whether to keep optional quotes while selecting their quote style.",
+          "type": "boolean"
+        },
         "line-ending": {
           "$ref": "#/$defs/LineEndingTarget",
           "default": "lf",

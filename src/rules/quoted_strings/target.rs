@@ -6,8 +6,8 @@ use crate::text_version::model::Scalar;
 use ryl_yaml_parser::ScalarStyle;
 
 use super::{
-    Config, Flag, QuoteStyle, QuoteType, RequiredMode, ScalarQuoteFacts,
-    configured_quote_type_matches, contains_non_printable,
+    Config, Flag, QuoteRetention, QuoteStyle, QuoteType, RequiredMode,
+    ScalarQuoteFacts, configured_quote_type_matches, contains_non_printable,
     contains_plain_indicator_token, escaped_double_quote_exception, ladder_target,
     plain_scalar_equivalent, quote_style, quote_value,
     quoted_scalar_contains_opposite_quote, value_needs_double_quotes_for_content,
@@ -55,7 +55,7 @@ pub(super) struct Eligible<'text>(Scalar<'text>);
 
 pub(super) enum Recipe {
     Text(String),
-    SingleRetainedMultiline,
+    RetainedMultiline(QuoteStyle),
 }
 
 pub(super) struct Selected(Recipe);
@@ -165,11 +165,12 @@ impl<'cfg, 'state> Planner<'cfg, 'state> {
                 }
                 if let Some(preferred) = self.config.avoid_escapes {
                     let target = ladder_target(preferred, style_kind, value, facts);
-                    if target == QuoteStyle::Single
-                        && style_kind == QuoteStyle::Double
+                    if target != style_kind
                         && initial.multiline()
+                        && (target == QuoteStyle::Single
+                            || self.config.retention == QuoteRetention::Existing)
                     {
-                        return Some(Recipe::SingleRetainedMultiline);
+                        return Some(Recipe::RetainedMultiline(target));
                     }
                     return (target != style_kind)
                         .then(|| {
@@ -197,7 +198,10 @@ impl<'cfg, 'state> Planner<'cfg, 'state> {
             style_kind,
             facts.has_double_quote_escape.get(),
         );
-        facts.extra_required.get() || facts.extra_allowed.get() || has_escape_exception
+        self.config.retention == QuoteRetention::Existing
+            || facts.extra_required.get()
+            || facts.extra_allowed.get()
+            || has_escape_exception
     }
 
     fn default_quote_style(&mut self) -> QuoteStyle {

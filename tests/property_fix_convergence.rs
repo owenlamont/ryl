@@ -303,7 +303,7 @@ fn assert_converges(
                 parse_for_compare_migrated(input, cfg).filter(|_| fixed != input)
             {
                 prop_assert!(
-                    parse_for_compare(&fixed).as_ref() == Some(&before)
+                    parse_for_compare_migrated(&fixed, cfg).as_ref() == Some(&before)
                         || reference_safe_eof_append(input, &fixed),
                     "safe fixes changed the loaded value under config '{}'; input {:?}",
                     cfg_name,
@@ -334,6 +334,34 @@ fn assert_converges(
     Err(TestCaseError::fail(format!(
         "fix pipeline did not converge within {FIX_PIPELINE_MAX_PASSES} passes under config '{cfg_name}'; input {input:?}; states {seen:?}"
     )))
+}
+
+#[test]
+fn declined_version_migration_keeps_comparison_in_the_declared_schema() {
+    let input = "%YAML 1.1\r---\rg: false\rdwfgj4_:\r  b :  |2+   \r    \r    rgz99u \r\r    #epc9063 \r\r\r\r  # after \t\r  b: {  ':é世': no,'FALSE': '.\"1é?',x86mqf: '>é*',\"'a'&*\": [  ]  }\t\t \t#  @overlay/match missing_ok=True\r";
+    let cfg = named_config("target-1.2-toml");
+    let fixed = apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
+    assert_ne!(fixed, input);
+    assert!(fixed.starts_with("%YAML 1.1\r"));
+    assert_converges(input, cfg, "target-1.2-toml").unwrap();
+}
+
+#[test]
+fn version_aware_comparison_still_rejects_changed_resolved_values() {
+    let cfg = named_config("target-1.2-toml");
+    let before = parse_for_compare_migrated("%YAML 1.1\n---\na: no\n", cfg);
+    assert_eq!(
+        before,
+        parse_for_compare_migrated("%YAML 1.2\n---\na: false\n", cfg)
+    );
+    assert_ne!(
+        before,
+        parse_for_compare_migrated("%YAML 1.2\n---\na: no\n", cfg)
+    );
+    assert_ne!(
+        before,
+        parse_for_compare_migrated("%YAML 1.1\n---\na: yes\n", cfg)
+    );
 }
 
 proptest! {

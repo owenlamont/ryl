@@ -10,6 +10,28 @@ use ryl::config_schema::{
 };
 use serde_json::{Value, json};
 
+#[test]
+fn quote_retention_is_a_boolean_formatter_target_with_a_false_default() {
+    assert!(
+        !ryl::config::YamlLintConfig::from_toml_str("[format]\n")
+            .unwrap()
+            .format()
+            .targets()
+            .keep_quotes
+    );
+    for keep in [true, false] {
+        let config = ryl::config::YamlLintConfig::from_toml_str(&format!(
+            "[format]\nkeep-quotes = {keep}\n"
+        ))
+        .unwrap();
+        assert_eq!(config.format().targets().keep_quotes, keep);
+    }
+    assert!(
+        ryl::config::YamlLintConfig::from_toml_str("[format]\nkeep-quotes = 'true'\n")
+            .is_err()
+    );
+}
+
 fn toml_to_json(input: &str) -> Value {
     let parsed: toml::Table = input.parse().expect("valid TOML fixture");
     serde_json::to_value(parsed).expect("TOML value should serialize to JSON")

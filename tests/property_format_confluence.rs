@@ -61,8 +61,9 @@ impl Document {
         };
         let tail = if on("trailing-spaces") { &spaces } else { "" };
         let blanks = if on("empty-lines") { "\n\n\n" } else { "" };
+        let targets = cfg.format().targets();
         let prose = self.words.join(" ");
-        let prose = if on("line-length") {
+        let prose = if on("line-length") && !targets.keep_quotes {
             self.words.join(&format!("\n{pad}{pad}"))
         } else {
             prose
@@ -82,7 +83,6 @@ impl Document {
              {pad}literal: |-\n{pad}{pad}{word}\n\
              copy{colon}*root\n{blanks}"
         ));
-        let targets = cfg.format().targets();
         // Under `always`, a `flow` target leaves a block collection block.
         let keeps_block = |style, expand| {
             style == CollectionStyleTarget::Flow && expand == ExpandTarget::Always
@@ -149,13 +149,16 @@ fn arb_config() -> impl Strategy<Value = String> {
         1u8..=4,
         prop::sample::select(vec!["preserve", "block", "flow"]),
         prop::sample::select(vec!["preserve", "block", "flow"]),
-        prop::sample::select(vec!["preserve", "auto", "always", "never"]),
-        prop::sample::select(vec!["preserve", "auto", "always", "never"]),
+        (
+            prop::sample::select(vec!["preserve", "auto", "always", "never"]),
+            prop::sample::select(vec!["preserve", "auto", "always", "never"]),
+            any::<bool>(),
+        ),
     )
-        .prop_map(|(indent, width, double, crlf, brace, sequences, dash, gap, sequence, mapping, sequence_expand, mapping_expand)| {
+        .prop_map(|(indent, width, double, crlf, brace, sequences, dash, gap, sequence, mapping, (sequence_expand, mapping_expand, keep_quotes))| {
             format!(
                 "indent-width = {indent}\nline-length = {width}\n[format]\n\
-                 quote-style = '{}'\nline-ending = '{}'\nbrace-spacing = {brace}\n\
+                 quote-style = '{}'\nkeep-quotes = {keep_quotes}\nline-ending = '{}'\nbrace-spacing = {brace}\n\
                  indent-sequences = {sequences}\ndash-on-own-line = {dash}\n\
                  comment-spacing = {gap}\ncomment-starting-space = 'add'\n\
                  document-start = 'add'\ndocument-end = 'add'\nmax-blank-lines = 0\n\
@@ -193,6 +196,26 @@ fn check_confluence(
 
 fn format(input: &str, cfg: &YamlLintConfig) -> String {
     ryl::format::format_str(input, cfg, synthetic_path(), &[])
+}
+
+#[test]
+fn retained_quote_styles_converge_with_identical_physical_breaks() {
+    for style in ["single", "double"] {
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[format]\nkeep-quotes = true\nquote-style = '{style}'\n",
+        ))
+        .unwrap();
+        check_confluence(
+            "text: 'hello\n  world'\n",
+            "text: \"hello\n  world\"\n",
+            &|text| format(text, &cfg),
+        )
+        .unwrap();
+        assert_ne!(
+            format("text: hello\n", &cfg),
+            format("text: 'hello'\n", &cfg)
+        );
+    }
 }
 
 #[test]

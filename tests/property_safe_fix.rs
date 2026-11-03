@@ -151,7 +151,7 @@ proptest! {
             if fixed == input {
                 continue;
             }
-            let after = parse_for_compare(&fixed).ok_or_else(|| {
+            let after = parse_for_compare_migrated(&fixed, cfg).ok_or_else(|| {
                 TestCaseError::fail(format!(
                     "safe fix broke a previously-parseable document under config '{cfg_name}'; input {input:?}; fixed {fixed:?}"
                 ))

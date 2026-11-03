@@ -114,6 +114,8 @@ pub struct LintTable {
 pub struct FormatTable {
     /// Preferred quote for strings that need quoting; `preserve` leaves quoting alone.
     pub quote_style: QuoteStyleTarget,
+    /// Whether to keep optional quotes while selecting their quote style.
+    pub keep_quotes: bool,
     /// Line ending; `native` is the platform's, `auto` the one most of the file uses.
     pub line_ending: LineEndingTarget,
     /// Whether to add a missing `---` document start marker.
@@ -152,6 +154,7 @@ impl Default for FormatTable {
     fn default() -> Self {
         Self {
             quote_style: QuoteStyleTarget::Single,
+            keep_quotes: false,
             line_ending: LineEndingTarget::Lf,
             document_start: MarkerTarget::Preserve,
             document_end: MarkerTarget::Preserve,

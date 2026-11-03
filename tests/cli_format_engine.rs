@@ -49,6 +49,78 @@ fn assert_format_batch(config: &str, cases: &[(String, String)], commands: &[&[&
 }
 
 #[test]
+fn keep_quotes_retains_optional_values_and_keys_without_quoting_plain_strings() {
+    let input =
+        "plain: hello\ntext: \"hello\"\nsingle: 'world'\n'quoted key': 'café'\n";
+    for (style, expected) in [
+        (
+            "single",
+            "plain: hello\ntext: 'hello'\nsingle: 'world'\n'quoted key': 'café'\n",
+        ),
+        (
+            "double",
+            "plain: hello\ntext: \"hello\"\nsingle: \"world\"\n\"quoted key\": \"café\"\n",
+        ),
+        ("preserve", input),
+    ] {
+        let config = format!("[format]\nkeep-quotes = true\nquote-style = '{style}'\n");
+        let (code, _, stderr, formatted) = format_file(Some(&config), input, &[]);
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(formatted, expected, "{style}");
+        let (code, _, stderr, again) = format_file(Some(&config), &formatted, &[]);
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(again, expected, "{style}");
+    }
+}
+
+#[test]
+fn retained_multiline_quotes_take_either_style_without_joining_lines() {
+    for newline in ["\n", "\r\n"] {
+        for style in ["single", "double"] {
+            let quote = if style == "single" { '\'' } else { '"' };
+            let config = format!(
+                "[format]\nkeep-quotes = true\nquote-style = '{style}'\nline-ending = '{}'\n",
+                if newline == "\n" { "lf" } else { "cr-lf" },
+            );
+            for original in ['\'', '"'] {
+                let input = format!("text: {original}hello\n\n  world{original}\n")
+                    .replace('\n', newline);
+                let expected = format!("text: {quote}hello\n\n  world{quote}\n")
+                    .replace('\n', newline);
+                for (prefix, suffix, args) in [
+                    ("", "", &[][..]),
+                    ("text\n```yaml\n", "```\n", &["--markdown"][..]),
+                ] {
+                    let input = format!("{prefix}{input}{suffix}");
+                    let expected = format!("{prefix}{expected}{suffix}");
+                    let (code, _, stderr, formatted) =
+                        format_file(Some(&config), &input, args);
+                    assert_eq!(code, 0, "{stderr}");
+                    assert_eq!(formatted, expected, "{style}: {original}");
+                    let (code, _, stderr, again) =
+                        format_file(Some(&config), &formatted, args);
+                    assert_eq!(code, 0, "{stderr}");
+                    assert_eq!(again, expected, "{style}: {original}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn retained_quotes_keep_escape_and_scalar_style_safeguards() {
+    let input = "number: '123'\nplain: it's\ntext: 'it''s\\path\n  world'\nescaped: \"tab\\there\"\ntagged: !!str 'hello'\nblock: |\n  hello\n";
+    let expected = "number: \"123\"\nplain: it's\ntext: \"it's\\\\path\n  world\"\nescaped: \"tab\\there\"\ntagged: !!str 'hello'\nblock: |\n  hello\n";
+    let config = "[format]\nkeep-quotes = true\nquote-style = 'double'\n";
+    let (code, _, stderr, formatted) = format_file(Some(config), input, &[]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(formatted, expected);
+    let (code, _, stderr, again) = format_file(Some(config), &formatted, &[]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(again, expected);
+}
+
+#[test]
 fn multiline_double_quotes_take_single_style_in_yaml_and_markdown() {
     for newline in ["\n", "\r\n"] {
         let config = format!(

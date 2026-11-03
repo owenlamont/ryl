@@ -103,6 +103,22 @@ fn agreeing_configs_are_silent() {
 }
 
 #[test]
+fn quote_retention_warnings_recommend_options_that_accept_optional_quotes() {
+    for style in ["single", "double"] {
+        let config = format!(
+            "[format]\nkeep-quotes = true\nquote-style = '{style}'\n\
+             [lint.rules.quoted-strings]\nquote-type = '{style}'\nrequired = 'only-when-needed'\n",
+        );
+        let warnings = conflicts(&config, true, &[]);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("keep-quotes = true"), "{warnings:?}");
+        assert!(warnings[0].contains("required = false"), "{warnings:?}");
+        let config = config.replace("required = 'only-when-needed'", "required = false\nallow-double-quotes-for-escaping = true\nallow-quoted-quotes = true");
+        assert!(conflicts(&config, true, &[]).is_empty(), "{config}");
+    }
+}
+
+#[test]
 fn native_lint_endings_agree_only_with_the_native_formatter_ending() {
     assert_eq!(
         warned_rules("rules: {new-lines: {type: platform}}", false),

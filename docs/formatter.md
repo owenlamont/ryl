@@ -101,6 +101,7 @@ config cannot set it, so YAML-configured projects get the defaults.
 ```toml
 [format]
 quote-style = "single"
+keep-quotes = false
 line-ending = "lf"
 document-start = "preserve"
 document-end = "preserve"
@@ -122,6 +123,7 @@ dash-on-own-line = false
 | Key | Default | Values | What it sets |
 | :--- | :--- | :--- | :--- |
 | `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
+| `keep-quotes` | `false` | `true`, `false` | Keep existing optional quotes while `quote-style` selects their character; plain strings stay plain. |
 | `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"`, `"auto"` | Line endings, including the final newline; `"native"` is the platform's, and `"auto"` keeps the ending most of the file's lines use (`"lf"` on a tie or a file without line breaks). |
 | `document-start` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
@@ -185,6 +187,7 @@ double quotes to single, and can indent flush sequences. Migration writes
 | Default | Why |
 | :--- | :--- |
 | `quote-style = "single"` | yamlfix's default; see [Quote style](#quote-style) for when it applies |
+| `keep-quotes = false` | Removes unnecessary quotes; retaining them is opt-in |
 | `line-ending = "lf"` | The default of prettier |
 | `document-start = "preserve"` | prettier keeps a file's markers as written |
 | `document-end = "preserve"` | No formatter adds `...`; prettier keeps it |
@@ -352,8 +355,8 @@ block rather than become a spread flow one.
 
 ## Quote style
 
-`ryl format` quotes a string only where its plain form would load as something else,
-using `quote-style`:
+By default, `ryl format` quotes a string only where its plain form would load as
+something else, using `quote-style`:
 
 ```yaml
 # before
@@ -385,6 +388,27 @@ clean. So do `"y"`, `"Y"`, `"n"` and `"N"`, which go-yaml v2, and so Kubernetes,
 as booleans. Mapping keys follow the same rules. A document that declares `%YAML 1.2`,
 or any document under the top-level `target-version = "1.2"`, drops those 1.1-only
 quotes; see [YAML version compatibility](yaml-version.md#how-ryl-handles-yaml-versions).
+
+Set `keep-quotes = true` to retain optional quotes while normalizing their character
+with the same escape-avoidance rules. Plain strings stay plain, and multi-line quoted
+strings keep their physical line breaks when their quote character changes. With
+`quote-style = "preserve"`, quoting stays untouched regardless of `keep-quotes`.
+
+```toml
+[format]
+keep-quotes = true
+quote-style = "double"
+```
+
+```yaml
+# before
+plain: hello
+quoted: 'hello'
+
+# after
+plain: hello
+quoted: "hello"
+```
 
 ## Preview style
 
