@@ -252,24 +252,32 @@ pub(crate) fn align_trailing(
     candidates: &mut crate::rules::indentation::Candidates,
     permission: crate::format::layout::Permission<'_>,
 ) {
-    let Some(admission) = target::TrailingAdmission::new(
-        config,
-        candidates.last_token,
-        input::Projected::new(&layout.lines),
-    ) else {
+    if config != Some(Config::default()) {
         return;
-    };
-    let columns = (0..=candidates.last_token.unwrap_or(0))
-        .map(|line| layout.column(line, candidates.deltas[line]));
-    let mut planner =
-        target::Trailing::new(admission, RetainedLines(build_lines(source)), columns);
-    for line in planner.first()..layout.lines.len() {
-        let column = layout.column(line, candidates.deltas[line]);
-        let anchor = column.source_anchor();
-        if let Some(delta) = planner.line(line, column)
-            && permission.allows(anchor, anchor)
-        {
-            candidates.deltas[line] = delta;
+    }
+    let retained = build_lines(source);
+    for tail in &candidates.document_tails {
+        let Some(admission) = target::TrailingAdmission::new(
+            tail.start,
+            input::Projected::new(&layout.lines[..tail.end]),
+        ) else {
+            continue;
+        };
+        let columns =
+            (0..=tail.start).map(|line| layout.column(line, candidates.deltas[line]));
+        let mut planner = target::Trailing::new(
+            admission,
+            RetainedLines(std::borrow::Cow::Borrowed(&retained)),
+            columns,
+        );
+        for line in planner.first()..tail.end {
+            let column = layout.column(line, candidates.deltas[line]);
+            let anchor = column.source_anchor();
+            if let Some(delta) = planner.line(line, column)
+                && permission.allows(anchor, anchor)
+            {
+                candidates.deltas[line] = delta;
+            }
         }
     }
 }

@@ -7,6 +7,7 @@ pub(super) struct Trailing<'a> {
     lines: super::RetainedLines<'a>,
     own: super::input::Projected<'a>,
     reference: isize,
+    shifted_right: bool,
     first: usize,
 }
 
@@ -16,14 +17,8 @@ pub(super) struct TrailingAdmission<'a> {
 }
 
 impl<'a> TrailingAdmission<'a> {
-    pub(super) fn new(
-        config: Option<super::Config>,
-        last: Option<usize>,
-        own: super::input::Projected<'a>,
-    ) -> Option<Self> {
-        let last = last?;
-        (config? == super::Config::default() && own.has_comments_after(last))
-            .then_some(Self { own, last })
+    pub(super) fn new(last: usize, own: super::input::Projected<'a>) -> Option<Self> {
+        own.has_comments_after(last).then_some(Self { own, last })
     }
 }
 
@@ -33,13 +28,17 @@ impl<'a> Trailing<'a> {
         lines: super::RetainedLines<'a>,
         mut columns: impl DoubleEndedIterator<Item = crate::rules::indentation::Column>,
     ) -> Self {
-        let reference = columns
+        let (reference, shifted_right) = columns
             .rfind(|column| lines.kind(column.origin()) == Some(LineKind::Other))
-            .map_or(0, |column| column.current());
+            .map_or((0, false), |column| {
+                let current = column.current();
+                (current, column.delta_to(current) > 0)
+            });
         Self {
             lines,
             own: admission.own,
             reference,
+            shifted_right,
             first: admission.last + 1,
         }
     }
@@ -57,7 +56,7 @@ impl<'a> Trailing<'a> {
             return None;
         }
         if self.lines.kind(column.origin()) == Some(LineKind::Comment) {
-            let aligned = if column.current() == 0 {
+            let aligned = if column.current() == 0 && !self.shifted_right {
                 0
             } else {
                 self.reference

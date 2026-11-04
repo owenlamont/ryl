@@ -175,7 +175,7 @@ fn trailing_comment_before_document_marker_reaches_a_fixed_point() {
         assert_eq!(
             output,
             format!(
-                "links:\n  - Nested section:\n      - setup/setting-up-site-search.md\n# Hello world!\n{marker}"
+                "links:\n  - Nested section:\n      - setup/setting-up-site-search.md\n      # Hello world!\n{marker}"
             )
         );
         assert_eq!(

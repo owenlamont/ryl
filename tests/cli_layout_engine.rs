@@ -758,11 +758,13 @@ fn a_tab_only_line_does_not_refuse_reindenting_its_flow_in_one_pass() {
 
 #[test]
 fn a_comment_after_the_last_content_aligns_with_its_target_in_one_pass() {
-    assert_one_pass(
-        "a:\n  b:\n   - c\n# end\n\n # tail\n",
-        "[format]\n",
-        "a:\n  b:\n    - c\n    # end\n\n    # tail\n",
-    );
+    for marker in ["...\n", "---\nnext: value\n", ""] {
+        assert_one_pass(
+            &format!("a:\n  b:\n   - c\n# end\n\n # tail\n{marker}"),
+            "[format]\n",
+            &format!("a:\n  b:\n    - c\n    # end\n\n    # tail\n{marker}"),
+        );
+    }
 }
 
 #[test]
