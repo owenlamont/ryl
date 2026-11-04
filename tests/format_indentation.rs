@@ -33,6 +33,19 @@ fn refusal(lines: RangeInclusive<usize>, cause: Cause) -> Vec<Refusal> {
     vec![Refusal { lines, cause }]
 }
 
+#[test]
+fn compact_explicit_value_trims_a_blank_scalar_body_in_one_pass() {
+    let input = "? a\n:   : |\n   \n   # x\nb: c\n";
+    let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "? a\n: : |\n\n# x\nb: c\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
 fn assert_reindents(width: usize, cases: &[(&str, &str)]) {
     let cfg = target(width);
     for &(input, expected) in cases {
