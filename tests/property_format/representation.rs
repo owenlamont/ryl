@@ -88,9 +88,10 @@ pub struct Annotations {
 struct Recorder {
     nodes: Vec<Node>,
     counted: usize,
-    /// The line each counted node but a document end starts on, `counted` before it, and
-    /// whether it is a block node's start.
+    /// Source lines, preceding event counts, and block-start flags for inline comment
+    /// attachment.
     starts: Vec<(usize, usize, bool)>,
+    implicit_empty_line: Option<usize>,
     comments: Vec<Comment>,
     comment_lines: Vec<usize>,
     dash_comments: BTreeSet<(usize, usize)>,
@@ -191,6 +192,8 @@ fn tag_text(tag: Option<&Cow<'_, Tag>>) -> Option<String> {
 impl<'input> SpannedEventReceiver<'input> for Recorder {
     fn on_event(&mut self, event: Event<'input>, span: Span) {
         let line = span.start.line();
+        let implicit_empty = matches!(event, Event::Scalar(_, ScalarStyle::Plain, ..))
+            && span.start == span.end;
         let block = matches!(
             event,
             Event::SequenceStart(StructureStyle::Block, ..)
@@ -279,7 +282,12 @@ impl<'input> SpannedEventReceiver<'input> for Recorder {
             Node::DocumentStart | Node::SequenceEnd | Node::MappingEnd
         ) {
             if node != Node::DocumentEnd {
+                // An implicit empty scalar borrows the following token's position.
+                if block && self.implicit_empty_line == Some(line) {
+                    self.starts.pop();
+                }
                 self.starts.push((line, self.counted, block));
+                self.implicit_empty_line = implicit_empty.then_some(line);
             }
             self.counted += 1;
         }

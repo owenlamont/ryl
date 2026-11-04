@@ -187,6 +187,25 @@ fn run_invariants(markdown: &str) -> Result<(), TestCaseError> {
 }
 
 #[test]
+fn empty_explicit_key_keeps_nested_inline_comment_when_dash_joins() {
+    let input = "  ```yaml\r\n  ?\r\n  : -\r\n      b: [a, b] # note\r\n  ```\r\n";
+    for markdown in [
+        input,
+        "```yaml\n?\n: [a, b] # note\n```\n",
+        "```yaml\n: &a0 [a, b] # note\n```\n",
+    ] {
+        run_invariants(markdown).unwrap();
+    }
+    let cfg = ryl::config::YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    assert_eq!(
+        format(input, &cfg),
+        "  ```yaml\r\n  ?\r\n  : - b: [a, b]  # note\r\n  ```\r\n"
+    );
+    let moved = "  ```yaml\r\n  ?\r\n  : - # note\r\n      b: [a, b]\r\n  ```\r\n";
+    assert!(verify_preserved(input, moved, true).is_err());
+}
+
+#[test]
 fn formatter_ignore_keeps_indentless_conversion_idempotent_in_markdown() {
     let input = concat!(
         "Host é.\n\n",
