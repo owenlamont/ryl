@@ -63,12 +63,33 @@ impl Document {
         let blanks = if on("empty-lines") { "\n\n\n" } else { "" };
         let targets = cfg.format().targets();
         let prose = self.words.join(" ");
-        let prose = if on("line-length") && !targets.keep_quotes {
+        let prose = if on("line-length")
+            && (!targets.keep_quotes
+                || matches!(
+                    targets.prose_wrap,
+                    Some(
+                        ryl::config_schema::ProseWrap::Always
+                            | ryl::config_schema::ProseWrap::Never
+                    )
+                )) {
             self.words.join(&format!("\n{pad}{pad}"))
         } else {
             prose
         };
         let word = &self.words[0];
+        let folded = if matches!(
+            targets.prose_wrap,
+            Some(
+                ryl::config_schema::ProseWrap::Always
+                    | ryl::config_schema::ProseWrap::Never
+            )
+        ) {
+            format!(
+                "{pad}prose: >-\n{pad}{pad}{prose}\n{pad}# ryl disable rule:line-length\n{pad}held: |\n{pad}{pad}fixed\n{pad}# ryl enable rule:line-length\n"
+            )
+        } else {
+            String::new()
+        };
         let mut text = String::new();
         if !on("document-start") {
             text.push_str("---\n");
@@ -79,7 +100,7 @@ impl Document {
              {pad}flow{colon}{{{brace}left{colon}[{bracket}one{comma}two{bracket}]{comma}right{colon}{quote}{word}{quote}{brace}}}{comment}{tail}\n\
              {pad}items:\n{pad}{pad}{dash}{quote}{word}{quote}\n{pad}{pad}{dash}three\n\
              {pad}records:\n{pad}{pad}{dash}name{colon}{quote}{word}{quote}\n{mapping_pad}other: ok\n\
-             {pad}text{colon}\"{prose}\"\n\
+             {pad}text{colon}\"{prose}\"\n{folded}\
              {pad}literal: |-\n{pad}{pad}{word}\n\
              copy{colon}*root\n{blanks}"
         ));
@@ -153,16 +174,17 @@ fn arb_config() -> impl Strategy<Value = String> {
             prop::sample::select(vec!["preserve", "auto", "always", "never"]),
             prop::sample::select(vec!["preserve", "auto", "always", "never"]),
             any::<bool>(),
+            prop::sample::select(vec!["fold-long-lines = true", "prose-wrap = 'preserve'", "prose-wrap = 'always'", "prose-wrap = 'never'"]),
         ),
     )
-        .prop_map(|(indent, width, double, crlf, brace, sequences, dash, gap, sequence, mapping, (sequence_expand, mapping_expand, keep_quotes))| {
+        .prop_map(|(indent, width, double, crlf, brace, sequences, dash, gap, sequence, mapping, (sequence_expand, mapping_expand, keep_quotes, prose))| {
             format!(
                 "indent-width = {indent}\nline-length = {width}\n[format]\n\
                  quote-style = '{}'\nkeep-quotes = {keep_quotes}\nline-ending = '{}'\nbrace-spacing = {brace}\n\
                  indent-sequences = {sequences}\ndash-on-own-line = {dash}\n\
                  comment-spacing = {gap}\ncomment-starting-space = 'add'\n\
                  document-start = 'add'\ndocument-end = 'add'\nmax-blank-lines = 0\n\
-                 fold-long-lines = true\nsequence-style = '{sequence}'\nmapping-style = '{mapping}'\n\
+                 {prose}\nsequence-style = '{sequence}'\nmapping-style = '{mapping}'\n\
                  sequence-expand = '{sequence_expand}'\nmapping-expand = '{mapping_expand}'\n",
                 if double { "double" } else { "single" },
                 if crlf { "cr-lf" } else { "lf" },

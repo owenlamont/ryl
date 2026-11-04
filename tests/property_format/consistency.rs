@@ -42,8 +42,13 @@ pub fn refused(
     notices: &[ryl::lint::LintProblem],
     before: &[ryl::lint::LintProblem],
 ) -> bool {
-    let mut input_lines: Vec<_> = input.lines().collect();
-    let mut output_lines: Vec<_> = output.lines().collect();
+    let mut input_lines = yaml_lines(input);
+    let mut output_lines = yaml_lines(output);
+    if problem.rule != Some("new-lines") {
+        for line in input_lines.iter_mut().chain(&mut output_lines) {
+            *line = line.trim_end_matches(['\r', '\n']);
+        }
+    }
     if problem.rule == Some("indentation") {
         for line in input_lines.iter_mut().chain(&mut output_lines) {
             *line = line.trim_end_matches([' ', '\t']);
@@ -62,8 +67,14 @@ pub fn refused(
             .map(|op| op.old_range().start + problem.line - op.new_range().start)
     }
     .or_else(|| {
-        (output.lines().next() == Some("---")
-            && input.lines().next() != Some("---")
+        (output_lines
+            .first()
+            .map(|line| line.trim_end_matches(['\r', '\n']))
+            == Some("---")
+            && input_lines
+                .first()
+                .map(|line| line.trim_end_matches(['\r', '\n']))
+                != Some("---")
             && notices.iter().any(|notice| {
                 notice.message == "cannot re-indent this document safely"
             }))
@@ -75,7 +86,9 @@ pub fn refused(
             && old.message == problem.message
             && old.column == problem.column
             && Some(old.line) == unchanged_input_line
-    });
+    }) || unchanged_fragment(input, output, problem, before)
+        || unchanged_quoted_scalar(input, output, problem, before)
+        || unchanged_boundary(input, output, problem, before);
     if unchanged_problem
         && notices.iter().any(|notice| {
             notice.message
@@ -110,6 +123,267 @@ pub fn refused(
     })
 }
 
+fn unchanged_fragment(
+    input: &str,
+    output: &str,
+    problem: &ryl::lint::LintProblem,
+    before: &[ryl::lint::LintProblem],
+) -> bool {
+    if !matches!(
+        problem.rule,
+        Some("colons" | "hyphens" | "comments" | "indentation" | "trailing-spaces")
+    ) {
+        return false;
+    }
+    let scalar_identity =
+        if matches!(problem.rule, Some("indentation" | "colons" | "hyphens")) {
+            let tokens = scalar_tokens(output);
+            let Some(index) = tokens
+                .iter()
+                .position(|(span, _)| span.start.line() == problem.line)
+            else {
+                return false;
+            };
+            let old = scalar_tokens(input);
+            let Some((span, _)) = old.get(index) else {
+                return false;
+            };
+            if !scalar_value(input, index)
+                .is_some_and(|value| Some(value) == scalar_value(output, index))
+            {
+                return false;
+            }
+            Some(span.start.line())
+        } else {
+            None
+        };
+    let normalize = |source: &str| {
+        yaml_lines(source)
+            .into_iter()
+            .map(|line| {
+                let content = line.trim_end_matches(['\r', '\n']);
+                format!(
+                    "{content}{}",
+                    if line.ends_with(['\r', '\n']) {
+                        "\n"
+                    } else {
+                        ""
+                    }
+                )
+            })
+            .collect::<String>()
+    };
+    let (input, output) = (normalize(input), normalize(output));
+    let Some(at) = diagnostic_point(&output, problem.line, problem.column) else {
+        return false;
+    };
+    let chars: Vec<_> = output.chars().collect();
+    let line_start = chars[..at]
+        .iter()
+        .rposition(|&ch| ch == '\n')
+        .map_or(0, |i| i + 1);
+    let line_end = chars[at..]
+        .iter()
+        .position(|&ch| ch == '\n')
+        .map_or(chars.len(), |i| at + i);
+    let mut start = at;
+    let mut end = (at + 1).min(chars.len());
+    match problem.rule {
+        Some("indentation") => {
+            start = line_start;
+            end = chars[line_start..line_end]
+                .iter()
+                .position(|ch| !matches!(ch, ' ' | '\t'))
+                .map_or(line_end, |i| line_start + i + 1);
+        }
+        Some("comments") => {
+            let comment = Scanner::new(StrInput::new(&output))
+                .map_while(Result::ok)
+                .find_map(|token| {
+                    let (span, kind) = token.into_parts();
+                    matches!(kind, TokenType::Comment(_))
+                        .then_some(span)
+                        .filter(|span| span.start.line() == problem.line)
+                });
+            let Some(comment) = comment else {
+                return false;
+            };
+            start = line_start + comment.start.col();
+            end = line_end;
+        }
+        Some("trailing-spaces") => {
+            start = line_end;
+            end = (line_end + 1).min(chars.len());
+        }
+        _ => {}
+    }
+    while start > line_start && matches!(chars[start - 1], ' ' | '\t') {
+        start -= 1;
+    }
+    while end < line_end && matches!(chars[end], ' ' | '\t') {
+        end += 1;
+    }
+    if problem.rule != Some("indentation") {
+        start = start.saturating_sub(1);
+        end = (end + 1).min(chars.len());
+    }
+    TextDiff::from_chars(&input, &output)
+        .ops()
+        .iter()
+        .any(|op| {
+            if op.tag() != DiffTag::Equal
+                || op.new_range().start > start
+                || op.new_range().end < end
+            {
+                return false;
+            }
+            let old_at = op.old_range().start + at - op.new_range().start;
+            before.iter().any(|old| {
+                old.rule == problem.rule
+                    && old.message == problem.message
+                    && scalar_identity.is_none_or(|line| line == old.line)
+                    && diagnostic_point(&input, old.line, old.column) == Some(old_at)
+            })
+        })
+}
+
+fn unchanged_quoted_scalar(
+    input: &str,
+    output: &str,
+    problem: &ryl::lint::LintProblem,
+    before: &[ryl::lint::LintProblem],
+) -> bool {
+    if problem.rule != Some("quoted-strings") {
+        return false;
+    }
+    let tokens = scalar_tokens(output);
+    let Some((index, (_, style))) = tokens.iter().enumerate().find(|(_, (span, _))| {
+        (span.start.line(), span.start.col() + 1) == (problem.line, problem.column)
+    }) else {
+        return false;
+    };
+    let old = scalar_tokens(input);
+    let Some((span, old_style)) = old.get(index) else {
+        return false;
+    };
+    style == old_style
+        && scalar_value(input, index)
+            .is_some_and(|value| Some(value) == scalar_value(output, index))
+        && before.iter().any(|old| {
+            old.rule == problem.rule
+                && old.message == problem.message
+                && (old.line, old.column) == (span.start.line(), span.start.col() + 1)
+        })
+}
+
+fn unchanged_boundary(
+    input: &str,
+    output: &str,
+    problem: &ryl::lint::LintProblem,
+    before: &[ryl::lint::LintProblem],
+) -> bool {
+    let same = |line, column| {
+        before.iter().any(|old| {
+            old.rule == problem.rule
+                && old.message == problem.message
+                && (old.line, old.column) == (line, column)
+        })
+    };
+    match problem.rule {
+        Some("new-lines") => {
+            let ending = |text: &str| {
+                text.find(['\r', '\n']).map(|at| {
+                    (
+                        text[..at].chars().count() + 1,
+                        if text[at..].starts_with("\r\n") {
+                            "\r\n"
+                        } else if text.as_bytes()[at] == b'\r' {
+                            "\r"
+                        } else {
+                            "\n"
+                        },
+                    )
+                })
+            };
+            match (ending(input), ending(output)) {
+                (Some((old_column, old)), Some((column, new))) => {
+                    old == new
+                        && (problem.line, problem.column) == (1, column)
+                        && same(1, old_column)
+                }
+                _ => false,
+            }
+        }
+        Some("new-line-at-end-of-file") => {
+            match (
+                ryl::rules::new_line_at_end_of_file::check(input),
+                ryl::rules::new_line_at_end_of_file::check(output),
+            ) {
+                (Some(old), Some(new)) => {
+                    (problem.line, problem.column) == (new.line, new.column)
+                        && same(old.line, old.column)
+                }
+                _ => false,
+            }
+        }
+        Some(rule @ ("document-start" | "document-end")) => {
+            let positions = |text: &str| {
+                let mut positions = Vec::new();
+                for required in [true, false] {
+                    if rule == "document-start" {
+                        positions.extend(
+                            ryl::rules::document_start::check(
+                                text,
+                                &ryl::rules::document_start::Config::new(required),
+                            )
+                            .into_iter()
+                            .map(|v| (v.line, v.column, required)),
+                        );
+                    } else {
+                        positions.extend(
+                            ryl::rules::document_end::check(
+                                text,
+                                &ryl::rules::document_end::Config::new(required),
+                            )
+                            .into_iter()
+                            .map(|v| (v.line, v.column, required)),
+                        );
+                    }
+                }
+                positions.sort_unstable();
+                positions
+            };
+            let (old, new) = (positions(input), positions(output));
+            old.len() == new.len()
+                && new
+                    .iter()
+                    .position(|&(line, column, _)| {
+                        (line, column) == (problem.line, problem.column)
+                    })
+                    .is_some_and(|index| {
+                        let (line, column, state) = old[index];
+                        state == new[index].2 && same(line, column)
+                    })
+        }
+        _ => false,
+    }
+}
+
+fn diagnostic_point(text: &str, line: usize, column: usize) -> Option<usize> {
+    let lines = yaml_lines(text);
+    let index = line.checked_sub(1)?;
+    let prefix = lines.get(..index)?;
+    let content = lines.get(index)?.trim_end_matches(['\r', '\n']);
+    let column = column.checked_sub(1)?;
+    (column <= content.chars().count()).then(|| {
+        prefix
+            .iter()
+            .map(|line| line.chars().count())
+            .sum::<usize>()
+            + column
+    })
+}
+
 fn refusal_column(output: &str, notice: &ryl::lint::LintProblem) -> Option<usize> {
     if notice.rule != Some("hyphens")
         || notice.message
@@ -118,13 +392,14 @@ fn refusal_column(output: &str, notice: &ryl::lint::LintProblem) -> Option<usize
         return Some(notice.column);
     }
     let mut dash = None;
+    let lines = yaml_lines(output);
     for token in Scanner::new(StrInput::new(output)).map_while(Result::ok) {
         let (span, kind) = token.into_parts();
         match kind {
             TokenType::BlockEntry => {
-                let prefix: String = output
-                    .lines()
-                    .nth(span.start.line() - 1)
+                let prefix: String = lines
+                    .get(span.start.line() - 1)
+                    .copied()
                     .unwrap_or_default()
                     .chars()
                     .take(span.start.col())
@@ -154,6 +429,236 @@ fn scalar_loader_resolves_yaml_12_core_values() {
     assert_eq!(scalar_value("null", 0), Some(noyalib::Value::Null));
     assert_eq!(scalar_value("011", 0), Some(noyalib::Value::from(11_i64)));
     assert_eq!(scalar_value("on", 0), Some(noyalib::Value::from("on")));
+}
+
+#[test]
+fn logical_line_oracles_match_all_yaml_line_endings() {
+    for newline in ["\n", "\r\n", "\r"] {
+        let comma = "before: x\na: [x,]\n".replace('\n', newline);
+        assert!(closing_comma(&comma, Some("commas"), 2, 7));
+        assert!(!closing_comma(&comma, Some("commas"), 2, 6));
+        let literal = "a: |-\n  value \n".replace('\n', newline);
+        assert!(content_whitespace(&literal, Some("trailing-spaces"), 2, 8));
+        assert!(!content_whitespace(&literal, Some("trailing-spaces"), 2, 3));
+        let plain = "a: value \n".replace('\n', newline);
+        assert!(!content_whitespace(&plain, Some("trailing-spaces"), 1, 9));
+        let terminated = "a: |+\n  value\n".replace('\n', newline);
+        assert!(!content_whitespace(&terminated, Some("document-end"), 2, 1));
+    }
+}
+
+#[test]
+fn colon_refusal_mapping_requires_unchanged_spacing_and_location() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules.colons]\nmax-spaces-before = 0\nmax-spaces-after = 1\n",
+    )
+    .unwrap();
+    for newline in ["\n", "\r\n", "\r"] {
+        let input = "ékey  :   first\n  second\n".replace('\n', newline);
+        let output = "ékey  :   first second\n".replace('\n', newline);
+        let lint = |text: &str| {
+            ryl::lint::lint_str(
+                text,
+                crate::property::config::synthetic_path(),
+                &cfg,
+                crate::property::config::synthetic_base_dir(),
+            )
+        };
+        let before = lint(&input);
+        let problems: Vec<_> = lint(&output)
+            .into_iter()
+            .filter(|p| p.rule == Some("colons"))
+            .collect();
+        assert_eq!(problems.len(), 2);
+        for problem in problems {
+            assert!(unchanged_fragment(&input, &output, &problem, &before));
+            assert!(!unchanged_fragment(&input, &output, &problem, &[]));
+            let mut changed = problem.clone();
+            changed.column += 1;
+            assert!(!unchanged_fragment(&input, &output, &changed, &before));
+            changed = problem.clone();
+            changed.message.push_str(" changed");
+            assert!(!unchanged_fragment(&input, &output, &changed, &before));
+            assert!(!unchanged_fragment(
+                &input,
+                &output.replace("ékey", "ébay"),
+                &problem,
+                &before
+            ));
+            let changed_spacing = output.replacen("  :   ", "   :    ", 1);
+            assert!(!unchanged_fragment(
+                &input,
+                &changed_spacing,
+                &problem,
+                &before
+            ));
+            let moved = format!("clean: x{newline}{output}");
+            assert!(!unchanged_fragment(&input, &moved, &problem, &before));
+        }
+    }
+}
+
+#[test]
+fn quote_refusal_mapping_requires_the_same_scalar_value_style_and_diagnostic() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules.quoted-strings]\nquote-type = 'double'\nrequired = false\n",
+    )
+    .unwrap();
+    let lint = |text: &str| {
+        ryl::lint::lint_str(
+            text,
+            crate::property::config::synthetic_path(),
+            &cfg,
+            crate::property::config::synthetic_base_dir(),
+        )
+    };
+    let input = "a: 'first\n  second'\n";
+    let output = "a: 'first second'\n";
+    let before = lint(input);
+    let problem = lint(output)
+        .into_iter()
+        .find(|p| p.rule == Some("quoted-strings"))
+        .unwrap();
+    assert!(unchanged_quoted_scalar(input, output, &problem, &before));
+    assert!(!unchanged_quoted_scalar(input, output, &problem, &[]));
+    for changed in [
+        "a: 'first changed'\n",
+        "a: first second\n",
+        "a: x\nb: 'first second'\n",
+    ] {
+        assert!(!unchanged_quoted_scalar(input, changed, &problem, &before));
+    }
+    let plain = "a: first second\n";
+    assert!(!unchanged_quoted_scalar(plain, output, &problem, &before));
+    let mut changed = problem.clone();
+    changed.message.push_str(" changed");
+    assert!(!unchanged_quoted_scalar(input, output, &changed, &before));
+}
+
+#[test]
+fn reflow_refusal_fragments_keep_only_unchanged_local_concerns() {
+    let cfg = YamlLintConfig::from_yaml_str(
+        "extends: default\nrules:\n  indentation: {spaces: 2}\n",
+    )
+    .unwrap();
+    let lint = |text: &str| {
+        ryl::lint::lint_str(
+            text,
+            crate::property::config::synthetic_path(),
+            &cfg,
+            crate::property::config::synthetic_base_dir(),
+        )
+    };
+    for (rule, input, output, changed) in [
+        (
+            "indentation",
+            "a:\n   text: 'first\n     second'\n",
+            "a:\n   text: 'first second'\n",
+            "a:\n    text: 'first second'\n",
+        ),
+        (
+            "hyphens",
+            "items:\n  -   'first\n      second'\n",
+            "items:\n  -   'first second'\n",
+            "items:\n  -    'first second'\n",
+        ),
+        (
+            "comments",
+            "a: 'first\n  second' #bad\n",
+            "a: 'first second' #bad\n",
+            "a: 'first second' #changed\n",
+        ),
+        (
+            "trailing-spaces",
+            "a: 'first\n  second'  \n",
+            "a: 'first second'  \n",
+            "a: 'first second'   \n",
+        ),
+    ] {
+        let before = lint(input);
+        let problems: Vec<_> = lint(output)
+            .into_iter()
+            .filter(|p| p.rule == Some(rule))
+            .collect();
+        assert!(!problems.is_empty(), "{rule}: {:?}", lint(output));
+        for problem in problems {
+            assert!(
+                unchanged_fragment(input, output, &problem, &before),
+                "{problem:?}"
+            );
+            assert!(
+                !unchanged_fragment(input, changed, &problem, &before),
+                "{rule}"
+            );
+            assert!(!unchanged_fragment(input, output, &problem, &[]));
+            let mut wrong = problem.clone();
+            wrong.column += 1;
+            assert!(!unchanged_fragment(input, output, &wrong, &before));
+        }
+    }
+}
+
+#[test]
+fn reflow_refusal_boundaries_keep_document_and_stream_identity() {
+    let cfg = YamlLintConfig::from_yaml_str(
+        "extends: default\nrules:\n  document-end: {present: true}\n",
+    )
+    .unwrap();
+    let lint = |text: &str| {
+        ryl::lint::lint_str(
+            text,
+            crate::property::config::synthetic_path(),
+            &cfg,
+            crate::property::config::synthetic_base_dir(),
+        )
+    };
+    for (rule, input, output, changed) in [
+        (
+            "new-lines",
+            "a: 'first\r  second'\r",
+            "a: 'first second'\r",
+            "a: 'first second'\r\n",
+        ),
+        (
+            "new-line-at-end-of-file",
+            "a: 'first\n  second'",
+            "a: 'first second'",
+            "a: 'first second'\n",
+        ),
+        (
+            "document-start",
+            "a: 'first\n  second'\n...\nb: 'third\n  fourth'\n",
+            "a: 'first second'\n...\nb: 'third fourth'\n",
+            "---\na: 'first second'\n...\n---\nb: 'third fourth'\n",
+        ),
+        (
+            "document-end",
+            "a: 'first\n  second'\n---\nb: 'third\n  fourth'\n",
+            "a: 'first second'\n---\nb: 'third fourth'\n",
+            "a: 'first second'\n...\n---\nb: 'third fourth'\n...\n",
+        ),
+    ] {
+        let before = lint(input);
+        let problems: Vec<_> = lint(output)
+            .into_iter()
+            .filter(|p| p.rule == Some(rule))
+            .collect();
+        assert!(!problems.is_empty(), "{rule}: {:?}", lint(output));
+        for problem in problems {
+            assert!(
+                unchanged_boundary(input, output, &problem, &before),
+                "{problem:?}"
+            );
+            assert!(
+                !unchanged_boundary(input, changed, &problem, &before),
+                "{rule}"
+            );
+            assert!(!unchanged_boundary(input, output, &problem, &[]));
+            let mut wrong = problem.clone();
+            wrong.column += 1;
+            assert!(!unchanged_boundary(input, output, &wrong, &before));
+        }
+    }
 }
 
 #[test]
@@ -193,7 +698,7 @@ pub fn closing_comma(
     column: usize,
 ) -> bool {
     rule == Some("commas")
-        && output.lines().nth(line - 1).is_some_and(|text| {
+        && yaml_lines(output).get(line - 1).is_some_and(|text| {
             let rest: String = text.chars().skip(column.saturating_sub(2)).collect();
             rest.trim_start_matches(',')
                 .trim_start_matches(' ')
@@ -235,14 +740,14 @@ pub fn content_whitespace(
     else {
         return false;
     };
-    let lines: Vec<_> = output.split_inclusive('\n').collect();
+    let lines = yaml_lines(output);
     let Some(raw) = line.checked_sub(1).and_then(|index| lines.get(index)) else {
         return false;
     };
     let content = raw.trim_end_matches(['\r', '\n']);
     let mut repaired = output.to_owned();
     if rule == Some("document-end") {
-        if output.ends_with('\n')
+        if output.ends_with(['\r', '\n'])
             || line != lines.len()
             || !matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
         {
@@ -265,7 +770,7 @@ pub fn content_whitespace(
         repaired.replace_range(begin..end, "");
     } else if column == content.chars().count() + 1
         && line == lines.len()
-        && !raw.ends_with('\n')
+        && !raw.ends_with(['\r', '\n'])
     {
         repaired.push('\n');
     } else {

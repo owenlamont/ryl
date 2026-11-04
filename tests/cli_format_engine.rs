@@ -25,6 +25,221 @@ fn format_file(
     ryl_on(config, input, &[&["format"], args].concat())
 }
 
+#[test]
+fn prose_modes_join_paragraphs_without_changing_scalar_styles() {
+    let input = "plain: hello\n  world\nsingle: 'hello\n  world'\ndouble: \"hello\n  world\"\nfolded: >- # paragraph\n  hello\n  world\n\n  another\n  paragraph\n    code\n    block\nliteral: |\n  hello\n  world\n";
+    let joined = "plain: hello world\nsingle: 'hello world'\ndouble: \"hello world\"\nfolded: >-  # paragraph\n  hello world\n\n  another paragraph\n    code\n    block\nliteral: |\n  hello\n  world\n";
+    for mode in ["preserve", "always", "never"] {
+        let config =
+            format!("[format]\nquote-style = 'preserve'\nprose-wrap = '{mode}'\n");
+        let expected = if mode == "preserve" {
+            input.replace("# paragraph", " # paragraph")
+        } else {
+            joined.to_string()
+        };
+        let (code, _, stderr, output) = format_file(Some(&config), input, &[]);
+        assert_eq!(code, 0, "{mode}: {stderr}");
+        assert_eq!(output, expected, "{mode}");
+        assert!(ryl::fix::format_events_match(input, &output));
+        let (_, _, _, again) = format_file(Some(&config), &output, &[]);
+        assert_eq!(again, output, "{mode}");
+    }
+}
+
+#[test]
+fn prose_joins_consume_ignored_boundary_spaces_but_keep_significant_ones() {
+    let input = "plain: alpha  \n  beta\nsingle: 'alpha \t\n  beta'\ndouble: \"alpha\\  \n  beta\"\nfolded: >-\n  alpha  \n  beta\nescaped: \"alpha\\\n  beta\"\neven: \"alpha\\\\\n  beta\"\nencoded: \"alpha\\nbeta\n  gamma\"\n";
+    let expected = "plain: alpha beta\nsingle: 'alpha beta'\ndouble: \"alpha\\  beta\"\nfolded: >-\n  alpha   beta\nescaped: \"alphabeta\"\neven: \"alpha\\\\ beta\"\nencoded: \"alpha\\nbeta gamma\"\n";
+    let config = "[format]\nquote-style = 'preserve'\nprose-wrap = 'never'\n";
+    let (code, _, stderr, output) = format_file(Some(config), input, &[]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(output, expected);
+    assert!(ryl::fix::format_events_match(input, &output));
+    let (_, _, _, again) = format_file(Some(config), &output, &[]);
+    assert_eq!(again, output);
+}
+
+#[test]
+fn prose_always_wraps_joined_lines_while_legacy_only_splits() {
+    let input = "message: >\n  hello\n  world again today\n";
+    for (setting, expected) in [
+        ("", input),
+        ("fold-long-lines = false", input),
+        (
+            "fold-long-lines = true",
+            "message: >\n  hello\n  world again\n  today\n",
+        ),
+        ("prose-wrap = 'preserve'", input),
+        (
+            "prose-wrap = 'always'",
+            "message: >\n  hello world\n  again today\n",
+        ),
+        (
+            "prose-wrap = 'never'",
+            "message: >\n  hello world again today\n",
+        ),
+    ] {
+        let config = format!("line-length = 13\n[format]\n{setting}\n");
+        let (code, _, stderr, output) = format_file(Some(&config), input, &[]);
+        assert_eq!(code, 0, "{setting}: {stderr}");
+        assert_eq!(output, expected, "{setting}");
+        let (_, _, _, again) = format_file(Some(&config), &output, &[]);
+        assert_eq!(again, output, "{setting}");
+    }
+}
+
+#[test]
+fn prose_reflow_preserves_tags_anchors_yaml_line_endings_and_markdown_crlf() {
+    for newline in ["\n", "\r\n", "\r"] {
+        for bom in ["", "\u{feff}"] {
+            for mode in ["always", "never"] {
+                let source = format!("{bom}text: &a !!str >2- # note\n  café\n  世界\n\n  next\n  paragraph\ncopy: *a\nquoted: \"hello\\nbetween\n  worlds\"\n").replace('\n', newline);
+                let expected = format!(
+                    "{bom}text: &a !!str >2-  # note\n  café 世界\n\n  next paragraph\ncopy: *a\nquoted: \"hello\\nbetween worlds\"\n"
+                );
+                let config = format!(
+                    "[format]\nprose-wrap = '{mode}'\nquote-style = 'preserve'\n"
+                );
+                for (prefix, suffix, args, body) in [
+                    ("", "", &[][..], expected.clone()),
+                    (
+                        "intro\n```yaml\n",
+                        "```\n",
+                        &["--markdown"][..],
+                        expected.replace('\n', newline),
+                    ),
+                ]
+                .into_iter()
+                .filter(|(_, _, args, _)| newline != "\r" || args.is_empty())
+                {
+                    let input = format!("{prefix}{source}{suffix}");
+                    let expected = format!("{prefix}{body}{suffix}");
+                    let (code, _, stderr, output) =
+                        format_file(Some(&config), &input, args);
+                    assert_eq!(code, 0, "{newline:?}, {bom:?}: {stderr}");
+                    assert_eq!(output, expected, "{newline:?}, {bom:?}");
+                    let (_, _, _, again) = format_file(Some(&config), &output, args);
+                    assert_eq!(again, output);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn prose_preserve_keeps_quote_policy_independent() {
+    let input = "value: 'hello\n  world'\n";
+    for (keep, expected) in [(false, "value: hello world\n"), (true, input)] {
+        let config =
+            format!("[format]\nprose-wrap = 'preserve'\nkeep-quotes = {keep}\n");
+        let (_, _, stderr, output) = format_file(Some(&config), input, &[]);
+        assert_eq!(output, expected, "{stderr}");
+    }
+}
+
+#[test]
+fn prose_reflow_runs_after_existing_safe_indentation_repair() {
+    let input = "---\nflow: [a,\nb,\nc]\nmessage: hello\n  world\n";
+    let expected = "---\nflow: [a,\n       b,\n       c]\nmessage: hello world\n";
+    for mode in ["always", "never"] {
+        let config =
+            format!("[format]\nprose-wrap = '{mode}'\nquote-style = 'preserve'\n");
+        let (code, _, stderr, output) = format_file(Some(&config), input, &[]);
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(output, expected);
+        assert!(stderr.contains("repaired it"), "{stderr}");
+        let (_, _, _, again) = format_file(Some(&config), &output, &[]);
+        assert_eq!(again, output);
+    }
+}
+
+#[test]
+fn prose_reflow_preserves_source_when_indentation_repair_is_disabled() {
+    let input =
+        "# ryl disable rule:indentation\nflow: [a,\nb]\nmessage: hello\n  world\n";
+    for mode in ["always", "never"] {
+        let config =
+            format!("[format]\nprose-wrap = '{mode}'\nquote-style = 'preserve'\n");
+        let (code, _, stderr, output) = format_file(Some(&config), input, &[]);
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(output, input);
+        assert!(stderr.contains("syntax"), "{stderr}");
+    }
+}
+
+#[test]
+fn prose_declines_unverifiable_marker_interactions_without_partial_formatting() {
+    let input = "---\u{a0}\n  world  \n";
+    for mode in ["always", "never"] {
+        let config =
+            format!("[format]\nprose-wrap = '{mode}'\nquote-style = 'preserve'\n");
+        let (code, _, stderr, output) = format_file(Some(&config), input, &[]);
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(output, input);
+        let (_, _, _, again) = format_file(Some(&config), &output, &[]);
+        assert_eq!(again, output);
+    }
+}
+
+#[test]
+fn prose_keeps_more_indented_first_lines_under_explicit_block_indent() {
+    for code in ["    code\n", "    code\n    block\n"] {
+        let input = format!("v: >2-\n{code}  normal\n  paragraph\n");
+        let expected = format!("v: >2-\n{code}  normal paragraph\n");
+        let config = "[format]\nprose-wrap = 'never'\n";
+        let (status, _, stderr, output) = format_file(Some(config), &input, &[]);
+        assert_eq!(status, 0, "{stderr}");
+        assert_eq!(output, expected);
+        assert!(ryl::fix::format_events_match(&input, &output));
+    }
+}
+
+#[test]
+fn prose_reflow_respects_disabled_lines_directive_tails_keys_flow_and_literals() {
+    let input = "# ryl disable rule:line-length\nkept: hello\n  world\n# ryl enable rule:line-length\njoined: hello\n  world\ntail: hello\n  world # ryl disable-line rule:trailing-spaces\n? 'hello\n  world'\n: value\nflow: ['hello\n    world']\nliteral: |\n  hello\n  world\n";
+    let expected = input
+        .replace("joined: hello\n  world", "joined: hello world")
+        .replace("world # ryl", "world  # ryl");
+    let config = "[format]\nprose-wrap = 'never'\nquote-style = 'preserve'\n";
+    let (code, _, stderr, output) = format_file(Some(config), input, &[]);
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(output, expected);
+    let (_, _, _, again) = format_file(Some(config), &output, &[]);
+    assert_eq!(again, output);
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(config).unwrap();
+    assert_eq!(
+        ryl::format::format_str(
+            "value: hello\n  world\n",
+            &cfg,
+            Path::new(""),
+            &["line-length"]
+        ),
+        "value: hello\n  world\n"
+    );
+}
+
+#[test]
+fn prose_before_a_disabled_sibling_keeps_its_own_reflow_permission() {
+    for indent in [1, 2, 4] {
+        let pad = " ".repeat(indent);
+        let input = format!(
+            "root:\n{pad}text: >\n{pad}{pad}hello\n{pad}{pad}world\n{pad}# ryl disable rule:line-length\n{pad}kept: hello\n{pad}{pad}world\n"
+        );
+        let expected = input.replace(
+            &format!("{pad}{pad}hello\n{pad}{pad}world"),
+            &format!("{pad}{pad}hello world"),
+        );
+        let config = format!(
+            "indent-width = {indent}\n[format]\nprose-wrap = 'never'\nquote-style = 'preserve'\n"
+        );
+        let (code, _, stderr, output) = format_file(Some(&config), &input, &[]);
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(output, expected);
+        let (_, _, _, again) = format_file(Some(&config), &output, &[]);
+        assert_eq!(again, output);
+    }
+}
+
 fn assert_format_batch(config: &str, cases: &[(String, String)], commands: &[&[&str]]) {
     let directory = tempdir().unwrap();
     let configuration = directory.path().join("config.toml");

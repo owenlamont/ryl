@@ -2055,7 +2055,7 @@ keep-quotes = false
 line-ending = "lf"
 document-start = "preserve"
 document-end = "preserve"
-fold-long-lines = false
+prose-wrap = "preserve"
 brace-spacing = false
 comment-spacing = 2
 comment-starting-space = "add"
@@ -2077,7 +2077,8 @@ dash-on-own-line = false
 | `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"`, `"auto"` | Line endings, including the final newline; `"native"` is the platform's, and `"auto"` keeps the ending most of the file's lines use (`"lf"` on a tie or a file without line breaks). |
 | `document-start` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
-| `fold-long-lines` | `false` | `true`, `false` | Whether to split plain, quoted and folded (`>`) scalar lines longer than `line-length` at single spaces. See [Long lines](#long-lines). |
+| `prose-wrap` | `"preserve"` | `"preserve"`, `"always"`, `"never"` | Preserve physical prose breaks, join and wrap paragraphs, or join without wrapping. See [Long lines](#long-lines). |
+| `fold-long-lines` | `false` | `true`, `false` | Legacy split-only folding at single spaces; cannot be combined with `prose-wrap`, even when false. |
 | `brace-spacing` | `false` | `true`, `false` | Whether to write one space inside non-empty flow mapping braces, `{ a: 1 }`. Empty braces and brackets stay unpadded. |
 | `comment-spacing` | `2` | `1` to `255` | Exact number of spaces between content and an inline comment. |
 | `comment-starting-space` | `"add"` | `"add"`, `"preserve"` | Whether to add a missing space after a comment's `#`. |
@@ -2141,7 +2142,7 @@ double quotes to single, and can indent flush sequences. Migration writes
 | `line-ending = "lf"` | The default of prettier |
 | `document-start = "preserve"` | prettier keeps a file's markers as written |
 | `document-end = "preserve"` | No formatter adds `...`; prettier keeps it |
-| `fold-long-lines = false` | Prose keeps its line breaks, as under prettier's `proseWrap: "preserve"` |
+| `prose-wrap = "preserve"` | Prose keeps its line breaks, as under prettier's `proseWrap: "preserve"` |
 | `brace-spacing = false` | yamlfix also leaves braces unpadded; prettier pads them |
 | `comment-spacing = 2` | The default of ruff and yamlfix |
 | `comment-starting-space = "add"` | Adds a space after `#` |
@@ -2159,6 +2160,33 @@ double quotes to single, and can indent flush sequences. Migration writes
 | Fixed layout above | Every formatter probed agrees |
 
 ## Long lines
+
+`prose-wrap` controls paragraphs in plain and quoted values in block context and folded
+(`>`) bodies:
+
+- `"preserve"` keeps their physical breaks without joining or wrapping.
+- `"always"` joins each paragraph, then wraps it at `line-length` (default 80).
+- `"never"` joins each paragraph without wrapping it to the configured width.
+
+Paragraph breaks and more-indented folded sections keep their newline semantics.
+The prose setting preserves scalar styles, tags, anchors and comments. Literal (`|`)
+bodies, keys and flow-context scalars are excluded. Quote normalization remains
+independent: retaining optional quoted prose requires [`keep-quotes = true`](#quote-style).
+
+```yaml
+# before, or with prose-wrap = "preserve"
+message: >
+  hello
+  world
+
+# after, with prose-wrap = "always" or "never"
+message: >
+  hello world
+```
+
+When `prose-wrap` is absent, the legacy `fold-long-lines` option defaults to `false`
+and keeps its split-only behavior. Setting both is a configuration error, including
+`fold-long-lines = false`.
 
 With `fold-long-lines = true`, `ryl format` splits scalar lines longer than the top-level
 `line-length` (default 80) at single spaces. Folding applies to plain and quoted values

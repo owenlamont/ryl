@@ -156,6 +156,12 @@
     "FormatTable": {
       "additionalProperties": false,
       "description": "The `[format]` table: `ryl format`'s targets.",
+      "not": {
+        "required": [
+          "prose-wrap",
+          "fold-long-lines"
+        ]
+      },
       "properties": {
         "brace-spacing": {
           "default": false,
@@ -193,7 +199,10 @@
         "fold-long-lines": {
           "default": false,
           "description": "Whether to split plain, quoted and `>` scalar lines longer than `line-length` at spaces.",
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "indent-sequences": {
           "default": true,
@@ -237,6 +246,18 @@
           "$ref": "#/$defs/PropertyOrderTarget",
           "default": "preserve",
           "description": "Order of a node's anchor and tag; `preserve` leaves each as written."
+        },
+        "prose-wrap": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProseWrap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "preserve",
+          "description": "Whether to preserve, wrap or join physical prose lines."
         },
         "quote-style": {
           "$ref": "#/$defs/QuoteStyleTarget",
@@ -580,6 +601,14 @@
           "type": "string"
         }
       ]
+    },
+    "ProseWrap": {
+      "enum": [
+        "preserve",
+        "always",
+        "never"
+      ],
+      "type": "string"
     },
     "QuoteStyleTarget": {
       "enum": [
