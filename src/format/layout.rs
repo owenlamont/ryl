@@ -1252,11 +1252,7 @@ impl<'a> DocumentPlan<'a> {
             let mut changed = false;
             for line in &mut layout.lines {
                 let allowed = guard.as_ref().is_none_or(|guard| {
-                    guard.allows(
-                        new_lines::ID,
-                        line.source_anchor(input.text()),
-                        line.source_anchor(input.text()),
-                    )
+                    guard.allows_line(new_lines::ID, line.source_anchor(input.text()))
                 });
                 let target = endings.line(line.ending, allowed);
                 if target != line.ending {
@@ -1609,7 +1605,7 @@ impl DocumentPlan<'_> {
             let allowed = self
                 .guard
                 .as_ref()
-                .is_none_or(|guard| guard.allows(new_lines::ID, *at, *at));
+                .is_none_or(|guard| guard.allows_line(new_lines::ID, *at));
             *text = self.endings.boundary(std::mem::take(text), allowed);
         }
     }
@@ -2466,11 +2462,8 @@ impl<'a> LayoutTargets<'a> {
                 .expect("nonempty input has a line");
             last.ending = final_newline.materialize();
             let allowed = self.0.guard.as_ref().is_none_or(|guard| {
-                guard.allows(
-                    new_lines::ID,
-                    last.source_anchor(self.0.input.text()),
-                    last.source_anchor(self.0.input.text()),
-                )
+                guard
+                    .allows_line(new_lines::ID, last.source_anchor(self.0.input.text()))
             });
             last.ending = self.0.endings.line(last.ending, allowed);
             self.0.rules.push(crate::rules::new_line_at_end_of_file::ID);

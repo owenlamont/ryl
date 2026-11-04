@@ -729,3 +729,184 @@ fn empty_property_sequence_entries_end_before_following_mapping_keys() {
         "{violations:?}"
     );
 }
+
+fn prose_suppression_case(held: &str, (open, close): (&str, &str), mode: &str) {
+    for keep_quotes in [false, true] {
+        let settings = format!(
+            "line-length = 14\n[format]\nprose-wrap = '{mode}'\nquote-style = 'double'\nkeep-quotes = {keep_quotes}\nsequence-style = 'block'\n"
+        );
+        let cfg = YamlLintConfig::from_toml_str(&settings).unwrap();
+        for ending in ["\n", "\r\n"] {
+            let protected = format!("{open}{held}{close}").replace('\n', ending);
+            let input = format!("before: \"alpha beta\n  gamma delta\"\n{open}{held}{close}after: \"alpha beta\n  gamma delta\"\nconvert: [1,2]\n").replace('\n', ending);
+            let output = format_str(&input, &cfg, Path::new("case.yaml"), &[]);
+            assert!(
+                output.contains(&protected),
+                "settings {settings:?}; input {input:?}; output {output:?}"
+            );
+            assert!(output.contains("convert:\n  - 1\n  - 2\n"), "{output:?}");
+            if mode == "never" {
+                assert!(
+                    output.contains("before: alpha beta gamma delta")
+                        || output.contains("before: \"alpha beta gamma delta\""),
+                    "{output:?}"
+                );
+                assert!(
+                    output.contains("after: alpha beta gamma delta")
+                        || output.contains("after: \"alpha beta gamma delta\""),
+                    "{output:?}"
+                );
+            }
+            crate::property::reference::check_strict_events(&input, &output).unwrap();
+            assert_eq!(
+                format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+                output
+            );
+        }
+    }
+}
+
+#[test]
+fn prose_policies_and_quote_retention_leave_suppressed_scalars_exact() {
+    for mode in ["preserve", "always", "never"] {
+        for markers in [
+            ("# ryl format-ignore\n", ""),
+            ("# ryl format-disable\n", "# ryl format-enable\n"),
+        ] {
+            for held in [
+                "held:   &kept !!str alpha beta\n    gamma delta\n",
+                "held:   &kept !!str 'alpha beta\n    gamma delta'\n",
+                "held:   &kept !!str \"alpha beta\n    gamma delta\"\n",
+                "held:   &kept !!str >-\n    alpha beta\n    gamma delta\n",
+            ] {
+                prose_suppression_case(held, markers, mode);
+            }
+        }
+    }
+}
+
+#[test]
+fn prose_joining_respects_native_regions_in_markdown() {
+    let input = "Text\n\n```yaml\n# ryl format-disable\nheld: 'alpha beta\n    gamma delta'\n```\n\n```yaml\nafter: \"alpha beta\n  gamma delta\"\n```\n";
+    let expected = "Text\n\n```yaml\n# ryl format-disable\nheld: 'alpha beta\n    gamma delta'\n```\n\n```yaml\nafter: \"alpha beta gamma delta\"\n```\n";
+    let cfg = YamlLintConfig::from_toml_str(
+        "[format]\nprose-wrap = 'never'\nkeep-quotes = true\nquote-style = 'double'\n",
+    )
+    .unwrap();
+    let format = |text: &str| {
+        ryl::fix::fix_markdown_str(
+            text,
+            Path::new("case.md"),
+            &cfg,
+            Path::new("."),
+            ryl::fix::Rewrite::Format,
+        )
+        .unwrap_or_else(|| text.to_owned())
+    };
+    assert_eq!(format(input), expected);
+    assert_eq!(format(expected), expected);
+}
+
+#[test]
+fn collapsed_scalars_keep_native_crlf_permissions_on_protected_lines() {
+    for (before, protected, after) in [
+        (
+            "  - 'alpha beta\n    gamma delta'\n",
+            "  # ryl format-disable\n  # ryl format-enable\n",
+            "  - 'alpha beta\n    gamma delta'\n",
+        ),
+        (
+            "  - 'alpha beta\n    gamma delta'\n",
+            "  # ryl format-disable\n  -   held\n  # ryl format-enable\n",
+            "  - 'alpha beta\n    gamma delta'\n",
+        ),
+        (
+            "  - 'alpha beta\n    gamma delta'\n",
+            "  # ryl format-ignore\n  -   held\n",
+            "  - 'alpha beta\n    gamma delta'\n",
+        ),
+        (
+            "  before: 'alpha beta\n    gamma delta'\n",
+            "  # ryl format-ignore\n  held:    1\n",
+            "  after: 'alpha beta\n    gamma delta'\n",
+        ),
+    ] {
+        for policy in [
+            "",
+            "prose-wrap = 'preserve'\n",
+            "prose-wrap = 'always'\n",
+            "prose-wrap = 'never'\n",
+        ] {
+            for keep_quotes in [false, true] {
+                let settings = format!(
+                    "[format]\nsequence-style = 'block'\n{policy}keep-quotes = {keep_quotes}\n"
+                );
+                let cfg = YamlLintConfig::from_toml_str(&settings).unwrap();
+                let input =
+                    format!("root:\n{before}{protected}{after}tail:    [1,2]\n")
+                        .replace('\n', "\r\n");
+                let protected = protected.replace('\n', "\r\n");
+                let output = format_str(&input, &cfg, Path::new("case.yaml"), &[]);
+                assert!(
+                    output.contains(&protected),
+                    "settings {settings:?}; input {input:?}; output {output:?}"
+                );
+                assert!(
+                    !output.replace(&protected, "").contains('\r'),
+                    "settings {settings:?}; output {output:?}"
+                );
+                crate::property::reference::check_strict_events(&input, &output)
+                    .unwrap();
+                assert_eq!(
+                    format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+                    output
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn folded_sequence_property_replay_keeps_only_suppressed_crlf() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/format_suppression/collapsed-sequence-crlf.txt"
+    ))
+    .unwrap();
+    let input = fixture["input"].as_str().unwrap();
+    let settings = fixture["config"].as_str().unwrap();
+    let protected = fixture["protected"].as_str().unwrap();
+    let cfg = YamlLintConfig::from_toml_str(settings).unwrap();
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert!(output.contains(protected), "{output:?}");
+    assert!(!output.replace(protected, "").contains('\r'), "{output:?}");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn prose_reflow_property_replay_keeps_safety_refusals_idempotent() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/format_suppression/wide-prose-conversion.txt"
+    ))
+    .unwrap();
+    preserves_formatted_values(
+        fixture["input"].as_str().unwrap(),
+        fixture["config"].as_str().unwrap(),
+    );
+}
+
+#[test]
+fn prose_reflow_respects_existing_scalar_safety_refusals() {
+    let input = "a:\n  b: |-\n    \n\nc: 'alpha beta\n  gamma delta'\n";
+    for mode in ["always", "never"] {
+        let settings = format!("[format]\nprose-wrap = '{mode}'\n");
+        formats(input, &settings, input);
+    }
+    let input =
+        "root:\n  - a: >2+\n       \n    b: x\nother: ' alpha beta gamma delta'\n";
+    let settings = "indent-width = 2\nline-length = 14\n[format]\nprose-wrap = 'always'\ndash-on-own-line = true\n";
+    preserves_formatted_values(input, settings);
+}

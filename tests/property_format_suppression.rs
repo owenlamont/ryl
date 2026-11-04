@@ -13,10 +13,12 @@ proptest! {
         ..ProptestConfig::default()
     })]
     #[test]
-    fn ignored_nodes_and_regions_keep_source_bytes(document in crate::property::suppression::arb_document(), indent_sequences in any::<bool>(), own_line in any::<bool>(), width in 1usize..5) {
-        let cfg = YamlLintConfig::from_toml_str(&format!("line-length = 20\nindent-width = {width}\n[format]\ndash-on-own-line = {own_line}\nfold-long-lines = true\nquote-style = 'double'\nsequence-style = 'block'\nsequence-expand = 'auto'\nindent-sequences = {indent_sequences}\n")).unwrap();
+    fn ignored_nodes_and_regions_keep_source_bytes(document in crate::property::suppression::arb_document(), indent_sequences in any::<bool>(), own_line in any::<bool>(), width in 1usize..5, policy in prop::sample::select(vec!["legacy", "preserve", "always", "never"])) {
+        let wrapping = if policy == "legacy" { "fold-long-lines = true".to_string() } else { format!("prose-wrap = '{policy}'") };
+        let settings = format!("line-length = 20\nindent-width = {width}\n[format]\ndash-on-own-line = {own_line}\n{wrapping}\nquote-style = 'double'\nsequence-style = 'block'\nsequence-expand = 'auto'\nindent-sequences = {indent_sequences}\n");
+        let cfg = YamlLintConfig::from_toml_str(&settings).unwrap();
         let output = format_str(&document.text, &cfg, Path::new("case.yaml"), &[]);
-        prop_assert!(output.contains(&document.protected), "protected {:?} in {:?}", document.protected, output);
+        prop_assert!(output.contains(&document.protected), "settings {settings:?}; input {:?}; protected {:?}; output {output:?}", document.text, document.protected);
         prop_assert!(output.contains("before: 0"));
         prop_assert!(output.contains("after: 1"));
         if document.independent_conversion {

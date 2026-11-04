@@ -73,6 +73,10 @@ impl Guard {
             && self.range(start, end).all(|line| self.line(rule, line))
     }
 
+    pub(super) fn allows_line(&self, rule: &str, at: BytePos) -> bool {
+        self.range(at, at).all(|line| self.line(rule, line))
+    }
+
     pub(super) fn allows_any(&self, rule: &str, start: BytePos, end: BytePos) -> bool {
         self.range(start, end).any(|line| self.line(rule, line))
     }

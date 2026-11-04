@@ -10,11 +10,11 @@ pub struct Document {
 pub fn arb_document() -> impl Strategy<Value = Document> {
     (
         "[a-z]{1,20}",
-        0usize..7,
+        0usize..9,
         any::<bool>(),
         any::<bool>(),
         2usize..7,
-        0usize..7,
+        0usize..8,
         any::<bool>(),
         0usize..3,
         prop::sample::select(vec!["", " &previous", " !!str", " &previous !!str", " !!str &previous"]),
@@ -30,7 +30,9 @@ pub fn arb_document() -> impl Strategy<Value = Document> {
                 3 => format!("? held\n:    '{word}'\n"),
                 4 => format!("?    \n    held\n:    '{word}'\n"),
                 5 => format!("held: &a\n  !!map\n    child:    '{word}'\n"),
-                _ => format!("held: [\n  ? foo\n   bar : '{word}'\n  ]\n"),
+                6 => format!("held: [\n  ? foo\n   bar : '{word}'\n  ]\n"),
+                7 => format!("held: &kept !!str 'alpha beta\n    gamma {word}\n    delta'\n"),
+                _ => format!("held: &kept !!str \"alpha beta\n    gamma {word}\n    delta\"\n"),
             };
             let (open, close) = if region {
                 ("# ryl format-disable\n", "# ryl format-enable\n")
@@ -38,7 +40,11 @@ pub fn arb_document() -> impl Strategy<Value = Document> {
                 ("# ryl format-ignore\n", "")
             };
             let open = format!("{open}{}", if separated { "\n" } else { "" });
-            let (content, body) = if nested == 6 {
+            let (content, body) = if nested == 7 {
+                let indent = |text: &str| text.lines().map(|line| format!("  {line}\n")).collect::<String>();
+                let body = format!("  -    '{word}'\n");
+                (format!("outer:\n  - 'alpha beta\n    gamma delta'\n{}{body}{}  - 'alpha beta\n    gamma delta'\n", indent(&open), indent(close)), body)
+            } else if nested == 6 {
                 let (before, after) = match shape { 0 | 2 | 4 | 6 => ("&anchor", "!!map"), _ => ("!!map", "&anchor") };
                 let body = format!("    {after}   \n        held:    '{word}'\n");
                 let indent = |text: &str| text.lines().map(|line| format!("    {line}\n")).collect::<String>();
@@ -98,7 +104,7 @@ pub fn arb_document() -> impl Strategy<Value = Document> {
             };
             let conversion = if nested > 0 { "another:\n  - [5,6]\n" } else { "" };
             let text =
-                format!("before:    0\nconvert: [3,4]\n{content}{extra}{conversion}after:    1\n");
+                format!("before:    0\nprose: alpha beta\n  gamma delta\nconvert: [3,4]\n{content}{extra}{conversion}after:    1\n");
             Document {
                 text: text.replace('\n', if crlf { "\r\n" } else { "\n" }),
                 protected: body.replace('\n', if crlf { "\r\n" } else { "\n" }),

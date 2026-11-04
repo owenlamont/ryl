@@ -370,9 +370,10 @@ fn format_tracked(
             tracking.edited.push(indentation::ID);
             tracking.strict_input = Some(true);
         }
-        let directives = crate::directives::Directives::parse_per_line_with_analysis(
+        let directives = crate::directives::Directives::scoped_per_line(
             source.analysis(),
             &passes.per_line,
+            passes.directive_scope,
         );
         match prose::join(&mut source, &directives) {
             prose::Join::Unchanged => {}

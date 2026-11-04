@@ -17,6 +17,9 @@ pub(super) enum Join {
 
 pub(super) fn join(source: &mut TextVersion<'_>, directives: &Directives) -> Join {
     let input = source.analysis();
+    if crate::fix::ambiguous(input) {
+        return Join::Unchanged;
+    }
     let mut scalars = Foldables::default();
     for (span, kind) in input.tokens().iter(input.text()) {
         scalars.push(span, &kind);
