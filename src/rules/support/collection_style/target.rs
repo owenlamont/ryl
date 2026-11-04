@@ -170,7 +170,8 @@ impl<'a> Planner<'a> {
             .initial
             .scalar(key)
             .is_some_and(quoted_strings::Retained::empty);
-        self.nodes[key].kind() == Kind::Alias || empty && !text.empty()
+        (self.nodes[key].kind() == Kind::Alias || empty && !text.empty())
+            && self.initial.key_gap(key).own().present()
     }
 
     fn measure_pair(

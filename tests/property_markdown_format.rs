@@ -156,6 +156,19 @@ fn format(markdown: &str, cfg: &ryl::config::YamlLintConfig) -> String {
     .unwrap_or_else(|| markdown.to_string())
 }
 
+#[test]
+fn expanded_omitted_value_keeps_no_separator_after_its_anchored_key() {
+    let input = "before\n\n```yaml\n{&a}\n```\n\nafter\n";
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(
+        "line-length=1\n[format]\nmapping-expand='auto'\n",
+    )
+    .unwrap();
+    let output = format(input, &cfg);
+    assert_eq!(output, "before\n\n```yaml\n{\n  &a,\n}\n```\n\nafter\n");
+    verify_preserved(input, &output, false).unwrap();
+    assert_eq!(format(&output, &cfg), output);
+}
+
 fn check_config(
     markdown: &str,
     name: &str,
