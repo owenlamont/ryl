@@ -110,14 +110,14 @@ pub fn first_higher_minor(buffer: &str) -> Option<Directive> {
 /// quotes would change its value for a 1.1 reader.
 #[must_use]
 pub fn resolves_to_nonstring_in_yaml_1_1(value: &str) -> bool {
-    YAML_1_1_NONSTRING.is_match(value)
-        || match value.chars().next() {
-            Some('.') => GO_YAML_FLOAT.is_match(value),
-            Some(c) if c.is_ascii_digit() || matches!(c, '-' | '+') => {
-                GO_YAML_FLOAT.is_match(&value.replace('_', ""))
-            }
-            _ => false,
+    match value.chars().next() {
+        Some('.') => YAML_1_1_NUMERIC.is_match(value) || GO_YAML_FLOAT.is_match(value),
+        Some(c) if c.is_ascii_digit() || matches!(c, '-' | '+') => {
+            YAML_1_1_NUMERIC.is_match(value)
+                || GO_YAML_FLOAT.is_match(&value.replace('_', ""))
         }
+        _ => YAML_1_1_WORDS.contains(&value),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -368,9 +368,8 @@ static GO_YAML_FLOAT: LazyLock<Regex> = LazyLock::new(|| {
         .expect("go-yaml float regex is valid")
 });
 
-static YAML_1_1_NONSTRING: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(YAML_1_1_NONSTRING_PATTERN)
-        .expect("YAML 1.1 implicit-type regex is valid")
+static YAML_1_1_NUMERIC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(YAML_1_1_NUMERIC_PATTERN).expect("YAML 1.1 numeric regex is valid")
 });
 
 macro_rules! yaml_1_1_float {
@@ -416,19 +415,21 @@ static SOURCE_TIMESTAMP_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("source timestamp shape regex is valid")
 });
 
-// PyYAML's 1.1 resolvers plus yamllint's `0o` octal and go-yaml v2's `y`/`n` booleans.
-const YAML_1_1_NONSTRING_PATTERN: &str = concat!(
+// PyYAML's 1.1 resolvers plus yamllint's `0o` octal and go-yaml v2's `y`/`n` booleans, split
+// into the words and the forms starting with a digit, sign or `.`.
+const YAML_1_1_WORDS: [&str; 29] = [
+    "y", "Y", "n", "N", "yes", "Yes", "YES", "no", "No", "NO", "true", "True", "TRUE",
+    "false", "False", "FALSE", "on", "On", "ON", "off", "Off", "OFF", "<<", "~",
+    "null", "Null", "NULL", "", "=",
+];
+const YAML_1_1_NUMERIC_PATTERN: &str = concat!(
     r"\A(?:",
-    r"y|Y|n|N|yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF",
-    r"|",
     yaml_1_1_float!(),
     r"|[-+]?0o[0-7_]+|",
     yaml_1_1_int!(),
-    r"|<<|~|null|Null|NULL|",
     r"|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
     "|",
     yaml_timestamp_date!(),
     r"(?:[Tt]|[ \t]+)[0-9][0-9]?:[0-9][0-9]:[0-9][0-9](?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9][0-9]?(?::[0-9][0-9])?))?",
-    r"|=",
     r")\z",
 );
