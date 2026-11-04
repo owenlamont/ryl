@@ -985,8 +985,7 @@ pub(crate) fn path_unrepresentable_in_diff(path: &Path) -> bool {
 /// outcome handed to `emit` in input order. A symlinked input is skipped with a warning
 /// naming `flag` (parity with `--fix`); other un-diffable inputs (non-UTF-8/BOM content,
 /// unparsable, or an unrepresentable name) are skipped via [`diff_outcome`].
-/// `preceding_notices` are the notices for omitted cached files before each input and
-/// after the final input.
+/// `preceding_notices` are emitted before each input and after the final input.
 ///
 /// # Errors
 ///

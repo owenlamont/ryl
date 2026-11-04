@@ -96,8 +96,11 @@ including a first-line `disable-file`, but only with the `ryl` spelling.
 
 ## yamllint compatibility
 
-The `# yamllint …` spelling is accepted as an alias for every directive form, though
-only as a whole comment (see above):
+The `# yamllint …` spelling remains accepted throughout 0.29.x, though only as a
+whole comment (see above). The CLI warns once per regular file or stdin input that
+uses an alias; use `# ryl …` instead or convert comments with `--migrate-directives`.
+`--no-warnings`
+hides the notice. The notice does not affect lint results or strict-mode exit codes:
 
 ```yaml
 key:   value  # yamllint disable-line rule:colons

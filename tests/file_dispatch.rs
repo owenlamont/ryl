@@ -45,3 +45,29 @@ fn multiple_files_keep_parallel_dispatch() {
     std::fs::write(&second, "").unwrap();
     assert!(!small_file_batch(&[file(first), file(second)]));
 }
+
+#[test]
+fn diff_entrypoint_accepts_omitted_notice_prefixes_without_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.yaml");
+    let original = "key: value   \n";
+    std::fs::write(&path, original).unwrap();
+    let files = [file(path.clone())];
+    let mut emitted = 0;
+    let stats = ryl::fix::diff_files(
+        &files,
+        (ryl::fix::Rewrite::Format, "--diff"),
+        &[],
+        &mut |actual, outcome| {
+            emitted += 1;
+            assert_eq!(actual, path);
+            assert!(outcome.changed);
+            assert!(outcome.diff.unwrap().contains("+key: value\n"));
+        },
+    )
+    .unwrap();
+    assert_eq!(emitted, 1);
+    assert_eq!(stats.changed_files, 1);
+    assert!(stats.notices.is_empty());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+}

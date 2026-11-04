@@ -23,8 +23,7 @@ pub fn output_tuple(out: Output) -> (i32, String, String) {
     (code, stdout, stderr)
 }
 
-/// Whichever stream carried the diagnostics: `stderr` when non-empty (ryl prints
-/// diagnostics there), otherwise `stdout`.
+/// `stderr` when non-empty, otherwise `stdout`.
 pub fn command_output<'a>(stdout: &'a str, stderr: &'a str) -> &'a str {
     if stderr.is_empty() { stdout } else { stderr }
 }
