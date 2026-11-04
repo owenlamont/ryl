@@ -189,28 +189,81 @@ fn run_invariants(markdown: &str) -> Result<(), TestCaseError> {
 
 #[test]
 fn formatter_ignore_keeps_indentless_conversion_idempotent_in_markdown() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/format_suppression/indentless.txt"
-    ))
-    .unwrap();
-    let input = fixture["markdown"].as_str().unwrap();
-    let config = fixture["config"].as_str().unwrap();
+    let input = concat!(
+        "Host é.\n\n",
+        "  ~~~yaml\r\n  first: [1,2]\r\n  ~~~\r\n\r\n",
+        r#"```yaml
+convert: [3,4]
+# ryl format-disable
+? held
+:    'value'
+# ryl format-enable
+after:    1
+```
+"#,
+    );
+    let config = r#"[format]
+sequence-style='block'
+mapping-style='flow'
+indent-sequences=false
+"#;
     let cfg = ryl::config::YamlLintConfig::from_toml_str(config).unwrap();
     check_config(input, config, &cfg).unwrap();
-    assert!(format(input, &cfg).contains("convert:\n- 3\n- 4\n"));
+    let output = format(input, &cfg);
+    assert!(output.contains("convert:\n- 3\n- 4\n"), "{output:?}");
+    assert!(
+        output.contains(
+            "# ryl format-disable\n? held\n:    'value'\n# ryl format-enable\n"
+        ),
+        "{output:?}"
+    );
+    assert!(
+        output.contains("  first:\r\n  - 1\r\n  - 2\r\n"),
+        "{output:?}"
+    );
 }
 
 #[test]
 fn formatter_ignore_keeps_expanded_sibling_valid_in_markdown() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/format_suppression/expanded-sibling.txt"
-    ))
-    .unwrap();
-    let input = fixture["markdown"].as_str().unwrap();
-    let config = fixture["config"].as_str().unwrap();
+    let input = r#"---
+first: {key: [1,2]}
+---
+
+Host é.
+
+```yaml
+convert: [3,4]
+outer:
+    sibling:
+    # ryl format-disable
+    ? held
+    :    'value'
+    # ryl format-enable
+    after:    2
+extra:
+  - [5,6]
+```
+"#;
+    let config = r#"indent-width=8
+[format]
+sequence-style='block'
+mapping-style='block'
+mapping-expand='always'
+quote-style='preserve'
+"#;
     let cfg = ryl::config::YamlLintConfig::from_toml_str(config).unwrap();
     run_invariants(input).unwrap();
     check_config(input, config, &cfg).unwrap();
+    let output = format(input, &cfg);
+    assert!(
+        output.contains("convert:\n        - 3\n        - 4\n"),
+        "{output:?}"
+    );
+    assert!(
+        output.contains("extra:\n        - - 5\n          - 6\n"),
+        "{output:?}"
+    );
+    assert!(output.contains("    # ryl format-disable\n    ? held\n    :    'value'\n    # ryl format-enable\n"), "{output:?}");
 }
 
 proptest! {

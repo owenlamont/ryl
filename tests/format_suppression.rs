@@ -393,17 +393,36 @@ fn converted_collection_owners_keep_existing_folding_output() {
         "line-length = 14\n[format]\nfold-long-lines = true\nmapping-style = 'block'\n",
         "root:\n  after: long\n    words long\n    words long\n    words\n",
     );
-    let fixtures: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/format_suppression/converted-folds.txt"
-    ))
-    .unwrap();
-    for fixture in fixtures.as_array().unwrap() {
-        formats(
-            fixture["input"].as_str().unwrap(),
-            fixture["config"].as_str().unwrap(),
-            fixture["expected"].as_str().unwrap(),
-        );
-    }
+    formats(
+        "items: [first, 'alpha  beta\tgamma delta epsilon']\n",
+        r#"line-length=20
+[format]
+sequence-style='block'
+fold-long-lines=true
+quote-style='preserve'
+"#,
+        "items:\n  - first\n  - 'alpha  beta\tgamma\n    delta epsilon'\n",
+    );
+    formats(
+        r#"map: {value: &text 'é alpha beta'}
+*text : {value: 'more words'}
+"#,
+        r#"indent-width=4
+line-length=3
+[format]
+mapping-style='block'
+fold-long-lines=true
+quote-style='preserve'
+"#,
+        r#"map:
+    value: &text 'é
+        alpha
+        beta'
+*text :
+    value: 'more
+        words'
+"#,
+    );
 }
 
 #[test]
@@ -632,16 +651,31 @@ fn preserves_formatted_values(input: &str, settings: &str) {
 
 #[test]
 fn empty_property_keys_keep_colon_separation() {
-    let fixtures: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/format_suppression/empty-property-keys.txt"
-    ))
-    .unwrap();
-    for fixture in fixtures.as_array().unwrap() {
-        preserves_formatted_values(
-            fixture["input"].as_str().unwrap(),
-            fixture["config"].as_str().unwrap(),
-        );
-    }
+    formats(
+        r#"map: { &empty : '' }
+"#,
+        r#"[format]
+mapping-expand='always'
+"#,
+        r#"map:
+  {
+    &empty : '',
+  }
+"#,
+    );
+    formats(
+        r#"map: { !!str &empty : '' }
+"#,
+        r#"[format]
+mapping-expand='always'
+property-order='anchor-first'
+"#,
+        r#"map:
+  {
+    &empty !!str : '',
+  }
+"#,
+    );
     for key in [
         "",
         "&empty",
@@ -663,29 +697,44 @@ fn empty_property_keys_keep_colon_separation() {
 }
 
 #[test]
-fn large_epoch_empty_property_keys_are_idempotent() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/format_suppression/large-epoch-empty-keys.txt"
-    ))
-    .unwrap();
+fn large_document_empty_property_keys_preserve_offsets() {
+    // More than 1 MiB enables separate parallel event and lexical scans.
     let input = format!(
-        "#{}{}{}",
-        "padding ".repeat(fixture["padding_repetitions"].as_u64().unwrap() as usize),
-        fixture["newline"].as_str().unwrap(),
-        fixture["body"].as_str().unwrap()
+        "#{}\r\nprefix: é\r\nmap: {{ !!str &empty : {{'': x}} }}\r\n",
+        "padding ".repeat(131_073),
     );
-    preserves_formatted_values(&input, fixture["settings"].as_str().unwrap());
+    let settings =
+        "[format]\nmapping-expand = 'always'\nproperty-order = 'anchor-first'\n";
+    preserves_formatted_values(&input, settings);
+    let cfg = YamlLintConfig::from_toml_str(settings).unwrap();
+    let output = format_str(&input, &cfg, Path::new("case.yaml"), &[]);
+    assert_ne!(output, input);
+    assert!(output.ends_with("prefix: é\nmap:\n  {\n    &empty !!str :\n      {\n        '': x,\n      },\n  }\n"), "{output:?}");
 }
 
 #[test]
 fn converted_empty_property_values_preserve_following_comments() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/format_suppression/delayed-empty-comments.txt"
-    ))
-    .unwrap();
-    let input = fixture["input"].as_str().unwrap();
-    let config = fixture["config"].as_str().unwrap();
-    preserves_formatted_values(input, config);
+    let input = r#"# before
+items: [{value: 'alpha beta gamma delta epsilon', empty: !!str}] # after
+after: 1
+"#;
+    let config = r#"line-length=20
+[format]
+sequence-style='flow'
+mapping-style='flow'
+sequence-expand='auto'
+quote-style='preserve'
+"#;
+    formats(
+        input,
+        config,
+        r#"# before
+items:  # after
+  - value: 'alpha beta gamma delta epsilon'
+    empty: !!str
+after: 1
+"#,
+    );
     let cfg = YamlLintConfig::from_toml_str(config).unwrap();
     let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
     crate::property::representation::check_annotations(input, &output).unwrap();
@@ -711,13 +760,26 @@ fn empty_property_sequence_entries_end_before_following_mapping_keys() {
             }
         }
     }
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/format_suppression/empty-sequence-tail.txt"
-    ))
-    .unwrap();
-    let input = fixture["input"].as_str().unwrap();
-    let config = fixture["config"].as_str().unwrap();
-    preserves_formatted_values(input, config);
+    let input = r#"items: [value, &empty !!str]
+after:
+  child: 1
+"#;
+    let config = r#"[format]
+sequence-style='block'
+indent-sequences=false
+[lint.rules.indentation]
+indent-sequences=false
+"#;
+    formats(
+        input,
+        config,
+        r#"items:
+- value
+- &empty !!str
+after:
+  child: 1
+"#,
+    );
     let cfg = YamlLintConfig::from_toml_str(config).unwrap();
     let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
     let violations =
@@ -867,19 +929,24 @@ fn collapsed_scalars_keep_native_crlf_permissions_on_protected_lines() {
 }
 
 #[test]
-fn folded_sequence_property_replay_keeps_only_suppressed_crlf() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/format_suppression/collapsed-sequence-crlf.txt"
-    ))
-    .unwrap();
-    let input = fixture["input"].as_str().unwrap();
-    let settings = fixture["config"].as_str().unwrap();
-    let protected = fixture["protected"].as_str().unwrap();
+fn collapsed_sequence_keeps_only_suppressed_crlf() {
+    let input = r#"root:
+  - 'alpha beta
+    gamma delta'
+  # ryl format-ignore
+  -    'held'
+tail: [1,2]
+"#
+    .replace('\n', "\r\n");
+    let settings = "[format]\nsequence-style = 'block'\n";
+    let protected = "  # ryl format-ignore\r\n  -    'held'\r\n";
     let cfg = YamlLintConfig::from_toml_str(settings).unwrap();
-    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    let output = format_str(&input, &cfg, Path::new("case.yaml"), &[]);
+    assert_ne!(output, input);
+    assert!(output.contains("tail:\n  - 1\n  - 2\n"), "{output:?}");
     assert!(output.contains(protected), "{output:?}");
     assert!(!output.replace(protected, "").contains('\r'), "{output:?}");
-    crate::property::reference::check_strict_events(input, &output).unwrap();
+    crate::property::reference::check_strict_events(&input, &output).unwrap();
     assert_eq!(
         format_str(&output, &cfg, Path::new("case.yaml"), &[]),
         output
@@ -887,14 +954,16 @@ fn folded_sequence_property_replay_keeps_only_suppressed_crlf() {
 }
 
 #[test]
-fn prose_reflow_property_replay_keeps_safety_refusals_idempotent() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/format_suppression/wide-prose-conversion.txt"
-    ))
-    .unwrap();
-    preserves_formatted_values(
-        fixture["input"].as_str().unwrap(),
-        fixture["config"].as_str().unwrap(),
+fn prose_reflow_preserves_explicit_indent_around_blank_block_content() {
+    formats(
+        "root:\n  - a: >2+\n       \n    b: x\nother: ' alpha beta gamma delta'\n",
+        r#"indent-width=2
+line-length=14
+[format]
+prose-wrap='always'
+dash-on-own-line=true
+"#,
+        "root:\n  -\n    a: >2+\n       \n    b: x\nother: ' alpha\n  beta gamma\n  delta'\n",
     );
 }
 
@@ -905,8 +974,4 @@ fn prose_reflow_respects_existing_scalar_safety_refusals() {
         let settings = format!("[format]\nprose-wrap = '{mode}'\n");
         formats(input, &settings, input);
     }
-    let input =
-        "root:\n  - a: >2+\n       \n    b: x\nother: ' alpha beta gamma delta'\n";
-    let settings = "indent-width = 2\nline-length = 14\n[format]\nprose-wrap = 'always'\ndash-on-own-line = true\n";
-    preserves_formatted_values(input, settings);
 }
