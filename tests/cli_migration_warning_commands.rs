@@ -301,20 +301,20 @@ fn user_global_yaml_warning_command_finishes_migration() {
     assert!(stderr.is_empty(), "{stderr}");
 }
 
-fn migration_notice(name: &str, config: &str) -> (String, String) {
+fn migration_notice(name: &str, config: &str, expected_code: i32) -> (String, String) {
     let td = tempdir().unwrap();
     let path = td.path().join(name);
     fs::write(&path, config).unwrap();
     let (code, _, stderr) = run(ryl(td.path())
         .args(["--migrate-configs", "--migrate-root"])
         .arg(&path));
-    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(code, expected_code, "{stderr}");
     (stderr, fs::read_to_string(path).unwrap())
 }
 
 #[test]
 fn malformed_toml_yaml_files_is_skipped() {
-    let (notice, original) = migration_notice(".ryl.toml", "yaml-files = [\n");
+    let (notice, original) = migration_notice(".ryl.toml", "yaml-files = [\n", 2);
     assert!(notice.contains("warning: skipping"), "{notice}");
     assert_eq!(original, "yaml-files = [\n");
 }
@@ -322,7 +322,7 @@ fn malformed_toml_yaml_files_is_skipped() {
 #[test]
 fn yaml_files_text_in_a_comment_does_not_trigger_a_rewrite() {
     let config = "# yaml-files\n[lint.rules]\nanchors = 'enable'\n";
-    let (notice, original) = migration_notice(".ryl.toml", config);
+    let (notice, original) = migration_notice(".ryl.toml", config, 0);
     assert!(notice.is_empty(), "{notice}");
     assert_eq!(original, config);
 }
@@ -331,7 +331,7 @@ fn yaml_files_text_in_a_comment_does_not_trigger_a_rewrite() {
 fn non_table_files_is_skipped_without_losing_yaml_files() {
     let config =
         "yaml-files = ['*.yaml']\nfiles = 5\n[lint.rules]\nanchors = 'enable'\n";
-    let (notice, original) = migration_notice(".ryl.toml", config);
+    let (notice, original) = migration_notice(".ryl.toml", config, 2);
     assert!(notice.contains("`files` must be a table"), "{notice}");
     assert_eq!(original, config);
 }
@@ -339,7 +339,7 @@ fn non_table_files_is_skipped_without_losing_yaml_files() {
 #[test]
 fn unrelated_pyproject_yaml_files_text_is_ignored() {
     let config = "[tool.other]\nlabel = 'yaml-files'\n";
-    let (notice, original) = migration_notice("pyproject.toml", config);
+    let (notice, original) = migration_notice("pyproject.toml", config, 0);
     assert!(notice.is_empty(), "{notice}");
     assert_eq!(original, config);
 }
@@ -347,7 +347,7 @@ fn unrelated_pyproject_yaml_files_text_is_ignored() {
 #[test]
 fn pyproject_yaml_files_reports_the_manual_move() {
     let config = "[tool.ryl]\nyaml-files = ['*.yaml']\n[tool.ryl.lint.rules]\nanchors = 'enable'\n";
-    let (notice, original) = migration_notice("pyproject.toml", config);
+    let (notice, original) = migration_notice("pyproject.toml", config, 0);
     assert!(notice.contains("`yaml-files` to `files.yaml`"), "{notice}");
     assert_eq!(original, config);
 }
@@ -356,7 +356,7 @@ fn pyproject_yaml_files_reports_the_manual_move() {
 fn pyproject_existing_files_yaml_reports_manual_removal() {
     let config =
         "[tool.ryl]\nyaml-files = ['*.yml']\n[tool.ryl.files]\nyaml = ['*.yaml']\n";
-    let (notice, original) = migration_notice("pyproject.toml", config);
+    let (notice, original) = migration_notice("pyproject.toml", config, 0);
     assert!(
         notice.contains("remove `yaml-files` because `files.yaml` is already set"),
         "{notice}"
