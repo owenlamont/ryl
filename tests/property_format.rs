@@ -614,6 +614,22 @@ fn check_pass(pass: &FormatPass, input: &str) -> Result<(), String> {
         .map_err(|violation| format!("pass '{}' on {input:?}: {violation}", pass.name))
 }
 
+#[test]
+fn explicit_key_flow_overflow_property_replay_keeps_the_guarantee() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/collection_geometry/explicit-key-yaml.txt"
+    ))
+    .unwrap();
+    let input = fixture["input"].as_str().unwrap();
+    let settings = fixture["config"].as_str().unwrap();
+    let cfg = YamlLintConfig::from_toml_str(settings).unwrap();
+    check_invariants(
+        &|text| ryl::format::format_str(text, &cfg, synthetic_path(), &[]),
+        input,
+    )
+    .unwrap();
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         failure_persistence: Some(Box::new(FileFailurePersistence::Direct(

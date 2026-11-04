@@ -5,7 +5,7 @@
 ryl parses YAML with its own fork of [granit-parser][granit]. It resolves a
 document with no `%YAML` directive under the YAML 1.2 core schema, as the spec
 directs. By default (`target-version = "1.1"`), `ryl format` and `--fix` write
-output that YAML 1.1 readers such as [PyYAML][pyyaml] and go-yaml v2 load to the
+output that YAML 1.1 readers such as [PyYAML][pyyaml-home] and go-yaml v2 load to the
 same values, and the value rules flag plain scalars whose meaning differs
 between the two versions, so files drift toward spellings both read alike. Set
 `target-version = "1.2"` once every consumer is a YAML 1.2 reader.
@@ -42,7 +42,7 @@ Keep the default if such a reader loads your files; see
 [which YAML version each reader follows](#which-yaml-version-each-reader-follows).
 
   [granit]: https://github.com/bourumir-wyngs/granit-parser
-  [pyyaml]: https://pyyaml.org/
+  [pyyaml-home]: https://pyyaml.org/
 
 ## Respecting the `%YAML` version directive
 

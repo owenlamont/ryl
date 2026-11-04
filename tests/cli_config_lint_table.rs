@@ -733,6 +733,7 @@ fn migrate_rewrite_refuses_a_symlink_target() {
     fs::write(&payload, LEGACY).unwrap();
     std::os::unix::fs::symlink(&payload, &link).unwrap();
     let entry = MigrationEntry {
+        cleanup_source: true,
         source: link.clone(),
         target: link.clone(),
         toml: NESTED.to_string(),

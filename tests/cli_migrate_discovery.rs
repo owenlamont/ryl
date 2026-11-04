@@ -36,6 +36,14 @@ fn write_native(path: &Path) {
     fs::write(path, format!("[{table}]\nanchors = \"enable\"\n")).unwrap();
 }
 
+fn assert_warning_path(stderr: &str, path: &Path) {
+    assert!(
+        stderr.contains(&path.display().to_string())
+            || stderr.contains(&fs::canonicalize(path).unwrap().display().to_string()),
+        "{stderr}"
+    );
+}
+
 fn assert_shadowed_migration(
     candidate: &str,
     ancestor: bool,
@@ -65,7 +73,7 @@ fn assert_shadowed_migration(
         .args(flags));
     assert_eq!(code, 0, "{candidate} ancestor={ancestor}: {stdout}{stderr}");
     assert!(stderr.contains("skipping migration"), "{stderr}");
-    assert!(stderr.contains(&native.display().to_string()), "{stderr}");
+    assert_warning_path(&stderr, &native);
     assert_eq!(fs::read(&native).unwrap(), original);
     if candidate != ".ryl.toml" || ancestor {
         assert!(
@@ -112,18 +120,13 @@ fn migration_uses_candidate_and_ancestor_precedence() {
             .args(["--migrate-configs", "--migrate-write", "--migrate-root"])
             .arg(&project));
         assert_eq!(code, 0, "{stderr}");
-        assert!(
-            stderr.contains(
-                &project
-                    .join(
-                        Path::new(selected)
-                            .components()
-                            .collect::<std::path::PathBuf>()
-                    )
-                    .display()
-                    .to_string()
+        assert_warning_path(
+            &stderr,
+            &project.join(
+                Path::new(selected)
+                    .components()
+                    .collect::<std::path::PathBuf>(),
             ),
-            "{stderr}"
         );
     }
 }
@@ -162,7 +165,7 @@ fn migration_skips_empty_ryl_pyproject_but_continues_past_unrelated_pyproject() 
         } else {
             td.path().join("ryl.toml")
         };
-        assert!(stderr.contains(&expected.display().to_string()), "{stderr}");
+        assert_warning_path(&stderr, &expected);
         assert!(!project.join(".ryl.toml").exists());
     }
 }
@@ -222,4 +225,21 @@ fn project_migration_is_not_blocked_by_lower_precedence_user_toml() {
         .arg(td.path()));
     assert_eq!(code, 0, "{stdout}{stderr}");
     assert!(td.path().join(".ryl.toml").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn migration_stops_at_home_when_lookup_resolves_a_directory_alias() {
+    let td = tempdir().unwrap();
+    write_native(&td.path().join(".ryl.toml"));
+    let home = td.path().join("home");
+    fs::create_dir(&home).unwrap();
+    let alias = td.path().join("alias");
+    std::os::unix::fs::symlink(&home, &alias).unwrap();
+    fs::write(home.join(".yamllint"), "rules: {truthy: enable}\n").unwrap();
+    let (code, stdout, stderr) = run(ryl(&alias)
+        .args(["--migrate-configs", "--migrate-write", "--migrate-root"])
+        .arg(&alias));
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(home.join(".ryl.toml").exists(), "{stdout}{stderr}");
 }

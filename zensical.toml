@@ -19,6 +19,7 @@ nav = [
     { "Quick Start" = "getting-started/quickstart.md" },
     { "Using ryl with AI agents" = "using-ryl-with-ai-agents.md" },
     { "Migrating from yamllint" = "getting-started/migrating-from-yamllint.md" },
+    { "Migrating from formatters" = "getting-started/migrating-from-formatters.md" },
     { "Migrating from yamlfix" = "getting-started/migrating-from-yamlfix.md" },
     { "Migrating from google/yamlfmt" = "getting-started/migrating-from-yamlfmt.md" },
     { "Migrating from Prettier" = "getting-started/migrating-from-prettier.md" },

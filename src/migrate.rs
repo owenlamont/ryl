@@ -1,8 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
+
+mod imports;
+pub use imports::MigrationSource;
 
 use crate::config::{
     Env, RYL_USER_GLOBAL_CONFIG_CANDIDATES, SystemEnv, YamlLintConfig,
@@ -55,7 +58,9 @@ impl UserConfigMigration {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrateOptions {
-    /// Project tree to scan for legacy YAML configs; `None` skips project migration.
+    /// Project source selection; formatter imports retain colocated yamllint settings.
+    pub from: Option<MigrationSource>,
+    /// Project tree or source config to migrate; `None` skips project migration.
     pub project_root: Option<PathBuf>,
     /// User-global config to migrate; `None` skips it.
     pub user_config: Option<UserConfigMigration>,
@@ -69,6 +74,8 @@ pub struct MigrateOptions {
 /// `Delete` leaves it alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationEntry {
+    /// Whether requested source cleanup may delete or rename this file.
+    pub cleanup_source: bool,
     pub source: PathBuf,
     pub target: PathBuf,
     pub toml: String,
@@ -108,11 +115,13 @@ pub fn apply_migration_entries(
     // leaves migrated targets behind (a retry would then skip them as already migrated).
     // Symlinked sources are excluded: cleanup never renames them.
     if let SourceCleanup::RenameSuffix(suffix) = cleanup {
-        for source in entries
-            .iter()
-            .map(|entry| entry.source.as_path())
-            .chain(cleanup_only_sources.iter().map(PathBuf::as_path))
-        {
+        for source in unique_sources(
+            entries
+                .iter()
+                .filter(|entry| entry.is_rewrite() || entry.cleanup_source)
+                .map(|entry| entry.source.as_path())
+                .chain(cleanup_only_sources.iter().map(PathBuf::as_path)),
+        ) {
             if is_symlink(source) {
                 continue;
             }
@@ -206,12 +215,33 @@ fn cleanup_sources<'a>(
     entries: &'a [MigrationEntry],
     cleanup_only_sources: &'a [PathBuf],
 ) -> impl Iterator<Item = &'a Path> {
-    entries
-        .iter()
-        .filter(|entry| !entry.is_rewrite())
-        .map(|entry| entry.source.as_path())
-        .chain(cleanup_only_sources.iter().map(PathBuf::as_path))
+    unique_sources(
+        entries
+            .iter()
+            .filter(|entry| !entry.is_rewrite() && entry.cleanup_source)
+            .map(|entry| entry.source.as_path())
+            .chain(cleanup_only_sources.iter().map(PathBuf::as_path)),
+    )
 }
+
+fn unique_sources<'a>(
+    sources: impl Iterator<Item = &'a Path>,
+) -> impl Iterator<Item = &'a Path> {
+    let mut seen = HashSet::new();
+    sources
+        .filter(|source| {
+            let identity = if is_symlink(source) {
+                source.to_path_buf()
+            } else {
+                fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf())
+            };
+            seen.insert(identity)
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+}
+
+const YAML_CONFIG_NAMES: [&str; 3] = [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
 
 fn yaml_config_rank(path: &Path) -> usize {
     match path.file_name().and_then(|name| name.to_str()) {
@@ -224,9 +254,7 @@ fn yaml_config_rank(path: &Path) -> usize {
 fn is_legacy_yaml_config_path(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| {
-            name == ".yamllint" || name == ".yamllint.yaml" || name == ".yamllint.yml"
-        })
+        .is_some_and(|name| YAML_CONFIG_NAMES.contains(&name))
 }
 
 fn is_ryl_toml_config_path(path: &Path) -> bool {
@@ -282,16 +310,30 @@ fn existing_ryl_native_config(
         return Ok(target.is_file().then(|| target.to_path_buf()));
     }
     if !user_global {
-        return Ok(
-            find_project_toml_config(&SystemEnv, &[target.to_path_buf()])?
-                .filter(|path| path.is_file()),
-        );
+        let lookup = resolved_source_path(target.parent().unwrap_or(Path::new(".")))
+            .join(target.file_name().expect("migration targets are files"));
+        return Ok(find_project_toml_config(&SystemEnv, &[lookup])?
+            .filter(|path| path.is_file()));
     }
     Ok(target
         .parent()
         .into_iter()
         .flat_map(|dir| RYL_USER_GLOBAL_CONFIG_CANDIDATES.map(|name| dir.join(name)))
         .find(|candidate| candidate.is_file()))
+}
+
+fn absolute_source_path(path: &Path) -> PathBuf {
+    let path = if path.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        path
+    };
+    std::path::absolute(path).expect("discovered source paths can be made absolute")
+}
+
+fn resolved_source_path(path: &Path) -> PathBuf {
+    let absolute = absolute_source_path(path);
+    fs::canonicalize(&absolute).unwrap_or(absolute)
 }
 
 /// Convert one YAML config at `source` into a TOML `MigrationEntry` written to `target`.
@@ -368,6 +410,7 @@ fn build_entry(
         toml.push_str(&toml::to_string(&table).expect("a string table serializes"));
     }
     plan.entries.push(MigrationEntry {
+        cleanup_source: true,
         source: source.to_path_buf(),
         target,
         toml,
@@ -407,7 +450,10 @@ fn legacy_yaml_sources(root: &Path) -> Vec<PathBuf> {
     discover_configs(root, is_legacy_yaml_config_path)
 }
 
-fn build_project_entries(root: &Path, plan: &mut MigrationPlan) -> Result<(), String> {
+fn build_legacy_project_entries(
+    root: &Path,
+    plan: &mut MigrationPlan,
+) -> Result<(), String> {
     let mut grouped: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     for path in legacy_yaml_sources(root) {
         let parent = path.parent().unwrap_or(Path::new(".")).to_path_buf();
@@ -596,6 +642,7 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
     }
     rewrite_toml_document(&mut document, &deprecated);
     plan.entries.push(MigrationEntry {
+        cleanup_source: true,
         source: path.clone(),
         target: path,
         toml: render_migrated_toml(&document, &text),
@@ -782,7 +829,7 @@ fn rename_excludes(root: &mut Table) {
     }
 }
 
-/// Build and optionally apply YAML-to-TOML config migration.
+/// Build and optionally apply configuration migrations.
 ///
 /// # Errors
 /// Returns an error if migration planning fails or file operations fail in write mode.
@@ -795,7 +842,12 @@ pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String
                 root.display()
             ));
         }
-        build_project_entries(root, &mut plan)?;
+        imports::build_project_entries(
+            root,
+            options.from,
+            &options.cleanup,
+            &mut plan,
+        )?;
         build_toml_rewrites(root, &mut plan);
     }
     if let Some(user) = &options.user_config {

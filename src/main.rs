@@ -42,7 +42,7 @@ use ryl::fix::{
 };
 use ryl::lint::lint_str_with_repair_help;
 use ryl::migrate::{
-    MigrateOptions, OutputMode as MigrateOutputMode, SourceCleanup,
+    MigrateOptions, MigrationSource, OutputMode as MigrateOutputMode, SourceCleanup,
     UserConfigMigration, WriteMode, migrate_configs,
 };
 use ryl::report::{GitlabState, JunitReport, ReportEntry};
@@ -164,6 +164,7 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         None
     };
     let options = MigrateOptions {
+        from: cli.migrate.from,
         project_root: project_root.clone(),
         user_config: user_config.clone(),
         write_mode: if cli.migrate.write {
@@ -286,7 +287,7 @@ struct Cli {
     )]
     print_yaml_config_schema: bool,
 
-    /// Convert legacy YAML configs into .ryl.toml files and move deprecated keys in ryl TOML configs
+    /// Import linter/formatter configs into .ryl.toml and move deprecated ryl TOML keys
     #[arg(long = "migrate-configs", default_value_t = false)]
     migrate_configs: bool,
 
@@ -551,6 +552,10 @@ impl CompatibilityLintFlags {
 
 #[derive(clap::Args, Debug, Default)]
 struct MigrateFlags {
+    /// Select a config source; formatter imports keep colocated yamllint settings
+    #[arg(long = "migrate-from", value_enum, requires = "migrate_configs")]
+    from: Option<MigrationSource>,
+
     /// Directory to search for legacy config files, or one config file (default: .)
     #[arg(
         long = "migrate-root",

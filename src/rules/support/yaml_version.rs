@@ -127,6 +127,10 @@ pub(crate) enum Value {
     Float(OrderedFloat<f64>),
 }
 
+pub(crate) fn has_source_timestamp_shape(value: &str) -> bool {
+    SOURCE_TIMESTAMP_SHAPE.is_match(value)
+}
+
 impl Value {
     const fn tag(&self) -> &'static str {
         match self {
@@ -397,6 +401,21 @@ static YAML_1_1_INT: LazyLock<Regex> = LazyLock::new(|| {
         .expect("YAML 1.1 int regex is valid")
 });
 
+macro_rules! yaml_timestamp_date {
+    () => {
+        r"[0-9][0-9][0-9][0-9]-[0-9][0-9]?-[0-9][0-9]?"
+    };
+}
+
+static SOURCE_TIMESTAMP_SHAPE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r"\A",
+        yaml_timestamp_date!(),
+        r"(?:(?:[Tt]|[ \t]+)[0-9][^\r\n]*)?\z"
+    ))
+    .expect("source timestamp shape regex is valid")
+});
+
 // PyYAML's 1.1 resolvers plus yamllint's `0o` octal and go-yaml v2's `y`/`n` booleans.
 const YAML_1_1_NONSTRING_PATTERN: &str = concat!(
     r"\A(?:",
@@ -407,7 +426,9 @@ const YAML_1_1_NONSTRING_PATTERN: &str = concat!(
     yaml_1_1_int!(),
     r"|<<|~|null|Null|NULL|",
     r"|[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
-    r"|[0-9][0-9][0-9][0-9]-[0-9][0-9]?-[0-9][0-9]?(?:[Tt]|[ \t]+)[0-9][0-9]?:[0-9][0-9]:[0-9][0-9](?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9][0-9]?(?::[0-9][0-9])?))?",
+    "|",
+    yaml_timestamp_date!(),
+    r"(?:[Tt]|[ \t]+)[0-9][0-9]?:[0-9][0-9]:[0-9][0-9](?:\.[0-9]*)?(?:[ \t]*(?:Z|[-+][0-9][0-9]?(?::[0-9][0-9])?))?",
     r"|=",
     r")\z",
 );

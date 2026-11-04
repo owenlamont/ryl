@@ -48,6 +48,11 @@ pub struct Config {
 }
 
 impl Config {
+    pub(crate) const fn forbid_duplicate_merge_keys(mut self) -> Self {
+        self.forbid_duplicated_merge_keys = true;
+        self
+    }
+
     #[must_use]
     pub fn resolve(cfg: &YamlLintConfig) -> Self {
         Self {

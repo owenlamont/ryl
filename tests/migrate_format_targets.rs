@@ -14,6 +14,7 @@ use common::cli::{run, ryl};
 fn migrate(dir: &Path, legacy: &str) -> YamlLintConfig {
     fs::write(dir.join(".yamllint"), legacy).unwrap();
     migrate_configs(&MigrateOptions {
+        from: None,
         project_root: Some(dir.to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
