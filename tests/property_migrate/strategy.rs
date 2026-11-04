@@ -52,7 +52,16 @@ pub fn arb_source() -> impl Strategy<Value = Source> {
                     };
                     (MigrationSource::Yamlfmt, ".yamlfmt", format!("formatter:\n  indent: {indent}\n  max_line_length: {width}\n  unknown: {}\n", json!(unknown)))
                 },
-                2 => (MigrationSource::Dprint, "dprint.jsonc", json!({"yaml":{"indentWidth":indent,"printWidth":width,"unknown":unknown}}).to_string()),
+                2 => {
+                    let options = json!({"indentWidth":indent,"printWidth":width,"unknown":unknown});
+                    let value = match representation {
+                        0 => json!({"yaml":options}),
+                        1 => json!({"plugins":["https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm"],"yaml":options}),
+                        2 => json!({"plugins":["npm:dprint-plugin-yaml@0.6.0"],"yaml":options}),
+                        _ => json!({"plugins":["npm:dprint-plugin-yaml@0.6.0"],"indentWidth":indent,"lineWidth":width,"unknown":unknown}),
+                    };
+                    (MigrationSource::Dprint, "dprint.jsonc", value.to_string())
+                },
                 _ => {
                     let mut values = toml::Table::new();
                     values.insert("indent_mapping".to_owned(), toml::Value::Integer(indent.into()));

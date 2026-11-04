@@ -81,8 +81,12 @@ cases exit `2`, both stricter than yamllint:
 Both via `YamlLintConfig::enables_any_rule`; `main::no_rules_error(config_found)` picks
 the message. The `default`/`relaxed`/`empty` presets stay available via `extends:`
 (deprecated YAML only); both errors point at their TOML copies in
-`docs/config-presets.md`. `--migrate-configs` (warns instead) and `--list-files` are
-exempt.
+`docs/config-presets.md`. Migration actions (`--migrate-configs`, `--migrate-user-config`,
+`--migrate-directives`) and `--list-files` are exempt.
+
+Formatter source configurations are read only by explicit migration actions;
+they do not participate in normal ryl configuration resolution. Comment conversion
+can run independently of config import and an existing native config.
 
 `--enable <RULES>` counts as explicitly turning rules on: `CliConfigFlags::apply` runs
 `YamlLintConfig::restrict_rules` on every resolved config (global, per-file before

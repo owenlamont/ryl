@@ -36,6 +36,39 @@ fn lint(content: &str) -> Vec<ryl::lint::LintProblem> {
     )
 }
 
+fn shared_enable_replay(fixture: &str, rule: &str, line: usize, column: usize) {
+    let fixture: serde_json::Value = serde_json::from_str(fixture).unwrap();
+    let input = fixture["input"].as_str().unwrap();
+    let cfg =
+        ryl::config::YamlLintConfig::from_yaml_str(fixture["config"].as_str().unwrap())
+            .unwrap();
+    let problems = lint_str(input, Path::new("in.yaml"), &cfg, Path::new("."));
+    assert!(problems.iter().any(|problem| {
+        problem.rule == Some(rule) && problem.line == line && problem.column == column
+    }));
+    assert_eq!(ryl::directives::migrate_legacy_comments(input), None);
+}
+
+#[test]
+fn shared_native_enable_replays_the_leading_disable_generator_witness() {
+    shared_enable_replay(
+        include_str!("fixtures/directive_migration/generator-leading.txt"),
+        "line-length",
+        3,
+        21,
+    );
+}
+
+#[test]
+fn shared_native_enable_replays_the_rule_specific_generator_witness() {
+    shared_enable_replay(
+        include_str!("fixtures/directive_migration/generator-specific.txt"),
+        "trailing-spaces",
+        10,
+        43,
+    );
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 512,

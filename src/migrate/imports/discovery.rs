@@ -255,10 +255,11 @@ fn dprint(paths: &[PathBuf]) -> Result<Option<Candidate>, String> {
             .get("plugins")
             .and_then(Value::as_array)
             .is_some_and(|plugins| {
-                plugins
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .any(|plugin| plugin.contains("pretty_yaml"))
+                plugins.iter().filter_map(Value::as_str).any(|plugin| {
+                    plugin.contains("pretty_yaml")
+                        || plugin == "npm:dprint-plugin-yaml"
+                        || plugin.starts_with("npm:dprint-plugin-yaml@")
+                })
             });
     if !plugin && !values.contains_key("yaml") {
         if values.contains_key("extends") {

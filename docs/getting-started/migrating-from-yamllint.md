@@ -90,19 +90,25 @@ Useful flags:
 | Flag | Purpose |
 | :--- | :--- |
 | `--migrate-configs` | Import project linter/formatter configs, move deprecated keys in ryl TOML configs to `[lint]` and `exclude`, and move TOML `yaml-files` to `[files].yaml` |
+| `--migrate-directives` | Preview opt-in source comment conversion; `--migrate-write` applies edits |
 | `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` and `exclude` |
-| `--migrate-from <TOOL>` | Select `yamllint`, `prettier`, `yamlfmt`, `dprint`, or `yamlfix` for project imports |
-| `--migrate-root <PATH>` | Project search root (defaults to `.`), or a single config file |
+| `--migrate-from <TOOL>` | Select `yamllint`, `prettier`, `yamlfmt`, `dprint`, or `yamlfix` for project imports or source comment conversion |
+| `--migrate-root <PATH>` | Project search root (defaults to `.`), a config file, or an application file for comment conversion |
 | `--migrate-stdout` | Print generated TOML to stdout; also writes when combined with `--migrate-write` |
 | `--migrate-write` | Write files (otherwise preview only) |
 | `--migrate-rename-old <SUFFIX>` | Rename source YAML configs after migration; back up a ryl TOML config before rewriting it in place |
 | `--migrate-delete-old` | Delete source YAML configs after migration (a rewritten TOML config is kept) |
 
-The `--migrate-write` / `--migrate-stdout` / `--migrate-rename-old` /
-`--migrate-delete-old` flags apply to whichever migration trigger
-(`--migrate-configs`, `--migrate-user-config`, or both) is set; `--migrate-root`
-applies to project migration only. Migration takes no positional paths: `ryl
---migrate-configs sub/` exits 2, so scope it with `--migrate-root sub/` instead.
+`--migrate-write` applies changes for every selected trigger. `--migrate-stdout`
+and source cleanup flags require config migration; `--migrate-root` and
+`--migrate-from` apply to project config or comment migration. Migration takes no
+positional paths: `ryl --migrate-configs sub/` exits 2, so scope it with
+`--migrate-root sub/` instead.
+
+To convert existing yamllint comments without importing configuration, preview
+`ryl --migrate-directives --migrate-from yamllint`; add `--migrate-write` to apply.
+See [source comment conversion](migrating-from-formatters.md#suppression-comments)
+for supported formatter markers and retained cases.
 
 A config passed to `-c` under any other name migrates by naming the file:
 `--migrate-root ci/lint.yaml` writes `ci/lint.toml` beside it, which `-c` then takes

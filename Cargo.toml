@@ -59,6 +59,7 @@ default = ["lsp"]
 lsp = ["dep:lsp-server", "dep:lsp-types", "dep:crossbeam-channel"]
 
 [dependencies]
+thiserror = "2.0.21"
 clap = { version = "4.6.0", default-features = false, features = ["derive", "std", "help", "usage", "error-context", "suggestions"] }
 clap_complete = "4.6"
 globset = "0.4.18"
