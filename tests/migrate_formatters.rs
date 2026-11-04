@@ -2920,6 +2920,87 @@ fn prettier_ignore_symlinks_warn_and_unreadable_files_fail_import() {
 }
 
 #[test]
+fn yamlfmt_exclusion_path_spellings_are_normalized_or_warned() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join(".yamlfmt");
+    fs::create_dir(dir.path().join("nested")).unwrap();
+    for (pattern, expected) in [
+        ("skip.yaml".to_owned(), Some("/skip.yaml")),
+        ("./skip.yaml".to_owned(), Some("/skip.yaml")),
+        ("nested/../skip.yaml".to_owned(), Some("/skip.yaml")),
+        ("skip.yaml/".to_owned(), Some("/skip.yaml")),
+        (
+            dir.path().join("skip.yaml").display().to_string(),
+            Some("/skip.yaml"),
+        ),
+        ("./nested/*.yaml".to_owned(), Some("/nested/*.yaml")),
+        ("nested/**".to_owned(), Some("/nested/**")),
+        ("../skip.yaml".to_owned(), None),
+        (
+            dir.path()
+                .parent()
+                .unwrap()
+                .join("skip.yaml")
+                .display()
+                .to_string(),
+            None,
+        ),
+        ("nested".to_owned(), None),
+        ("nested/".to_owned(), None),
+        (".".to_owned(), None),
+        (String::new(), None),
+    ] {
+        let body = serde_json::json!({
+            "match_type": "doublestar",
+            "exclude": [pattern],
+            "formatter": {"include_document_start": true},
+        });
+        fs::write(&source, body.to_string()).unwrap();
+        let result =
+            migrate_configs(&options(&source, Some(MigrationSource::Yamlfmt))).unwrap();
+        let table: toml::Table = toml::from_str(&result.entries[0].toml).unwrap();
+        let config = converted(&result);
+        if let Some(expected) = expected {
+            assert_eq!(
+                table["exclude"].as_array().unwrap(),
+                &[toml::Value::from(expected)],
+                "{pattern}"
+            );
+            assert!(result.warnings.is_empty(), "{pattern}: {result:?}");
+            let ignored = if expected.starts_with("/nested/") {
+                "nested/skip.yaml"
+            } else {
+                "skip.yaml"
+            };
+            assert!(
+                config.is_file_ignored(&dir.path().join(ignored), dir.path()),
+                "{pattern}"
+            );
+            assert!(
+                !config
+                    .is_file_ignored(&dir.path().join("other/skip.yaml"), dir.path()),
+                "{pattern}"
+            );
+        } else {
+            assert!(!table.contains_key("exclude"), "{pattern}");
+            assert!(
+                result
+                    .warnings
+                    .iter()
+                    .any(|warning| warning.contains("yamlfmt option exclude")
+                        && warning.contains("configure exclude manually")),
+                "{pattern}: {result:?}"
+            );
+            assert!(
+                !config
+                    .is_file_ignored(&dir.path().join("nested/skip.yaml"), dir.path()),
+                "{pattern}"
+            );
+        }
+    }
+}
+
+#[test]
 fn formatter_exclusions_append_to_colocated_lint_exclusions() {
     let dir = tempdir().unwrap();
     fs::write(

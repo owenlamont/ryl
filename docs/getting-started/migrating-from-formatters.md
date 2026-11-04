@@ -89,7 +89,12 @@ YAML files, including when a source glob selected only one directory.
 Migration imports `.prettierignore` as gitignore patterns, including negations;
 invalid lines produce individual warnings. It also imports dprint `excludes` and
 yamlfmt `exclude` with `match_type: doublestar`. Yamlfmt patterns are anchored to
-the config directory to preserve doublestar matching. Standard matching,
+the config directory, cleaning `./`, internal `..`, and trailing separators;
+absolute patterns inside that directory become relative. Paths outside that
+directory and bare directory exclusions warn instead of being imported.
+Yamlfmt matches paths relative to the invocation directory, with absolute patterns
+matching only absolute inputs; migration assumes the config directory as the root.
+Standard matching,
 `regex_exclude`, and source `include` settings still warn.
 
 Local dprint `extends` paths resolve relative to the extending file. Earlier bases

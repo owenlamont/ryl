@@ -2,6 +2,10 @@
 
 The [config importer](migrating-from-formatters.md) imports `exclude` when
 `match_type: doublestar`, anchoring patterns to the configuration directory.
+The importer cleans relative path components and rebases absolute paths inside
+that directory; paths outside the directory and bare directory exclusions warn.
+Yamlfmt matches the paths produced by its include globs from the invocation
+directory, so use the configuration directory as the migration root.
 Standard matching, `regex_exclude`, and `include` settings still warn.
 
 Replace `yamlfmt .` with `ryl format .` and `yamlfmt -lint .` with

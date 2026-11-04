@@ -190,7 +190,7 @@ fn convert(
     };
     let converted = match candidate.tool {
         Formatter::Prettier => prettier::convert(&values, migrate_directives),
-        Formatter::Yamlfmt => yamlfmt::convert(values),
+        Formatter::Yamlfmt => yamlfmt::convert(values, &parent(&candidate.source)),
         Formatter::Dprint => dprint::convert(values),
         Formatter::Yamlfix => yamlfix::convert(values),
     };

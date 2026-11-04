@@ -1,3 +1,5 @@
+use std::path::{Component, Path, PathBuf};
+
 use serde_json::{Map, Value};
 
 use crate::config_schema::{
@@ -7,7 +9,10 @@ use crate::config_schema::{
 
 use super::options::{Converted, Options, strings};
 
-pub(super) fn convert(mut values: Map<String, Value>) -> Result<Converted, String> {
+pub(super) fn convert(
+    mut values: Map<String, Value>,
+    directory: &Path,
+) -> Result<Converted, String> {
     let formatter = match values.remove("formatter") {
         None | Some(Value::Null) => Map::new(),
         Some(Value::Object(value)) => value,
@@ -77,7 +82,7 @@ pub(super) fn convert(mut values: Map<String, Value>) -> Result<Converted, Strin
     if width_value > 0 {
         options.note("flow-collection wrapping differs; ryl retains its own collection layout rules");
     }
-    let excludes = source_excludes(&mut root)?;
+    let excludes = source_excludes(&mut root, directory)?;
     warn_unmapped(&mut options, &mut root)?;
     let targets = FormatTable {
         quote_style,
@@ -106,16 +111,56 @@ pub(super) fn convert(mut values: Map<String, Value>) -> Result<Converted, Strin
     Ok(converted)
 }
 
-fn source_excludes(root: &mut Options) -> Result<Vec<String>, String> {
+fn source_excludes(
+    root: &mut Options,
+    directory: &Path,
+) -> Result<Vec<String>, String> {
     if !root.values_match("match_type", "doublestar") {
         return Ok(Vec::new());
     }
     root.take("match_type");
-    Ok(root
-        .strings("exclude")?
-        .into_iter()
-        .map(|pattern| format!("/{pattern}"))
-        .collect())
+    let mut excludes = Vec::new();
+    for pattern in root.strings("exclude")? {
+        if let Some(pattern) = anchored_exclude(&pattern, directory) {
+            excludes.push(pattern);
+        } else {
+            root.warn(
+                "exclude",
+                &Value::String(pattern),
+                "path cannot be represented as a root-anchored file exclusion; configure exclude manually",
+            );
+        }
+    }
+    Ok(excludes)
+}
+
+fn anchored_exclude(pattern: &str, directory: &Path) -> Option<String> {
+    let mut normalized = PathBuf::new();
+    for component in Path::new(pattern).components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return None;
+                }
+            }
+            component => normalized.push(component),
+        }
+    }
+    let relative = if normalized.is_absolute() {
+        normalized.strip_prefix(directory).ok()?
+    } else {
+        normalized.as_path()
+    };
+    if relative.as_os_str().is_empty() || directory.join(relative).is_dir() {
+        return None;
+    }
+    let pattern = relative
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    Some(format!("/{pattern}"))
 }
 
 fn quote_policy(options: &mut Options) -> Result<QuoteStyleTarget, String> {
