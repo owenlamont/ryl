@@ -19,6 +19,21 @@ const SEQUENCES: &str = "[format]\nsequence-style = 'block'\n";
 const MAPPINGS: &str = "[format]\nmapping-style = 'block'\n";
 
 #[test]
+fn a_nested_sequence_after_an_explicit_value_measures_its_own_line() {
+    let input = "? a\n: - [{a: b}]\n";
+    let cfg = config(
+        "indent-width=3\nline-length=12\n[format]\nsequence-style='block'\nmapping-style='flow'\n",
+    );
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "? a\n: -\n     - a: b\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
 fn converted_children_keep_the_original_trailing_comment_alignment() {
     let input = "a: {b: c}\n # d\n";
     let cfg = config(MAPPINGS);

@@ -850,6 +850,12 @@ impl<'a> Planner<'a> {
             .map(|parent| self.nodes[parent].kind())
         {
             Some(Kind::Mapping) => place.base + self.body_indent(index),
+            Some(Kind::Sequence)
+                if self.nodes[index].kind() == Kind::Sequence
+                    && !self.initial.outer(index).prefix().compact() =>
+            {
+                place.column - 1 + self.indent
+            }
             Some(_) => self.item_column(index, place.column - 1),
             None => 0,
         }
