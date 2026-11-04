@@ -47,6 +47,16 @@ pub(super) struct LegacyUse {
     tool: Range<usize>,
 }
 
+impl LegacyUse {
+    fn replacement(self) -> crate::text_version::edits::Edit {
+        (
+            BytePos::new(self.tool.start),
+            BytePos::new(self.tool.end),
+            "ryl".to_owned(),
+        )
+    }
+}
+
 pub(super) fn legacy_uses(input: Analysis<'_>) -> Vec<LegacyUse> {
     let buffer = input.text();
     if !buffer.contains("yamllint ") {
@@ -88,15 +98,7 @@ pub(super) fn rewrite_legacy(input: Analysis<'_>) -> Option<String> {
     (!uses.is_empty()).then(|| {
         apply_replacements(
             input.text(),
-            uses.into_iter()
-                .map(|usage| {
-                    (
-                        BytePos::new(usage.tool.start),
-                        BytePos::new(usage.tool.end),
-                        "ryl".to_owned(),
-                    )
-                })
-                .collect(),
+            uses.into_iter().map(LegacyUse::replacement).collect(),
         )
     })
 }

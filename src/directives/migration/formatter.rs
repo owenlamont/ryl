@@ -113,13 +113,7 @@ pub(super) fn migrate(
         legacy
             .into_iter()
             .filter(|usage| !retained_lines.contains(&usage.line))
-            .map(|usage| {
-                (
-                    BytePos::new(usage.tool.start),
-                    BytePos::new(usage.tool.end),
-                    "ryl".to_owned(),
-                )
-            }),
+            .map(super::LegacyUse::replacement),
     );
     retained_lines.sort_unstable();
     retained_lines.dedup();

@@ -89,7 +89,11 @@ impl<'a> Headers<'a> {
                 style: ScalarStyle::Literal | ScalarStyle::Folded,
                 ..
             } => {
-                let marker = header_marker(chars, self.previous_end);
+                let marker = crate::rules::support::line_syntax::block_indicator(
+                    chars,
+                    self.previous_end,
+                )
+                .expect("a block scalar has a `|` or `>` header");
                 let (line, column) = self.columns.at(marker);
                 self.found.push(Header {
                     span,
@@ -191,15 +195,4 @@ pub(crate) fn ambiguous_blank_body_line_with_analysis(
             })
             .map(|_| header.line)
     })
-}
-
-fn header_marker(chars: &str, from: usize) -> usize {
-    let mut in_comment = false;
-    from + chars[from..]
-        .char_indices()
-        .find_map(|(offset, ch)| {
-            in_comment = (in_comment || ch == '#') && !matches!(ch, '\n' | '\r');
-            (!in_comment && matches!(ch, '|' | '>')).then_some(offset)
-        })
-        .expect("a block scalar has a `|` or `>` header")
 }

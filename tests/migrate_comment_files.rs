@@ -473,21 +473,7 @@ fn canonical_unicode_encodings_keep_boms_and_non_directive_bytes() {
     let input = "# yamllint disable\r\ncafé: 🦀\r\n";
     let expected = input.replace("yamllint", "ryl");
     for big in [false, true] {
-        let encode = |text: &str| {
-            let mut bytes = if big {
-                vec![0xfe, 0xff]
-            } else {
-                vec![0xff, 0xfe]
-            };
-            for unit in text.encode_utf16() {
-                bytes.extend(if big {
-                    unit.to_be_bytes()
-                } else {
-                    unit.to_le_bytes()
-                });
-            }
-            bytes
-        };
+        let encode = |text: &str| crate::common::encoding::encoded(text, 2, !big, true);
         let path = dir.path().join("app.yaml");
         let original = encode(input);
         fs::write(&path, &original).unwrap();

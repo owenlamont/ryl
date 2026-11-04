@@ -24,6 +24,14 @@ pub(crate) fn leading_whitespace_width(line: &str) -> usize {
         .count()
 }
 
+pub(crate) fn block_indicator(text: &str, from: usize) -> Option<usize> {
+    let mut in_comment = false;
+    text[from..].char_indices().find_map(|(offset, ch)| {
+        in_comment = (in_comment || ch == '#') && !matches!(ch, '\n' | '\r');
+        (!in_comment && matches!(ch, '|' | '>')).then_some(from + offset)
+    })
+}
+
 pub(crate) fn starts_with_document_marker(value: &str) -> bool {
     value
         .strip_prefix("---")

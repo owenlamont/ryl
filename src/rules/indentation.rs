@@ -465,7 +465,9 @@ impl Normalizer<'_> {
                     // the parser starts a block scalar at its content, PyYAML at
                     // `|`/`>`.
                     let from = self.previous.as_ref().map_or(0, |prev| prev.end);
-                    start = block_indicator(text, from).unwrap_or(start);
+                    start =
+                        crate::rules::support::line_syntax::block_indicator(text, from)
+                            .unwrap_or(start);
                     line = line_starts.partition_point(|&offset| offset <= start) - 1;
                     column = text[line_starts[line]..start].chars().count();
                     let end_line_start = line_starts[end_line];
@@ -533,14 +535,6 @@ fn count_spaces(text: &str, from: usize) -> usize {
 
 const fn is_break(ch: char) -> bool {
     matches!(ch, '\n' | '\r')
-}
-
-fn block_indicator(text: &str, from: usize) -> Option<usize> {
-    let mut in_comment = false;
-    text[from..].char_indices().find_map(|(offset, ch)| {
-        in_comment = (in_comment || ch == '#') && !is_break(ch);
-        (!in_comment && matches!(ch, '|' | '>')).then_some(from + offset)
-    })
 }
 
 fn to_isize(value: usize) -> isize {

@@ -756,23 +756,10 @@ impl Presentation {
         presentation.settle().map(|()| presentation)
     }
 
-    fn extend(&mut self, rule: &'static str, mut edits: Vec<Edit>) {
-        if let Some(guard) = &self.guard {
-            edits.retain(|(start, end, _)| guard.allows(rule, *start, *end));
-        }
-        if let Some(retained) = &self.retained {
-            edits.retain(|(start, end, _)| retained.keeps(*start, *end));
-        }
-        if !edits.is_empty() {
-            self.rules.push(rule);
-        }
-        self.edits.extend(edits.into_iter().map(plan_edit));
-    }
-
-    fn extend_spaces(
+    fn select_edits<T>(
         &mut self,
         rule: &'static str,
-        mut edits: Vec<crate::rules::support::token_spacing::SpaceEdit>,
+        edits: &mut Vec<(BytePos, BytePos, T)>,
     ) {
         if let Some(guard) = &self.guard {
             edits.retain(|(start, end, _)| guard.allows(rule, *start, *end));
@@ -783,6 +770,19 @@ impl Presentation {
         if !edits.is_empty() {
             self.rules.push(rule);
         }
+    }
+
+    fn extend(&mut self, rule: &'static str, mut edits: Vec<Edit>) {
+        self.select_edits(rule, &mut edits);
+        self.edits.extend(edits.into_iter().map(plan_edit));
+    }
+
+    fn extend_spaces(
+        &mut self,
+        rule: &'static str,
+        mut edits: Vec<crate::rules::support::token_spacing::SpaceEdit>,
+    ) {
+        self.select_edits(rule, &mut edits);
         self.edits.extend(
             edits.into_iter().map(|(from, to, spaces)| {
                 (from, to, pieces::Replacement::Spaces(spaces))
