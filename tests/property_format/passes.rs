@@ -149,6 +149,16 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
             toml_pass("fix/ladder-toml", TOML_LADDER, fix),
             toml_pass("format/default", "[format]\n", format),
             toml_pass(
+                "format/keep-quotes-single",
+                "[format]\nkeep-quotes = true\n",
+                format,
+            ),
+            toml_pass(
+                "format/keep-quotes-double",
+                "[format]\nkeep-quotes = true\nquote-style = 'double'\n",
+                format,
+            ),
+            toml_pass(
                 "format/quote-double",
                 "[format]\nquote-style = 'double'\n",
                 format,

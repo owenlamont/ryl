@@ -310,6 +310,11 @@ pub fn agreeing_lint(config: &str) -> String {
         LineEndingTarget::Auto => "unix",
     };
     let padding = u8::from(table.brace_spacing);
+    let required = if table.keep_quotes {
+        "false"
+    } else {
+        "'only-when-needed'"
+    };
     let mut lint = format!(
         "{config}\n[lint.rules]\n\
          comments-indentation = 'enable'\ncommas = 'enable'\n\
@@ -326,7 +331,7 @@ pub fn agreeing_lint(config: &str) -> String {
          max-spaces-from-content = {}\nrequire-starting-space = {}\n\
          [lint.rules.empty-lines]\nmax = {}\nmax-start = 0\nmax-end = 0\n\
          [lint.rules.quoted-strings]\nquote-type = '{quote}'\n\
-         required = 'only-when-needed'\nallow-double-quotes-for-escaping = true\n\
+         required = {required}\nallow-double-quotes-for-escaping = true\n\
          allow-quoted-quotes = true\n\
          [lint.rules.new-lines]\ntype = '{ending}'\n",
         enabled(table.document_start == MarkerTarget::Add),
@@ -349,4 +354,28 @@ pub fn agreeing_lint(config: &str) -> String {
         lint = lint.replace("[lint.rules]", "[lint.rules]\nnew-lines = 'disable'");
     }
     lint
+}
+
+#[test]
+fn agreeing_lint_accepts_retained_optional_quotes() {
+    for style in ["single", "double", "preserve"] {
+        let config = agreeing_lint(&format!(
+            "[format]\nkeep-quotes = true\nquote-style = '{style}'\n",
+        ));
+        let cfg = YamlLintConfig::from_toml_str(&config).unwrap();
+        let input = "plain: hello\nquoted: 'hello'\n";
+        let output =
+            ryl::format::format_str(input, &cfg, std::path::Path::new(""), &[]);
+        assert!(ryl::format::conflicts(&cfg).is_empty(), "{config}");
+        assert!(
+            ryl::lint::lint_str(
+                &output,
+                std::path::Path::new(""),
+                &cfg,
+                std::path::Path::new("")
+            )
+            .is_empty(),
+            "{config}: {output}"
+        );
+    }
 }

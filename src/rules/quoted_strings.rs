@@ -109,6 +109,12 @@ enum RequiredMode {
     OnlyWhenNeeded,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QuoteRetention {
+    Needed,
+    Existing,
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     quote_type: QuoteType,
@@ -119,6 +125,7 @@ pub struct Config {
     allow_quoted_quotes: bool,
     allow_double_quotes_for_escaping: bool,
     avoid_escapes: Option<QuoteStyle>,
+    retention: QuoteRetention,
     pub check_keys: bool,
     target: TargetVersion,
 }
@@ -205,6 +212,7 @@ impl Config {
             allow_quoted_quotes,
             allow_double_quotes_for_escaping,
             avoid_escapes: None,
+            retention: QuoteRetention::Needed,
             check_keys,
             target: cfg.target_version(),
         }
@@ -238,9 +246,19 @@ impl Config {
             allow_quoted_quotes: false,
             allow_double_quotes_for_escaping: true,
             avoid_escapes: Some(style),
+            retention: QuoteRetention::Needed,
             check_keys: true,
             target,
         }
+    }
+
+    pub(crate) const fn with_keep_quotes(mut self, keep: bool) -> Self {
+        self.retention = if keep {
+            QuoteRetention::Existing
+        } else {
+            QuoteRetention::Needed
+        };
+        self
     }
 }
 
@@ -590,12 +608,13 @@ fn scalar_initial<'text>(
     style: ScalarStyle,
     span: &Span,
 ) -> target::Initial<'text> {
-    let content = if style == ScalarStyle::DoubleQuoted {
-        let (start, end) = scalar_source_bounds(buffer, style, span);
-        inner_quoted_content(buffer, start, end)
-    } else {
-        ""
-    };
+    let content =
+        if matches!(style, ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted) {
+            let (start, end) = scalar_source_bounds(buffer, style, span);
+            inner_quoted_content(buffer, start, end)
+        } else {
+            ""
+        };
     target::Initial::new(style, content)
 }
 
@@ -1179,7 +1198,10 @@ impl<'cfg> FixState<'cfg> {
         target::Planner::new(self.config, &mut self.consistent_quote_style)
             .plan(eligible, initial, placement, &mut self.plain_scalar_cache)
             .map(|selected| {
-                let retained = if style == ScalarStyle::DoubleQuoted {
+                let retained = if matches!(
+                    style,
+                    ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
+                ) {
                     inner_quoted_content(self.buffer, start, end)
                 } else {
                     ""

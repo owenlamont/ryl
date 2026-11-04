@@ -111,7 +111,10 @@ impl Passes<'static> {
                 )
             }),
             quoted_strings: quote_style.filter(|_| on(quoted_strings::ID)).map(
-                |style| quoted_strings::Config::ladder(style, cfg.target_version()),
+                |style| {
+                    quoted_strings::Config::ladder(style, cfg.target_version())
+                        .with_keep_quotes(table.keep_quotes)
+                },
             ),
             trailing_spaces: on(trailing_spaces::ID),
             document_start: (table.document_start == MarkerTarget::Add
@@ -649,14 +652,19 @@ fn spaces_admit_format(cfg: &YamlLintConfig) -> bool {
 }
 
 fn remedy(rule: &str, cfg: &YamlLintConfig) -> String {
+    let required = if cfg.format().targets().keep_quotes {
+        "false"
+    } else {
+        "\"only-when-needed\""
+    };
     match (rule, cfg.format().targets().quote_style) {
         (quoted_strings::ID, QuoteStyleTarget::Double) => {
-            "set its options `quote-type = \"double\"`, `required = \"only-when-needed\"`, \
-             `allow-quoted-quotes = true`".to_owned()
+            format!("set its options `quote-type = \"double\"`, `required = {required}`, \
+             `allow-quoted-quotes = true`")
         }
         (quoted_strings::ID, _) => {
-            "set its options `quote-type = \"single\"`, `required = \"only-when-needed\"`, \
-             `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`".to_owned()
+            format!("set its options `quote-type = \"single\"`, `required = {required}`, \
+             `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`")
         }
         (indentation::ID, _) if cfg.indent_width().is_none() => {
             "set the top-level TOML `indent-width` to its `spaces` (for a YAML config, follow its migration warning first)".to_owned()
@@ -690,6 +698,7 @@ fn target(rule: &str, cfg: &YamlLintConfig) -> Option<String> {
         }
         indentation::ID => Some("indent-sequences"),
         quoted_strings::ID if table.quote_style == QuoteStyleTarget::Preserve => None,
+        quoted_strings::ID if table.keep_quotes => Some("keep-quotes"),
         document_start::ID if table.document_start == MarkerTarget::Preserve => None,
         document_end::ID if table.document_end == MarkerTarget::Preserve => None,
         line_length::ID => return None,
