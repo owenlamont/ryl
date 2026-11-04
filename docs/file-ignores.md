@@ -84,6 +84,9 @@ file, whether discovered or passed with `-c`, or at the working directory for in
 matches by file name only, so `*.lock.yaml` still applies to it and
 `.github/workflows/*` does not &mdash; the same as ruff.
 
+Relative and absolute config and input paths match the same way, including
+`./` and `..` components and paths supplied through `--stdin-filename`.
+
 ```toml
 exclude = """
 *.generated.yaml

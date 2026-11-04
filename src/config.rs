@@ -863,8 +863,7 @@ impl YamlLintConfig {
     pub fn is_yaml_candidate(&self, path: &Path, base_dir: &Path) -> bool {
         if let Some(matcher) = &self.yaml_matcher {
             let rel = relative_to_base(path, base_dir, self.path_case.is_insensitive());
-            let matched =
-                matcher.matched_path_or_any_parents(rel.as_ref(), path.is_dir());
+            let matched = matcher.matched_path_or_any_parents(&rel, path.is_dir());
             return matched.is_ignore();
         }
         crate::discover::is_yaml_path(path)
@@ -879,7 +878,7 @@ impl YamlLintConfig {
         };
         let rel = relative_to_base(path, base_dir, self.path_case.is_insensitive());
         matcher
-            .matched_path_or_any_parents(rel.as_ref(), path.is_dir())
+            .matched_path_or_any_parents(&rel, path.is_dir())
             .is_ignore()
     }
 
@@ -1332,7 +1331,8 @@ fn build_glob_matcher(
     if patterns.is_empty() {
         return None;
     }
-    let mut builder = GitignoreBuilder::new(base_dir);
+    let mut builder =
+        GitignoreBuilder::new(lexical_abspath(&process_cwd().join(base_dir)));
     builder
         .case_insensitive(case_insensitive)
         .expect("setting case sensitivity is infallible");
@@ -1355,7 +1355,8 @@ fn build_ignore_matcher(
         return Ok((None, Vec::new()));
     }
 
-    let mut builder = GitignoreBuilder::new(base_dir);
+    let mut builder =
+        GitignoreBuilder::new(lexical_abspath(&process_cwd().join(base_dir)));
     builder
         .case_insensitive(envx.case_insensitive_paths())
         .expect("setting case sensitivity is infallible");
@@ -1435,17 +1436,37 @@ fn relative_to_base<'a>(
     base_dir: &Path,
     case_insensitive: bool,
 ) -> Cow<'a, Path> {
+    let plain = |rel: &Path| {
+        rel.components()
+            .all(|part| matches!(part, Component::Normal(_) | Component::CurDir))
+    };
     if let Some(rel) = strip_path_prefix(path, base_dir, case_insensitive)
-        && (!case_insensitive || !rel.has_root())
+        && plain(rel)
     {
         return Cow::Borrowed(rel);
     }
     let cwd = process_cwd();
-    let resolved =
-        strip_path_prefix(&cwd.join(path), &cwd.join(base_dir), case_insensitive)
-            .map(Path::to_path_buf);
+    let (path_from_cwd, base_from_cwd) = (cwd.join(path), cwd.join(base_dir));
+    if let Some(rel) =
+        strip_path_prefix(&path_from_cwd, &base_from_cwd, case_insensitive)
+        && plain(rel)
+    {
+        return Cow::Owned(rel.to_path_buf());
+    }
+    let parent =
+        |path: &Path| path.components().any(|part| part == Component::ParentDir);
+    let normalized = if parent(path) || parent(base_dir) {
+        strip_path_prefix(
+            &lexical_abspath(&path_from_cwd),
+            &lexical_abspath(&base_from_cwd),
+            case_insensitive,
+        )
+        .map(Path::to_path_buf)
+    } else {
+        None
+    };
     Cow::Owned(
-        resolved
+        normalized
             .unwrap_or_else(|| path.file_name().map(PathBuf::from).unwrap_or_default()),
     )
 }
