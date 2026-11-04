@@ -90,7 +90,9 @@ ryl combines configurable lint rules, safe fixes, and whole-file formatting.
 TOML configuration supports per-file rule selection, and SchemaStore helps
 editors validate that configuration.
 
-Coming from yamllint? See the [migration guide](getting-started/migrating-from-yamllint.md).
+Coming from yamllint or another YAML formatter? See the guides for
+[yamllint](getting-started/migrating-from-yamllint.md) and
+[formatter configurations](getting-started/migrating-from-formatters.md).
 
 ## Next steps
 

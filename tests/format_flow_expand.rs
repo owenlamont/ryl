@@ -9,6 +9,58 @@ use ryl::format::{format_str, refusals};
 
 const AUTO: &str = "[format]\nsequence-expand = 'auto'\nmapping-expand = 'auto'\n";
 
+#[test]
+fn explicit_key_flow_overflow_uses_the_final_sequence_indent() {
+    formats(
+        "? a\n: [[a, b], c]\n",
+        "indent-width=8\nline-length=10\n[format]\nsequence-style='flow'\nindent-sequences=false\n",
+        "? a\n:\n        - - a\n          - b\n        - c\n",
+    );
+    formats(
+        "root:\n- ? a\n  : [[a, b], c]\n",
+        "line-length=10\n[format]\nsequence-style='flow'\nindent-sequences=false\n",
+        "root:\n- ? a\n  :\n    - - a\n      - b\n    - c\n",
+    );
+}
+
+#[test]
+fn explicit_key_geometry_tracks_empty_complex_and_property_keys() {
+    let settings = "indent-width=8\nline-length=10\n[format]\nsequence-style='flow'\nindent-sequences=false\n";
+    let cfg = YamlLintConfig::from_toml_str(settings).unwrap();
+    for input in [
+        "? [a, b]\n: [[a, b], c]\n",
+        "? [a, b] : [[a, b], c]\n",
+        "? inner: value\n: [[a, b], c]\n",
+        "? - a\n  - b\n: [[a, b], c]\n",
+        "? &key a\n: [[a, b], c]\n",
+        "? # key\n  a\n: [[a, b], c]\n",
+        ": zero\n? a\n: [[a, b], c]\n",
+        "flow: {: zero, a: one}\n? a\n: [[a, b], c]\n",
+    ] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output,
+            "{input:?}"
+        );
+    }
+    for input in [
+        "a: [[a, b], c]\n",
+        "previous: abc ?\n: [[a, b], c]\n",
+        "{? a: [[a, b], c]}\n",
+    ] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+        assert!(!output.contains("- - a"), "{input:?}: {output:?}");
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output,
+            "{input:?}"
+        );
+    }
+}
+
 fn formats(input: &str, toml: &str, expected: &str) {
     let cfg = YamlLintConfig::from_toml_str(toml).expect("expand config parses");
     let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);

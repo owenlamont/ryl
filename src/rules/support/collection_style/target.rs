@@ -870,7 +870,16 @@ impl<'a> Planner<'a> {
 
     /// How far a block body converted from `index` indents past its key.
     fn body_indent(&self, index: usize) -> usize {
-        if self.nodes[index].kind() == Kind::Sequence && !self.shape.indent_sequences {
+        let node = &self.nodes[index];
+        let explicit = node.parent().is_some_and(|parent| {
+            self.nodes[parent].kind() == Kind::Mapping
+                && !self.initial.collection(parent).flow()
+                && !node.position().is_multiple_of(2)
+                && self
+                    .initial
+                    .explicit_key(self.nodes[parent].children()[node.position() - 1])
+        });
+        if node.kind() == Kind::Sequence && !self.shape.indent_sequences && !explicit {
             0
         } else {
             self.indent

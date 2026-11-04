@@ -7,6 +7,7 @@ use crate::rules::support::span_utils::marker_byte_offset;
 use crate::rules::support::token_spacing;
 use crate::rules::{colons, comments, hyphens, indentation, quoted_strings};
 use crate::text_version::Analysis;
+use crate::text_version::lexical::Kind as LexicalKind;
 use crate::text_version::model::{Node, NodeKind};
 
 #[derive(Clone, Copy)]
@@ -165,6 +166,10 @@ impl<'a> Initial<'a> {
             flow: site.flow,
             braced: site.braced,
         }
+    }
+
+    pub(super) fn explicit_key(&self, node: usize) -> bool {
+        self.sites[node].explicit_key
     }
 
     pub(super) fn scalar(&self, node: usize) -> Option<quoted_strings::Retained<'a>> {
@@ -491,6 +496,7 @@ pub(super) struct Site {
     pub(super) end: usize,
     pub(super) line: usize,
     pub(super) column: usize,
+    explicit_key: bool,
 }
 
 pub(super) struct Tree {
@@ -501,6 +507,11 @@ pub(super) struct Tree {
 
 pub(super) fn observe(input: Analysis<'_>) -> Tree {
     let buffer = input.text();
+    let mut key_indicators = input
+        .tokens()
+        .iter(buffer)
+        .filter_map(|(span, kind)| matches!(kind, LexicalKind::Key).then_some(span))
+        .peekable();
     let mut nodes: Vec<Node> = Vec::new();
     let mut sites: Vec<Site> = Vec::new();
     let mut comments = Attachments::default();
@@ -554,6 +565,11 @@ pub(super) fn observe(input: Analysis<'_>) -> Tree {
             start
         };
         let position = parent.map_or(0, |parent| nodes[parent].children().len());
+        let explicit_key = parent.is_some_and(|parent| {
+            nodes[parent].kind() == NodeKind::Mapping && position.is_multiple_of(2)
+        }) && key_indicators
+            .next_if(|span| marker_byte_offset(span.start).get() <= start)
+            .is_some_and(|span| span.slice(buffer) == Some("?"));
         if let Some(parent) = parent {
             nodes[parent].push_child(index);
         }
@@ -566,6 +582,7 @@ pub(super) fn observe(input: Analysis<'_>) -> Tree {
             end,
             line: span.start.line(),
             column: span.start.col() - (marker_byte_offset(span.start).get() - start),
+            explicit_key,
         });
         if matches!(kind, NodeKind::Sequence | NodeKind::Mapping) {
             open.push(index);

@@ -10,6 +10,7 @@ use tempfile::tempdir;
 #[test]
 fn migrate_errors_when_root_is_missing() {
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(PathBuf::from("/no/such/path/for/ryl-migrate")),
         user_config: None,
         write_mode: WriteMode::Preview,
@@ -22,6 +23,7 @@ fn migrate_errors_when_root_is_missing() {
 
 fn preview_project(root: PathBuf) -> MigrateOptions {
     MigrateOptions {
+        from: None,
         project_root: Some(root),
         user_config: None,
         write_mode: WriteMode::Preview,
@@ -74,6 +76,7 @@ fn migrate_single_yaml_config_file_path_returns_entry() {
     let file = td.path().join(".yamllint");
     fs::write(&file, "rules: { document-start: disable }\n").unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(file.clone()),
         user_config: None,
         write_mode: WriteMode::Preview,
@@ -93,6 +96,7 @@ fn migrate_write_mode_with_delete_removes_source_file() {
     let source = td.path().join(".yamllint");
     fs::write(&source, "rules: { document-start: disable }\n").unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -112,6 +116,7 @@ fn migrate_write_mode_with_keep_preserves_source_file() {
     let source = td.path().join(".yamllint");
     fs::write(&source, "rules: { document-start: disable }\n").unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -131,6 +136,7 @@ fn migrate_write_mode_with_rename_suffix_renames_source_file() {
     let source = td.path().join(".yamllint");
     fs::write(&source, "rules: { document-start: disable }\n").unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -161,6 +167,7 @@ fn migrate_warns_on_multiple_same_directory_configs() {
     )
     .unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Preview,
@@ -179,6 +186,7 @@ fn migrate_warns_when_migrated_config_enables_no_rules() {
     let td = tempdir().unwrap();
     fs::write(td.path().join(".yamllint"), "rules: {}\n").unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Preview,
@@ -200,6 +208,7 @@ fn migrate_errors_on_invalid_yaml_config_data() {
     let td = tempdir().unwrap();
     fs::write(td.path().join(".yamllint"), "rules: {\n").unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Preview,
@@ -219,6 +228,7 @@ fn migrate_errors_when_generated_toml_conversion_fails() {
     )
     .unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Preview,
@@ -235,6 +245,7 @@ fn migrate_write_errors_when_target_path_is_directory() {
     fs::write(td.path().join(".yamllint"), "rules: {}\n").unwrap();
     fs::create_dir(td.path().join(".ryl.toml")).unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -250,6 +261,7 @@ fn migrate_write_errors_when_rename_destination_is_invalid() {
     let td = tempdir().unwrap();
     fs::write(td.path().join(".yamllint"), "rules: {}\n").unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -266,6 +278,7 @@ fn migrate_rewrite_errors_without_writing_when_backup_fails() {
     let legacy = "[rules]\ntruthy = \"enable\"\n";
     fs::write(td.path().join("ryl.toml"), legacy).unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -289,6 +302,7 @@ fn migrate_user_config_writes_target_creating_missing_dir() {
     // The ryl/ target dir does not exist yet; the write must create it.
     let target = td.path().join("ryl").join("ryl.toml");
     let opts = MigrateOptions {
+        from: None,
         project_root: None,
         user_config: Some(UserConfigMigration {
             source: source.clone(),
@@ -311,6 +325,7 @@ fn migrate_user_config_writes_target_creating_missing_dir() {
 fn migrate_user_config_absent_source_yields_no_entry() {
     let td = tempdir().unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: None,
         user_config: Some(UserConfigMigration {
             source: td.path().join("yamllint").join("config"),
@@ -331,6 +346,7 @@ fn migrate_user_config_propagates_parse_error() {
     fs::create_dir_all(source.parent().unwrap()).unwrap();
     fs::write(&source, "rules: {\n").unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: None,
         user_config: Some(UserConfigMigration {
             source,
@@ -359,6 +375,7 @@ fn migrate_project_skips_when_ryl_native_config_exists() {
     )
     .unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -399,6 +416,7 @@ fn migrate_project_skips_when_config_dir_ryl_config_exists() {
     )
     .unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -440,6 +458,7 @@ fn migrate_user_config_skips_when_ryl_toml_exists() {
     )
     .unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: None,
         user_config: Some(UserConfigMigration {
             source: source.clone(),
@@ -474,6 +493,7 @@ fn migrate_skipped_directory_does_not_delete_lower_precedence_siblings() {
     )
     .unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -503,6 +523,7 @@ fn migrate_rename_refuses_to_overwrite_existing_backup() {
     .unwrap();
     fs::write(td.path().join(".yamllint.bak"), "previous backup\n").unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -534,6 +555,7 @@ fn apply_entries_refuses_to_overwrite_existing_target() {
     let target = td.path().join("ryl.toml");
     fs::write(&target, "original\n").unwrap();
     let entries = vec![MigrationEntry {
+        cleanup_source: true,
         source: td.path().join(".yamllint"),
         target: target.clone(),
         toml: "[lint.rules]\n".to_string(),
@@ -567,6 +589,7 @@ fn migrate_user_config_allows_absolute_rule_level_ignore_from_file() {
     )
     .unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: None,
         user_config: Some(UserConfigMigration {
             source,
@@ -598,6 +621,7 @@ fn migrate_skips_symlinked_source() {
     let link = td.path().join(".yamllint");
     std::os::unix::fs::symlink(&real, &link).unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -630,6 +654,7 @@ fn migrate_user_config_skips_symlinked_target() {
     let target = ryl_dir.join("ryl.toml");
     std::os::unix::fs::symlink(&victim, &target).unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: None,
         user_config: Some(UserConfigMigration {
             source,
@@ -687,6 +712,7 @@ fn apply_entries_target_without_parent_does_not_panic() {
     // A parentless target (never produced by the planner) skips dir creation and falls
     // through to the write, which fails gracefully, proving the path cannot panic.
     let entries = vec![MigrationEntry {
+        cleanup_source: true,
         source: PathBuf::from("x"),
         target: PathBuf::from(""),
         toml: String::new(),
@@ -705,6 +731,7 @@ fn apply_entries_errors_when_target_parent_cannot_be_created() {
     let blocker = td.path().join("blocker");
     fs::write(&blocker, "x").unwrap();
     let entries = vec![MigrationEntry {
+        cleanup_source: true,
         source: td.path().join(".yamllint"),
         target: blocker.join("ryl.toml"),
         toml: "[lint.rules]\n".to_string(),
@@ -719,6 +746,7 @@ fn apply_entries_delete_mode_propagates_delete_failures() {
     let target = td.path().join(".ryl.toml");
     let source = td.path().join(".yamllint");
     let entries = vec![MigrationEntry {
+        cleanup_source: true,
         source: source.clone(),
         target,
         toml: "[lint.rules]\n".to_string(),
@@ -750,6 +778,7 @@ fn migrate_delete_mode_removes_lower_precedence_skipped_configs() {
     fs::write(&primary, "rules: { document-start: disable }\n").unwrap();
     fs::write(&skipped, "rules: {}\n").unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -772,6 +801,7 @@ fn migrate_rename_mode_renames_lower_precedence_skipped_configs() {
     fs::write(&primary, "rules: { document-start: disable }\n").unwrap();
     fs::write(&skipped, "rules: {}\n").unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: Some(td.path().to_path_buf()),
         user_config: None,
         write_mode: WriteMode::Write,
@@ -813,6 +843,7 @@ fn migrate_user_config_errors_when_source_is_unreadable() {
     let source = td.path().join("yamllint").join("config");
     fs::create_dir_all(&source).unwrap();
     let opts = MigrateOptions {
+        from: None,
         project_root: None,
         user_config: Some(UserConfigMigration {
             source,
@@ -824,4 +855,96 @@ fn migrate_user_config_errors_when_source_is_unreadable() {
     };
     let err = migrate_configs(&opts).unwrap_err();
     assert!(err.contains("failed to read"), "{err}");
+}
+
+fn cleanup_inherited_source_once(cleanup: SourceCleanup) {
+    let td = tempdir().unwrap();
+    let parent = td.path().join("yamlfix.toml");
+    let child_dir = td.path().join("child");
+    fs::create_dir(&child_dir).unwrap();
+    let child = child_dir.join(".yamlfix.toml");
+    fs::write(&parent, "line_length = 60\n").unwrap();
+    fs::write(&child, "line_length = 90\n").unwrap();
+    let entries = vec![
+        MigrationEntry {
+            cleanup_source: true,
+            source: parent.clone(),
+            target: td.path().join(".ryl.toml"),
+            toml: "line-length = 60\n".to_owned(),
+        },
+        MigrationEntry {
+            cleanup_source: true,
+            source: child.clone(),
+            target: child_dir.join(".ryl.toml"),
+            toml: "line-length = 90\n".to_owned(),
+        },
+    ];
+    apply_migration_entries(
+        &entries,
+        &[parent.clone(), child.clone(), parent.clone()],
+        &cleanup,
+    )
+    .unwrap();
+    for entry in &entries {
+        assert_eq!(fs::read_to_string(&entry.target).unwrap(), entry.toml);
+        assert!(!entry.source.exists());
+    }
+    if let SourceCleanup::RenameSuffix(_) = cleanup {
+        assert_eq!(
+            fs::read_to_string(td.path().join("yamlfix.toml.bak")).unwrap(),
+            "line_length = 60\n"
+        );
+        assert_eq!(
+            fs::read_to_string(child_dir.join(".yamlfix.toml.bak")).unwrap(),
+            "line_length = 90\n"
+        );
+    }
+}
+
+#[test]
+fn delete_cleans_inherited_source_once_after_writing_parent_and_child() {
+    cleanup_inherited_source_once(SourceCleanup::Delete);
+}
+
+#[test]
+fn rename_cleans_inherited_source_once_after_writing_parent_and_child() {
+    cleanup_inherited_source_once(SourceCleanup::RenameSuffix(".bak".to_owned()));
+}
+
+#[cfg(unix)]
+#[test]
+fn cleanup_deduplication_does_not_conflate_distinct_files_around_a_directory_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir().unwrap();
+    let logical = dir.path().join("logical");
+    let actual = dir.path().join("actual");
+    fs::create_dir_all(actual.join("nested")).unwrap();
+    fs::create_dir(&logical).unwrap();
+    symlink(actual.join("nested"), logical.join("link")).unwrap();
+    let sources = [
+        logical.join("link/../yamlfix.toml"),
+        logical.join("yamlfix.toml"),
+    ];
+    for source in &sources {
+        fs::write(source, "line_length=90\n").unwrap();
+    }
+    let entries: Vec<_> = sources
+        .iter()
+        .enumerate()
+        .map(|(index, source)| MigrationEntry {
+            cleanup_source: true,
+            source: source.clone(),
+            target: dir.path().join(format!("target-{index}.toml")),
+            toml: "[format]\n".to_owned(),
+        })
+        .collect();
+    apply_migration_entries(&entries, &[], &SourceCleanup::Delete).unwrap();
+    for source in sources {
+        assert!(
+            !source.exists(),
+            "{} was wrongly deduplicated",
+            source.display()
+        );
+    }
 }

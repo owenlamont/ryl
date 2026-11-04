@@ -7,7 +7,7 @@
 use proptest::prelude::*;
 
 use super::ast::{
-    BlockEntry, MultilineLine, MultilineQuotedSpec, Node, Scalar, SeqBody,
+    BlockEntry, FlowStyle, MultilineLine, MultilineQuotedSpec, Node, Scalar, SeqBody,
 };
 use super::stack::{StackedDocument, arb_stacked_document};
 use super::strategy::arb_quoted_payload;
@@ -222,8 +222,42 @@ pub fn arb_document_with_properties() -> impl Strategy<Value = StackedDocument> 
         arb_stacked_document(),
         prop::collection::vec(arb_property(), 1..=8),
         0usize..=8,
+        prop::option::weighted(0.2, any::<bool>()),
     )
-        .prop_map(|(mut stacked, properties, siblings)| {
+        .prop_map(|(mut stacked, properties, siblings, explicit_flow)| {
+            if let Some(first) = stacked.document.entries.first_mut()
+                && let Some(inner_first) = explicit_flow
+            {
+                let style = FlowStyle {
+                    trailing_comma: false,
+                    inner_padding: 0,
+                    spaces_before_comma: 0,
+                    spaces_after_comma: 1,
+                    spaces_before_colon: 0,
+                    spaces_after_colon: 1,
+                };
+                let scalar = |text| Node::Scalar(Scalar::Plain(text));
+                let inner = Node::FlowSeq(
+                    vec![scalar("a".to_owned()), scalar("b".to_owned())],
+                    style,
+                );
+                let other = Node::FlowMap(
+                    vec![(
+                        Scalar::SingleQuoted(String::new()),
+                        scalar("c".repeat(100)),
+                    )],
+                    style,
+                );
+                first.colon.explicit = Some(0);
+                first.value = Node::FlowSeq(
+                    if inner_first {
+                        vec![inner, other]
+                    } else {
+                        vec![other, inner]
+                    },
+                    style,
+                );
+            }
             if let (Some(entry), Some(decoration)) = (
                 stacked.document.entries.first().cloned(),
                 stacked.decorations.first().cloned(),

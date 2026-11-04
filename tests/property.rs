@@ -6,6 +6,8 @@ pub(super) mod check_harness;
 pub(super) mod check_strategy;
 #[path = "property_safe_fix/config.rs"]
 pub(super) mod config;
+#[path = "property_migrate/strategy.rs"]
+pub(super) mod migration_strategy;
 #[path = "property_format/passes.rs"]
 pub(super) mod passes;
 #[path = "property_format/properties.rs"]

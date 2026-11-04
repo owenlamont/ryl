@@ -44,6 +44,9 @@ Without `indent-width`, the lint rule still defaults to `"consistent"`.
 
 ## Automatic migration
 
+The converter also imports [YAML formatter configurations](migrating-from-formatters.md),
+combining one formatter with colocated yamllint lint settings.
+
 ryl ships with a built-in converter. From the root of your project:
 
 ```bash
@@ -86,8 +89,9 @@ Useful flags:
 
 | Flag | Purpose |
 | :--- | :--- |
-| `--migrate-configs` | Migrate project-tree YAML configs, move deprecated keys in ryl TOML configs to `[lint]` and `exclude`, and move TOML `yaml-files` to `[files].yaml` |
+| `--migrate-configs` | Import project linter/formatter configs, move deprecated keys in ryl TOML configs to `[lint]` and `exclude`, and move TOML `yaml-files` to `[files].yaml` |
 | `--migrate-user-config` | Migrate the user-global yamllint config, and move deprecated keys in the ryl user-global TOML config to `[lint]` and `exclude` |
+| `--migrate-from <TOOL>` | Select `yamllint`, `prettier`, `yamlfmt`, `dprint`, or `yamlfix` for project imports |
 | `--migrate-root <PATH>` | Project search root (defaults to `.`), or a single config file |
 | `--migrate-stdout` | Print generated TOML to stdout; also writes when combined with `--migrate-write` |
 | `--migrate-write` | Write files (otherwise preview only) |

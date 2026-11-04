@@ -266,6 +266,18 @@ quote-style='preserve'
     assert!(output.contains("    # ryl format-disable\n    ? held\n    :    'value'\n    # ryl format-enable\n"), "{output:?}");
 }
 
+#[test]
+fn explicit_key_flow_overflow_property_replay_is_idempotent_in_markdown() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/collection_geometry/explicit-key-markdown.txt"
+    ))
+    .unwrap();
+    let input = fixture["markdown"].as_str().unwrap();
+    let settings = fixture["config"].as_str().unwrap();
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(settings).unwrap();
+    check_config(input, settings, &cfg).unwrap();
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
