@@ -928,6 +928,13 @@ proptest! {
     }
 
     #[test]
+    fn nested_sequence_tail_keeps_the_guarantee(input in properties::arb_nested_sequence_tail()) {
+        for pass in format_passes() {
+            check_pass(pass, &input).map_err(TestCaseError::fail)?;
+        }
+    }
+
+    #[test]
     fn every_format_pass_keeps_the_guarantee(input in prop_oneof![
         3 => arb_document_with_properties().prop_map(|document| document.render()),
         1 => crate::property::suppression::arb_document().prop_map(|document| document.text),

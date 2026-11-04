@@ -165,6 +165,27 @@ fn whole_line_comments_follow_the_line_they_sit_against() {
 }
 
 #[test]
+fn trailing_comment_before_document_marker_reaches_a_fixed_point() {
+    let cfg = YamlLintConfig::from_toml_str("[format]").unwrap();
+    for marker in ["...\n", "---\nnext: value\n", ""] {
+        let input = format!(
+            "links:\n  - Nested section:\n    - setup/setting-up-site-search.md\n# Hello world!\n{marker}"
+        );
+        let output = format_str(&input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(
+            output,
+            format!(
+                "links:\n  - Nested section:\n      - setup/setting-up-site-search.md\n# Hello world!\n{marker}"
+            )
+        );
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
+    }
+}
+
+#[test]
 fn long_comment_runs_reindent_in_linear_time() {
     let measure = |count| {
         let input = format!(

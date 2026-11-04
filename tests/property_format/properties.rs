@@ -310,6 +310,28 @@ pub fn arb_document_with_properties() -> impl Strategy<Value = StackedDocument> 
     dead_code,
     reason = "the benchmark shares only the decorated AST generator"
 )]
+pub fn arb_nested_sequence_tail() -> impl Strategy<Value = String> {
+    (
+        1usize..=4,
+        0usize..=8,
+        prop::sample::select(vec!["", "...\n", "---\nnext: value\n"]),
+        prop::sample::select(vec!["\n", "\r\n", "\r"]),
+    )
+        .prop_map(|(width, comment, marker, newline)| {
+            format!(
+                "links:\n{}- nested:\n{}- value\n{}# tail\n{marker}",
+                " ".repeat(width),
+                " ".repeat(width + 2),
+                " ".repeat(comment),
+            )
+            .replace('\n', newline)
+        })
+}
+
+#[allow(
+    dead_code,
+    reason = "the benchmark shares only the decorated AST generator"
+)]
 pub fn arb_quoted_document() -> impl Strategy<Value = String> {
     (
         prop_oneof![4 => arb_quoted_payload(), 1 => prop::sample::select(vec![

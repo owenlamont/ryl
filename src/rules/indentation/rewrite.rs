@@ -1951,6 +1951,7 @@ fn settle(lines: &[VirtualLine<'_>], shifts: &[Option<Shift>]) -> Vec<isize> {
             {
                 match (following.peek().map(|(_, target)| *target), previous) {
                     (Some((found, delta)), _) if found == column => delta,
+                    (None, _) if column == 0 => 0,
                     (_, Some((found, delta))) if found == column => delta,
                     (Some((found, delta)), _) => found + delta - column,
                     (None, previous) => previous.map_or(0, |(_, delta)| delta),
