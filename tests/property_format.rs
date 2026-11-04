@@ -296,8 +296,9 @@ fn nested_blank_block_scalar_before_dedented_mapping_is_not_rewritten() {
 #[test]
 fn explicit_blank_scalar_before_document_end_uses_key_indent() {
     let input = "? a\n:  a: |3+\n    \n\n\n...\n# gap\nvz: 1\n";
-    assert!(ryl::rules::trailing_spaces::check(input).is_empty());
-    assert!(ryl::rules::trailing_spaces::fix(input).is_none());
+    let fixed = ryl::rules::trailing_spaces::fix(input).unwrap();
+    assert_eq!(fixed, input.replacen("    \n", "\n", 1));
+    reference::check_strict_events(input, &fixed).unwrap();
     let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String("\n\n\n\n".into()));
     assert!(
         representation(input).is_some_and(|nodes| {

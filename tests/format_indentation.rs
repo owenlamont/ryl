@@ -46,6 +46,29 @@ fn compact_explicit_value_trims_a_blank_scalar_body_in_one_pass() {
     );
 }
 
+#[test]
+fn compact_explicit_value_with_scalar_indicator_trims_padding_in_one_pass() {
+    let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    for (input, expected) in [
+        (
+            "? a\n:  a: |3\n    \n   b: {}\n",
+            "? a\n: a: |3\n\n  b: {}\n",
+        ),
+        (
+            "a:\n  ? a\n  :  a: !!str |3 \n      \n           \n\n     b: {}\n",
+            "a:\n  ? a\n  : a: !!str |3\n\n          \n\n    b: {}\n",
+        ),
+    ] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, expected, "{input:?}");
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
+    }
+}
+
 fn assert_reindents(width: usize, cases: &[(&str, &str)]) {
     let cfg = target(width);
     for &(input, expected) in cases {
