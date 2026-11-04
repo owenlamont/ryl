@@ -296,7 +296,7 @@ pub fn arb_quoted_document() -> impl Strategy<Value = String> {
     reason = "the benchmark shares only the decorated AST generator"
 )]
 pub fn arb_whitespace_block_scalar() -> impl Strategy<Value = String> {
-    (1usize..=4).prop_flat_map(|indent| {
+    let ordinary = (1usize..=4).prop_flat_map(|indent| {
         (
             prop::sample::select(vec!['|', '>']),
             prop::sample::select(vec!["", "-", "+"]),
@@ -353,5 +353,15 @@ pub fn arb_whitespace_block_scalar() -> impl Strategy<Value = String> {
                     input.replace('\n', ending)
                 },
             )
-    })
+    });
+    let movable_blank = (
+        prop::sample::select(vec!['|', '>']),
+        prop::sample::select(vec!["", "-", "+"]),
+        7usize..=9,
+        "[a-z]{1,8}",
+        prop::sample::select(vec!["\n", "\r\n", "\r"]),
+    ).prop_map(|(style, chomp, spaces, word, ending)| {
+        format!("root:\n  - a: {style}2{chomp}\n{}\n    b: x\nother: ' alpha beta {word} gamma delta'\n", " ".repeat(spaces)).replace('\n', ending)
+    });
+    prop_oneof![3 => ordinary, 1 => movable_blank]
 }

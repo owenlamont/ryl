@@ -79,6 +79,14 @@ disabled lines via `Directives::reconcile`. Works region-locally in embedded Mar
 Direct and CLI coverage lives in `tests/directives.rs` and `tests/cli_directives.rs`.
 User docs: `docs/directives.md`.
 
+Formatter-only own-line comments use `# ryl format-ignore` for the next complete
+node, including a mapping key's value, and `format-disable` / `format-enable` for
+regions. `src/format/directives.rs` caches their source-line ranges per analysis.
+`Directives::scoped` overlays them only for `Scope::Format`; lint and `check --fix`
+retain generic directives. Layout projection carries protected ranges through collection
+conversions, while independent siblings remain eligible for formatting. Coverage lives
+in `tests/format_suppression.rs`.
+
 ## Markdown embedding
 
 Off by default; enabled by `[files].markdown` globs, or per-run via `--markdown` which

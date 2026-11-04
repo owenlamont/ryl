@@ -27,6 +27,7 @@ pub struct TextVersion<'text> {
     sites: OnceCell<Vec<token_spacing::Site>>,
     flow_sites: OnceCell<Vec<(usize, u8)>>,
     directives: OnceCell<crate::directives::Directives>,
+    format_suppression: OnceCell<crate::format::directives::Suppression>,
     layout_facts: OnceCell<crate::format::layout::facts::PlanFacts>,
     scalar_lines: OnceCell<Vec<(usize, usize)>>,
     content_blanks: OnceCell<std::collections::HashSet<usize>>,
@@ -79,6 +80,7 @@ impl<'text> TextVersion<'text> {
             sites: OnceCell::new(),
             flow_sites: OnceCell::new(),
             directives: OnceCell::new(),
+            format_suppression: OnceCell::new(),
             layout_facts: OnceCell::new(),
             scalar_lines: OnceCell::new(),
             content_blanks: OnceCell::new(),
@@ -125,6 +127,7 @@ impl<'text> TextVersion<'text> {
             sites: self.sites,
             flow_sites: self.flow_sites,
             directives: self.directives,
+            format_suppression: self.format_suppression,
             layout_facts: self.layout_facts,
             scalar_lines: self.scalar_lines,
             content_blanks: self.content_blanks,
@@ -150,6 +153,7 @@ impl<'text> TextVersion<'text> {
         self.sites.take();
         self.flow_sites.take();
         self.directives.take();
+        self.format_suppression.take();
         self.layout_facts.take();
         self.scalar_lines.take();
         self.content_blanks.take();
@@ -347,6 +351,14 @@ impl<'text> Analysis<'text> {
         self.source
             .directives
             .get_or_init(|| crate::directives::Directives::parse_uncached(self))
+    }
+
+    pub(crate) fn format_suppression(
+        self,
+    ) -> &'text crate::format::directives::Suppression {
+        self.source
+            .format_suppression
+            .get_or_init(|| crate::format::directives::Suppression::parse(self))
     }
 
     pub(crate) fn sites(self) -> &'text [token_spacing::Site] {

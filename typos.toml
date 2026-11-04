@@ -2,4 +2,9 @@
 extend-ignore-re = ['\bcaf\\xe9\b']
 
 [files]
-extend-exclude = ["img/*.svg"]
+extend-exclude = [
+  "img/*.svg",
+  # The property regression must preserve generated text byte for byte.
+  "tests/fixtures/format_suppression/wide-prose-conversion.txt",
+  "tests/proptest-regressions/property_format.txt",
+]

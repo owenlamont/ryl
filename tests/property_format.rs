@@ -846,6 +846,7 @@ proptest! {
     #[test]
     fn every_format_pass_keeps_the_guarantee(input in prop_oneof![
         3 => arb_document_with_properties().prop_map(|document| document.render()),
+        1 => crate::property::suppression::arb_document().prop_map(|document| document.text),
         1 => properties::arb_quoted_document(),
         1 => properties::arb_whitespace_block_scalar(),
         1 => (1usize..=4, 1usize..=4).prop_map(|(colon, dash)| {
@@ -2355,7 +2356,7 @@ fn g11_does_not_report_value_bearing_spaces_after_formatting_header_and_comment(
 }
 
 #[test]
-fn bare_cr_refusal_mapping_survives_an_independent_prose_join() {
+fn bare_cr_refusal_mapping_survives_an_independent_line_removal() {
     let input = "a:  !!str |3+  \r   s3t1   \r\r #a\r# x466h6b\rwhuj60:\r  -   a  : [{ é :  [ \"é\tvalue\" ,y ] }  , [ False  , { é :  [ \"é\tvalue\" ,y ] }  , \"0o+7\"  , { é :  [ \"é\tvalue\" ,y ] } ]  , \"&\\\"!🦀'@\u{a0} \",]\t\t#  @overlay/match missing_ok=True\r      # ascii é🦀 tail\r      b :  [ { é :  [ \"é\tvalue\" ,y ] },'🦀\u{a0}',{ é :  [ \"é\tvalue\" ,y ] }, ]\t\t#  g2 qres\r  -  \"#a32\r\r       #zd\r       jxgta5\"\r  -   {\"a\": 1:30,  \"#\\\"#b\u{feff}\\\\—\": { é :  [ \"é\tvalue\" ,y ] },  '?\u{a0}é:': \"tRUE\",  e'v8jer: { é :  [ \"é\tvalue\" ,y ] }}\rcollection_0:  !!str |3+  \r   s3t1   \rcollection_1:  !!str |3+  \r   s3t1   \rcollection_2:  !!str |3+  \r   s3t1   \rcollection_3:  !!str |3+  \r   s3t1   ";
     let table = "line-length = 7\n[format]\nquote-style = 'double'\nkeep-quotes = true\nline-ending = 'native'\ndocument-start = 'preserve'\ndocument-end = 'preserve'\nprose-wrap = 'always'\nbrace-spacing = false\npreview = true\ncomment-spacing = 222\ncomment-starting-space = 'preserve'\nmax-blank-lines = 39\nsequence-style = 'flow'\nmapping-style = 'preserve'\nindent-sequences = true\ndash-on-own-line = true\nsequence-expand = 'auto'\nmapping-expand = 'never'\nproperty-order = 'preserve'\n\n";
     let cfg =
@@ -2369,7 +2370,8 @@ fn bare_cr_refusal_mapping_survives_an_independent_prose_join() {
         ryl::config::SourceKind::Yaml,
         ryl::fix::Rewrite::Format,
     );
-    let output = formatted.unwrap();
+    assert!(formatted.is_none());
+    let output = input.replacen("#zd\r       jxgta5", "#zd jxgta5", 1);
     assert_ne!(output, input);
     check_values(input, &output).unwrap();
     let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
@@ -2452,7 +2454,8 @@ fn unchanged_colon_refusals_survive_multiline_scalar_reflow() {
         ryl::config::SourceKind::Yaml,
         ryl::fix::Rewrite::Format,
     );
-    let output = formatted.unwrap();
+    assert!(formatted.is_none());
+    let output = input.replace("hg\r    t4ger\r    q9l", "hg t4ger q9l");
     assert_ne!(input, output);
     check_values(input, &output).unwrap();
     let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
@@ -2478,7 +2481,8 @@ fn unchanged_quote_type_refusals_survive_prose_reflow() {
         ryl::config::SourceKind::Yaml,
         ryl::fix::Rewrite::Format,
     );
-    let output = formatted.unwrap();
+    assert!(formatted.is_none());
+    let output = input.replace("#kv\n   #q10d47", "#kv #q10d47");
     assert_ne!(input, output);
     check_values(input, &output).unwrap();
     let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
@@ -2793,8 +2797,25 @@ proptest! {
         let format = || ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
         let expected = serial.install(format);
         let actual = parallel.install(format);
-        prop_assert_eq!(&actual, &expected);
+        prop_assert_eq!(&actual, &expected, "body {:?}; settings {:?}; newline {:?}", body, settings, newline);
         let again = parallel.install(|| ryl::format::format_str(&actual, &cfg, synthetic_path(), &[]));
-        prop_assert_eq!(actual, again);
+        prop_assert_eq!(actual, again, "body {:?}; settings {:?}; newline {:?}", body, settings, newline);
+    }
+}
+
+#[test]
+fn annotations_count_delayed_property_only_empty_values_before_comments() {
+    for property in ["&empty", "!!str", "&empty !!str", "!!str &empty"] {
+        let flow = format!("root: {{ value: {property} }}\n# following\nafter: 1\n");
+        let block = format!("root:\n  value: {property}\n# following\nafter: 1\n");
+        assert_eq!(
+            representation::annotations(&flow),
+            representation::annotations(&block)
+        );
+        let moved = format!("root:\n# following\n  value: {property}\nafter: 1\n");
+        assert_ne!(
+            representation::annotations(&block),
+            representation::annotations(&moved)
+        );
     }
 }

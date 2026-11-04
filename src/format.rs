@@ -20,6 +20,7 @@ use crate::rules::{
 };
 use crate::text_version::{Analysis, TextVersion};
 
+pub(crate) mod directives;
 pub(crate) mod layout;
 mod prose;
 
@@ -72,6 +73,7 @@ impl Passes<'static> {
         });
         Self {
             preserve_events: true,
+            directive_scope: crate::directives::Scope::Format,
             new_lines: on(new_lines::ID).then_some(line_ending),
             comments: on(comments::ID).then_some(comments::Config::exact_gap(
                 usize::from(table.comment_spacing.get()),
@@ -368,9 +370,10 @@ fn format_tracked(
             tracking.edited.push(indentation::ID);
             tracking.strict_input = Some(true);
         }
-        let directives = crate::directives::Directives::parse_per_line_with_analysis(
+        let directives = crate::directives::Directives::scoped_per_line(
             source.analysis(),
             &passes.per_line,
+            passes.directive_scope,
         );
         match prose::join(&mut source, &directives) {
             prose::Join::Unchanged => {}

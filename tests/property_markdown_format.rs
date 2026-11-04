@@ -81,7 +81,7 @@ fn corpus_markdown_regions() {
 }
 
 fn arb_markdown() -> impl Strategy<Value = String> {
-    (wrap::arb_markdown_doc(), properties::arb_quoted_document()).prop_flat_map(|(host, quoted)| {
+    (wrap::arb_markdown_doc(), properties::arb_quoted_document(), crate::property::suppression::arb_document()).prop_flat_map(|(host, quoted, suppressed)| {
         prop::collection::vec(
             properties::arb_document_with_properties(),
             host.sections.len() + usize::from(host.front.is_some()),
@@ -101,6 +101,7 @@ fn arb_markdown() -> impl Strategy<Value = String> {
             let mut markdown = wrap::MarkdownDoc { front, sections, newline: host.newline }.render();
             markdown.push_str("\n# café\n\n```text\nuntouched: [1,2]\n```\n\n<!-- ordinary Markdown -->\n");
             markdown.push_str(&format!("\n```yaml\n{quoted}```\n"));
+            markdown.push_str(&format!("\n```yaml\n{}```\n", suppressed.text));
             markdown
         })
     })
@@ -184,6 +185,85 @@ fn run_invariants(markdown: &str) -> Result<(), TestCaseError> {
         check_config(markdown, &pass.name, &pass.cfg)?;
     }
     Ok(())
+}
+
+#[test]
+fn formatter_ignore_keeps_indentless_conversion_idempotent_in_markdown() {
+    let input = concat!(
+        "Host é.\n\n",
+        "  ~~~yaml\r\n  first: [1,2]\r\n  ~~~\r\n\r\n",
+        r#"```yaml
+convert: [3,4]
+# ryl format-disable
+? held
+:    'value'
+# ryl format-enable
+after:    1
+```
+"#,
+    );
+    let config = r#"[format]
+sequence-style='block'
+mapping-style='flow'
+indent-sequences=false
+"#;
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(config).unwrap();
+    check_config(input, config, &cfg).unwrap();
+    let output = format(input, &cfg);
+    assert!(output.contains("convert:\n- 3\n- 4\n"), "{output:?}");
+    assert!(
+        output.contains(
+            "# ryl format-disable\n? held\n:    'value'\n# ryl format-enable\n"
+        ),
+        "{output:?}"
+    );
+    assert!(
+        output.contains("  first:\r\n  - 1\r\n  - 2\r\n"),
+        "{output:?}"
+    );
+}
+
+#[test]
+fn formatter_ignore_keeps_expanded_sibling_valid_in_markdown() {
+    let input = r#"---
+first: {key: [1,2]}
+---
+
+Host é.
+
+```yaml
+convert: [3,4]
+outer:
+    sibling:
+    # ryl format-disable
+    ? held
+    :    'value'
+    # ryl format-enable
+    after:    2
+extra:
+  - [5,6]
+```
+"#;
+    let config = r#"indent-width=8
+[format]
+sequence-style='block'
+mapping-style='block'
+mapping-expand='always'
+quote-style='preserve'
+"#;
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(config).unwrap();
+    run_invariants(input).unwrap();
+    check_config(input, config, &cfg).unwrap();
+    let output = format(input, &cfg);
+    assert!(
+        output.contains("convert:\n        - 3\n        - 4\n"),
+        "{output:?}"
+    );
+    assert!(
+        output.contains("extra:\n        - - 5\n          - 6\n"),
+        "{output:?}"
+    );
+    assert!(output.contains("    # ryl format-disable\n    ? held\n    :    'value'\n    # ryl format-enable\n"), "{output:?}");
 }
 
 proptest! {

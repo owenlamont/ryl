@@ -20,6 +20,7 @@ pub(super) struct Planner<'a> {
     facts: OnceCell<Vec<Facts>>,
     shift: Cell<isize>,
     block: Option<&'a BlockSpellings>,
+    protected: &'a [bool],
 }
 
 /// Where a flow collection's line breaks go.
@@ -72,6 +73,7 @@ impl<'a> Planner<'a> {
             facts: OnceCell::new(),
             shift: Cell::new(0),
             block: None,
+            protected: &[],
         }
     }
 
@@ -81,6 +83,15 @@ impl<'a> Planner<'a> {
     ) -> Self {
         self.block = Some(block);
         self
+    }
+
+    pub(super) const fn with_protection(mut self, protected: &'a [bool]) -> Self {
+        self.protected = protected;
+        self
+    }
+
+    fn allowed(&self, index: usize) -> bool {
+        self.protected.get(index).is_none_or(|protected| !protected)
     }
 
     /// The width of `key`, copied from `pos`, once its mapping is in block style.
@@ -154,6 +165,14 @@ impl<'a> Planner<'a> {
         Some(characters)
     }
 
+    fn key_needs_separator(&self, key: usize, text: &Fragment) -> bool {
+        let empty = self
+            .initial
+            .scalar(key)
+            .is_some_and(quoted_strings::Retained::empty);
+        self.nodes[key].kind() == Kind::Alias || empty && !text.empty()
+    }
+
     fn measure_pair(
         &self,
         key: usize,
@@ -165,8 +184,9 @@ impl<'a> Planner<'a> {
         if matches!(kind, Kind::Sequence | Kind::Mapping) {
             return None;
         }
-        let key_width =
-            self.copy(key, pos).ok()?.characters() + usize::from(kind == Kind::Alias);
+        let key_text = self.copy(key, pos).ok()?;
+        let key_width = key_text.characters()
+            + usize::from(self.key_needs_separator(key, &key_text));
         let gap = self.initial.key_gap(key);
         if !gap.own().present() {
             return Some(key_width);
@@ -266,7 +286,8 @@ impl<'a> Planner<'a> {
     /// position is known.
     fn restyle_candidate(&self, index: usize) -> bool {
         let node = &self.nodes[index];
-        self.initial.collection(index).braced()
+        self.allowed(index)
+            && self.initial.collection(index).braced()
             && !node.children().is_empty()
             && !node
                 .parent()
@@ -484,11 +505,11 @@ impl<'a> Planner<'a> {
             return None;
         }
         let key_text = self.copy(key, pos).ok()?;
-        let alias = kind == Kind::Alias;
-        let width = key_text.characters() + usize::from(alias);
+        let separator = self.key_needs_separator(key, &key_text);
+        let width = key_text.characters() + usize::from(separator);
         recipe.structure(Structure::Key(key));
         recipe.copy(key_text);
-        if alias {
+        if separator {
             recipe.text(" ");
         }
         let gap = self.initial.key_gap(key);
@@ -591,7 +612,8 @@ impl<'a> Planner<'a> {
     }
 
     fn to_block(&self, index: usize) -> bool {
-        self.initial.collection(index).braced()
+        self.allowed(index)
+            && self.initial.collection(index).braced()
             && !self.nodes[index].children().is_empty()
             && self.target(self.nodes[index].kind())
                 == Some(CollectionStyleTarget::Block)
@@ -606,7 +628,7 @@ impl<'a> Planner<'a> {
 
     pub(super) fn pending(&self, index: usize) -> bool {
         let node = &self.nodes[index];
-        if self.is_key(index) {
+        if !self.allowed(index) || self.is_key(index) {
             return false;
         }
         self.outermost_candidate(index)
@@ -661,7 +683,9 @@ impl<'a> Planner<'a> {
     }
 
     pub(super) fn implicit_body(&self, index: usize, column: usize) -> Option<Recipe> {
-        if self.expand_target(Kind::Mapping) == ExpandTarget::Always {
+        if !self.allowed(index)
+            || self.expand_target(Kind::Mapping) == ExpandTarget::Always
+        {
             return None;
         }
         // Measured on its own line under `dash-on-own-line`, the flow form sits after
@@ -919,7 +943,12 @@ impl<'a> Planner<'a> {
             return Ok(self.initial.compact_edit(index, &outer).select(recipe));
         }
         let col = node.parent().map_or(0, |parent| {
-            self.initial.column(parent).characters() + self.indent
+            self.initial.column(parent).characters()
+                + if self.nodes[parent].kind() == Kind::Mapping {
+                    self.body_indent(index)
+                } else {
+                    self.indent
+                }
         });
         self.shift_to(column, col);
         let mut recipe = Recipe::new();

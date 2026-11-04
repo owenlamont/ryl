@@ -8,7 +8,7 @@ use super::{
     settlement::{Content, Refusals},
     shape,
 };
-use crate::directives::Directives;
+use crate::directives::{Directives, Scope};
 use crate::format::layout::{VirtualLine, lines as virtual_lines};
 use crate::rules::hyphens;
 use crate::text_version::{Analysis, TextVersion};
@@ -59,6 +59,14 @@ pub(crate) fn reindent_with_analysis(
     Layout::new(input, cfg).reindent_snapshot(cfg)
 }
 
+pub(crate) fn reindent_scoped(
+    input: Analysis<'_>,
+    cfg: &Config,
+    scope: Scope,
+) -> (Reindented, TextVersion<'static>) {
+    Layout::with_shapes(input, cfg, false, None, scope).reindent_snapshot(cfg)
+}
+
 pub(crate) struct Layout<'a> {
     input: Analysis<'a>,
     parsed: bool,
@@ -100,7 +108,8 @@ impl CollectionFeasibility {
             input.byte_line_starts(),
             plan,
         );
-        let mut layout = Layout::converted(input, &unshaped, converted, lines);
+        let mut layout =
+            Layout::converted(input, &unshaped, converted, lines, Scope::Format);
         let candidates = layout.retained_candidates(cfg);
         let feasibility = Self(candidates.map(|mut candidates| {
             let styles = crate::rules::quoted_strings::Styles::default();
@@ -330,11 +339,12 @@ impl<'a> Layout<'a> {
             &cfg.with_consistent_spaces(),
             Mode::Check,
         );
+        analyzer.format_constraints = Some(&self.directives);
         analyzer.run(super::normalized_tokens(self.input, &self.source_starts));
         analyzer.diagnostics.is_empty()
     }
     pub(crate) fn new(input: Analysis<'a>, cfg: &Config) -> Self {
-        Self::with_shapes(input, cfg, false, None)
+        Self::with_shapes(input, cfg, false, None, Scope::Lint)
     }
 
     pub(crate) fn converted(
@@ -342,10 +352,11 @@ impl<'a> Layout<'a> {
         cfg: &Config,
         frame: crate::format::layout::frame::Frame,
         lines: Vec<VirtualLine<'a>>,
+        scope: Scope,
     ) -> Self {
         let mut unshaped = *cfg;
         unshaped.dash_on_own_line = None;
-        let mut layout = Self::with_shapes(input, &unshaped, true, Some(lines));
+        let mut layout = Self::with_shapes(input, &unshaped, true, Some(lines), scope);
         layout.converted = Some(Box::new(frame));
         layout.shaped = true;
         if let Some(own_line) = cfg.dash_on_own_line {
@@ -483,7 +494,7 @@ impl<'a> Layout<'a> {
             .refused
     }
 
-    /// Refuses each document holding one of `violations` as [`Cause::Inconsistent`], and
+    /// Refuses each document holding a violation as [`Cause::Inconsistent`], and
     /// whether that refused one more.
     pub(crate) fn refuse_violated(
         &self,
@@ -511,6 +522,7 @@ impl<'a> Layout<'a> {
             &cfg.with_consistent_spaces(),
             Mode::Check,
         );
+        analyzer.format_constraints = Some(&self.directives);
         analyzer.run(super::normalized_tokens(self.input, &self.source_starts));
         analyzer.diagnostics.iter().all(|problem| {
             refused
@@ -519,8 +531,8 @@ impl<'a> Layout<'a> {
         })
     }
 
-    pub(crate) fn format(input: Analysis<'a>, cfg: &Config) -> Self {
-        Self::with_shapes(input, cfg, true, None)
+    pub(crate) fn format(input: Analysis<'a>, cfg: &Config, scope: Scope) -> Self {
+        Self::with_shapes(input, cfg, true, None, scope)
     }
 
     fn with_shapes(
@@ -528,9 +540,10 @@ impl<'a> Layout<'a> {
         cfg: &Config,
         streaming: bool,
         supplied: Option<Vec<VirtualLine<'a>>>,
+        scope: Scope,
     ) -> Self {
         let mut starts = input.parsed().document_starts.clone();
-        let directives = Directives::parse_with_analysis(input);
+        let directives = Directives::scoped(input, scope);
         let source_starts = if streaming {
             super::normalized_line_starts(input)
         } else {
@@ -733,6 +746,7 @@ impl<'a> Layout<'a> {
             cfg,
             Mode::Target,
         );
+        analyzer.format_constraints = Some(&self.directives);
         analyzer.scalar_owners = folding.then(Vec::new);
         let initial = GapInitial::new(&self.lines);
         super::walk(
@@ -740,12 +754,12 @@ impl<'a> Layout<'a> {
             |token, previous, next, after| {
                 let gap = analyzer.gap_request(token, next).and_then(|request| {
                     let spaces = initial.after(request.line(), request.column());
-                    request.resolve(spaces)
+                    request.resolve(spaces).filter(|&gap| self.allows_gap(gap))
                 });
                 analyzer.advance(token, previous, next, after, gap);
             },
         );
-        let deltas = settle(&self.lines, &analyzer.shifts);
+        let deltas = self.deltas(&analyzer.shifts);
         let refused = self.refusals(
             &analyzer.gaps,
             &analyzer.diagnostics,
@@ -759,6 +773,35 @@ impl<'a> Layout<'a> {
             scalar_owners: analyzer.scalar_owners.unwrap_or_default(),
             last_token: analyzer.shifts.iter().rposition(Option::is_some),
         }
+    }
+
+    fn allows_gap(&self, gap: Gap) -> bool {
+        if self
+            .directives
+            .is_format_disabled(self.lines[gap.line()].origin + 1)
+        {
+            return false;
+        }
+        let from = gap.column() + 2;
+        self.lines[gap.line()]
+            .source_span(self.input.text(), from..from + gap.removed())
+            .is_none_or(|(start, end)| {
+                self.directives
+                    .allows_format_prefix_edit(start.get(), end.get())
+            })
+    }
+
+    fn deltas(&self, shifts: &[Option<Shift>]) -> Vec<isize> {
+        let mut deltas = settle(&self.lines, shifts);
+        if self.starts.is_empty() {
+            return deltas;
+        }
+        for (line, delta) in self.lines.iter().zip(&mut deltas) {
+            if self.directives.is_format_disabled(line.origin + 1) {
+                *delta = 0;
+            }
+        }
+        deltas
     }
 
     /// Each token on its virtual line, at its column after `edits`.
@@ -883,6 +926,7 @@ impl<'a> Layout<'a> {
             &cfg.with_consistent_spaces(),
             Mode::Check,
         );
+        check.format_constraints = Some(&self.directives);
         check.run(self.targeted(targets, edits, styles));
         check.diagnostics
     }
@@ -963,6 +1007,10 @@ impl<'a> Layout<'a> {
                     Mode::Check,
                 )
             });
+        analyzer.format_constraints = Some(&self.directives);
+        if let Some(check) = &mut consistency {
+            check.format_constraints = Some(&self.directives);
+        }
         analyzer.scalar_owners = folding.then(Vec::new);
         let reshaped;
         {
@@ -983,7 +1031,7 @@ impl<'a> Layout<'a> {
                     .gap_request(token, next.map(|pair| &pair.1))
                     .and_then(|request| {
                         let spaces = initial.after(request.line(), request.column());
-                        request.resolve(spaces)
+                        request.resolve(spaces).filter(|&gap| self.allows_gap(gap))
                     });
                 analyzer.advance(
                     token,
@@ -1683,7 +1731,7 @@ impl StreamTargets {
         layout: &Layout<'_>,
         edits: &[crate::format::layout::PlanEdit],
     ) -> Candidates {
-        let deltas = settle(&layout.lines, &self.shifts);
+        let deltas = layout.deltas(&self.shifts);
         Candidates {
             refused: layout.refusals(
                 &self.gaps,
@@ -1812,6 +1860,10 @@ fn reshape_events<'a>(
                 if let Some(admission) = shape::MappingAdmission::new(
                     &model,
                     RetainedContext::from_style(style),
+                ) && joins.mapping_allowed(
+                    span.start
+                        .byte_offset()
+                        .expect("string events have byte offsets"),
                 ) {
                     candidates.extend(shape::from_event(
                         admission,

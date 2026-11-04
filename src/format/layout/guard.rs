@@ -33,7 +33,7 @@ impl Guard {
     }
 
     pub(super) fn new(input: Analysis<'_>, passes: &Passes<'_>) -> Option<Box<Self>> {
-        let directives = input.directives();
+        let directives = Directives::scoped(input, passes.directive_scope);
         if passes.per_line.is_empty()
             && !crate::format::FORMAT_RULE_IDS
                 .iter()
@@ -42,9 +42,9 @@ impl Guard {
             return None;
         }
         let directives = if passes.per_line.is_empty() {
-            directives.clone()
+            directives
         } else {
-            Directives::parse_per_line_with_analysis(input, &passes.per_line)
+            Directives::scoped_per_line(input, &passes.per_line, passes.directive_scope)
         };
         Some(Box::new(Self {
             directives,
@@ -61,14 +61,20 @@ impl Guard {
     ) -> Option<Box<Self>> {
         let mut guard = Self::new(input, passes)?;
         let (frame, lines) = view.lines();
-        guard.directives = Directives::parse_projected(input, frame, lines);
+        guard.directives = Directives::parse_format_projected(input, frame, lines);
         guard.projected = Some(frame.line_map());
         guard.last = lines.len().saturating_sub(1);
         Some(guard)
     }
 
     pub(super) fn allows(&self, rule: &str, start: BytePos, end: BytePos) -> bool {
-        self.range(start, end).all(|line| self.line(rule, line))
+        self.directives
+            .allows_format_prefix_edit(start.get(), end.get())
+            && self.range(start, end).all(|line| self.line(rule, line))
+    }
+
+    pub(super) fn allows_line(&self, rule: &str, at: BytePos) -> bool {
+        self.range(at, at).all(|line| self.line(rule, line))
     }
 
     pub(super) fn allows_any(&self, rule: &str, start: BytePos, end: BytePos) -> bool {

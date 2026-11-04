@@ -197,6 +197,7 @@ pub(crate) struct Plan {
     nodes: Vec<crate::text_version::model::Node>,
     pending: Vec<usize>,
     comments: crate::rules::comments::Attachments,
+    protected: Vec<bool>,
 }
 
 impl Plan {
@@ -299,6 +300,9 @@ impl Plan {
             .iter()
             .all(|finding| finding.refused.is_none())
             && self.sites.iter().enumerate().all(|(index, site)| {
+                if self.protected[index] {
+                    return true;
+                }
                 let target = match self.nodes[index].kind() {
                     Kind::Mapping => cfg.mappings,
                     Kind::Sequence => cfg.sequences,
@@ -380,6 +384,7 @@ impl Plan {
             (usize::from(cfg.indent), usize::from(cfg.width)),
             cfg.shape,
         )
+        .with_protection(&self.protected)
         .with_block_spellings(block);
         let initial = input::Initial::new(source, &sites, &self.comments);
         let column = |byte| {
@@ -469,7 +474,8 @@ impl Plan {
             Some(cfg.mappings),
             (usize::from(cfg.indent), usize::from(cfg.width)),
             cfg.shape,
-        );
+        )
+        .with_protection(&self.protected);
         let mut replacements = std::collections::HashMap::new();
         for part in self.selections().flat_map(Selected::fragments) {
             let FragmentPart::Structure(Structure::Start {
@@ -583,6 +589,7 @@ pub(crate) fn select(input: Analysis<'_>, cfg: Config) -> Plan {
         sites,
         comments,
     } = input::observe(input);
+    let protected = protected_nodes(input, &sites);
     let geometry = indentation::CollectionGeometry::default();
     let planner = target::Planner::new(
         &nodes,
@@ -592,10 +599,14 @@ pub(crate) fn select(input: Analysis<'_>, cfg: Config) -> Plan {
         style(cfg.mappings, braces::ID),
         (usize::from(cfg.indent), usize::from(cfg.width)),
         cfg.shape,
-    );
+    )
+    .with_protection(&protected);
     let mut recipes = Vec::new();
     let mut findings = Vec::new();
     for (index, node) in nodes.iter().enumerate() {
+        if protected[index] {
+            continue;
+        }
         let site = &sites[index];
         let finding = |refused, to_flow| Finding {
             line: site.line,
@@ -640,6 +651,7 @@ pub(crate) fn select(input: Analysis<'_>, cfg: Config) -> Plan {
         nodes,
         pending,
         comments,
+        protected,
     }
 }
 
@@ -723,4 +735,16 @@ fn document_start_lines(input: Analysis<'_>) -> Vec<usize> {
 
 fn is_space(ch: char) -> bool {
     matches!(ch, ' ' | '\t' | '\n' | '\r')
+}
+
+fn protected_nodes(input: Analysis<'_>, sites: &[input::Site]) -> Vec<bool> {
+    let suppression = input.format_suppression();
+    let starts = input.byte_line_starts();
+    sites
+        .iter()
+        .map(|site| {
+            let last = starts.partition_point(|&at| at < site.end).max(site.line);
+            suppression.intersects(site.line, last)
+        })
+        .collect()
 }
