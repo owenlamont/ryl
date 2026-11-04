@@ -1442,6 +1442,7 @@ fn relative_to_base<'a>(
     };
     if let Some(rel) = strip_path_prefix(path, base_dir, case_insensitive)
         && plain(rel)
+        && spelled_as_components(rel)
     {
         return Cow::Borrowed(rel);
     }
@@ -1451,7 +1452,7 @@ fn relative_to_base<'a>(
         strip_path_prefix(&path_from_cwd, &base_from_cwd, case_insensitive)
         && plain(rel)
     {
-        return Cow::Owned(rel.to_path_buf());
+        return Cow::Owned(rel.components().collect());
     }
     let parent =
         |path: &Path| path.components().any(|part| part == Component::ParentDir);
@@ -1469,6 +1470,17 @@ fn relative_to_base<'a>(
         normalized
             .unwrap_or_else(|| path.file_name().map(PathBuf::from).unwrap_or_default()),
     )
+}
+
+/// `components()` hides an interior `.` and doubled separators that the matcher still
+/// sees, so a path is only matchable as given when its components spell it exactly.
+fn spelled_as_components(path: &Path) -> bool {
+    let (parts, bytes) = path
+        .components()
+        .fold((0_usize, 0), |(parts, bytes), part| {
+            (parts + 1, bytes + part.as_os_str().len())
+        });
+    bytes + parts.saturating_sub(1) == path.as_os_str().len()
 }
 
 fn path_matches_ignore(

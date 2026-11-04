@@ -54,6 +54,8 @@ fn anchored_exclusions_normalize_config_and_input_spellings() {
         ("check", config.as_str(), "sub/../skip.yaml", false, 0),
         ("check", "sub/cfg.toml", "sub/sub/skip.yaml", false, 0),
         ("check", "sub/cfg.toml", nested.as_str(), false, 0),
+        ("check", "sub/cfg.toml", "sub/sub/./skip.yaml", false, 0),
+        ("check", config.as_str(), "sub//../skip.yaml", false, 0),
         ("check", "cfg.toml", skip.as_str(), true, 0),
         ("check", "cfg.toml", "keep.yaml", false, 1),
         ("format", "cfg.toml", "keep.yaml", false, 1),
