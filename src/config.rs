@@ -2235,7 +2235,7 @@ fn build_project_search_starts(envx: &dyn Env, inputs: &[PathBuf]) -> Vec<PathBu
 fn find_first_yaml_candidate(
     envx: &dyn Env,
     start: &Path,
-    home_abs: Option<&PathBuf>,
+    home_abs: Option<&Path>,
 ) -> Option<PathBuf> {
     let mut dir = start.to_path_buf();
     loop {
@@ -2262,28 +2262,41 @@ pub(crate) fn find_project_toml_config(
     envx: &dyn Env,
     inputs: &[PathBuf],
 ) -> Result<Option<PathBuf>, String> {
-    Ok(find_project_config_core(envx, inputs)?
-        .map(|discovery| discovery.cfg_path)
-        .filter(|path| is_toml_path_with_case(path, envx.case_insensitive_paths())))
+    let home =
+        project_search_home(envx).map(|home| fs::canonicalize(&home).unwrap_or(home));
+    Ok(
+        find_project_config_with_home(envx, inputs, home.as_deref())?
+            .map(|discovery| discovery.cfg_path)
+            .filter(|path| is_toml_path_with_case(path, envx.case_insensitive_paths())),
+    )
 }
 
-fn find_project_config_core(
-    envx: &dyn Env,
-    inputs: &[PathBuf],
-) -> Result<Option<ProjectConfigDiscovery>, String> {
-    let starts = build_project_search_starts(envx, inputs);
-    let cwd = envx.current_dir();
-    let home_abs = envx
-        .env_var("HOME")
+fn project_search_home(envx: &dyn Env) -> Option<PathBuf> {
+    envx.env_var("HOME")
         .map(PathBuf::from)
         .or_else(dirs_next::home_dir)
         .map(|home| {
             if home.is_absolute() {
                 home
             } else {
-                cwd.join(home)
+                envx.current_dir().join(home)
             }
-        });
+        })
+}
+
+fn find_project_config_core(
+    envx: &dyn Env,
+    inputs: &[PathBuf],
+) -> Result<Option<ProjectConfigDiscovery>, String> {
+    find_project_config_with_home(envx, inputs, project_search_home(envx).as_deref())
+}
+
+fn find_project_config_with_home(
+    envx: &dyn Env,
+    inputs: &[PathBuf],
+    home_abs: Option<&Path>,
+) -> Result<Option<ProjectConfigDiscovery>, String> {
+    let starts = build_project_search_starts(envx, inputs);
 
     for start in &starts {
         let mut dir = start.clone();
@@ -2299,7 +2312,7 @@ fn find_project_config_core(
                 {
                     continue;
                 }
-                let notices = find_first_yaml_candidate(envx, start, home_abs.as_ref())
+                let notices = find_first_yaml_candidate(envx, start, home_abs)
                     .map(|yaml_path| {
                         format!(
                             "warning: ignoring legacy YAML config discovery because TOML config {} was found (legacy candidate: {})",
@@ -2314,7 +2327,7 @@ fn find_project_config_core(
                     notices,
                 }));
             }
-            if home_abs.as_ref().is_some_and(|home| {
+            if home_abs.is_some_and(|home| {
                 paths_equal(home, &dir, envx.case_insensitive_paths())
             }) {
                 break;
@@ -2327,9 +2340,7 @@ fn find_project_config_core(
     }
 
     for start in starts {
-        if let Some(candidate) =
-            find_first_yaml_candidate(envx, &start, home_abs.as_ref())
-        {
+        if let Some(candidate) = find_first_yaml_candidate(envx, &start, home_abs) {
             return Ok(Some(ProjectConfigDiscovery {
                 cfg_path: candidate,
                 notices: Vec::new(),
