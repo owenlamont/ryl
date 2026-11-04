@@ -999,6 +999,39 @@ fn converted_sibling_keeps_the_other_documents_refused_dash_shape() {
 }
 
 #[test]
+fn unspaced_flow_item_properties_keep_the_body_beside_the_dash() {
+    let cfg = config(
+        "indent-width=12\nline-length=20\n[format]\nsequence-style='flow'\nmapping-style='flow'\ndash-on-own-line=true\n",
+    );
+    for (input, expected) in [
+        (
+            "[&a {k: {x: y}, key: value}]\n",
+            "- &a\n  k: {x: y}\n  key: value\n",
+        ),
+        (
+            "[1,&a {k: {x: y}, key: value}]\n",
+            "- 1\n- &a\n  k: {x: y}\n  key: value\n",
+        ),
+        (
+            "[!<tag:yaml.org,2002:map> {k: {x: y}, key: value}]\n",
+            "- !<tag:yaml.org,2002:map>\n  k: {x: y}\n  key: value\n",
+        ),
+        (
+            "[\"x,!foo\", {k: {x: y}, key: value}]\n",
+            "- x,!foo\n-\n            k:\n                        x: y\n            key: value\n",
+        ),
+    ] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, expected, "{input:?}");
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
+    }
+}
+
+#[test]
 fn joined_explicit_key_closes_its_gap_when_colons_are_skipped() {
     let input = "-\n  ?   a\n  : b\n";
     let cfg = config("[format]\nmapping-style='flow'\ndash-on-own-line=false\n");

@@ -338,13 +338,18 @@ impl<'a> Initial<'a> {
         loop {
             let trimmed = buffer[..start].trim_end_matches(super::is_space);
             let token = trimmed.rfind(super::is_space).map_or(0, |at| at + 1);
-            // A token ending in `:` is the tail of a key such as `"e !-":`, not a
-            // property.
             let word = &buffer[token..trimmed.len()];
-            if !word.starts_with(['&', '!']) || word.ends_with(':') {
+            // A property can follow a flow indicator unspaced, as in `[1,&a {`, but
+            // not one inside a verbatim tag such as `!<tag:yaml.org,2002:map>`, nor
+            // end a key such as `"e !-":`.
+            let verbatim = word.strip_suffix('>').and_then(|_| word.rfind("!<"));
+            let property = word[..verbatim.unwrap_or(word.len())]
+                .rfind(['[', '{', ','])
+                .map_or(0, |at| at + 1);
+            if !word[property..].starts_with(['&', '!']) || word.ends_with(':') {
                 return start;
             }
-            start = token;
+            start = token + property;
         }
     }
 
