@@ -8,6 +8,24 @@ use crate::common;
 use common::cli::run;
 
 #[test]
+fn migrating_multiple_targets_to_stdout_labels_separate_configurations() {
+    let dir = tempdir().unwrap();
+    for name in ["first", "second"] {
+        let project = dir.path().join(name);
+        fs::create_dir(&project).unwrap();
+        fs::write(project.join(".yamllint"), "rules: {truthy: enable}\n").unwrap();
+    }
+    let (code, stdout, stderr) = run(common::cli::ryl(dir.path())
+        .args(["--migrate-configs", "--migrate-stdout", "--migrate-root"])
+        .arg(dir.path()));
+    assert_eq!(code, 0, "{stdout}\n{stderr}");
+    assert!(stdout.contains(
+        "# Multiple targets follow; each section is a separate configuration."
+    ));
+    assert_eq!(stdout.matches("[lint.rules]").count(), 2, "{stdout}");
+}
+
+#[test]
 fn migrate_configs_dry_run_does_not_write_files() {
     let td = tempdir().unwrap();
     let root = td.path();

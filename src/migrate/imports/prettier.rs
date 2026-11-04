@@ -132,12 +132,18 @@ pub(super) fn yaml_options(
 }
 
 fn file_globs(item: &Value) -> Vec<&str> {
-    match item.get("files") {
-        Some(Value::String(pattern)) => vec![pattern],
-        Some(Value::Array(patterns)) => {
-            patterns.iter().filter_map(Value::as_str).collect()
-        }
-        _ => Vec::new(),
+    let files = item
+        .get("files")
+        .expect("validated overrides contain files");
+    if let Value::String(pattern) = files {
+        vec![pattern]
+    } else {
+        files
+            .as_array()
+            .expect("validated override files are strings or arrays")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect()
     }
 }
 

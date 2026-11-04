@@ -402,12 +402,12 @@ fn compose(
         );
     }
     if !excludes.is_empty() {
-        let previous = table.remove("exclude");
-        let mut patterns = match previous {
-            Some(toml::Value::Array(patterns)) => patterns,
-            Some(pattern) => vec![pattern],
-            None => Vec::new(),
-        };
+        let mut patterns = table.remove("exclude").map_or_else(Vec::new, |value| {
+            value
+                .as_array()
+                .expect("the legacy converter writes exclusion arrays")
+                .clone()
+        });
         patterns.extend(excludes.into_iter().map(toml::Value::String));
         table.insert("exclude".to_owned(), patterns.into());
     }

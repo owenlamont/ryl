@@ -2649,6 +2649,7 @@ fn yaml_only_prettier_overrides_apply_in_source_order() {
         (r#""[abc]*.yml""#, true),
         (r#"["**/*.{yaml,yml}", "*.yml"]"#, true),
         (r#""*.md""#, false),
+        (r#""*""#, false),
         (r#""*.{yaml,md}""#, false),
         (r#"["*.yaml", "*.md"]"#, false),
         (r#""!*.yaml""#, false),
@@ -2834,5 +2835,131 @@ fn dprint_extends_bounds_depth_and_repeated_base_expansion() {
                 .any(|warning| warning.contains("excessive")),
             "{result:?}"
         );
+    }
+}
+
+#[test]
+fn inherited_dprint_values_reject_invalid_extends_and_non_objects() {
+    for body in [r#"{"extends":true}"#, r#"{"extends":[42]}"#, "[]"] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("base.json"), body).unwrap();
+        fs::write(
+            dir.path().join("dprint.json"),
+            r#"{"extends":"base.json","yaml":{}}"#,
+        )
+        .unwrap();
+        let result =
+            migrate_configs(&options(dir.path(), Some(MigrationSource::Dprint)))
+                .unwrap();
+        assert_eq!(result.skipped, 1, "{result:?}");
+        assert!(result.entries.is_empty());
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("flatten"))
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn inherited_dprint_symlinks_are_retained_without_importing_settings() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join("real.json"),
+        r#"{"yaml":{"printWidth":100}}"#,
+    )
+    .unwrap();
+    symlink(dir.path().join("real.json"), dir.path().join("base.json")).unwrap();
+    fs::write(dir.path().join("dprint.json"), r#"{"extends":"base.json"}"#).unwrap();
+    let result =
+        migrate_configs(&options(dir.path(), Some(MigrationSource::Dprint))).unwrap();
+    assert_eq!(result.skipped, 1);
+    assert!(result.entries.is_empty());
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("symlink"))
+    );
+    assert!(dir.path().join("base.json").is_symlink());
+}
+
+#[cfg(unix)]
+#[test]
+fn prettier_ignore_symlinks_warn_and_unreadable_files_fail_import() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".prettierrc"), "{}").unwrap();
+    let source = dir.path().join("patterns");
+    fs::write(&source, "ignored.yaml\n").unwrap();
+    let ignore = dir.path().join(".prettierignore");
+    symlink(&source, &ignore).unwrap();
+    let result =
+        migrate_configs(&options(dir.path(), Some(MigrationSource::Prettier))).unwrap();
+    assert!(
+        !converted(&result)
+            .is_file_ignored(&dir.path().join("ignored.yaml"), dir.path())
+    );
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains(".prettierignore is a symlink"))
+    );
+    fs::remove_file(&ignore).unwrap();
+    fs::write(&ignore, "ignored.yaml\n").unwrap();
+    fs::set_permissions(&ignore, fs::Permissions::from_mode(0o000)).unwrap();
+    let result = migrate_configs(&options(dir.path(), Some(MigrationSource::Prettier)));
+    fs::set_permissions(&ignore, fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(result.unwrap_err().contains("cannot read"));
+}
+
+#[test]
+fn formatter_exclusions_append_to_colocated_lint_exclusions() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".yamllint"),
+        "ignore: lint.yaml\nrules: {truthy: enable}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("dprint.json"),
+        r#"{"yaml":{},"excludes":["format.yaml"]}"#,
+    )
+    .unwrap();
+    let result =
+        migrate_configs(&options(dir.path(), Some(MigrationSource::Dprint))).unwrap();
+    let config = converted(&result);
+    for name in ["lint.yaml", "format.yaml"] {
+        assert!(config.is_file_ignored(&dir.path().join(name), dir.path()));
+    }
+}
+
+#[test]
+fn yaml_specific_overrides_and_doublestar_exclusions_validate_imported_values() {
+    for (tool, filename, body, error) in [
+        (
+            MigrationSource::Prettier,
+            ".prettierrc",
+            r#"{"overrides":[{"files":"*.yaml","options":{"overrides":true}}]}"#,
+            "option overrides",
+        ),
+        (
+            MigrationSource::Yamlfmt,
+            ".yamlfmt",
+            "match_type: doublestar\nexclude: true\n",
+            "option exclude",
+        ),
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(filename), body).unwrap();
+        let result = migrate_configs(&options(dir.path(), Some(tool)));
+        assert!(result.unwrap_err().contains(error));
+        assert!(!dir.path().join(".ryl.toml").exists());
     }
 }

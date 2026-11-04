@@ -326,8 +326,7 @@ fn dprint_values(
     stack: &mut Vec<PathBuf>,
     sources: &mut Vec<PathBuf>,
 ) -> Result<Map<String, Value>, String> {
-    let canonical = std::fs::canonicalize(path)
-        .map_err(|error| format!("cannot resolve {}: {error}", path.display()))?;
+    let canonical = resolved_source_path(path);
     if stack.contains(&canonical) || stack.len() >= 32 || sources.len() >= 256 {
         return Err("cyclic or excessive dprint extends".to_owned());
     }
