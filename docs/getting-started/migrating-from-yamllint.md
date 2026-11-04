@@ -194,8 +194,9 @@ produced.
   [Configuration presets](../config-presets.md).
 - Inline `# yamllint disable` / `disable-line` / `enable` comments are honoured
   with the same grammar and semantics, so existing in-file suppressions keep
-  working. The equivalent `# ryl …` spelling is preferred for new files, and
-  can also share a comment with other text; see
+  working through 0.29.x. The CLI emits a deprecation notice for `# yamllint …`.
+  The equivalent `# ryl …` spelling is preferred for new files, and can also
+  share a comment with other text; see
   [Inline directives](../directives.md#alongside-other-comments).
 
 ## Configuration discovery precedence
