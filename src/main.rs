@@ -1526,23 +1526,14 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     }
 
     if args.lint.fix.diff {
-        let notices: Vec<_> = files
-            .iter()
-            .map(|file| {
-                deprecation::rewrite_notice(
-                    file,
-                    None,
-                    args.lint.compatibility.no_warnings,
-                )
-                .unwrap_or_default()
-                .into_bytes()
-            })
-            .collect();
         let mut out = PreviewOutput::new(Preview::Diff, None);
         let stats = diff_files(
             &files,
             (Rewrite::Fix, "--diff"),
-            &notices,
+            (
+                &[],
+                &deprecation::file_notice(args.lint.compatibility.no_warnings),
+            ),
             &mut |path, outcome| {
                 out.push(path, outcome);
             },
@@ -1709,7 +1700,7 @@ fn apply_fixes_reporting_skips(files: &[LintFile], no_warnings: bool) -> FixBase
         let _ = std::io::stderr().write_all(&stderr);
         before.push(fix_rule_counts(&outcome, no_warnings));
     });
-    let fix_stats = rewrite_files(files, Rewrite::Fix);
+    let fix_stats = rewrite_files(files, Rewrite::Fix, &|_, _| None);
     let _ = std::io::stderr().write_all(&fix_stats.notices);
     for (index, _) in &fix_stats.errors {
         before[*index] = [0; ALL_RULE_IDS.len()];
@@ -2026,7 +2017,8 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
     let mut entries = Vec::new();
     let mut cache_hits = Vec::new();
     let mut notices = Vec::new();
-    for file @ (path, base_dir, cfg, kind) in &files {
+    let notice = deprecation::file_notice(format.no_warnings);
+    for (path, base_dir, cfg, kind) in &files {
         let symlink = std::fs::symlink_metadata(path)
             .is_ok_and(|metadata| metadata.file_type().is_symlink());
         let entry = if format.diff || symlink {
@@ -2034,17 +2026,23 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         } else {
             settings.entry(path, base_dir, cfg, *kind, "format")?
         };
-        notices.push(
-            deprecation::rewrite_notice(
-                file,
-                entry.as_ref().map(|(_, bytes)| bytes.as_slice()),
-                format.no_warnings,
-            )
-            .unwrap_or_default()
-            .into_bytes(),
-        );
-        let entry = entry.map(|(path, _)| path);
+        let (entry, bytes) = entry.unzip();
         let hit = entry.as_deref().is_some_and(cache::clean_hit);
+        notices.push(
+            bytes
+                .filter(|_| hit)
+                .and_then(|bytes| {
+                    deprecation::notice_bytes(
+                        &bytes,
+                        path,
+                        cfg,
+                        *kind,
+                        format.no_warnings,
+                    )
+                })
+                .unwrap_or_default()
+                .into_bytes(),
+        );
         cache_hits.push(hit);
         if !hit {
             pending.push((path.clone(), base_dir.clone(), Arc::clone(cfg), *kind));
@@ -2066,7 +2064,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         let stats = diff_files(
             &pending,
             (Rewrite::Format, preview.flag()),
-            &prefixes,
+            (&prefixes, &notice),
             &mut |path, outcome| out.push(path, outcome),
         )?;
         if preview == Preview::Check && stats.changed_files == 0 && !stats.skipped {
@@ -2076,7 +2074,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         }
         return out.finish(&stats, cache_hits.iter().filter(|hit| **hit).count());
     }
-    let mut stats = rewrite_files(&pending, Rewrite::Format);
+    let mut stats = rewrite_files(&pending, Rewrite::Format, &notice);
     for (index, entry) in entries.into_iter().enumerate() {
         if stats.errors.iter().any(|(failed, _)| *failed == index)
             || stats.skipped.contains(&index)

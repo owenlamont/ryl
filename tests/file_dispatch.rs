@@ -57,7 +57,7 @@ fn diff_entrypoint_accepts_omitted_notice_prefixes_without_writing() {
     let stats = ryl::fix::diff_files(
         &files,
         (ryl::fix::Rewrite::Format, "--diff"),
-        &[],
+        (&[], &|_, _| None),
         &mut |actual, outcome| {
             emitted += 1;
             assert_eq!(actual, path);

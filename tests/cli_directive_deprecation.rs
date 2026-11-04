@@ -401,6 +401,28 @@ fn rewrite_notices_keep_input_order_with_parse_skips_and_cached_neighbors() {
     }
 }
 
+#[test]
+fn rewrite_notices_keep_input_order_between_cache_hits_and_misses() {
+    let dir = project(CONFIG);
+    fs::write(dir.path().join("hit.yaml"), SOURCE).unwrap();
+    let (code, _, stderr) = run(command(&dir).args(["format", "hit.yaml"]));
+    assert_eq!(code, 0, "{stderr}");
+    for mode in [vec!["format", "--check"], vec!["format"]] {
+        for inputs in [["hit.yaml", "miss.yaml"], ["miss.yaml", "hit.yaml"]] {
+            fs::write(dir.path().join("miss.yaml"), format!("{SOURCE}b:   2\n"))
+                .unwrap();
+            let (_, _, stderr) = run(command(&dir).args(&mode).args(inputs));
+            let notice_at = |file: &str| {
+                stderr
+                    .find(&format!("{file}:1: {NOTICE}"))
+                    .unwrap_or_else(|| panic!("{mode:?} {inputs:?}: {stderr}"))
+            };
+            assert!(notice_at(inputs[0]) < notice_at(inputs[1]), "{stderr}");
+            assert_eq!(stderr.matches(NOTICE).count(), 2, "{stderr}");
+        }
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn rewrite_notice_probe_preserves_one_shot_named_pipe_input() {
@@ -449,7 +471,7 @@ fn rewrite_notice_probe_preserves_one_shot_named_pipe_input() {
             .arg(&pipe)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap();
         let reader_status = finish(&mut reader);
@@ -460,5 +482,12 @@ fn rewrite_notice_probe_preserves_one_shot_named_pipe_input() {
             "{mode:?} must process the single input without a second writer"
         );
         assert_eq!(writer_status.and_then(|status| status.code()), Some(0));
+        let mut stderr = String::new();
+        std::io::Read::read_to_string(&mut reader.stderr.take().unwrap(), &mut stderr)
+            .unwrap();
+        assert!(
+            !stderr.contains(NOTICE),
+            "a non-regular input never warns: {stderr}"
+        );
     }
 }

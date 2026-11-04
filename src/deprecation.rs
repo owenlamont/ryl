@@ -64,35 +64,15 @@ pub(crate) fn notice_bytes(
         .and_then(|content| notice(&content, path, cfg, kind, false))
 }
 
-fn notice_file(
-    path: &Path,
-    cfg: &YamlLintConfig,
-    kind: SourceKind,
-    no_warnings: bool,
-) -> Option<String> {
-    if no_warnings
-        || !std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
-    {
-        return None;
-    }
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| notice_bytes(&bytes, path, cfg, kind, false))
-}
-
 pub(crate) fn emit(notice: Option<String>) {
     if let Some(notice) = notice {
         eprint!("{notice}");
     }
 }
 
-pub(crate) fn rewrite_notice(
-    (path, _, cfg, kind): &LintFile,
-    bytes: Option<&[u8]>,
+/// The [`ryl::fix::Notice`] a rewrite or preview prints before each file's own stderr.
+pub(crate) fn file_notice(
     no_warnings: bool,
-) -> Option<String> {
-    bytes.map_or_else(
-        || notice_file(path, cfg, *kind, no_warnings),
-        |bytes| notice_bytes(bytes, path, cfg, *kind, no_warnings),
-    )
+) -> impl Fn(&str, &LintFile) -> Option<String> + Sync {
+    move |content, (path, _, cfg, kind)| notice(content, path, cfg, *kind, no_warnings)
 }

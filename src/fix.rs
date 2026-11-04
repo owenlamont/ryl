@@ -280,11 +280,16 @@ pub fn rewrite_str(
 
 /// Apply `rewrite` to each file in place, writing each file as soon as it is rewritten.
 #[must_use]
-pub fn rewrite_files(files: &[LintFile], rewrite: Rewrite) -> FixStats {
+pub fn rewrite_files(
+    files: &[LintFile],
+    rewrite: Rewrite,
+    notice: Notice<'_>,
+) -> FixStats {
     let mut stats = FixStats::default();
     for batch in hard_link_batches(files) {
         let _ = read_in_order(
             &files[batch.clone()],
+            notice,
             |decoded, (path, base_dir, cfg, kind)| {
                 let (rewritten, skipped) =
                     rewrite_str(decoded.content(), cfg, path, base_dir, *kind, rewrite);
@@ -359,24 +364,43 @@ fn hard_link_batches(files: &[LintFile]) -> Vec<std::ops::Range<usize>> {
     batches
 }
 
-/// Never reads a symlink; hands each result and its stderr to `emit` in input order, for
-/// ordered replay.
+/// A file's leading stderr notice, derived from its decoded content.
+pub type Notice<'a> = &'a (dyn Fn(&str, &LintFile) -> Option<String> + Sync);
+
+/// Never reads a symlink; hands each result and its stderr, led by its [`Notice`], to `emit`
+/// in input order, for ordered replay.
 fn read_in_order<T: Send>(
     files: &[LintFile],
+    notice: Notice<'_>,
     compute: impl Fn(decoder::DecodedFile, &LintFile) -> Result<T, String> + Sync,
-    emit: impl FnMut(usize, (Result<T, String>, Vec<u8>)) -> Result<(), String>,
+    mut emit: impl FnMut(usize, (Result<T, String>, Vec<u8>)) -> Result<(), String>,
 ) -> Result<(), String> {
     crate::cli_support::try_for_each_ordered(
         files,
         |file| {
-            if is_symlink(&file.0) {
-                Err(format!("skipped symlink {}", file.0.display()))
-            } else {
-                decoder::read_file_lossless(&file.0)
-                    .and_then(|decoded| compute(decoded, file))
+            let file_type =
+                std::fs::symlink_metadata(&file.0).map(|meta| meta.file_type());
+            if file_type.as_ref().is_ok_and(std::fs::FileType::is_symlink) {
+                return (None, Err(format!("skipped symlink {}", file.0.display())));
+            }
+            match decoder::read_file_lossless(&file.0) {
+                Ok(decoded) => (
+                    file_type
+                        .is_ok_and(|kind| kind.is_file())
+                        .then(|| notice(decoded.content(), file))
+                        .flatten(),
+                    compute(decoded, file),
+                ),
+                Err(error) => (None, Err(error)),
             }
         },
-        emit,
+        |index, ((notice, result), stderr)| {
+            let stderr = match notice {
+                Some(notice) => [notice.into_bytes(), stderr].concat(),
+                None => stderr,
+            };
+            emit(index, (result, stderr))
+        },
     )
 }
 
@@ -993,12 +1017,13 @@ pub(crate) fn path_unrepresentable_in_diff(path: &Path) -> bool {
 pub fn diff_files<'a>(
     files: &'a [LintFile],
     (rewrite, flag): (Rewrite, &str),
-    preceding_notices: &[Vec<u8>],
+    (preceding_notices, notice): (&[Vec<u8>], Notice<'_>),
     emit: &mut dyn FnMut(&'a Path, DiffOutcome),
 ) -> Result<DiffStats, String> {
     let mut stats = DiffStats::default();
     read_in_order(
         files,
+        notice,
         |decoded, (path, base_dir, cfg, kind)| {
             Ok(decoded_diff_outcome(
                 &decoded, cfg, path, base_dir, *kind, rewrite,
