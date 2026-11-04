@@ -69,8 +69,8 @@ release binary on the runner, verifies its checksum and runs `ryl check .`:
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: owenlamont/ryl-action@v0.28.0
-- uses: owenlamont/ryl-action@v0.28.0
+- uses: owenlamont/ryl-action@v0.29.0
+- uses: owenlamont/ryl-action@v0.29.0
   with:
     args: format --check .
 ```

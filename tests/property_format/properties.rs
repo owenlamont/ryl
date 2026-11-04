@@ -55,6 +55,8 @@ pub enum Property {
     AliasKey,
     /// A tag from `TAGS`, or an anchor past its end, on an empty key.
     EmptyKey(usize),
+    OmittedKey,
+    AnchoredOmittedKey,
     GapInteractions,
 }
 
@@ -69,6 +71,8 @@ fn arb_property() -> impl Strategy<Value = Property> {
         2 => (0..QUOTED_KEYS.len()).prop_map(Property::QuotedKey),
         1 => Just(Property::AliasKey),
         1 => (0..=TAGS.len()).prop_map(Property::EmptyKey),
+        1 => Just(Property::OmittedKey),
+        1 => Just(Property::AnchoredOmittedKey),
         1 => Just(Property::GapInteractions),
     ]
 }
@@ -82,11 +86,23 @@ struct Decorator<'a> {
 impl Decorator<'_> {
     fn decorate(&mut self, entries: &mut [BlockEntry]) {
         for entry in entries {
+            if matches!(
+                self.properties[self.next % self.properties.len()],
+                Property::AnchoredOmittedKey
+            ) {
+                self.next += 1;
+                entry.key.clear();
+                entry.colon.explicit = None;
+                entry.value =
+                    Node::Scalar(Scalar::Plain(format!("{}[x, y]", self.anchor())));
+                continue;
+            }
             let key = match self.properties[self.next % self.properties.len()] {
                 Property::QuotedKey(index) => Some(QUOTED_KEYS[index].to_string()),
                 Property::AliasKey if self.anchors > 0 => {
                     Some(format!("*a{} ", self.next % self.anchors))
                 }
+                Property::OmittedKey => Some(String::new()),
                 Property::EmptyKey(index) => Some(
                     TAGS.get(index)
                         .map_or_else(|| self.anchor(), |tag| format!("{tag} ")),
@@ -135,9 +151,16 @@ impl Decorator<'_> {
                 self.decorate_collection(node);
             }
             Node::FlowMap(pairs, _) => {
-                pairs
-                    .iter_mut()
-                    .for_each(|(_, value)| self.decorate_inline(value));
+                for (key, value) in pairs {
+                    if matches!(
+                        self.properties[self.next % self.properties.len()],
+                        Property::OmittedKey
+                    ) {
+                        *key = Scalar::Plain(String::new());
+                        self.next += 1;
+                    }
+                    self.decorate_inline(value);
+                }
                 self.decorate_collection(node);
             }
             Node::MultilineFlowSeq(spec) => {
@@ -184,10 +207,14 @@ impl Decorator<'_> {
             Property::GapInteractions => {
                 return Scalar::Plain("{ é :  [ \"é\tvalue\" ,y ] }".into());
             }
+            Property::OmittedKey => {
+                return Scalar::Plain("[: 1, {: [a, b]}]".into());
+            }
             Property::None
             | Property::QuotedKey(_)
             | Property::AliasKey
-            | Property::EmptyKey(_) => return scalar.clone(),
+            | Property::EmptyKey(_)
+            | Property::AnchoredOmittedKey => return scalar.clone(),
             Property::Escaped(index) => {
                 let (double, payload) = ESCAPED[index];
                 let payload = payload.to_string();

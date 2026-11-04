@@ -635,7 +635,7 @@ fn flow_conversions_in_same_refused_document_stay_flow() {
 }
 
 #[test]
-fn flow_conversion_handles_each_reindent_refusal_cause() {
+fn flow_conversion_handles_reindent_refusals() {
     use ryl::rules::indentation::{
         Cause, Config, IndentSequencesSetting, SpacesSetting, reindent,
     };
@@ -655,7 +655,6 @@ fn flow_conversion_handles_each_reindent_refusal_cause() {
             Cause::Disabled,
             "b: c  # yamllint disable-line rule:indentation\n",
         ),
-        (Cause::Unfollowable, ": value\n"),
     ] {
         let candidate = format!("a:\n  - a\n{suffix}");
         assert_eq!(reindent(&candidate, &target).refused[0].cause, cause);
@@ -1210,4 +1209,16 @@ fn reconsidered_mapping_counts_the_explicit_value_gap_once() {
         );
         assert!(ryl::format::conflicts(&cfg).is_empty());
     }
+}
+
+#[test]
+fn omitted_implicit_keys_allow_independent_collection_conversion() {
+    let cfg = config(
+        "indent-width = 2\n[format]\nsequence-style = 'block'\nindent-sequences = false\n",
+    );
+    let input = "a: [a]\n: value\n";
+    assert_eq!(
+        format_str(input, &cfg, Path::new("case.yaml"), &[]),
+        "a:\n- a\n: value\n"
+    );
 }

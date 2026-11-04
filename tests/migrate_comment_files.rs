@@ -861,3 +861,58 @@ fn combined_cleanup_failure_keeps_successful_writes_and_reports_source() {
             .starts_with("# ryl disable")
     );
 }
+
+#[test]
+fn imported_prettier_quote_and_prose_policies_respect_converted_node_ignore() {
+    for policy in ["preserve", "always", "never"] {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join(".prettierrc"),
+            format!(r#"{{"singleQuote":true,"proseWrap":"{policy}","printWidth":24}}"#),
+        )
+        .unwrap();
+        let held =
+            "held:\n  quote: \"held\"\n  text: >\n    held first\n    held second\n";
+        let input = format!(
+            "before: \"before\"\n# prettier-ignore\n{held}after: \"after\"\ntext: >\n  outside\n  words fit\n"
+        );
+        let path = dir.path().join("app.yaml");
+        fs::write(&path, &input).unwrap();
+        let (code, _, stderr) = run(cli(dir.path()).args([
+            "--migrate-configs",
+            "--migrate-directives",
+            "--migrate-from",
+            "prettier",
+            "--migrate-write",
+        ]));
+        assert_eq!(code, 0, "{policy}: {stderr}");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            input.replace("prettier-ignore", "ryl format-ignore")
+        );
+        let (code, _, stderr) = run(cli(dir.path()).arg("format").arg(&path));
+        assert_eq!(code, 0, "{policy}: {stderr}");
+        let output = fs::read_to_string(&path).unwrap();
+        assert!(
+            output.contains(held),
+            "ignored subtree changed under {policy}: {output}"
+        );
+        assert!(
+            output.contains("before: 'before'\n"),
+            "quote witness unchanged: {output}"
+        );
+        assert!(
+            output.contains("after: 'after'\n"),
+            "quote witness unchanged: {output}"
+        );
+        let prose = if policy == "preserve" {
+            "text: >\n  outside\n  words fit\n"
+        } else {
+            "text: >\n  outside words fit\n"
+        };
+        assert!(output.ends_with(prose), "{policy}: {output}");
+        let (code, _, stderr) =
+            run(cli(dir.path()).args(["format", "--check"]).arg(&path));
+        assert_eq!(code, 0, "{policy}: {stderr}");
+    }
+}

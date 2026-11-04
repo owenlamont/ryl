@@ -313,7 +313,6 @@ pub struct DeprecatedKey {
     pub removed_in: Option<&'static str>,
 }
 
-/// Placeholder until the release carrying the `[lint]` table is cut.
 const LINT_TABLE_SINCE: &str = "0.25.0";
 
 /// Every deprecated TOML key location, the single source the deprecation warnings and

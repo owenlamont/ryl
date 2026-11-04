@@ -5,8 +5,28 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+## v0.29.0
+
 ### Added
 
+- Import static Prettier, yamlfmt, dprint pretty_yaml and yamlfix configs with
+  `--migrate-configs`, including representable defaults. Use `--migrate-from`
+  when multiple source formatters apply; unsupported settings produce warnings.
+  ([#660](https://github.com/owenlamont/ryl/issues/660))
+- Opt into source suppression-comment conversion with `--migrate-directives`,
+  independently or alongside config import. Preview diffs before applying with
+  `--migrate-write`; uncertain scopes remain unchanged with warnings.
+  ([#660](https://github.com/owenlamont/ryl/issues/660))
+- Formatter-only `# ryl format-ignore` protects the next YAML node, including
+  descendants; `format-disable` / `format-enable` protect a region. Lint checks
+  and lint fixes remain active.
+  ([#917](https://github.com/owenlamont/ryl/issues/917))
+- `[format] keep-quotes = true` retains optional scalar quotes while `quote-style`
+  chooses their character. ([#916](https://github.com/owenlamont/ryl/issues/916))
+- `[format] prose-wrap = "preserve" | "always" | "never"` controls prose reflow
+  while preserving values and paragraph breaks. Existing `fold-long-lines`
+  retains split-only behavior; configuring both settings is an error.
+  ([#915](https://github.com/owenlamont/ryl/issues/915))
 - Under `target-version = "1.2"`, `yaml-directive` reports a document that declares
   `%YAML 1.1` or `1.0`, and its safe fix migrates the document to 1.2 in one edit:
   `yes` becomes `true`, `0777` becomes `0o777`, `22:22` becomes `1342`, `1_000` becomes
@@ -35,6 +55,12 @@ summarize user-visible changes from the tagged commits and published release rec
   `"preserve"`) writes each node's anchor and tag in one order; `"tag-first"` matches
   prettier. ([#913](https://github.com/owenlamont/ryl/pull/913))
 
+### Deprecated
+
+- Legacy `yamllint` suppression comments emit a CLI deprecation notice. Aliases
+  remain supported throughout 0.29.x; convert active aliases with
+  `--migrate-directives`. ([#660](https://github.com/owenlamont/ryl/issues/660))
+
 ### Changed
 
 - **Behaviour change for `sequence-style = "flow"` / `mapping-style = "flow"`:** a flow
@@ -52,6 +78,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- Omitted mapping keys (`: value`) no longer trigger false indentation errors or
+  prevent `ryl format` from formatting the surrounding document, including when
+  their values have anchors or tags.
 - With `fold-long-lines` and `dash-on-own-line`, `ryl format` no longer folds a scalar
   whose trailing comment keeps its mapping on the `-` line, which let a second run move
   the mapping below the `-`. ([#913](https://github.com/owenlamont/ryl/pull/913))

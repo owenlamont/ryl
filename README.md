@@ -64,14 +64,22 @@ and Homebrew builds with its own Rust where it has no prebuilt bottle.
 In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-action):
 
 ```yaml
-- uses: owenlamont/ryl-action@v0.28.0
+- uses: owenlamont/ryl-action@v0.29.0
 ```
 
 ## Status and scope
 
+- Import static Prettier, yamlfmt, dprint pretty_yaml or yamlfix settings with
+  `ryl --migrate-configs --migrate-from prettier`. Add `--migrate-write` to apply;
+  opt into suppression-comment conversion separately with `--migrate-directives`.
+  See [formatter migration](docs/getting-started/migrating-from-formatters.md).
 - `ryl format` formats YAML in place without enabling lint rules. Its `--check`
   and `--diff` modes preview changes without writing; `[format]` in TOML controls
   the style. It also formats embedded YAML in Markdown with `--markdown`.
+  Retain optional quotes with `keep-quotes = true`, or configure prose with
+  `prose-wrap = "preserve"`, `"always"` or `"never"`. Own-line
+  `# ryl format-ignore` protects the next node; `format-disable` / `format-enable`
+  protect a region while lint checks remain active.
 - ryl includes 29 rules, including `tags`, `merge-keys`,
   `block-scalar-chomping`, `unicode-line-breaks`, `yaml-directive` and
   `schema-dependent-values`. The rule reference
@@ -83,7 +91,9 @@ In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-a
   `truthy` (case only, e.g. `True` to `true`), and `yaml-directive` (under
   `target-version = "1.2"`). The set of rules that may
   apply fixes is configurable via the TOML `lint.fixable`/`lint.unfixable`
-  keys.
+  keys. Add `--unsafe-fixes` for opt-in fixes to ambiguous scalar spellings;
+  top-level `source-version` selects the interpretation preserved during conversion.
+  See [YAML version compatibility](docs/yaml-version.md).
 - `--diff` previews those safe fixes as a unified diff on stdout instead
   of writing them (modelled on `ruff check --diff`); it is mutually
   exclusive with `--fix`, works with stdin, and exits `1` iff some file
@@ -107,7 +117,7 @@ In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-a
 - `--list-files` prints the files ryl would lint (after ignores and
   config discovery) and exits, without running rules. `--no-warnings`
   suppresses warning-level diagnostics in the output. `--strict` turns a
-  warning-only run into exit code `2`; TOML `[lint] strict = true` enables the
+  run with only lint warnings into exit code `2`; TOML `[lint] strict = true` enables the
   same behavior for a project, and `--no-strict` overrides the config.
   `--enable <RULES>` runs exactly the
   listed rules (comma-separated IDs, or `ALL`) in place of the config's
@@ -147,10 +157,10 @@ are logarithmic.
 
 ![Lint and max-common-work format: wall time and peak memory](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark.svg)
 
-The format panel uses **max common work**: every formatter configured for output
-as close as its options allow, plus the two rewrites all four offer, single quotes
-and folding long lines at 80 columns. It is the most work each tool can be asked to
-do in common. Median of 10 runs; peak RSS is the median of 3 more:
+The format panel uses **max common work**: the fixed comparison settings below,
+plus single quotes and folding long lines at 80 columns. The release performance
+gate uses the same common-work settings for the candidate and previous release.
+Median of 10 runs; peak RSS is the median of 3 more:
 
 | Input | ryl | yamlfmt | dprint + pretty_yaml | Prettier |
 | --- | ---: | ---: | ---: | ---: |
@@ -174,8 +184,7 @@ Profiles and what they cannot equalise:
 
 - **Max common work** (charted): aligned configs plus single quotes and folding at
   80 columns; 89–95% identical lines, as each tool folds differently.
-- **Aligned configs**: each formatter set up to produce output as close
-  to the others' as its options allow. ryl `quote-style = "double"`,
+- **Aligned configs**: fixed comparison settings. ryl `quote-style = "double"`,
   `max-blank-lines = 1`, `comment-spacing = 1`, `comment-starting-space =
   "preserve"`, `brace-spacing = true`; yamlfmt `retain_line_breaks_single`, double quotes,
   `pad_line_comments: 1`, `trim_trailing_whitespace`; dprint and Prettier defaults.

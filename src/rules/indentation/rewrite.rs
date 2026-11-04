@@ -36,7 +36,7 @@ pub enum Cause {
     /// An inline directive turns off `indentation`, or the rule owning a gap it would close.
     Disabled,
     Tab,
-    /// The analyzer met a token it cannot place.
+    /// The analyzer cannot place a token or satisfy scalar indentation safely.
     Unfollowable,
     Inconsistent,
     /// The re-indented document parses to different events.

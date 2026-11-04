@@ -30,14 +30,24 @@ ryl and avoid its main gotcha:
 `--disable <RULES>` subtracts from the lint selection; `--exclude <GLOBS>` replaces
 configured exclusions. Both accept comma-separated values once per command.
 Strict lint mode can also be configured with TOML `[lint] strict = true`;
-`--no-strict` overrides configuration, and `--no-warnings` suppresses warnings and
-their failing status.
+`--no-strict` overrides configuration. `--no-warnings` suppresses lint warnings,
+configuration warnings and deprecation notices; deprecation notices alone do not
+fail strict mode.
 
 Formatting defaults to two-space indentation; set top-level `indent-width` to keep
 another width. `format --disable` suppresses lint conflict warnings without
 disabling formatting passes. For syntax repair and encoded diff exit codes, use
 the [formatter guarantees](formatter.md#guarantees) and
 [diff guidance](getting-started/quickstart.md#preview-fixes-as-a-diff).
+
+## Migrating existing tooling
+
+Use `ryl --migrate-configs` to preview yamllint or static formatter imports.
+`--migrate-from` selects Prettier, yamlfmt, dprint pretty_yaml or yamlfix;
+`--migrate-directives` opts into suppression-comment conversion independently.
+Add `--migrate-write` after inspecting the preview and warnings. See
+[formatter migration](getting-started/migrating-from-formatters.md) for supported
+settings and retained source contexts.
 
 ## Feeding the docs to an LLM
 

@@ -120,20 +120,23 @@ def repeat(snippet: str, size: int) -> str:
 
 
 def markdown(yaml: str) -> str:
-    """Wrap `yaml` in fenced blocks of about 2 KiB each.
+    """Wrap a complete YAML stream without splitting cross-line dependencies.
 
     Returns:
-        A Markdown document.
+        A Markdown document with one YAML region.
     """
-    blocks, chunk, length = [], [], 0
-    for line in yaml.splitlines(keepends=True):
-        chunk.append(line)
-        length += len(line)
-        if length > _MARKDOWN_BLOCK_BYTES and not line.startswith(" "):
-            blocks.append("".join(chunk))
-            chunk, length = [], 0
-    blocks.append("".join(chunk))
-    return "".join(f"# Part\n\n```yaml\n{block}```\n\n" for block in blocks if block)
+    ending = "" if yaml.endswith("\n") else "\n"
+    return f"# Part\n\n```yaml\n{yaml}{ending}```\n\n"
+
+
+def markdown_regions(size_bytes: int) -> str:
+    """Repeat independent, complete YAML regions of about 2 KiB.
+
+    Returns:
+        A Markdown document at least `size_bytes` bytes long.
+    """
+    fragment = markdown(repeat(CLEAN, _MARKDOWN_BLOCK_BYTES))
+    return fragment * max(1, math.ceil(size_bytes / len(fragment.encode())))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -261,6 +264,51 @@ def series(binary: str) -> Iterator[Series]:
                 "in.md": markdown(next(iter(inputs(mib).values())))
             },
         )
+
+    yield Series(
+        name="format --markdown many-regions",
+        command=(binary, "format", "--no-cache", "--markdown"),
+        inputs=sized(markdown_regions, "in.md"),
+    )
+    prose = (
+        "plain_{i}: " + "alpha beta gamma " * 8 + "\n  delta epsilon\n"
+        "single_{i}: 'alpha beta\n  gamma delta'\n"
+        'double_{i}: "alpha beta\n  gamma delta"\n'
+        "folded_{i}: >-\n  alpha beta\n  gamma delta\n"
+    )
+    for mode in ("always", "never"):
+        yield Series(
+            name=f"format prose-wrap {mode}",
+            command=(binary, "format", "--no-cache"),
+            inputs=sized(lambda size_bytes: repeat(prose, size_bytes)),
+            config=f"[format]\nprose-wrap = '{mode}'\nquote-style = 'preserve'\n",
+        )
+    yield Series(
+        name="format keep-quotes double",
+        command=(binary, "format", "--no-cache"),
+        inputs=sized(
+            lambda size_bytes: repeat(
+                "single_{i}: 'alpha beta\n  gamma delta'\n"
+                'double_{i}: "alpha beta\n  gamma delta"\n'
+                "plain_{i}: alpha beta\n",
+                size_bytes,
+            )
+        ),
+        config="[format]\nkeep-quotes = true\nquote-style = 'double'\n",
+    )
+    yield Series(
+        name="format many-ignores",
+        command=(binary, "format", "--no-cache"),
+        inputs=sized(
+            lambda size_bytes: repeat(
+                "before_{i}:    [ a,b ]\n"
+                "# ryl format-ignore\nheld_{i}:    [ a,b ]\n"
+                "# ryl format-disable\nregion_{i}:    [ c,d ]\n"
+                "# ryl format-enable\nafter_{i}:    [ c,d ]\n",
+                size_bytes,
+            )
+        ),
+    )
 
 
 def count_series(binary: str) -> Iterator[Series]:

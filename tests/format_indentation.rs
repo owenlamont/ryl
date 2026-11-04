@@ -198,16 +198,6 @@ fn an_unsafe_document_is_refused_and_the_rest_still_move() {
             refusal(1..=4, Cause::Tab),
         ),
         (
-            ": value\n---\nk:\n    a: 1\n",
-            ": value\n---\nk:\n  a: 1\n",
-            refusal(1..=1, Cause::Unfollowable),
-        ),
-        (
-            "k:\n    a: 1\n---\n: v\n---\nj:\n    b: 1\n",
-            "k:\n  a: 1\n---\n: v\n---\nj:\n  b: 1\n",
-            refusal(3..=4, Cause::Unfollowable),
-        ),
-        (
             "k:\n    a: 1  # yamllint disable-line rule:indentation\n---\nj:\n    b: 1\n",
             "k:\n    a: 1  # yamllint disable-line rule:indentation\n---\nj:\n  b: 1\n",
             refusal(1..=2, Cause::Disabled),
@@ -462,5 +452,95 @@ fn an_earlier_root_scalar_does_not_hold_the_final_document() {
         );
         assert_eq!(output, expected);
         crate::property::reference::check_strict_events(input, &output).unwrap();
+    }
+}
+
+#[test]
+fn omitted_implicit_keys_reindent_without_refusal() {
+    assert_reindents(
+        2,
+        &[
+            (": value\n---\nk:\n    a: 1\n", ": value\n---\nk:\n  a: 1\n"),
+            (
+                "k:\n    a: 1\n---\n: v\n---\nj:\n    b: 1\n",
+                "k:\n  a: 1\n---\n: v\n---\nj:\n  b: 1\n",
+            ),
+            (
+                "root:\n    : 1\n    :\n        child: value\n",
+                "root:\n  : 1\n  :\n    child: value\n",
+            ),
+            (
+                "root:\n    : !tag\n    : [a, b]\n",
+                "root:\n  : !tag\n  : [a, b]\n",
+            ),
+            (
+                "root:\n    ? &key\n    : !tag\n    : 1\n",
+                "root:\n  ? &key\n  : !tag\n  : 1\n",
+            ),
+        ],
+    );
+}
+
+#[test]
+fn omitted_implicit_keys_format_neighbors_and_preserve_events() {
+    let input = "?'a: b'\n: [ a,b ]   # comment \nother:    1\n";
+    let cfg = YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "?'a: b'\n: [a, b]  # comment\nother: 1\n");
+    assert!(ryl::fix::format_events_match(input, &output));
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
+fn significant_literal_indentation_is_refused_under_multiline_alignment() {
+    let input = "k: |\n  a\n   b\n";
+    let output = reindent(input, &multi_line_target(2));
+    assert_eq!(output.text, input);
+    assert_eq!(output.refused, refusal(1..=3, Cause::Unfollowable));
+}
+
+#[test]
+fn anchored_omitted_key_sequences_convert_consistently() {
+    for width in [2, 46] {
+        let cfg = YamlLintConfig::from_toml_str(&format!("indent-width = {width}\n[format]\nsequence-style = 'block'\nindent-sequences = false\n")).unwrap();
+        for input in [
+            ": &a [x]\n: &b [y]\n: &c [z]\n",
+            ": &a\n- x\n: &b\n- y\n: &c\n- z\n",
+        ] {
+            let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+            assert_eq!(output, ": &a\n- x\n: &b\n- y\n: &c\n- z\n");
+            assert!(ryl::fix::format_events_match(input, &output));
+            assert_eq!(
+                format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+                output
+            );
+        }
+    }
+}
+
+#[test]
+fn anchored_value_properties_follow_normal_explicit_and_multiline_separators() {
+    let cfg = YamlLintConfig::from_toml_str("indent-width = 2\n[format]\nsequence-style = 'block'\nindent-sequences = false\nquote-style = 'preserve'\n").unwrap();
+    for (input, expected) in [
+        ("a: &a [x]\nb: &b [y]\n", "a: &a\n- x\nb: &b\n- y\n"),
+        (
+            "? 'a'\n: &a [x]\n? 'b'\n: &b [y]\n",
+            "? 'a'\n: &a\n  - x\n? 'b'\n: &b\n  - y\n",
+        ),
+        (
+            "? |-\n  first\n: &a [x]\n? &key\n: &b [y]\nother: !tag\n: &c [z]\n",
+            "? |-\n    first\n: &a\n  - x\n? &key\n: &b\n  - y\nother: !tag\n: &c\n- z\n",
+        ),
+    ] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, expected, "{input:?}");
+        assert!(ryl::fix::format_events_match(input, &output));
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
     }
 }

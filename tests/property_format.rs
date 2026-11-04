@@ -614,6 +614,55 @@ fn check_pass(pass: &FormatPass, input: &str) -> Result<(), String> {
         .map_err(|violation| format!("pass '{}' on {input:?}: {violation}", pass.name))
 }
 
+#[derive(serde::Deserialize)]
+struct FormatReplay {
+    input: String,
+    config: String,
+}
+
+#[test]
+fn omitted_mapping_keys_property_replay_agrees_with_lint() {
+    let fixture: FormatReplay = serde_json::from_str(include_str!(
+        "fixtures/collection_geometry/omitted-key-format-consistency.json"
+    ))
+    .unwrap();
+    let cfg = YamlLintConfig::from_toml_str(&fixture.config).unwrap();
+    let (formatted, refusals) = ryl::fix::rewrite_str(
+        &fixture.input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.expect("the original CRLF input needs formatting");
+    assert!(refusals.is_empty(), "{refusals:?}");
+    assert!(ryl::format::conflicts(&cfg).is_empty());
+    let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert!(problems.is_empty(), "{problems:?}");
+    check_invariants(
+        &|text| ryl::format::format_str(text, &cfg, synthetic_path(), &[]),
+        &fixture.input,
+    )
+    .unwrap();
+}
+
+#[test]
+fn anchored_omitted_key_style_conversion_property_replay_converges() {
+    let fixture: FormatReplay = serde_json::from_str(include_str!(
+        "fixtures/collection_geometry/anchored-omitted-key-style-conversion.json"
+    ))
+    .unwrap();
+    let cfg = YamlLintConfig::from_toml_str(&fixture.config).unwrap();
+    let output = ryl::format::format_str(&fixture.input, &cfg, synthetic_path(), &[]);
+    assert_ne!(output, fixture.input);
+    check_invariants(
+        &|text| ryl::format::format_str(text, &cfg, synthetic_path(), &[]),
+        &fixture.input,
+    )
+    .unwrap();
+}
+
 #[test]
 fn explicit_key_flow_overflow_property_replay_keeps_the_guarantee() {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(

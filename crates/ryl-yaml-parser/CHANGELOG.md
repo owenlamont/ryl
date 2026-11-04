@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.2
+
+### Changed
+
+- Refreshed the packaged development-dependency lockfile.
+
 ## 0.1.1
 
 ### Changed
