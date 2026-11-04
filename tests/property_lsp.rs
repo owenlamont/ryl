@@ -270,12 +270,16 @@ proptest! {
     }
 
     #[test]
-    fn rewrite_edit_round_trips(document in arb_document()) {
-        let text = document.render();
-        let fixed = apply_safe_fixes(&text, trigger_all_config(), lint_path(), base());
+    fn rewrite_edit_round_trips(document in arb_document(), unsafe_fixes in any::<bool>(), source_1_1 in any::<bool>(), crlf in any::<bool>()) {
+        let text = format!("emoji🦀: [yes, 0777, 22:22]\n{}", document.render());
+        let text = if crlf { text.replace("\r\n", "\n").replace('\r', "\n").replace('\n', "\r\n") } else { text };
+        let cfg = ryl::config::YamlLintConfig::from_toml_str(&format!("source-version = '{}'\n{}\n[lint.rules.schema-dependent-values]\nlevel = 'error'\n", if source_1_1 { "1.1" } else { "1.2" }, trigger_all_config().to_toml_string())).unwrap();
+        let mut cfg = cfg;
+        cfg.set_unsafe_fixes(unsafe_fixes);
+        let fixed = apply_safe_fixes(&text, &cfg, lint_path(), base());
         let formatted = rewrite_str(
             &text,
-            trigger_all_config(),
+            &cfg,
             lint_path(),
             base(),
             SourceKind::Yaml,
@@ -289,7 +293,7 @@ proptest! {
             let Some(edit) = rewrite_edit(
                 &text,
                 lint_path(),
-                trigger_all_config(),
+                &cfg,
                 base(),
                 SourceKind::Yaml,
                 enc,

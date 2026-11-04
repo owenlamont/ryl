@@ -39,10 +39,10 @@ pub fn arb_source_timestamp_string() -> impl Strategy<Value = String> {
 }
 
 pub fn arb_source() -> impl Strategy<Value = Source> {
-    (0_u8..4, 1_u8..9, 20_u16..161, any::<bool>(), "[a-zA-Z0-9_ \n\r\t\\\"]{0,30}", 0_u8..4)
+    (0_u8..4, 1_u8..9, 20_u16..161, any::<bool>(), "[a-zA-Z0-9_ \n\r\t\\\"]{0,30}", 0_usize..4)
         .prop_map(|(tool, indent, width, single, unknown, representation)| {
             let (tool, filename, body) = match tool {
-                0 => (MigrationSource::Prettier, ".prettierrc.json5", format!("{{tabWidth:2,printWidth:80,overrides:[{{files:'**/*.{{yaml,yml}}',options:{{tabWidth:{indent},printWidth:{width}}}}}],singleQuote:{single},unknown:{}}}", json!(unknown))),
+                0 => (MigrationSource::Prettier, ".prettierrc.json5", format!("{{tabWidth:2,printWidth:80,overrides:[{{files:'**/*.{{yaml,yml}}',options:{{tabWidth:{indent},printWidth:{width}}}}}],singleQuote:{single},bracketSpacing:{single},proseWrap:{},endOfLine:{},unknown:{}}}", json!(["preserve", "always", "never", "preserve"][representation]), json!(["lf", "crlf", "auto", "cr"][representation]), json!(unknown))),
                 1 => {
                     let (indent, width) = match representation {
                         1 => (format!("0{indent:o}"), format!("0{width:o}")),
@@ -50,10 +50,10 @@ pub fn arb_source() -> impl Strategy<Value = Source> {
                         3 => (format!("0X{indent:X}"), format!("0X{width:X}")),
                         _ => (indent.to_string(), width.to_string()),
                     };
-                    (MigrationSource::Yamlfmt, ".yamlfmt", format!("match_type: doublestar\nexclude: ['generated/**']\nformatter:\n  indent: {indent}\n  max_line_length: {width}\n  unknown: {}\n", json!(unknown)))
+                    (MigrationSource::Yamlfmt, ".yamlfmt", format!("match_type: doublestar\nline_ending: {}\nexclude: ['generated/**']\nformatter:\n  indent: {indent}\n  max_line_length: {width}\n  indentless_arrays: {single}\n  force_array_style: {}\n  force_quote_style: {}\n  unknown: {}\n", json!(if single { "crlf" } else { "lf" }), json!(["", "flow", "block", ""][representation]), json!(["", "single", "double", ""][representation]), json!(unknown)))
                 },
                 2 => {
-                    let options = json!({"indentWidth":indent,"printWidth":width,"unknown":unknown});
+                    let options = json!({"indentWidth":indent,"printWidth":width,"unknown":unknown,"quotes":(["preferDouble", "preferSingle", "forceDouble", "forceSingle"][representation]),"proseWrap":if single { "always" } else { "preserve" },"lineBreak":if single { "crlf" } else { "lf" },"flowSequence.preferSingleLine":single});
                     let mut value = match representation {
                         0 => json!({"yaml":options}),
                         1 => json!({"plugins":["https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm"],"yaml":options}),
@@ -68,6 +68,8 @@ pub fn arb_source() -> impl Strategy<Value = Source> {
                     values.insert("indent_mapping".to_owned(), toml::Value::Integer(indent.into()));
                     values.insert("line_length".to_owned(), toml::Value::Integer(width.into()));
                     values.insert("preserve_quotes".to_owned(), toml::Value::Boolean(single));
+                    values.insert("sequence_style".to_owned(), toml::Value::String(["flow_style", "block_style", "keep_style", "keep_style"][representation].to_owned()));
+                    values.insert("explicit_start".to_owned(), toml::Value::Boolean(single));
                     values.insert("unknown".to_owned(), toml::Value::String(unknown));
                     (MigrationSource::Yamlfix, "yamlfix.toml", toml::to_string(&values).unwrap())
                 }

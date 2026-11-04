@@ -576,7 +576,7 @@ fn check_preserved(input: &str, output: &str) -> Result<(), String> {
 fn check_invariants(
     format: &dyn Fn(&str) -> String,
     input: &str,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let once = format(input);
     check_preserved(input, &once)?;
     if once != input {
@@ -591,7 +591,7 @@ fn check_invariants(
     if twice != once {
         return Err(format!("idempotence: once {once:?}; twice {twice:?}"));
     }
-    Ok(())
+    Ok(once)
 }
 
 fn check_yaml_1_1_values(
@@ -602,13 +602,13 @@ fn check_yaml_1_1_values(
     check_yaml_1_1_preserved(input, &once)
 }
 
-fn check_pass(pass: &FormatPass, input: &str) -> Result<(), String> {
+fn check_pass(pass: &FormatPass, input: &str) -> Result<String, String> {
     check_invariants(&pass.format, input)
-        .and_then(|()| {
-            if pass.cfg.target_version() == TargetVersion::Yaml12 {
-                return Ok(());
+        .and_then(|once| {
+            if pass.cfg.target_version() != TargetVersion::Yaml12 {
+                check_yaml_1_1_preserved(input, &once)?;
             }
-            check_yaml_1_1_values(&pass.format, input)
+            Ok(once)
         })
         .map_err(|violation| format!("pass '{}' on {input:?}: {violation}", pass.name))
 }
@@ -747,6 +747,32 @@ proptest! {
             &fixed, ryl_yaml_parser::options! { strict_indentation: true },
         ).collect::<Result<Vec<_>, _>>().is_ok(), "fixed output must parse strictly");
         check_preserved(&input, &fixed).map_err(TestCaseError::fail)?;
+    }
+
+    #[test]
+    fn imported_format_config_keeps_the_guarantee(
+        document in arb_document_with_properties(),
+        source in crate::property::migration_strategy::arb_source(),
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(source.filename), &source.body).unwrap();
+        let migration = ryl::migrate::migrate_configs(&ryl::migrate::MigrateOptions {
+            from: Some(source.tool), project_root: Some(dir.path().to_path_buf()),
+            user_config: None, write_mode: ryl::migrate::WriteMode::Preview,
+            output_mode: ryl::migrate::OutputMode::IncludeToml,
+            cleanup: ryl::migrate::SourceCleanup::Delete,
+        }).unwrap();
+        prop_assert_eq!(migration.entries.len(), 1);
+        let table = &migration.entries[0].toml;
+        let cfg = YamlLintConfig::from_toml_str(table).unwrap();
+        let pass = FormatPass {
+            name: format!("{:?}: {table}", source.tool), cfg: cfg.clone(),
+            format: Box::new(move |input| ryl::format::format_str(input, &cfg, synthetic_path(), &[])),
+        };
+        check_pass(&pass, &document.render()).map_err(TestCaseError::fail)?;
+        let witness = "root:\n   value: [ 1,2 ]\n";
+        let output = check_pass(&pass, witness).map_err(TestCaseError::fail)?;
+        prop_assert_ne!(output, witness);
     }
 
     #[test]

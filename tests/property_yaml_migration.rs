@@ -209,6 +209,7 @@ enum Place {
     Value,
     Key,
     Flow,
+    NestedAlias,
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +248,9 @@ impl Document {
                 Place::Value => format!("k{index}: {text}\n"),
                 Place::Key => format!("{text}: k{index}\n"),
                 Place::Flow => format!("k{index}: [{text}, x]\n"),
+                Place::NestedAlias => format!(
+                    "k{index}:\n  - &a{index} {text}\n  - nested: [*a{index}]\n"
+                ),
             });
         }
         out
@@ -254,7 +258,12 @@ impl Document {
 }
 
 fn arb_document() -> impl Strategy<Value = Document> {
-    let place = prop_oneof![Just(Place::Value), Just(Place::Key), Just(Place::Flow)];
+    let place = prop_oneof![
+        Just(Place::Value),
+        Just(Place::Key),
+        Just(Place::Flow),
+        Just(Place::NestedAlias)
+    ];
     (
         prop::bool::weighted(0.8),
         prop::collection::vec((arb_scalar(), place), 1..=5),

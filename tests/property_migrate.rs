@@ -23,6 +23,71 @@ fn options(root: &std::path::Path, tool: MigrationSource) -> MigrateOptions {
     }
 }
 
+#[test]
+fn imported_formatter_composes_with_comment_version_and_unsafe_migrations() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".prettierrc"),
+        "{\"singleQuote\":true,\"tabWidth\":4}",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join(".yamllint"),
+        "rules: {truthy: enable, octal-values: enable}\n",
+    )
+    .unwrap();
+    let migration =
+        migrate_configs(&options(dir.path(), MigrationSource::Prettier)).unwrap();
+    let table = format!(
+        "{}\n[lint.rules.yaml-directive]\nlevel = 'error'\npresent = false\n",
+        migration.entries[0].toml
+    );
+    let config =
+        YamlLintConfig::from_toml_str(&format!("target-version = '1.2'\n{}", table))
+            .unwrap();
+    let path = dir.path().join("input.yaml");
+    let input = "%YAML 1.1\n---\n# prettier-ignore\nheld:   [yes,0777]\nvalue: 22:22\n...\n---\nflag:   yes\nmode:   0777\nitems:   [1,2]\n";
+    let converted = ryl::directives::migrate_comments(
+        input,
+        ryl::directives::FormatterComments::Prettier,
+    )
+    .output
+    .unwrap();
+    let safe = ryl::fix::apply_safe_fixes(&converted, &config, &path, dir.path());
+    assert!(safe.starts_with("---\n"));
+    assert!(safe.contains("held:   [true,0o777]"));
+    let unsafe_config = YamlLintConfig::from_toml_str(&format!(
+        "target-version = '1.1'\nunsafe-fixes = true\n{}",
+        table
+    ))
+    .unwrap();
+    let fixed = ryl::fix::apply_safe_fixes(&safe, &unsafe_config, &path, dir.path());
+    assert_ne!(fixed, safe);
+    let formatted = ryl::format::format_str(&fixed, &unsafe_config, &path, &[]);
+    assert_ne!(formatted, fixed);
+    let expected = crate::property::config::parse_for_compare(
+        "held: [true, 0o777]\nvalue: 1342\n---\nflag: 'yes'\nmode: 777\nitems: [1, 2]\n",
+    )
+    .unwrap();
+    for stage in [input, &converted, &safe, &fixed, &formatted] {
+        assert_eq!(
+            crate::property::config::parse_for_compare_migrated(stage, &config)
+                .as_ref(),
+            Some(&expected),
+            "{stage}"
+        );
+    }
+    assert!(formatted.contains("held:   [true,511]"), "{formatted}");
+    assert_eq!(
+        ryl::fix::apply_safe_fixes(&formatted, &unsafe_config, &path, dir.path()),
+        formatted
+    );
+    assert_eq!(
+        ryl::format::format_str(&formatted, &unsafe_config, &path, &[]),
+        formatted
+    );
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 256,
@@ -143,14 +208,23 @@ proptest! {
 
 
     #[test]
-    fn explicit_formatter_files_keep_colocated_lint_active(source in arb_source()) {
+    fn explicit_formatter_files_keep_colocated_lint_active(source in arb_source(), depth in 1_usize..4, ignored in any::<bool>(), relative in prop::sample::select(vec!["input.yaml", "src/input.yaml", "src/deep/input.yaml"])) {
         let dir = tempdir().unwrap();
         let path = dir.path().join(source.filename);
-        let input = dir.path().join("input.yaml");
+        let input = dir.path().join(relative);
+        fs::create_dir_all(input.parent().unwrap()).unwrap();
         let lint = dir.path().join(".yamllint");
         fs::write(&path, &source.body).unwrap();
-        fs::write(&input, "flag: yes\n").unwrap();
-        fs::write(&lint, "rules: {truthy: enable}\n").unwrap();
+        let text = "flag: yes\nmode: 0777\n";
+        fs::write(&input, text).unwrap();
+        fs::write(dir.path().join("base.yaml"), format!("rules:\n  truthy:\n    ignore: |\n      {}\n  octal-values: enable\n", if ignored { relative } else { "other.yaml" })).unwrap();
+        for level in 0..depth {
+            let parent = if level == 0 { "../base.yaml".to_owned() } else { format!("../level{}/config.yaml", level - 1) };
+            let directory = dir.path().join(format!("level{level}"));
+            fs::create_dir(&directory).unwrap();
+            fs::write(directory.join("config.yaml"), format!("extends: {parent}\n")).unwrap();
+        }
+        fs::write(&lint, format!("extends: level{}/config.yaml\n", depth - 1)).unwrap();
         let overrides = ryl::config::Overrides { config_file: None, config_data: None };
         let before = ryl::config::discover_config(std::slice::from_ref(&input), &overrides).unwrap().config;
         let mut options = options(&path, source.tool);
@@ -160,9 +234,10 @@ proptest! {
         prop_assert!(lint.exists());
         prop_assert_eq!(fs::read_to_string(path).unwrap(), source.body);
         let after = ryl::config::discover_config(std::slice::from_ref(&input), &overrides).unwrap().config;
-        let before = ryl::lint_str("flag: yes\n", &input, &before, dir.path());
+        let before = ryl::lint_str(text, &input, &before, dir.path());
         prop_assert!(!before.is_empty());
-        prop_assert_eq!(before, ryl::lint_str("flag: yes\n", &input, &after, dir.path()));
+        prop_assert_eq!(before.iter().any(|problem| problem.rule == Some("truthy")), !ignored);
+        prop_assert_eq!(before, ryl::lint_str(text, &input, &after, dir.path()));
         prop_assert_eq!(ryl::format::indent_width(&after), source.indent);
         prop_assert_eq!(ryl::format::line_length(&after), source.width);
     }
