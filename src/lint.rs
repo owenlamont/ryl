@@ -102,7 +102,7 @@ macro_rules! emit_problems {
 macro_rules! lint_rule {
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, value) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check_with_analysis($input, $m::Config::resolve($cfg)),
+            $m::check_with_analysis($input, *$cfg.resolved($m::ID, $m::Config::resolve)),
             |hit: $m::Violation| hit.message);
     };
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, path) => {
@@ -122,23 +122,23 @@ macro_rules! lint_rule {
     };
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check_with_analysis($input, &$m::Config::resolve($cfg)),
+            $m::check_with_analysis($input, $cfg.resolved($m::ID, $m::Config::resolve)),
             |hit: $m::Violation| hit.message);
     };
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, unsafe_fix) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check_with_analysis($input, &$m::Config::resolve($cfg)),
+            $m::check_with_analysis($input, $cfg.resolved($m::ID, $m::Config::resolve)),
             |hit: $m::Violation| hit.message,
             |hit: &$m::Violation| hit.hidden_unsafe_fix);
     };
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, message) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check_with_analysis($input, $m::Config::resolve($cfg)),
+            $m::check_with_analysis($input, *$cfg.resolved($m::ID, $m::Config::resolve)),
             |_| $m::MESSAGE.to_string());
     };
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check($content, &$m::Config::resolve($cfg)),
+            $m::check($content, $cfg.resolved($m::ID, $m::Config::resolve)),
             |hit: $m::Violation| hit.message);
     };
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, no_config) => {
@@ -153,7 +153,7 @@ macro_rules! lint_rule {
     };
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, platform) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check($content, $m::Config::resolve($cfg), $m::platform_newline()),
+            $m::check($content, *$cfg.resolved($m::ID, $m::Config::resolve), $m::platform_newline()),
             |hit: $m::Violation| hit.message);
     };
     (@gated $d:ident, $cfg:expr, $path:expr, $base:expr, $m:ident, $hits:expr, $message:expr) => {

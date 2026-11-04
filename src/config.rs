@@ -25,6 +25,7 @@ use crate::decoder;
 use crate::format::FormatSettings;
 
 pub(crate) mod legacy_yaml;
+mod resolved;
 
 pub use crate::config_schema::{
     FixRuleName as FixRule, RuleLevel, SourceVersion, TargetVersion, UnsafeFixConfig,
@@ -238,6 +239,7 @@ pub struct YamlLintConfig {
     fix: FixConfig,
     deprecated_keys: Vec<DeprecatedKeyUse>,
     yaml_directive_from_all: bool,
+    resolved: resolved::Resolved,
 }
 
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
@@ -628,6 +630,7 @@ impl Default for YamlLintConfig {
             fix: FixConfig::default(),
             deprecated_keys: Vec::new(),
             yaml_directive_from_all: false,
+            resolved: resolved::Resolved::default(),
         }
     }
 }
@@ -664,6 +667,7 @@ impl YamlLintConfig {
     /// config stays self-contained after it moves to ryl's config dir (the original
     /// relative path would otherwise dangle). Call only after `finalize`.
     pub fn inline_resolved_ignore_from_file(&mut self) {
+        self.resolved = resolved::Resolved::default();
         self.ignore_from_files.clear();
     }
 
@@ -706,6 +710,16 @@ impl YamlLintConfig {
     #[must_use]
     pub fn enables_any_rule(&self) -> bool {
         self.rules.values().any(|rule| rule.level().is_some())
+    }
+
+    /// `rule`'s options from `resolve`, computed once per config and again after any
+    /// mutation.
+    pub(crate) fn resolved<C: std::any::Any + Send + Sync>(
+        &self,
+        rule: &str,
+        resolve: fn(&Self) -> C,
+    ) -> &C {
+        self.resolved.rule(rule, || resolve(self))
     }
 
     #[must_use]
@@ -777,6 +791,7 @@ impl YamlLintConfig {
     /// content with no real path (e.g. stdin without `--stdin-filename`), so the ignore
     /// patterns cannot accidentally match the synthetic label.
     pub fn disable_path_based_rule_ignores(&mut self) {
+        self.resolved = resolved::Resolved::default();
         self.per_file_ignore_matchers.clear();
         self.key_orders.clear();
         // A per-line entry with a path constraint can't match a synthetic label, so
@@ -792,6 +807,17 @@ impl YamlLintConfig {
 
     #[must_use]
     pub fn is_rule_ignored(&self, rule: &str, path: &Path, base_dir: &Path) -> bool {
+        if !self.resolved.has_path_ignores(|| {
+            !self.per_file_ignore_matchers.is_empty()
+                || self.rules.values().any(|config| {
+                    config
+                        .filter
+                        .as_ref()
+                        .is_some_and(|filter| filter.matcher.is_some())
+                })
+        }) {
+            return false;
+        }
         self.rules.get(rule).is_some_and(|config| {
             config.is_ignored(path, base_dir, self.path_case.is_insensitive())
         }) || self
@@ -888,6 +914,7 @@ impl YamlLintConfig {
     /// Enable markdown linting with default globs when none are configured. Backs the
     /// `--markdown` flag. A no-op when `[files].markdown` already lists globs.
     pub fn enable_default_markdown(&mut self, base_dir: &Path) {
+        self.resolved = resolved::Resolved::default();
         if self.markdown_file_patterns.is_empty() {
             self.markdown_file_patterns = DEFAULT_MARKDOWN_FILE_PATTERNS
                 .iter()
@@ -938,6 +965,7 @@ impl YamlLintConfig {
 
     /// Backs `--enable`: run exactly `selected`, keeping the options of any already enabled.
     pub fn restrict_rules(&mut self, selected: &[&str]) {
+        self.resolved = resolved::Resolved::default();
         self.rules
             .retain(|name, _| selected.contains(&name.as_str()));
         self.rule_names
@@ -958,6 +986,7 @@ impl YamlLintConfig {
     }
 
     pub fn disable_rules(&mut self, disabled: &[&str]) {
+        self.resolved = resolved::Resolved::default();
         self.rules
             .retain(|name, _| !disabled.contains(&name.as_str()));
         self.rule_names
@@ -967,6 +996,7 @@ impl YamlLintConfig {
     /// # Errors
     /// Returns an error for an invalid exclusion glob.
     pub fn replace_exclude(&mut self, patterns: &[String]) -> Result<(), String> {
+        self.resolved = resolved::Resolved::default();
         let (matcher, _) = build_ignore_matcher(
             patterns,
             &[],
@@ -1061,7 +1091,8 @@ impl YamlLintConfig {
     }
 
     /// Override `unsafe-fixes`, as `--unsafe-fixes` and `--no-unsafe-fixes` do.
-    pub const fn set_unsafe_fixes(&mut self, enabled: bool) {
+    pub fn set_unsafe_fixes(&mut self, enabled: bool) {
+        self.resolved = resolved::Resolved::default();
         self.unsafe_fix.unsafe_fixes = Some(enabled);
     }
 

@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use ryl::config::YamlLintConfig;
 
 #[test]
@@ -61,4 +63,17 @@ fn rule_option_returns_none_for_scalar_rule_value() {
 fn rule_option_returns_none_when_rule_missing() {
     let cfg = YamlLintConfig::from_yaml_str("rules: {}\n").expect("config parses");
     assert!(cfg.rule_option("truthy", "allowed-values").is_none());
+}
+
+#[test]
+fn mutating_a_linted_config_rederives_its_rule_options() {
+    let hides_unsafe_fix = |cfg: &YamlLintConfig| {
+        ryl::lint::lint_str("k: yes\n", Path::new("a.yaml"), cfg, Path::new("."))
+            .iter()
+            .any(|problem| problem.rule == Some("truthy") && problem.hidden_unsafe_fix)
+    };
+    let mut cfg = YamlLintConfig::from_yaml_str("rules:\n  truthy: enable\n").unwrap();
+    assert!(hides_unsafe_fix(&cfg));
+    cfg.set_unsafe_fixes(true);
+    assert!(!hides_unsafe_fix(&cfg));
 }
