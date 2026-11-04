@@ -393,6 +393,40 @@ fn directive_only_missing_root_reports_configuration_error() {
 }
 
 #[test]
+fn combined_prettier_migration_omits_separate_directive_conversion_note() {
+    for directives in [false, true] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(".prettierrc"), "{}").unwrap();
+        let path = dir.path().join("app.yaml");
+        let input = "before: 0\n# prettier-ignore\nheld:    [1,2]\n";
+        fs::write(&path, input).unwrap();
+        let mut command = cli(dir.path());
+        command.args(["--migrate-configs", "--migrate-write"]);
+        if directives {
+            command.arg("--migrate-directives");
+        }
+        let (code, stdout, stderr) = run(&mut command);
+        assert_eq!(code, 0, "{stdout}\n{stderr}");
+        let toml = fs::read_to_string(dir.path().join(".ryl.toml")).unwrap();
+        for output in [&stderr, &toml] {
+            assert_eq!(
+                output.contains("convert them separately"),
+                !directives,
+                "{output}"
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            if directives {
+                input.replace("prettier-ignore", "ryl format-ignore")
+            } else {
+                input.to_owned()
+            }
+        );
+    }
+}
+
+#[test]
 fn config_import_only_leaves_comments_while_combined_conversion_is_opt_in() {
     for directives in [false, true] {
         let dir = tempdir().unwrap();

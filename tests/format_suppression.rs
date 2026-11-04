@@ -28,6 +28,15 @@ fn node_ignore_keeps_mapping_entry_and_formats_neighbors() {
 }
 
 #[test]
+fn directives_without_comment_spacing_protect_nodes_on_first_pass() {
+    formats(
+        "before:    0\n#ryl format-ignore\nheld:   [3,4]\n#ryl format-disable\nregion:   [5,6]\n#ryl format-enable\nafter:    1\n",
+        "[format]\n",
+        "before: 0\n#ryl format-ignore\nheld:   [3,4]\n#ryl format-disable\nregion:   [5,6]\n#ryl format-enable\nafter: 1\n",
+    );
+}
+
+#[test]
 fn region_ignore_is_independent_from_generic_rule_disables() {
     formats(
         "# ryl disable rule:quoted-strings\nbefore:    'hello'\n# ryl format-disable\na:    [1,2]\n# ryl format-enable\nafter:    'world'\n",
@@ -116,6 +125,11 @@ fn format_ignore_recognizes_only_own_line_comments() {
         "a:    1 # ryl format-ignore\nb:    2\n",
         "[format]\n",
         "a: 1  # ryl format-ignore\nb: 2\n",
+    );
+    formats(
+        "before:    0\n#ryl format-ignore  # reason\nheld:   [3,4]\n",
+        "[format]\n",
+        "before: 0\n# ryl format-ignore  # reason\nheld: [3, 4]\n",
     );
 }
 

@@ -381,7 +381,7 @@ pub fn migrate_with_directives(
     }
     let mut preview = options.clone();
     preview.write_mode = WriteMode::Preview;
-    let config = super::migrate_configs(&preview).map_err(Error::Config)?;
+    let config = super::migrate_configs_inner(&preview, true).map_err(Error::Config)?;
     let mut warnings = Vec::new();
     let mut profiles = BTreeMap::new();
     let mut files = Vec::new();

@@ -1395,7 +1395,23 @@ fn source_warnings_cannot_inject_toml_or_terminal_control_lines() {
             "{warning:?}"
         );
     }
-    assert!(result.entries[0].toml.contains("\\n[lint]"));
+    assert!(result.entries[0].toml.contains("\\u{a}[lint]"));
+
+    fs::write(&source, r#"{"unknown":"ryl's"}"#).unwrap();
+    let result =
+        migrate_configs(&options(&source, Some(MigrationSource::Prettier))).unwrap();
+    for output in [&result.warnings.join("\n"), &result.entries[0].toml] {
+        assert!(output.contains(r#"unknown = "ryl's""#), "{output}");
+    }
+
+    let source = dir.path().join("pyproject.toml");
+    fs::write(&source, "[tool.yamlfix]\nline_length = 100\n").unwrap();
+    let result =
+        migrate_configs(&options(&source, Some(MigrationSource::Yamlfix))).unwrap();
+    for output in [&result.warnings.join("\n"), &result.entries[0].toml] {
+        assert!(output.contains(r#"none_representation = """#), "{output}");
+        assert!(output.contains("ryl's"), "{output}");
+    }
 }
 
 #[test]

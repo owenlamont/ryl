@@ -185,10 +185,7 @@ impl Options {
     pub(super) fn warn(&mut self, key: &str, value: &Value, reason: &str) {
         self.warnings.push(format!(
             "{} option {} = {}: {}",
-            self.tool,
-            escaped(key),
-            escaped(&value.to_string()),
-            reason
+            self.tool, key, value, reason
         ));
     }
 
@@ -237,7 +234,7 @@ impl Options {
 }
 
 pub(super) fn escaped(text: &str) -> String {
-    text.escape_debug().to_string()
+    crate::cli_support::sanitize_control(text).into_owned()
 }
 
 pub(super) fn strings(value: &Value) -> bool {

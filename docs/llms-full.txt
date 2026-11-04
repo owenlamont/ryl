@@ -3040,6 +3040,7 @@ untouched while still fixing `c:   3`.
 ## Formatter-only suppression
 
 Use `# ryl format-ignore` on its own line to keep the next YAML node as written.
+Formatter directives also accept no space after `#`, for example `#ryl format-ignore`.
 A mapping key includes its value, and a collection includes its descendants:
 
 ```yaml

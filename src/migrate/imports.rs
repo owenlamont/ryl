@@ -72,6 +72,7 @@ pub(super) fn build_project_entries(
     root: &Path,
     selection: Option<MigrationSource>,
     cleanup: &SourceCleanup,
+    migrate_directives: bool,
     plan: &mut MigrationPlan,
 ) -> Result<(), String> {
     if selection == Some(MigrationSource::Yamllint) {
@@ -111,8 +112,14 @@ pub(super) fn build_project_entries(
             .push(path);
     }
     for (directory, files) in directories {
-        let directory_plan =
-            build_directory(&directory, files, root, selection, cleanup)?;
+        let directory_plan = build_directory(
+            &directory,
+            files,
+            root,
+            selection,
+            cleanup,
+            migrate_directives,
+        )?;
         plan.entries.extend(directory_plan.entries);
         plan.cleanup_only_sources
             .extend(directory_plan.cleanup_only_sources);
@@ -172,12 +179,15 @@ fn select_candidate(
     Ok(candidates.pop())
 }
 
-fn convert(candidate: &mut Candidate) -> Result<Option<Converted>, String> {
+fn convert(
+    candidate: &mut Candidate,
+    migrate_directives: bool,
+) -> Result<Option<Converted>, String> {
     let Some(values) = candidate.values.take() else {
         return Ok(None);
     };
     let converted = match candidate.tool {
-        Formatter::Prettier => prettier::convert(values),
+        Formatter::Prettier => prettier::convert(values, migrate_directives),
         Formatter::Yamlfmt => yamlfmt::convert(values),
         Formatter::Dprint => dprint::convert(values),
         Formatter::Yamlfix => yamlfix::convert(values),
@@ -196,6 +206,7 @@ fn build_directory(
     root: &Path,
     selection: Option<MigrationSource>,
     cleanup: &SourceCleanup,
+    migrate_directives: bool,
 ) -> Result<MigrationPlan, String> {
     let mut plan = MigrationPlan::default();
     files
@@ -228,7 +239,7 @@ fn build_directory(
     let mut candidate =
         select_candidate(&files.format, root.is_file(), selection, directory)?;
     let mut converted = match &mut candidate {
-        Some(candidate) => convert(candidate)?,
+        Some(candidate) => convert(candidate, migrate_directives)?,
         None => None,
     };
     if root.is_file() && converted.is_none() {
@@ -503,7 +514,7 @@ pub(super) fn source_context(
     }
     for candidate in &mut applicable {
         let original = candidate.values.clone();
-        convert(candidate)?;
+        convert(candidate, true)?;
         candidate.values = original;
     }
     Ok(applicable.pop().map(|candidate| SourceContext {

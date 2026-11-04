@@ -9,7 +9,10 @@ use crate::config_schema::{
 
 use super::options::{Converted, Options, string_or_strings, truthy};
 
-pub(super) fn convert(values: Map<String, Value>) -> Result<Converted, String> {
+pub(super) fn convert(
+    values: Map<String, Value>,
+    migrate_directives: bool,
+) -> Result<Converted, String> {
     let mut options = Options::new("Prettier", values).with_null_defaults();
     let indent_value = options.integer("tabWidth", 2)?;
     let width_value = options.integer("printWidth", 80)?;
@@ -78,7 +81,9 @@ pub(super) fn convert(values: Map<String, Value>) -> Result<Converted, String> {
         "a boolean or null",
         |value| value.is_null() || value.is_boolean(),
     )?;
-    options.note("Prettier ignore comments are not rewritten by config migration; convert them separately before replacing the formatter");
+    if !migrate_directives {
+        options.note("Prettier ignore comments are not rewritten by config migration; convert them separately before replacing the formatter");
+    }
     let targets = FormatTable {
         quote_style,
         keep_quotes: true,

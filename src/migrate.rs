@@ -865,6 +865,13 @@ fn rename_excludes(root: &mut Table) {
 /// # Errors
 /// Returns an error if migration planning fails or file operations fail in write mode.
 pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String> {
+    migrate_configs_inner(options, false)
+}
+
+fn migrate_configs_inner(
+    options: &MigrateOptions,
+    migrate_directives: bool,
+) -> Result<MigrateResult, String> {
     let mut plan = MigrationPlan::default();
     if let Some(root) = &options.project_root {
         if !root.exists() {
@@ -877,6 +884,7 @@ pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String
             root,
             options.from,
             &options.cleanup,
+            migrate_directives,
             &mut plan,
         )?;
         build_toml_rewrites(root, &mut plan);
