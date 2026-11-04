@@ -177,7 +177,9 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         },
         cleanup,
     };
-    let (result, directive_files) = if cli.migrate_directives {
+    let (result, directive_files, counts, directive_warnings) = if cli
+        .migrate_directives
+    {
         let migrated =
             migrate_with_directives(&options, &migration_root).map_err(|error| {
                 let mut message = error.to_string();
@@ -190,15 +192,40 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         for warning in &migrated.warnings {
             eprintln!("warning: {}", sanitize_control(warning));
         }
-        (migrated.config, migrated.files)
+        (
+            migrated.config,
+            migrated.files,
+            migrated.counts,
+            !migrated.warnings.is_empty(),
+        )
     } else {
-        (migrate_configs(&options)?, Vec::new())
+        (
+            migrate_configs(&options)?,
+            Vec::new(),
+            ryl::migrate::DirectiveCounts::default(),
+            false,
+        )
     };
     print_config_migration(cli, &options, &result);
     if cli.migrate_directives {
-        print_directive_migration(&migration_root, &directive_files, cli.migrate.write);
+        print_directive_migration(
+            &migration_root,
+            &directive_files,
+            &counts,
+            cli.migrate.write,
+            cli.migrate.stdout,
+        );
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(
+        if result.skipped > 0
+            || cli.lint_args.lint.compatibility.strict(false)
+                && (directive_warnings || !result.warnings.is_empty())
+        {
+            ExitCode::from(2)
+        } else {
+            ExitCode::SUCCESS
+        },
+    )
 }
 
 fn print_config_migration(
@@ -206,15 +233,22 @@ fn print_config_migration(
     options: &MigrateOptions,
     result: &ryl::migrate::MigrateResult,
 ) {
+    let progress = |message: String| {
+        if cli.migrate.stdout {
+            eprintln!("{message}");
+        } else {
+            println!("{message}");
+        }
+    };
     for warning in &result.warnings {
         eprintln!("{}", sanitize_control(warning));
     }
     for entry in &result.entries {
-        println!(
+        progress(format!(
             "{} -> {}",
             sanitize_control(&entry.source.display().to_string()),
             sanitize_control(&entry.target.display().to_string())
-        );
+        ));
     }
     let user_sources: Vec<PathBuf> =
         options.user_config.as_ref().map_or_else(Vec::new, |user| {
@@ -228,10 +262,10 @@ fn print_config_migration(
             .iter()
             .any(|entry| !is_user_source(&entry.source, &user_sources));
         if !project_migrated {
-            println!(
+            progress(format!(
                 "No legacy config files migrated under {}",
                 sanitize_control(&root.display().to_string())
-            );
+            ));
         }
     }
     if cli.migrate_user_config {
@@ -240,16 +274,22 @@ fn print_config_migration(
             .iter()
             .any(|entry| is_user_source(&entry.source, &user_sources));
         if !user_migrated {
-            println!("No user-global config migrated.");
+            progress("No user-global config migrated.".to_owned());
         }
     }
     if !cli.migrate.write && !cli.migrate.stdout && !result.entries.is_empty() {
-        println!(
+        progress(
             "Preview only: add `--migrate-stdout` to see the migrated content, or \
              `--migrate-write` to apply it."
+                .to_owned(),
         );
     }
     if options.output_mode == MigrateOutputMode::IncludeToml {
+        if result.entries.len() > 1 {
+            println!(
+                "# Multiple targets follow; each section is a separate configuration."
+            );
+        }
         for entry in &result.entries {
             println!(
                 "# {}",
@@ -263,28 +303,47 @@ fn print_config_migration(
 fn print_directive_migration(
     root: &Path,
     files: &[ryl::migrate::DirectiveFile],
+    counts: &ryl::migrate::DirectiveCounts,
     write: bool,
+    toml_stdout: bool,
 ) {
-    if files.is_empty() {
-        println!(
-            "No source comments migrated under {}",
+    let progress = |message: String| {
+        if toml_stdout {
+            eprint!("{message}");
+        } else {
+            print!("{message}");
+        }
+    };
+    if files.is_empty() && counts.retained == 0 && counts.skipped == 0 {
+        progress(format!(
+            "No source comments migrated under {}\n",
             sanitize_control(&root.display().to_string())
-        );
+        ));
     }
     for file in files {
         if !write && let Some(diff) = &file.diff {
-            print!("{diff}");
+            progress(diff.clone());
         } else {
-            println!(
-                "{} comments in {}",
+            progress(format!(
+                "{} comments in {}\n",
                 if write { "Migrated" } else { "Would migrate" },
                 sanitize_control(&file.path.display().to_string())
-            );
+            ));
         }
     }
     if !write && !files.is_empty() {
-        println!("Preview only: add `--migrate-write` to apply comment conversion.");
+        progress(
+            "Preview only: add `--migrate-write` to apply comment conversion.\n"
+                .to_owned(),
+        );
     }
+    eprintln!(
+        "Source comments: {} converted, {} retained, {} skipped files{}.",
+        counts.converted,
+        counts.retained,
+        counts.skipped,
+        if write { "" } else { " (preview)" }
+    );
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

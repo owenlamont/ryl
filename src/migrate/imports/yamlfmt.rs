@@ -77,6 +77,7 @@ pub(super) fn convert(mut values: Map<String, Value>) -> Result<Converted, Strin
     if width_value > 0 {
         options.note("flow-collection wrapping differs; ryl retains its own collection layout rules");
     }
+    let excludes = source_excludes(&mut root)?;
     warn_unmapped(&mut options, &mut root)?;
     let targets = FormatTable {
         quote_style,
@@ -99,9 +100,22 @@ pub(super) fn convert(mut values: Map<String, Value>) -> Result<Converted, Strin
         ..FormatTable::default()
     };
     let mut converted = options.finish(targets, indent, width);
+    converted.excludes = excludes;
     converted.cleanup_safe &= !root.has_unknown_options();
     converted.warnings.extend(root.into_warnings());
     Ok(converted)
+}
+
+fn source_excludes(root: &mut Options) -> Result<Vec<String>, String> {
+    if !root.values_match("match_type", "doublestar") {
+        return Ok(Vec::new());
+    }
+    root.take("match_type");
+    Ok(root
+        .strings("exclude")?
+        .into_iter()
+        .map(|pattern| format!("/{pattern}"))
+        .collect())
 }
 
 fn quote_policy(options: &mut Options) -> Result<QuoteStyleTarget, String> {

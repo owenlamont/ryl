@@ -1,5 +1,9 @@
 # Migrating from google/yamlfmt
 
+The [config importer](migrating-from-formatters.md) imports `exclude` when
+`match_type: doublestar`, anchoring patterns to the configuration directory.
+Standard matching, `regex_exclude`, and `include` settings still warn.
+
 Replace `yamlfmt .` with `ryl format .` and `yamlfmt -lint .` with
 `ryl format --check .`. The settings below approximate the default basic formatter
 in google/yamlfmt 0.21.0. They were compared on the same YAML inputs with

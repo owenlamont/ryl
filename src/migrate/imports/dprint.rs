@@ -69,6 +69,7 @@ pub(super) fn convert(mut values: Map<String, Value>) -> Result<Converted, Strin
     let marker = options.text("ignoreCommentDirective", "pretty-yaml-ignore")?;
     options.warn("ignoreCommentDirective", &Value::from(marker), "source comments require separate opt-in directive conversion; no runtime alias is added");
     global.boolean("useTabs", false)?;
+    let excludes = global.strings("excludes")?;
     warn_unmapped(&mut global, &mut options)?;
     let targets = FormatTable {
         quote_style,
@@ -86,6 +87,7 @@ pub(super) fn convert(mut values: Map<String, Value>) -> Result<Converted, Strin
         ..collection_targets
     };
     let mut converted = options.finish(targets, indent, width);
+    converted.excludes = excludes;
     converted.cleanup_safe &= !global.has_unknown_options();
     converted.warnings.extend(global.into_warnings());
     Ok(converted)
@@ -167,19 +169,11 @@ fn warn_unmapped(global: &mut Options, options: &mut Options) -> Result<(), Stri
         "an array of strings",
         strings,
     )?;
-    for key in ["includes", "excludes"] {
-        global.unmapped(
-            key,
-            "source file selection is not imported",
-            "an array of strings",
-            strings,
-        )?;
-    }
     global.unmapped(
-        "extends",
-        "shared configurations are not fetched",
-        "a string or an array of strings",
-        string_or_strings,
+        "includes",
+        "source file selection is not imported",
+        "an array of strings",
+        strings,
     )?;
     global.unmapped(
         "incremental",

@@ -15,6 +15,7 @@ pub enum FormatterComments<'a> {
 }
 
 pub struct Migration {
+    pub converted: usize,
     pub output: Option<String>,
     pub retained_lines: Vec<usize>,
 }
@@ -123,6 +124,7 @@ pub(super) fn migrate(
     retained_lines.sort_unstable();
     retained_lines.dedup();
     Migration {
+        converted: replacements.len(),
         output: (!replacements.is_empty())
             .then(|| apply_replacements(input.text(), replacements)),
         retained_lines,

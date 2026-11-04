@@ -294,7 +294,7 @@ fn well_typed_unmapped_options_are_reported_without_running_source_behavior() {
             "dprint.json",
             vec![
                 r#"{"yaml":{"locked":true,"associations":"*.yaml"},"plugins":[],"extends":[],"includes":[],"excludes":["*.other"],"incremental":false}"#,
-                r#"{"yaml":{"locked":false,"associations":["*.yaml"]},"extends":"never-fetched"}"#,
+                r#"{"yaml":{"locked":false,"associations":["*.yaml"]}}"#,
             ],
         ),
         (
@@ -692,16 +692,19 @@ fn explicit_prettier_options_and_overrides_are_reported_without_execution() {
         migrate_configs(&options(&source, Some(MigrationSource::Prettier))).unwrap();
     let config = converted(&result);
     let format = config.format().targets();
-    assert_eq!(ryl::format::indent_width(&config), 4);
+    assert_eq!(ryl::format::indent_width(&config), 6);
     assert_eq!(ryl::format::line_length(&config), 96);
     assert_eq!(format.quote_style, QuoteStyleTarget::Single);
     assert!(!format.brace_spacing);
     assert_eq!(format.prose_wrap, Some(ProseWrap::Always));
     assert_eq!(format.line_ending, LineEndingTarget::CrLf);
-    for key in ["overrides", "plugins"] {
-        assert!(result.warnings.iter().any(|warning| warning.contains(key)));
-        assert!(result.entries[0].toml.contains(key));
-    }
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("plugins"))
+    );
+    assert!(result.entries[0].toml.contains("plugins"));
 }
 
 #[test]
@@ -806,22 +809,6 @@ fn cleanup_preserves_shared_sources_and_ignores_their_backup_collisions() {
             assert!(result.entries[0].toml.contains("cleanup skipped"));
         }
     }
-}
-
-#[test]
-fn existing_native_target_refuses_before_parsing_external_source() {
-    let dir = tempdir().unwrap();
-    let source = dir.path().join(".prettierrc.json5");
-    fs::write(&source, "{ malformed syntax").unwrap();
-    fs::write(dir.path().join(".ryl.toml"), "[format]\n").unwrap();
-    let result = migrate_configs(&options(dir.path(), None)).unwrap();
-    assert!(result.entries.is_empty());
-    assert!(
-        result
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("already exists"))
-    );
 }
 
 #[test]
@@ -2023,14 +2010,18 @@ fn discovery_ignores_non_unicode_filenames_and_reports_unreadable_formatter_sour
 }
 
 #[test]
-fn prettier_external_selection_metadata_warns_without_importing_it() {
+fn prettier_imports_ignore_patterns_but_warns_about_editorconfig() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join(".prettierrc"), "tabWidth: 4\n").unwrap();
     fs::write(dir.path().join(".editorconfig"), "[*]\nindent_size=6\n").unwrap();
-    fs::write(dir.path().join(".prettierignore"), "ignored.yaml\n").unwrap();
+    fs::write(dir.path().join(".prettierignore"), "ignored.yaml\n[\n").unwrap();
     let result = migrate_configs(&options(dir.path(), None)).unwrap();
     assert_eq!(ryl::format::indent_width(&converted(&result)), 4);
-    for marker in ["EditorConfig", ".prettierignore"] {
+    assert!(
+        converted(&result)
+            .is_file_ignored(&dir.path().join("ignored.yaml"), dir.path())
+    );
+    for marker in ["EditorConfig", ".prettierignore:2"] {
         assert!(
             result
                 .warnings
@@ -2648,4 +2639,200 @@ fn normalization_rejects_unsupported_numeric_keys_before_writing_a_target() {
     assert!(migrate_configs(&opts).is_err());
     assert_eq!(fs::read_to_string(source).unwrap(), body);
     assert!(!dir.path().join(".ryl.toml").exists());
+}
+
+#[test]
+fn yaml_only_prettier_overrides_apply_in_source_order() {
+    for (files, applied) in [
+        (r#""*.yaml""#, true),
+        (r#""src/**/*.yaml""#, true),
+        (r#""[abc]*.yml""#, true),
+        (r#"["**/*.{yaml,yml}", "*.yml"]"#, true),
+        (r#""*.md""#, false),
+        (r#""*.{yaml,md}""#, false),
+        (r#"["*.yaml", "*.md"]"#, false),
+        (r#""!*.yaml""#, false),
+        (r#""*.{yaml}""#, false),
+        (r#""*.yaml,yml""#, false),
+        (r#""*.{yaml,,yml}""#, false),
+        (r#""**/{src,test}/*.yaml""#, false),
+        (r#"[]"#, false),
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(".prettierrc"), format!(r#"{{"proseWrap":"always","overrides":[{{"files":{files},"options":{{"proseWrap":"never"}}}},{{"files":{files},"options":{{"proseWrap":"preserve"}}}}]}}"#)).unwrap();
+        let result =
+            migrate_configs(&options(dir.path(), Some(MigrationSource::Prettier)))
+                .unwrap();
+        let table: toml::Value = toml::from_str(&result.entries[0].toml).unwrap();
+        assert_eq!(
+            table["format"]["prose-wrap"].as_str(),
+            Some(if applied { "preserve" } else { "always" })
+        );
+        assert_eq!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("option overrides")),
+            !applied,
+            "{result:?}"
+        );
+    }
+}
+
+#[test]
+fn imported_exclusions_preserve_source_patterns_and_negations() {
+    for (tool, filename, body, ignore) in [
+        (
+            MigrationSource::Prettier,
+            ".prettierrc",
+            "{}",
+            Some("# comment\n*.yaml\n!keep.yaml\n"),
+        ),
+        (
+            MigrationSource::Yamlfmt,
+            ".yamlfmt",
+            "match_type: doublestar\nexclude: ['skip.yaml', '!keep.yaml']\n",
+            None,
+        ),
+        (
+            MigrationSource::Dprint,
+            "dprint.json",
+            r#"{"yaml":{},"excludes":["*.yaml","!keep.yaml"]}"#,
+            None,
+        ),
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(filename), body).unwrap();
+        if let Some(ignore) = ignore {
+            fs::write(dir.path().join(".prettierignore"), ignore).unwrap();
+        }
+        let result = migrate_configs(&options(dir.path(), Some(tool))).unwrap();
+        let config = converted(&result);
+        assert!(
+            config.is_file_ignored(&dir.path().join("skip.yaml"), dir.path()),
+            "{result:?}"
+        );
+        assert!(
+            !config.is_file_ignored(&dir.path().join("keep.yaml"), dir.path()),
+            "{result:?}"
+        );
+        assert_eq!(
+            config.is_file_ignored(&dir.path().join("sub/skip.yaml"), dir.path()),
+            tool != MigrationSource::Yamlfmt
+        );
+    }
+}
+
+#[test]
+fn import_reports_the_formatter_conflicts_with_colocated_lint() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".yamllint"), "extends: default\n").unwrap();
+    fs::write(dir.path().join(".prettierrc"), "{}").unwrap();
+    let result =
+        migrate_configs(&options(dir.path(), Some(MigrationSource::Prettier))).unwrap();
+    let conflicts = ryl::format::conflicts(&converted(&result));
+    assert!(!conflicts.is_empty());
+    for conflict in conflicts {
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains(&conflict)),
+            "{result:?}"
+        );
+    }
+}
+
+#[test]
+fn dprint_local_extends_merges_first_base_precedence_and_exclusions() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join("first.json"),
+        r#"{"yaml":{"printWidth":40},"excludes":["first.yaml"]}"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("second.json"),
+        r#"{"yaml":{"printWidth":60,"indentWidth":4},"excludes":["second.yaml"]}"#,
+    )
+    .unwrap();
+    fs::write(dir.path().join("dprint.json"), r#"{"extends":["first.json","second.json"],"yaml":{"indentWidth":3},"excludes":["own.yaml"]}"#).unwrap();
+    let result =
+        migrate_configs(&options(dir.path(), Some(MigrationSource::Dprint))).unwrap();
+    let config = converted(&result);
+    assert_eq!(ryl::format::line_length(&config), 40);
+    assert_eq!(ryl::format::indent_width(&config), 3);
+    for name in ["first.yaml", "second.yaml", "own.yaml"] {
+        assert!(config.is_file_ignored(&dir.path().join(name), dir.path()));
+    }
+}
+
+#[test]
+fn unresolvable_dprint_extends_skips_the_entire_source() {
+    for extends in [
+        "missing.json",
+        "dprint.json",
+        "https://example.invalid/base.json",
+    ] {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("dprint.json");
+        fs::write(
+            &source,
+            format!(r#"{{"extends":"{extends}","yaml":{{"printWidth":100}}}}"#),
+        )
+        .unwrap();
+        let mut opts = options(dir.path(), Some(MigrationSource::Dprint));
+        opts.write_mode = WriteMode::Write;
+        let result = migrate_configs(&opts).unwrap();
+        assert!(result.entries.is_empty(), "{result:?}");
+        assert_eq!(result.skipped, 1);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("flatten"))
+        );
+        assert!(!dir.path().join(".ryl.toml").exists());
+        assert!(source.exists());
+    }
+}
+
+#[test]
+fn dprint_extends_bounds_depth_and_repeated_base_expansion() {
+    for repeated in [false, true] {
+        let dir = tempdir().unwrap();
+        for index in 0..33 {
+            fs::write(
+                dir.path().join(format!("base{index}.json")),
+                if repeated {
+                    "{\"yaml\":{}}".to_owned()
+                } else {
+                    format!(r#"{{"extends":"base{}.json","yaml":{{}}}}"#, index + 1)
+                },
+            )
+            .unwrap();
+        }
+        let bases = if repeated {
+            vec!["base0.json"; 257]
+        } else {
+            vec!["base0.json"]
+        };
+        fs::write(
+            dir.path().join("dprint.json"),
+            serde_json::json!({"extends":bases,"yaml":{}}).to_string(),
+        )
+        .unwrap();
+        let result =
+            migrate_configs(&options(dir.path(), Some(MigrationSource::Dprint)))
+                .unwrap();
+        assert_eq!(result.skipped, 1);
+        assert!(result.entries.is_empty());
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("excessive")),
+            "{result:?}"
+        );
+    }
 }

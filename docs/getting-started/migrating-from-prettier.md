@@ -6,6 +6,11 @@ Prettier 3.9.10's YAML output on the same inputs used with `ryl format -`.
 Prettier's [general options](https://prettier.io/docs/options) can alter the
 starting profile.
 
+The [config importer](migrating-from-formatters.md) applies supported YAML-only
+overrides in source order and imports `.prettierignore`, including negations.
+Unsupported override scopes still warn; inspect the generated configuration before
+replacing Prettier.
+
 ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
 another width.
 

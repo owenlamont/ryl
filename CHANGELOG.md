@@ -12,10 +12,16 @@ summarize user-visible changes from the tagged commits and published release rec
 - Import static Prettier, yamlfmt, dprint pretty_yaml and yamlfix configs with
   `--migrate-configs`, including representable defaults. Use `--migrate-from`
   when multiple source formatters apply; unsupported settings produce warnings.
+  Imports apply supported YAML-only Prettier overrides, preserve supported source
+  exclusions, follow local dprint inheritance, and report lint/format conflicts.
+  `--migrate-stdout` exports TOML beside existing targets without overwriting them;
+  skipped sources and refused writes exit `2`, as do warnings under `--strict`.
   ([#660](https://github.com/owenlamont/ryl/issues/660))
 - Opt into source suppression-comment conversion with `--migrate-directives`,
   independently or alongside config import. Preview diffs before applying with
   `--migrate-write`; uncertain scopes remain unchanged with warnings.
+  Runs report converted and retained comment totals plus skipped file counts.
+  Official pretty_yaml `0.5.x` ignore markers are supported alongside `0.6.0`.
   ([#660](https://github.com/owenlamont/ryl/issues/660))
 - Formatter-only `# ryl format-ignore` protects the next YAML node, including
   descendants; `format-disable` / `format-enable` protect a region. Lint checks

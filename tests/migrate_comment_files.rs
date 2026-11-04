@@ -130,7 +130,7 @@ fn uncertain_prettier_context_retains_formatter_marker_but_converts_aliases() {
             "# prettier-ignore\nheld: 1\n# yamllint disable\nother: 2\n",
         ),
         (
-            r#"{"overrides":[]}"#,
+            r#"{"overrides":[{"files":"*.{yaml,md}","options":{}}]}"#,
             "app.yaml",
             "# prettier-ignore\nheld: 1\n# yamllint disable\nother: 2\n",
         ),
@@ -204,7 +204,7 @@ fn pretty_yaml_comment_conversion_requires_the_audited_plugin() {
     for config in [
         r#"{"yaml":{}}"#,
         r#"{"plugins":["https://example.invalid/pretty_yaml-v0.6.0.wasm"],"yaml":{}}"#,
-        r#"{"plugins":["https://plugins.dprint.dev/g-plane/pretty_yaml-v0.5.0.wasm"],"yaml":{}}"#,
+        r#"{"plugins":["https://plugins.dprint.dev/g-plane/pretty_yaml-v0.4.0.wasm"],"yaml":{}}"#,
         r#"{"plugins":["https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm@bad"],"yaml":{}}"#,
     ] {
         let dir = tempdir().unwrap();
@@ -273,7 +273,7 @@ fn skipped_explicit_source_config_never_becomes_an_application_file() {
             "--migrate-root",
         ])
         .arg(&source));
-    assert_eq!(code, 0, "{stdout}\n{stderr}");
+    assert_eq!(code, 2, "{stdout}\n{stderr}");
     assert_eq!(
         fs::read_to_string(&source).unwrap(),
         input,
@@ -609,7 +609,7 @@ fn unsupported_static_contexts_retain_formatter_markers() {
         ),
         (
             "dprint.json",
-            r#"{"plugins":["https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm"],"extends":[],"yaml":{}}"#,
+            r#"{"plugins":["https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm"],"extends":"https://example.invalid/base.json","yaml":{}}"#,
             MigrationSource::Dprint,
             "# pretty-yaml-ignore\nheld: 1\n",
         ),
@@ -949,4 +949,161 @@ fn imported_prettier_quote_and_prose_policies_respect_converted_node_ignore() {
             run(cli(dir.path()).args(["format", "--check"]).arg(&path));
         assert_eq!(code, 0, "{policy}: {stderr}");
     }
+}
+
+#[test]
+fn yaml_and_unrelated_prettier_overrides_allow_yaml_comment_conversion() {
+    for (override_body, converted) in [
+        (
+            r#"{"files":"*.yaml","options":{"proseWrap":"preserve"}}"#,
+            1,
+        ),
+        (r#"{"files":"*.md","options":{"parser":"markdown"}}"#, 1),
+        (r#"{"files":"*.{yaml,md}","options":{}}"#, 0),
+        (r#"{"files":"*.yaml","options":{"parser":"yaml"}}"#, 0),
+        (r#"{"files":"*.yaml","options":{"plugins":[]}}"#, 0),
+        (
+            r#"{"files":"*.yaml","excludeFiles":"other.yaml","options":{}}"#,
+            0,
+        ),
+        (r#"{"files":"*.yaml","options":{"requirePragma":false}}"#, 0),
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join(".prettierrc"),
+            format!(r#"{{"overrides":[{override_body}]}}"#),
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("app.yaml"),
+            "before: 0\n# prettier-ignore\nheld:    [1,2]\n",
+        )
+        .unwrap();
+        let result = migrate_with_directives(
+            &options(Some(MigrationSource::Prettier)),
+            dir.path(),
+        )
+        .unwrap();
+        assert_eq!(result.counts.converted, converted);
+        assert_eq!(result.counts.retained, 1 - converted);
+        assert_eq!(result.files.len(), converted);
+    }
+}
+
+#[test]
+fn migration_stdout_is_loadable_toml_and_exports_beside_an_existing_target() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".prettierrc"), "{}").unwrap();
+    let target = dir.path().join(".ryl.toml");
+    let native = "[lint.rules]\nanchors = 'enable'\n";
+    fs::write(&target, native).unwrap();
+    fs::write(
+        dir.path().join("app.yaml"),
+        "before: 0\n# prettier-ignore\nheld:    [1,2]\n",
+    )
+    .unwrap();
+    let (code, stdout, stderr) = run(cli(dir.path()).args([
+        "--migrate-configs",
+        "--migrate-directives",
+        "--migrate-stdout",
+    ]));
+    assert_eq!(code, 0, "{stdout}\n{stderr}");
+    assert!(stderr.contains(" -> "));
+    assert!(stdout.contains("not merged"));
+    let redirected = dir.path().join("export.toml");
+    fs::write(&redirected, stdout).unwrap();
+    assert!(
+        ryl::config::YamlLintConfig::from_toml_str(
+            &fs::read_to_string(redirected).unwrap()
+        )
+        .is_ok()
+    );
+    assert_eq!(fs::read_to_string(&target).unwrap(), native);
+    let (code, _, stderr) =
+        run(cli(dir.path()).args(["--migrate-configs", "--migrate-write"]));
+    assert_eq!(code, 2, "{stderr}");
+    assert_eq!(fs::read_to_string(target).unwrap(), native);
+}
+
+#[test]
+fn retained_directive_reruns_report_totals_and_strict_warnings() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".prettierrc"), "{}").unwrap();
+    fs::write(dir.path().join("app.yaml"), "before: 0\n# prettier-ignore\nheld: 1\n# prettier-ignore # reason\nretained: 2\n").unwrap();
+    for (converted, strict, expected) in [(1, false, 0), (0, false, 0), (0, true, 2)] {
+        let mut command = cli(dir.path());
+        command.args(["--migrate-directives", "--migrate-write"]);
+        if strict {
+            command.arg("--strict");
+        }
+        let (code, stdout, stderr) = run(&mut command);
+        assert_eq!(code, expected, "{stdout}\n{stderr}");
+        assert!(
+            stderr.contains(&format!(
+                "{converted} converted, 1 retained, 0 skipped files"
+            )),
+            "{stderr}"
+        );
+        assert!(!stdout.contains("No source comments migrated"));
+    }
+}
+
+#[test]
+fn skipped_sources_exit_two_but_clean_migration_reruns_succeed() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".prettierrc.js"), "module.exports = {};").unwrap();
+    let (code, _, stderr) =
+        run(cli(dir.path()).args(["--migrate-configs", "--migrate-write"]));
+    assert_eq!(code, 2, "{stderr}");
+    fs::remove_file(dir.path().join(".prettierrc.js")).unwrap();
+    fs::write(dir.path().join(".prettierrc"), "{}").unwrap();
+    let (code, _, stderr) =
+        run(cli(dir.path()).args(["--migrate-configs", "--migrate-write"]));
+    assert_eq!(code, 0, "{stderr}");
+    let (code, _, stderr) =
+        run(cli(dir.path()).args(["--migrate-configs", "--migrate-write", "--strict"]));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stderr.is_empty(), "{stderr}");
+}
+
+#[test]
+fn pretty_yaml_five_series_converts_the_same_node_ignore_marker() {
+    for plugin in [
+        "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.5.0.wasm",
+        "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.5.1.wasm",
+        "npm:dprint-plugin-yaml@0.5.1",
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("dprint.json"),
+            format!(r#"{{"plugins":["{plugin}"]}}"#),
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("app.yaml"),
+            "before: 0\n# pretty-yaml-ignore\nheld:    [1,2]\n",
+        )
+        .unwrap();
+        let result = migrate_with_directives(
+            &options(Some(MigrationSource::Dprint)),
+            dir.path(),
+        )
+        .unwrap();
+        assert_eq!(result.counts.converted, 1, "{plugin}");
+        assert_eq!(result.counts.retained, 0, "{plugin}");
+    }
+}
+
+#[test]
+fn clean_legacy_migration_rerun_does_not_repeat_conversion_warnings() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".yamllint"), "rules: {}\n").unwrap();
+    let (code, _, stderr) =
+        run(cli(dir.path()).args(["--migrate-configs", "--migrate-write"]));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stderr.contains("enables no rules"));
+    let (code, _, stderr) =
+        run(cli(dir.path()).args(["--migrate-configs", "--migrate-write", "--strict"]));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stderr.is_empty(), "{stderr}");
 }

@@ -675,7 +675,7 @@ fn migrate_skips_an_unparsable_toml_config_with_a_warning() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join("ryl.toml"), "rules = [\n").unwrap();
     let (code, _, stderr) = migrate(dir.path(), &[]);
-    assert_eq!(code, 0, "a broken TOML config does not block the migration");
+    assert_eq!(code, 2, "a broken TOML source is reported as skipped");
     assert!(
         stderr.contains("ryl.toml: failed to parse config data"),
         "{stderr}"
@@ -687,7 +687,7 @@ fn migrate_skips_an_unreadable_toml_config_with_a_warning() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join("ryl.toml"), [0xff, 0xfe]).unwrap();
     let (code, _, stderr) = migrate(dir.path(), &[]);
-    assert_eq!(code, 0);
+    assert_eq!(code, 2);
     assert!(
         stderr.contains("ryl.toml: failed to read config"),
         "{stderr}"
@@ -714,7 +714,7 @@ fn migrate_skips_a_symlinked_legacy_toml() {
     );
     assert!(!stderr.contains("--migrate"), "{stderr}");
     let (code, _, stderr) = migrate(dir.path(), &["--migrate-write"]);
-    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(code, 2, "{stderr}");
     assert!(stderr.contains("refusing to follow a symlink"), "{stderr}");
     assert_eq!(
         fs::read_to_string(dir.path().join("real.toml")).unwrap(),

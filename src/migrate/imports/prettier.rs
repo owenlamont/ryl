@@ -10,10 +10,11 @@ use crate::config_schema::{
 use super::options::{Converted, Options, string_or_strings, truthy};
 
 pub(super) fn convert(
-    values: Map<String, Value>,
+    values: &Map<String, Value>,
     migrate_directives: bool,
 ) -> Result<Converted, String> {
-    let mut options = Options::new("Prettier", values).with_null_defaults();
+    let mut options =
+        Options::new("Prettier", yaml_options(values)?).with_null_defaults();
     let indent_value = options.integer("tabWidth", 2)?;
     let width_value = options.integer("printWidth", 80)?;
     let indent = options.dimension("tabWidth", indent_value);
@@ -99,6 +100,122 @@ pub(super) fn convert(
         ..FormatTable::default()
     };
     Ok(options.finish(targets, indent, width))
+}
+
+pub(super) fn yaml_options(
+    values: &Map<String, Value>,
+) -> Result<Map<String, Value>, String> {
+    let mut merged = values.clone();
+    let Some(overrides) = merged.remove("overrides") else {
+        return Ok(merged);
+    };
+    if !valid_overrides(&overrides) {
+        return Err(
+            "invalid Prettier option overrides: expected an array of overrides or null"
+                .to_owned(),
+        );
+    }
+    let mut unsupported = Vec::new();
+    for item in overrides.as_array().into_iter().flatten() {
+        if yaml_override(item)
+            && let Some(options) = item.get("options").and_then(Value::as_object)
+        {
+            merged.extend(options.clone());
+        } else {
+            unsupported.push(item.clone());
+        }
+    }
+    if !unsupported.is_empty() {
+        merged.insert("overrides".to_owned(), unsupported.into());
+    }
+    Ok(merged)
+}
+
+fn file_globs(item: &Value) -> Vec<&str> {
+    match item.get("files") {
+        Some(Value::String(pattern)) => vec![pattern],
+        Some(Value::Array(patterns)) => {
+            patterns.iter().filter_map(Value::as_str).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn yaml_glob(pattern: &str) -> Option<bool> {
+    let (prefix, extensions) = pattern.rsplit_once('.')?;
+    if prefix.contains(['!', '\\', '{', '}', '(', ')'])
+        || globset::Glob::new(pattern).is_err()
+    {
+        return None;
+    }
+    let extensions: Vec<_> = if let Some(list) = extensions
+        .strip_prefix('{')
+        .and_then(|tail| tail.strip_suffix('}'))
+    {
+        if !list.contains(',') {
+            return None;
+        }
+        list.split(',').collect()
+    } else {
+        vec![extensions]
+    };
+    if extensions.iter().any(|extension| {
+        extension.is_empty()
+            || !extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    }) {
+        return None;
+    }
+    let yaml = |extension: &&str| {
+        ["yaml", "yml"]
+            .iter()
+            .any(|yaml| extension.eq_ignore_ascii_case(yaml))
+    };
+    if extensions.iter().all(yaml) {
+        Some(true)
+    } else if extensions.iter().all(|extension| !yaml(extension)) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn yaml_override(item: &Value) -> bool {
+    let globs = file_globs(item);
+    !item
+        .as_object()
+        .is_some_and(|item| item.contains_key("excludeFiles"))
+        && !globs.is_empty()
+        && globs.iter().all(|glob| yaml_glob(glob) == Some(true))
+}
+
+pub(in crate::migrate) fn directive_overrides_safe(
+    values: &Map<String, Value>,
+) -> bool {
+    values.get("overrides").is_none_or(|overrides| {
+        !truthy(overrides)
+            || overrides.as_array().is_some_and(|overrides| {
+                overrides.iter().all(|item| {
+                    let globs = file_globs(item);
+                    !globs.is_empty()
+                        && (globs.iter().all(|glob| yaml_glob(glob) == Some(false))
+                            || yaml_override(item)
+                                && item
+                                    .get("options")
+                                    .and_then(Value::as_object)
+                                    .is_some_and(|options| {
+                                        ![
+                                            "parser",
+                                            "plugins",
+                                            "requirePragma",
+                                            "insertPragma",
+                                            "checkIgnorePragma",
+                                        ]
+                                        .iter()
+                                        .any(|key| options.contains_key(*key))
+                                    }))
+                })
+            })
+    })
 }
 
 fn valid_overrides(value: &Value) -> bool {

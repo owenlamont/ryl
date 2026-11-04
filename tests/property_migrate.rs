@@ -38,7 +38,14 @@ proptest! {
         let mut options = options(dir.path(), source.tool);
         let preview = migrate_configs(&options).unwrap();
         prop_assert_eq!(preview.entries.len(), 1, "{:?}", preview);
-        let config = YamlLintConfig::from_toml_str(&preview.entries[0].toml).unwrap();
+        let file = dir.path().join("preview.toml");
+        fs::write(&file, &preview.entries[0].toml).unwrap();
+        let config = ryl::config::discover_config(&[], &ryl::config::Overrides {
+            config_file: Some(file), config_data: None,
+        }).unwrap().config;
+        if matches!(source.tool, MigrationSource::Dprint | MigrationSource::Yamlfmt) {
+            prop_assert!(config.is_file_ignored(&dir.path().join("generated/example.yaml"), dir.path()));
+        }
         prop_assert_eq!(ryl::format::indent_width(&config), source.indent);
         prop_assert_eq!(ryl::format::line_length(&config), source.width);
         prop_assert!(!config.enables_any_rule());

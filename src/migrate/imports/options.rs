@@ -5,6 +5,7 @@ use serde_json::{Map, Value};
 use crate::config_schema::FormatTable;
 
 pub(super) struct Converted {
+    pub(super) excludes: Vec<String>,
     pub(super) targets: FormatTable,
     pub(super) indent: Option<u8>,
     pub(super) width: Option<u16>,
@@ -34,6 +35,23 @@ impl Options {
 
     pub(super) fn take(&mut self, key: &str) -> Option<Value> {
         self.values.remove(key)
+    }
+
+    pub(super) fn values_match(&self, key: &str, value: &str) -> bool {
+        self.values.get(key).and_then(Value::as_str) == Some(value)
+    }
+
+    pub(super) fn strings(&mut self, key: &str) -> Result<Vec<String>, String> {
+        match self.typed(key) {
+            None => Ok(Vec::new()),
+            Some(Value::Array(values)) if values.iter().all(Value::is_string) => {
+                Ok(values
+                    .into_iter()
+                    .map(|value| value.as_str().expect("validated string").to_owned())
+                    .collect())
+            }
+            Some(_) => Err(self.expected(key, "an array of strings")),
+        }
     }
 
     pub(super) fn with_null_defaults(mut self) -> Self {
@@ -201,6 +219,7 @@ impl Options {
     ) -> Converted {
         let cleanup_safe = self.values.is_empty();
         Converted {
+            excludes: Vec::new(),
             cleanup_safe,
             targets,
             indent,

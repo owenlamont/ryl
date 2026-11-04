@@ -107,6 +107,10 @@ Exit codes:
 `--strict` (`-s`) enables strict mode; `--no-strict` disables strict mode even when
 configured in TOML. See [Strict mode](#strict-mode) for project configuration.
 
+Config migration exits `2` for a wholly skipped source or a refused write.
+Approximations and retained source directives exit `0` with warnings, or `2`
+under `--strict`; a clean rerun exits `0`.
+
 ryl never enables a rule unless a configuration or `--enable` explicitly turns it on, so two
 cases exit `2` rather than silently linting nothing:
 

@@ -291,6 +291,10 @@ Exit codes:
 `--strict` (`-s`) enables strict mode; `--no-strict` disables strict mode even when
 configured in TOML. See [Strict mode](#strict-mode) for project configuration.
 
+Config migration exits `2` for a wholly skipped source or a refused write.
+Approximations and retained source directives exit `0` with warnings, or `2`
+under `--strict`; a clean rerun exits `0`.
+
 ryl never enables a rule unless a configuration or `--enable` explicitly turns it on, so two
 cases exit `2` rather than silently linting nothing:
 
@@ -1559,13 +1563,24 @@ A colocated yamllint configuration contributes lint settings to the same
 `.ryl.toml`. Explicit formatter-file imports also preserve colocated lint settings;
 cleanup retains those contributing lint files outside the selected file scope. Formatter width and indentation use top-level formatting settings;
 the original lint thresholds remain independent. Existing ryl-native
-configuration blocks migration. A formatter-only child configuration is also skipped
+configuration blocks migration writes. A formatter-only child configuration is also skipped
 when a new target would hide inherited yamllint rules; migration retains the source
 and warns you to combine lint and formatter settings manually. Independent directories
 and nested formatter-only configurations can still migrate.
 Preview, atomic writes, source symlink refusal,
 and backup collision checks follow the
 [yamllint migration safeguards](https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/#automatic-migration).
+
+`--migrate-stdout` sends progress to stderr and prints only TOML on stdout, so a
+single-target export can be redirected into a configuration file. Existing native
+targets remain untouched: the export includes a comment saying the candidate was
+not merged and must be merged by hand. With multiple targets, each has a comment
+header; the concatenated sections are separate configurations, not one config.
+
+Migration exits `2` when a source is wholly skipped or a write is refused, including
+an existing native target, executable-only config, or unresolved inheritance.
+Approximations and retained comments produce warnings and exit `0`; `--strict`
+makes warnings exit `2`. A clean rerun exits `0`.
 
 ## Effective settings and gaps
 
@@ -1575,6 +1590,29 @@ including legacy octal numbers and fractional integer truncation.
 Generated `[format]` settings include quote presentation, prose wrapping,
 line endings, collection policies, comments, blank lines, and document markers
 where supported. Formatter-only imports enable no lint rules.
+
+YAML-only Prettier overrides are flattened into the imported settings in source
+order; later overrides win. Supported globs have a literal `.yaml` or `.yml`
+extension, or a terminal brace list containing only those extensions, such as
+`**/*.{yaml,yml}`. The glob prefix may use ordinary wildcards and character classes,
+but not negation, escaping, braces, or extglobs. Every `files` glob must qualify,
+and `excludeFiles` must be absent. Flattening applies the selected options to all
+YAML files, including when a source glob selected only one directory.
+
+Migration imports `.prettierignore` as gitignore patterns, including negations;
+invalid lines produce individual warnings. It also imports dprint `excludes` and
+yamlfmt `exclude` with `match_type: doublestar`. Yamlfmt patterns are anchored to
+the config directory to preserve doublestar matching. Standard matching,
+`regex_exclude`, and source `include` settings still warn.
+
+Local dprint `extends` paths resolve relative to the extending file. Earlier bases
+take precedence over later bases, and the extending config wins over its bases;
+exclusions accumulate. Cycles, excessive inheritance, URLs, and unresolved paths
+skip that source with a hint to flatten the configuration locally. Migration never
+fetches shared configurations.
+
+Imports report the same lint/format conflict notices as `ryl format`, using the
+effective colocated lint configuration. Imported settings stay unchanged.
 
 Unsupported settings produce warnings on stderr and comments in generated TOML.
 Migration preserves YAML values and properties rather than adopting destructive
@@ -1586,7 +1624,7 @@ ignore comments unchanged unless you opt into [comment conversion](#suppression-
 | Gap | Migration behavior |
 | :--- | :--- |
 | Forced quoting of plain strings | Retains existing quote presentation; warns when forcing was requested |
-| Per-file overrides or shared configurations | Imports static root settings only; warns |
+| Other per-file overrides or shared configurations | Warns about unsupported overrides; follows local dprint inheritance, but never fetches remote configurations |
 | Source-specific flow wrapping, bracket padding, or trailing commas | Uses supported ryl layout settings; warns about differences |
 | yamlfmt YAML merge keys | Retains the source without importing formatter settings; expand merged settings manually and rerun |
 | yamlfmt scalar spellings requiring unsupported resolution | Retains the source without importing formatter settings; quote string values, use plain decimal numbers, or configure ryl manually |
@@ -1631,8 +1669,16 @@ an equivalent scope. Prettier Markdown conversion supports front matter and lowe
 supports the filename. Quarto and R Markdown need an explicit static Markdown parser;
 other formatter embedding stays unchanged.
 Dprint conversion requires the audited official pretty_yaml plugin; unknown plugin IDs,
-inheritance and custom file associations remain unconverted.
+remote inheritance and custom file associations remain unconverted.
+Official pretty_yaml `0.5.x` and `0.6.0` references are supported, including valid
+checksum suffixes on official WASM URLs.
 Shared comment segments that ryl's legacy grammar does not recognize remain unchanged.
+
+YAML-only Prettier overrides without parser, plugin, or pragma options permit YAML
+comment conversion. Overrides provably limited to other literal extensions, such
+as `*.md`, do not block YAML conversion. Other overrides retain source markers.
+Every directive run reports converted and retained comment totals plus skipped
+file counts; reruns still report unsupported retained markers.
 
 Writes preserve supported encodings and BOMs. Files whose original bytes cannot round-trip
 through their encoding are retained. Some encodings, line endings or filenames cannot produce an
@@ -1774,6 +1820,10 @@ Source: https://ryl-docs.pages.dev/getting-started/migrating-from-yamlfmt/
 
 # Migrating from google/yamlfmt
 
+The [config importer](https://ryl-docs.pages.dev/getting-started/migrating-from-formatters/) imports `exclude` when
+`match_type: doublestar`, anchoring patterns to the configuration directory.
+Standard matching, `regex_exclude`, and `include` settings still warn.
+
 Replace `yamlfmt .` with `ryl format .` and `yamlfmt -lint .` with
 `ryl format --check .`. The settings below approximate the default basic formatter
 in google/yamlfmt 0.21.0. They were compared on the same YAML inputs with
@@ -1844,6 +1894,11 @@ For YAML files, run `ryl format .` to write changes and
 Prettier 3.9.10's YAML output on the same inputs used with `ryl format -`.
 Prettier's [general options](https://prettier.io/docs/options) can alter the
 starting profile.
+
+The [config importer](https://ryl-docs.pages.dev/getting-started/migrating-from-formatters/) applies supported YAML-only
+overrides in source order and imports `.prettierignore`, including negations.
+Unsupported override scopes still warn; inspect the generated configuration before
+replacing Prettier.
 
 ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
 another width.

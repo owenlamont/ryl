@@ -42,7 +42,7 @@ pub fn arb_source() -> impl Strategy<Value = Source> {
     (0_u8..4, 1_u8..9, 20_u16..161, any::<bool>(), "[a-zA-Z0-9_ \n\r\t\\\"]{0,30}", 0_u8..4)
         .prop_map(|(tool, indent, width, single, unknown, representation)| {
             let (tool, filename, body) = match tool {
-                0 => (MigrationSource::Prettier, ".prettierrc.json5", format!("{{tabWidth:{indent},printWidth:{width},singleQuote:{single},unknown:{}}}", json!(unknown))),
+                0 => (MigrationSource::Prettier, ".prettierrc.json5", format!("{{tabWidth:2,printWidth:80,overrides:[{{files:'**/*.{{yaml,yml}}',options:{{tabWidth:{indent},printWidth:{width}}}}}],singleQuote:{single},unknown:{}}}", json!(unknown))),
                 1 => {
                     let (indent, width) = match representation {
                         1 => (format!("0{indent:o}"), format!("0{width:o}")),
@@ -50,16 +50,17 @@ pub fn arb_source() -> impl Strategy<Value = Source> {
                         3 => (format!("0X{indent:X}"), format!("0X{width:X}")),
                         _ => (indent.to_string(), width.to_string()),
                     };
-                    (MigrationSource::Yamlfmt, ".yamlfmt", format!("formatter:\n  indent: {indent}\n  max_line_length: {width}\n  unknown: {}\n", json!(unknown)))
+                    (MigrationSource::Yamlfmt, ".yamlfmt", format!("match_type: doublestar\nexclude: ['generated/**']\nformatter:\n  indent: {indent}\n  max_line_length: {width}\n  unknown: {}\n", json!(unknown)))
                 },
                 2 => {
                     let options = json!({"indentWidth":indent,"printWidth":width,"unknown":unknown});
-                    let value = match representation {
+                    let mut value = match representation {
                         0 => json!({"yaml":options}),
                         1 => json!({"plugins":["https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm"],"yaml":options}),
                         2 => json!({"plugins":["npm:dprint-plugin-yaml@0.6.0"],"yaml":options}),
                         _ => json!({"plugins":["npm:dprint-plugin-yaml@0.6.0"],"indentWidth":indent,"lineWidth":width,"unknown":unknown}),
                     };
+                    value["excludes"] = json!(["generated/**"]);
                     (MigrationSource::Dprint, "dprint.jsonc", value.to_string())
                 },
                 _ => {

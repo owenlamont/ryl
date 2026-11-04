@@ -71,7 +71,7 @@ fn assert_shadowed_migration(
         .args(["--migrate-configs", "--migrate-root"])
         .arg(&project)
         .args(flags));
-    assert_eq!(code, 0, "{candidate} ancestor={ancestor}: {stdout}{stderr}");
+    assert_eq!(code, 2, "{candidate} ancestor={ancestor}: {stdout}{stderr}");
     assert!(stderr.contains("skipping migration"), "{stderr}");
     assert_warning_path(&stderr, &native);
     assert_eq!(fs::read(&native).unwrap(), original);
@@ -119,7 +119,7 @@ fn migration_uses_candidate_and_ancestor_precedence() {
         let (code, _, stderr) = run(ryl(td.path())
             .args(["--migrate-configs", "--migrate-write", "--migrate-root"])
             .arg(&project));
-        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(code, 2, "{stderr}");
         assert_warning_path(
             &stderr,
             &project.join(
@@ -159,7 +159,7 @@ fn migration_skips_empty_ryl_pyproject_but_continues_past_unrelated_pyproject() 
         let (code, _, stderr) = run(ryl(td.path())
             .args(["--migrate-configs", "--migrate-write", "--migrate-root"])
             .arg(project.join(".yamllint")));
-        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(code, 2, "{stderr}");
         let expected = if pyproject.contains("tool.ryl") {
             project.join("pyproject.toml")
         } else {

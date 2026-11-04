@@ -401,7 +401,7 @@ fn migrate_user_config_refuses_relative_rule_level_ignore_from_file() {
             "--migrate-write",
             "--migrate-delete-old",
         ]));
-    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert_eq!(code, 2, "stdout={stdout} stderr={stderr}");
     assert!(
         stderr.contains("relative ignore-from-file `ignores.txt`"),
         "got: {stderr}"

@@ -20,6 +20,7 @@ pub(super) fn migrate(
 ) -> Migration {
     if crate::markdown_embed::markdown_has_unsupported_cr(buffer) {
         return Migration {
+            converted: 0,
             output: None,
             retained_lines: Vec::new(),
         };
@@ -54,6 +55,7 @@ pub(super) fn migrate(
         fenced_blocks: true,
     };
     let mut output = buffer.to_owned();
+    let mut converted = 0;
     let mut regions = extract_regions(buffer, sources);
     regions.sort_by_key(|region| std::cmp::Reverse(region.raw_span.start));
     for region in regions {
@@ -69,6 +71,7 @@ pub(super) fn migrate(
             source,
             permit,
         );
+        converted += migration.converted;
         retained_lines.extend(
             migration
                 .retained_lines
@@ -90,6 +93,7 @@ pub(super) fn migrate(
     retained_lines.sort_unstable();
     retained_lines.dedup();
     Migration {
+        converted,
         output: (output != buffer).then_some(output),
         retained_lines,
     }
