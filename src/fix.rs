@@ -211,14 +211,14 @@ fn is_symlink(path: &Path) -> bool {
 }
 
 #[cfg(unix)]
-fn file_identity(path: &Path) -> Option<(u64, u64)> {
+pub(crate) fn file_identity(path: &Path) -> Option<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
     let metadata = std::fs::symlink_metadata(path).ok()?;
     Some((metadata.dev(), metadata.ino()))
 }
 
 #[cfg(not(unix))]
-fn file_identity(path: &Path) -> Option<Handle> {
+pub(crate) fn file_identity(path: &Path) -> Option<Handle> {
     Handle::from_path(path).ok()
 }
 
@@ -481,7 +481,11 @@ fn diff_display_path(path: &str) -> String {
 /// (pinned against a `similar` default change) and a plain `--- path`/`+++ path` header,
 /// CWD-relative (so `git apply -p0` works) and sanitized
 /// against injected escapes or forged hunks. The body is verbatim.
-fn render_unified_diff(original: &str, fixed: &str, path: &Path) -> Option<String> {
+pub(crate) fn render_unified_diff(
+    original: &str,
+    fixed: &str,
+    path: &Path,
+) -> Option<String> {
     if original == fixed {
         return None;
     }
@@ -972,7 +976,7 @@ pub fn decoded_diff_outcome(
 /// Whether the path can't be faithfully written in a diff header (not valid UTF-8, or holding
 /// a control char). Either way the header would name a different path than the on-disk file,
 /// so no consumer could apply the patch; `--diff` skips these.
-fn path_unrepresentable_in_diff(path: &Path) -> bool {
+pub(crate) fn path_unrepresentable_in_diff(path: &Path) -> bool {
     let name = path.as_os_str();
     name.to_str().is_none() || name.to_string_lossy().contains(char::is_control)
 }
@@ -1396,7 +1400,7 @@ pub(crate) fn region_prefix(
 /// Re-encode dedented region content into its host: each non-empty line regains `prefix` and
 /// lines are joined with `newline`. Empty lines stay empty (matching how the parser dedents
 /// blanks); the trailing newline is preserved.
-fn reindent(content: &str, prefix: &str, newline: &str) -> String {
+pub(crate) fn reindent(content: &str, prefix: &str, newline: &str) -> String {
     let mut out = String::with_capacity(content.len());
     for piece in content.replace("\r\n", "\n").split_inclusive('\n') {
         let (line, terminated) = piece

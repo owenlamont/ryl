@@ -121,12 +121,11 @@ pub(super) fn build_project_entries(
     Ok(())
 }
 
-fn select_candidate(
+fn load_candidates(
     format_paths: &[PathBuf],
     explicit: bool,
     selection: Option<MigrationSource>,
-    directory: &Path,
-) -> Result<Option<Candidate>, String> {
+) -> Result<Vec<Candidate>, String> {
     let mut candidates = Vec::new();
     for tool in [
         Formatter::Prettier,
@@ -149,6 +148,16 @@ fn select_candidate(
             candidates.push(candidate);
         }
     }
+    Ok(candidates)
+}
+
+fn select_candidate(
+    format_paths: &[PathBuf],
+    explicit: bool,
+    selection: Option<MigrationSource>,
+    directory: &Path,
+) -> Result<Option<Candidate>, String> {
+    let mut candidates = load_candidates(format_paths, explicit, selection)?;
     if candidates.len() > 1 {
         let names = candidates
             .iter()
@@ -444,4 +453,69 @@ fn inherited_lint(directory: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+pub(super) struct SourceContext {
+    pub source: MigrationSource,
+    pub values: Option<serde_json::Map<String, serde_json::Value>>,
+    pub paths: Vec<PathBuf>,
+    pub warnings: Vec<String>,
+}
+
+pub(super) fn source_context(
+    directory: &Path,
+    selection: Option<MigrationSource>,
+) -> Result<Option<SourceContext>, String> {
+    if selection == Some(MigrationSource::Yamllint) {
+        return Ok(None);
+    }
+    let physical = resolved_source_path(directory);
+    let mut seen = Vec::new();
+    let mut applicable = Vec::new();
+    for directory in physical.ancestors() {
+        let entries = std::fs::read_dir(directory)
+            .and_then(Iterator::collect::<Result<Vec<_>, _>>)
+            .map_err(|error| {
+                format!("cannot inspect {}: {error}", directory.display())
+            })?;
+        let mut paths = Vec::new();
+        for entry in entries {
+            let path = entry.path();
+            if discovery::is_source(&path)
+                && discovery::kind(&path).is_some_and(|tool| !seen.contains(&tool))
+            {
+                paths.push(path);
+            }
+        }
+        applicable.extend(load_candidates(&paths, false, selection)?);
+        seen.extend(paths.iter().filter_map(|path| discovery::kind(path)));
+    }
+    if applicable.len() > 1 {
+        let names = applicable
+            .iter()
+            .map(|candidate| candidate.tool.name())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "multiple YAML formatter configurations apply in {} ({names}); select one with --migrate-from",
+            physical.display()
+        ));
+    }
+    for candidate in &mut applicable {
+        let original = candidate.values.clone();
+        convert(candidate)?;
+        candidate.values = original;
+    }
+    Ok(applicable.pop().map(|candidate| SourceContext {
+        source: candidate.tool.selection(),
+        values: candidate.values,
+        paths: candidate.sources,
+        warnings: candidate.warnings,
+    }))
+}
+
+pub(super) fn is_source_config(path: &Path) -> bool {
+    discovery::kind(path).is_some()
+        || super::is_legacy_yaml_config_path(path)
+        || super::is_ryl_toml_config_path(path)
 }

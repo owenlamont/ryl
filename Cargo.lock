@@ -1985,6 +1985,7 @@ dependencies = [
  "sha2",
  "similar",
  "tempfile",
+ "thiserror 2.0.21",
  "toml",
  "toml_edit",
  "unicode-normalization",

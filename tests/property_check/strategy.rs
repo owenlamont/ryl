@@ -303,7 +303,14 @@ fn arb_entry() -> impl Strategy<Value = Line> {
         0u8..=2,
         0u8..=3,
         arb_value(),
-        prop::option::of((0u8..=2, arb_text())),
+        prop::option::of((
+            0u8..=2,
+            prop_oneof![
+                8 => arb_text(),
+                1 => Just("yamllint disable-line rule:truthy".to_owned()),
+                1 => Just("yamllint disable-line # reason".to_owned()),
+            ],
+        )),
         0u8..=3,
     )
         .prop_map(
@@ -347,6 +354,13 @@ fn arb_comment() -> impl Strategy<Value = Line> {
             1 => Just("@ name".to_owned()),
             1 => Just("#".repeat(90)),
             1 => Just("yamllint disable-line rule:line-length".to_owned()),
+            1 => prop::sample::select(vec![
+                "yamllint disable",
+                "yamllint disable-file",
+                "yamllint disable rule:unknown",
+                "prettier-ignore",
+                "pretty-yaml-ignore",
+            ]).prop_map(str::to_owned),
         ],
     )
         .prop_map(|(indent, spaces_after_hash, text)| Line::Comment {
@@ -627,4 +641,36 @@ pub fn arb_document() -> impl Strategy<Value = Document> {
             has_final_newline,
         },
     )
+}
+
+pub fn arb_document_with_enables() -> impl Strategy<Value = Document> {
+    (
+        arb_document(),
+        prop::collection::vec(
+            prop::sample::select(vec![
+                "yamllint enable rule:truthy",
+                "yamllint enable",
+                "yamllint disable # ryl enable",
+                "yamllint disable rule:colons # ryl enable rule:truthy",
+            ]),
+            0..=4,
+        ),
+    )
+        .prop_map(|(mut document, enables)| {
+            let at = document.lines.len() / 2;
+            document.lines.splice(
+                at..at,
+                enables.into_iter().map(|text| {
+                    (
+                        Line::Comment {
+                            indent: 0,
+                            spaces_after_hash: 1,
+                            text: text.to_owned(),
+                        },
+                        Newline::Lf,
+                    )
+                }),
+            );
+            document
+        })
 }

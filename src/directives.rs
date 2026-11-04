@@ -15,6 +15,13 @@ use std::sync::LazyLock;
 use regex::Regex;
 use ryl_yaml_parser::Placement;
 
+mod migration;
+
+pub(crate) use migration::migrate_source_comments;
+pub use migration::{
+    FormatterComments, Migration, migrate_comments, migrate_markdown_comments,
+};
+
 use crate::rules::ALL_RULE_IDS;
 use crate::rules::support::line_syntax::{
     split_lines_inclusive, split_lines_preserve_endings,
@@ -81,6 +88,19 @@ pub fn starts_with_jinja_header(text: &str) -> bool {
         || pipe
             .split('|')
             .any(|part| part.trim().split(' ').next() == Some("jinja"))
+}
+
+#[must_use]
+pub fn legacy_directive_lines(buffer: &str) -> Vec<usize> {
+    migration::legacy_uses(crate::text_version::TextVersion::new(buffer).analysis())
+        .into_iter()
+        .map(|usage| usage.line)
+        .collect()
+}
+
+#[must_use]
+pub fn migrate_legacy_comments(buffer: &str) -> Option<String> {
+    migration::rewrite_legacy(crate::text_version::TextVersion::new(buffer).analysis())
 }
 
 enum Action {

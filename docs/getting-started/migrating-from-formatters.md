@@ -28,7 +28,7 @@ those releases. Review the preview before replacing a formatter.
 | :--- | :--- |
 | Prettier | `package.json` or `package.yaml` with `prettier`, `.prettierrc`, JSON, YAML, JSON5, and TOML configurations |
 | yamlfmt | `.yamlfmt`, `yamlfmt.yaml`, `yamlfmt.yml`, `.yamlfmt.yaml`, `.yamlfmt.yml`; the basic formatter only |
-| dprint | `dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, in that order; a pretty_yaml plugin or `yaml` section identifies YAML settings |
+| dprint | `dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, in that order; a pretty_yaml plugin URL, `npm:dprint-plugin-yaml` reference, or `yaml` section identifies YAML settings |
 | yamlfix | The nearest ancestor of each filename: `pyproject.toml` with `[tool.yamlfix]`, `yamlfix.toml`, `.yamlfix.toml`; later filenames override earlier settings |
 
 Prettier follows its configuration filename priority. JavaScript and TypeScript
@@ -71,8 +71,8 @@ Unsupported settings produce warnings on stderr and comments in generated TOML.
 Migration preserves YAML values and properties rather than adopting destructive
 source behavior. Migration also keeps ryl's default
 [YAML 1.1 reader compatibility](../yaml-version.md); a source formatter does not
-establish which YAML readers consume your files. Source ignore comments are left unchanged; config migration
-does not add aliases for another formatter's directives.
+establish which YAML readers consume your files. Config migration leaves source
+ignore comments unchanged unless you opt into [comment conversion](#suppression-comments).
 
 | Gap | Migration behavior |
 | :--- | :--- |
@@ -84,6 +84,52 @@ does not add aliases for another formatter's directives.
 | Removing document-start markers | Preserves existing markers; warns |
 | yamlfix null spelling and per-style prose behavior | Preserves null spellings and uses split-only line folding; warns |
 | Dimensions outside ryl's supported range | Uses a supported fallback and warns |
+
+## Suppression comments
+
+Preview comment conversion separately, including when a native ryl config already exists:
+
+```bash
+ryl --migrate-directives --migrate-from prettier --migrate-root .
+ryl --migrate-directives --migrate-from prettier --migrate-root . --migrate-write
+
+# Combine config import and comment conversion
+ryl --migrate-configs --migrate-directives --migrate-from yamlfmt --migrate-write
+```
+
+Without `--migrate-write`, source changes appear as unified diffs. `--migrate-root`
+can select one application file or a directory; selecting a config file does not
+implicitly scan its parent. Static source configuration is discovered independently
+of existing ryl settings. Competing formatter configurations require `--migrate-from`;
+use the same flag when no source config identifies the formatter.
+
+| Source comment | Conversion |
+| :--- | :--- |
+| Active `# yamllint disable`, `enable`, `disable-line`, first-line `disable-file` | Equivalent `# ryl` spelling; rule selection and targets stay unchanged |
+| `# prettier-ignore` | `# ryl format-ignore` for verified node attachments |
+| pretty_yaml's configured ignore marker | `# ryl format-ignore` for verified node attachments |
+| First-line `# !yamlfmt!:ignore` | `# ryl format-disable` for one document without an explicit end marker |
+
+Only actual YAML comments change, including supported Markdown YAML regions. Scalar
+contents and unrelated bytes remain unchanged. Formatter conversions preserve formatting
+only; lint and safe lint fixes remain active. No additional runtime aliases are installed.
+
+Uncertain attachments remain source comments with warnings: inline markers, reason
+suffixes, properties, explicit keys, flow members, document crossings and existing native
+formatter directives. Markers shared with lint directives are retained to preserve lint scope. Source per-file, plugin or pragma settings can also prevent proving
+an equivalent scope. Prettier Markdown conversion supports front matter and lowercase
+`yaml` fences when embedded formatting is enabled and the inferred or configured parser
+supports the filename. Quarto and R Markdown need an explicit static Markdown parser;
+other formatter embedding stays unchanged.
+Dprint conversion requires the audited official pretty_yaml plugin; unknown plugin IDs,
+inheritance and custom file associations remain unconverted.
+Shared comment segments that ryl's legacy grammar does not recognize remain unchanged.
+
+Writes preserve supported encodings and BOMs. Files whose original bytes cannot round-trip
+through their encoding are retained. Some encodings, line endings or filenames cannot produce an
+applicable text diff; previews report the limitation. Discovered source configs and explicit config-import sources are excluded from
+application writes. Symlinks are left unchanged. Combined migration cleans up eligible source configs only
+after application writes succeed.
 
 ## Source cleanup
 

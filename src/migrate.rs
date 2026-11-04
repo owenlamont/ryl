@@ -4,7 +4,13 @@ use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 
+mod directives;
 mod imports;
+
+pub use directives::{
+    DirectiveFile, DirectiveMigration, Error as DirectiveMigrationError,
+    apply_directive_entries, migrate_with_directives,
+};
 pub use imports::MigrationSource;
 
 use crate::config::{
@@ -111,6 +117,16 @@ pub fn apply_migration_entries(
     cleanup_only_sources: &[PathBuf],
     cleanup: &SourceCleanup,
 ) -> Result<(), String> {
+    preflight_entries(entries, cleanup_only_sources, cleanup)?;
+    write_entries(entries, cleanup)?;
+    cleanup_entries(entries, cleanup_only_sources, cleanup)
+}
+
+fn preflight_entries(
+    entries: &[MigrationEntry],
+    cleanup_only_sources: &[PathBuf],
+    cleanup: &SourceCleanup,
+) -> Result<(), String> {
     // Preflight rename-backup collisions before writing any target, so a collision never
     // leaves migrated targets behind (a retry would then skip them as already migrated).
     // Symlinked sources are excluded: cleanup never renames them.
@@ -136,37 +152,13 @@ pub fn apply_migration_entries(
         }
     }
 
-    let apply_cleanup = |source: &Path| -> Result<(), String> {
-        // Never delete or rename through a symlink: acting on the target would orphan the
-        // real file, so a symlinked source is preserved (mirrors the --fix/--diff refusal).
-        if is_symlink(source) {
-            return Ok(());
-        }
-        match cleanup {
-            SourceCleanup::Keep => {}
-            SourceCleanup::Delete => {
-                fs::remove_file(source).map_err(|err| {
-                    format!(
-                        "failed to delete migrated source config {}: {err}",
-                        source.display()
-                    )
-                })?;
-            }
-            SourceCleanup::RenameSuffix(suffix) => {
-                // The backup-collision refusal is preflighted before any target is written.
-                let renamed = rename_destination(source, suffix);
-                fs::rename(source, &renamed).map_err(|err| {
-                    format!(
-                        "failed to rename migrated source config {} to {}: {err}",
-                        source.display(),
-                        renamed.display()
-                    )
-                })?;
-            }
-        }
-        Ok(())
-    };
+    Ok(())
+}
 
+fn write_entries(
+    entries: &[MigrationEntry],
+    cleanup: &SourceCleanup,
+) -> Result<(), String> {
     for entry in entries {
         // The user-global target dir (e.g. ~/.config/ryl/) may not exist yet. A target with
         // no parent (never produced by the planner) skips this and lets the write below
@@ -203,6 +195,45 @@ pub fn apply_migration_entries(
             )
         })?;
     }
+
+    Ok(())
+}
+
+fn cleanup_entries(
+    entries: &[MigrationEntry],
+    cleanup_only_sources: &[PathBuf],
+    cleanup: &SourceCleanup,
+) -> Result<(), String> {
+    let apply_cleanup = |source: &Path| -> Result<(), String> {
+        // Never delete or rename through a symlink: acting on the target would orphan the
+        // real file, so a symlinked source is preserved (mirrors the --fix/--diff refusal).
+        if is_symlink(source) {
+            return Ok(());
+        }
+        match cleanup {
+            SourceCleanup::Keep => {}
+            SourceCleanup::Delete => {
+                fs::remove_file(source).map_err(|err| {
+                    format!(
+                        "failed to delete migrated source config {}: {err}",
+                        source.display()
+                    )
+                })?;
+            }
+            SourceCleanup::RenameSuffix(suffix) => {
+                // The backup-collision refusal is preflighted before any target is written.
+                let renamed = rename_destination(source, suffix);
+                fs::rename(source, &renamed).map_err(|err| {
+                    format!(
+                        "failed to rename migrated source config {} to {}: {err}",
+                        source.display(),
+                        renamed.display()
+                    )
+                })?;
+            }
+        }
+        Ok(())
+    };
 
     for source in cleanup_sources(entries, cleanup_only_sources) {
         apply_cleanup(source)?;

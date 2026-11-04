@@ -43,7 +43,7 @@ use ryl::fix::{
 use ryl::lint::lint_str_with_repair_help;
 use ryl::migrate::{
     MigrateOptions, MigrationSource, OutputMode as MigrateOutputMode, SourceCleanup,
-    UserConfigMigration, WriteMode, migrate_configs,
+    UserConfigMigration, WriteMode, migrate_configs, migrate_with_directives,
 };
 use ryl::report::{GitlabState, JunitReport, ReportEntry};
 use ryl::rules::ALL_RULE_IDS;
@@ -140,7 +140,7 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
     if !cli.lint_args.source.inputs.is_empty() {
         return Err(
             "error: migration takes no input paths; use --migrate-root <PATH> to \
-             choose where --migrate-configs searches"
+             choose the migration scope"
                 .to_string(),
         );
     }
@@ -151,12 +151,11 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
     } else {
         SourceCleanup::Keep
     };
-    let project_root = cli.migrate_configs.then(|| {
-        cli.migrate
-            .root
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("."))
-    });
+    let migration_root = cli
+        .migrate
+        .root
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("."));
     let user_config = if cli.migrate_user_config {
         user_config_migration_paths(&SystemEnv)
             .map(|(source, target)| UserConfigMigration { source, target })
@@ -165,8 +164,8 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
     };
     let options = MigrateOptions {
         from: cli.migrate.from,
-        project_root: project_root.clone(),
-        user_config: user_config.clone(),
+        project_root: cli.migrate_configs.then(|| migration_root.clone()),
+        user_config,
         write_mode: if cli.migrate.write {
             WriteMode::Write
         } else {
@@ -179,7 +178,35 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         },
         cleanup,
     };
-    let result = migrate_configs(&options)?;
+    let (result, directive_files) = if cli.migrate_directives {
+        let migrated =
+            migrate_with_directives(&options, &migration_root).map_err(|error| {
+                let mut message = error.to_string();
+                if let Some(source) = std::error::Error::source(&error) {
+                    message.push_str(": ");
+                    message.push_str(&source.to_string());
+                }
+                message
+            })?;
+        for warning in &migrated.warnings {
+            eprintln!("warning: {}", sanitize_control(warning));
+        }
+        (migrated.config, migrated.files)
+    } else {
+        (migrate_configs(&options)?, Vec::new())
+    };
+    print_config_migration(cli, &options, &result);
+    if cli.migrate_directives {
+        print_directive_migration(&migration_root, &directive_files, cli.migrate.write);
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn print_config_migration(
+    cli: &Cli,
+    options: &MigrateOptions,
+    result: &ryl::migrate::MigrateResult,
+) {
     for warning in &result.warnings {
         eprintln!("{}", sanitize_control(warning));
     }
@@ -190,16 +217,13 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
             sanitize_control(&entry.target.display().to_string())
         );
     }
-    // Per-trigger "nothing migrated" feedback, reported independently so a combined run
-    // surfaces an empty trigger even when the other produced entries. User-global entries
-    // are identified by their source paths; the rest are project.
     let user_sources: Vec<PathBuf> =
-        user_config.as_ref().map_or_else(Vec::new, |user| {
+        options.user_config.as_ref().map_or_else(Vec::new, |user| {
             let mut sources = user.ryl_config_paths();
             sources.push(user.source.clone());
             sources
         });
-    if let Some(root) = &project_root {
+    if let Some(root) = &options.project_root {
         let project_migrated = result
             .entries
             .iter()
@@ -235,7 +259,33 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
             println!("{}", entry.toml);
         }
     }
-    Ok(ExitCode::SUCCESS)
+}
+
+fn print_directive_migration(
+    root: &Path,
+    files: &[ryl::migrate::DirectiveFile],
+    write: bool,
+) {
+    if files.is_empty() {
+        println!(
+            "No source comments migrated under {}",
+            sanitize_control(&root.display().to_string())
+        );
+    }
+    for file in files {
+        if !write && let Some(diff) = &file.diff {
+            print!("{diff}");
+        } else {
+            println!(
+                "{} comments in {}",
+                if write { "Migrated" } else { "Would migrate" },
+                sanitize_control(&file.path.display().to_string())
+            );
+        }
+    }
+    if !write && !files.is_empty() {
+        println!("Preview only: add `--migrate-write` to apply comment conversion.");
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -256,6 +306,12 @@ enum CliFormat {
     about = "Fast YAML linter and formatter",
     // The `--migrate-*` sub-flags require at least one migration trigger.
     group(clap::ArgGroup::new("migrate_mode")
+        .args(["migrate_configs", "migrate_user_config", "migrate_directives"])
+        .multiple(true)),
+    group(clap::ArgGroup::new("project_migration")
+        .args(["migrate_configs", "migrate_directives"])
+        .multiple(true)),
+    group(clap::ArgGroup::new("config_migration")
         .args(["migrate_configs", "migrate_user_config"])
         .multiple(true))
 )]
@@ -294,6 +350,10 @@ struct Cli {
     /// Convert legacy user-global config into ryl.toml or move deprecated TOML keys
     #[arg(long = "migrate-user-config", default_value_t = false)]
     migrate_user_config: bool,
+
+    /// Preview source suppression comment conversion; --migrate-write applies edits
+    #[arg(long = "migrate-directives", default_value_t = false)]
+    migrate_directives: bool,
 
     /// Print a shell completion script for SHELL and exit
     #[arg(
@@ -552,19 +612,19 @@ impl CompatibilityLintFlags {
 
 #[derive(clap::Args, Debug, Default)]
 struct MigrateFlags {
-    /// Select a config source; formatter imports keep colocated yamllint settings
-    #[arg(long = "migrate-from", value_enum, requires = "migrate_configs")]
+    /// Select a source tool; formatter config imports keep colocated yamllint settings
+    #[arg(long = "migrate-from", value_enum, requires = "project_migration")]
     from: Option<MigrationSource>,
 
-    /// Directory to search for legacy config files, or one config file (default: .)
+    /// Directory or file to migrate (default: .)
     #[arg(
         long = "migrate-root",
         value_name = "PATH",
-        requires = "migrate_configs"
+        requires = "project_migration"
     )]
     root: Option<PathBuf>,
 
-    /// Write migrated TOML files (otherwise preview only)
+    /// Apply config and source-comment changes (otherwise preview only)
     #[arg(
         long = "migrate-write",
         default_value_t = false,
@@ -576,7 +636,7 @@ struct MigrateFlags {
     #[arg(
         long = "migrate-stdout",
         default_value_t = false,
-        requires = "migrate_mode"
+        requires = "config_migration"
     )]
     stdout: bool,
 
@@ -585,7 +645,7 @@ struct MigrateFlags {
         long = "migrate-rename-old",
         value_name = "SUFFIX",
         conflicts_with = "delete_old",
-        requires_all = ["write", "migrate_mode"]
+        requires_all = ["write", "config_migration"]
     )]
     rename_old: Option<String>,
 
@@ -594,7 +654,7 @@ struct MigrateFlags {
         long = "migrate-delete-old",
         default_value_t = false,
         conflicts_with = "rename_old",
-        requires_all = ["write", "migrate_mode"]
+        requires_all = ["write", "config_migration"]
     )]
     delete_old: bool,
 }
@@ -1333,7 +1393,7 @@ fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    if cli.migrate_configs || cli.migrate_user_config {
+    if cli.migrate_configs || cli.migrate_user_config || cli.migrate_directives {
         return run_migration(cli);
     }
 
