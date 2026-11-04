@@ -1,7 +1,6 @@
 use std::fs;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::migrate::{
     MigrateOptions, MigrationSource, OutputMode, SourceCleanup, WriteMode,
@@ -27,7 +26,7 @@ fn options(root: &std::path::Path, tool: MigrationSource) -> MigrateOptions {
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 256,
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct("tests/proptest-regressions/property_migrate.txt"))),
+        failure_persistence: crate::property::failure_persistence!("property_migrate"),
         ..ProptestConfig::default()
     })]
 

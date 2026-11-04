@@ -16,7 +16,6 @@
 //! declined too when a respelling is one `PyYAML` reads as a string (`0o777`).
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::rules::yaml_directive;
 use std::sync::LazyLock;
@@ -280,9 +279,7 @@ fn reports(text: &str, cfg: yaml_directive::Config, message: &str) -> usize {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_yaml_migration.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_yaml_migration"),
         ..ProptestConfig::default()
     })]
 

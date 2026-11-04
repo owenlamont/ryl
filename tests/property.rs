@@ -26,3 +26,18 @@ pub(super) mod strategy;
 pub(super) mod suppression;
 #[path = "property_markdown_fix/wrap.rs"]
 pub(super) mod wrap;
+
+macro_rules! failure_persistence {
+    ($suite:literal) => {
+        Some(Box::new(
+            proptest::test_runner::FileFailurePersistence::Direct(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/target/proptest-regressions/",
+                $suite,
+                ".txt"
+            )),
+        ))
+    };
+}
+
+pub(super) use failure_persistence;

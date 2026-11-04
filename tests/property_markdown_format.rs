@@ -3,7 +3,6 @@ use crate::property::{
 };
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::fix::{Rewrite, fix_markdown_str};
 use ryl::{MarkdownSources, extract_regions};
 
@@ -280,9 +279,7 @@ fn explicit_key_flow_overflow_property_replay_is_idempotent_in_markdown() {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_markdown_format.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_markdown_format"),
         ..ProptestConfig::default()
     })]
 

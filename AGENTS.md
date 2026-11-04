@@ -190,7 +190,8 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 - For a full local run, use `cargo test --workspace --tests` to run each combined
   binary once; CI uses nextest for isolation and coverage.
 - Deterministic tests own coverage: every covered region must have a named example test.
-  CI disables random property cases; saved regression seeds replay separately from coverage.
+  CI disables random property cases and seed persistence during coverage. Seeds stay
+  gitignored; property-found failures need named deterministic regression tests.
   Local property runs keep their default counts (see below for new tests).
 - Convey a test's purpose through function and variable names and assertion messages.
   Test comments meet the same bar as the rest of the codebase: keep one only for why an

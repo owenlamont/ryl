@@ -23,7 +23,6 @@ mod indentation_render;
 use std::collections::BTreeSet;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::{TargetVersion, YamlLintConfig};
 use ryl::fix::apply_safe_fixes;
 use ryl::lint::lint_str;
@@ -681,9 +680,7 @@ fn explicit_key_flow_overflow_property_replay_keeps_the_guarantee() {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_format.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_format"),
         ..ProptestConfig::default()
     })]
 
@@ -823,9 +820,7 @@ fn lenient_repairs_preserve_values_across_presentation_changes() {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_format_consistency.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_format_consistency"),
         ..ProptestConfig::default()
     })]
 
@@ -868,9 +863,7 @@ proptest! {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_format.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_format"),
         ..ProptestConfig::default()
     })]
 
@@ -2842,9 +2835,7 @@ fn g11_refusal_maps_indentation_through_trailing_space_cleanup() {
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 16,
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_format.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_format"),
         ..ProptestConfig::default()
     })]
 

@@ -1,5 +1,4 @@
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::directives::{
     Directives, FormatterComments, disables_file, legacy_directive_lines,
     migrate_comments, migrate_legacy_comments,
@@ -42,9 +41,7 @@ fn converter_byte_oracle_rejects_unrelated_edits_and_handles_utf8() {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_migrate_directives.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_migrate_directives"),
         ..ProptestConfig::default()
     })]
 

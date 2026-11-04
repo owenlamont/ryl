@@ -1,15 +1,12 @@
 use std::path::Path;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::format::format_str;
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_format_suppression.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_format_suppression"),
         ..ProptestConfig::default()
     })]
     #[test]

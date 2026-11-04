@@ -15,7 +15,6 @@
 //!    no `key-ordering` diagnostic remains.
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::{Overrides, YamlLintConfig, discover_config};
 use ryl::fix::apply_safe_fixes;
 use ryl::lint::lint_str;
@@ -260,9 +259,7 @@ fn sorted_lines(text: &str) -> Vec<String> {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_key_ordering_fix.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_key_ordering_fix"),
         ..ProptestConfig::default()
     })]
 

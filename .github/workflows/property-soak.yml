@@ -49,6 +49,6 @@ jobs:
         with:
           name: proptest-regressions
           path: |-
-            tests/proptest-regressions/
-            crates/ryl-yaml-parser/tests/proptest-regressions/
+            target/proptest-regressions/
+            crates/ryl-yaml-parser/target/proptest-regressions/
           if-no-files-found: ignore

@@ -12,7 +12,6 @@ use std::sync::LazyLock;
 
 use jsonschema::{Validator, validator_for};
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use quick_xml::Reader;
 use quick_xml::events::Event;
 use ryl::cli_support::github_escape;
@@ -145,9 +144,7 @@ fn read_attr(element: &quick_xml::events::BytesStart, key: &str) -> Option<Strin
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 512,
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_report.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_report"),
         ..ProptestConfig::default()
     })]
 

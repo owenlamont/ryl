@@ -184,7 +184,7 @@ fn invalid_bytes_inside_flow_collections_do_not_panic() {
 proptest! {
     #![proptest_config(ProptestConfig {
         failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_parser.txt",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/target/proptest-regressions/property_parser.txt"),
         ))),
         ..ProptestConfig::default()
     })]
@@ -259,7 +259,7 @@ proptest! {
     #![proptest_config(ProptestConfig {
         cases: 32,
         failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_parser.txt",
+            concat!(env!("CARGO_MANIFEST_DIR"), "/target/proptest-regressions/property_parser.txt"),
         ))),
         ..ProptestConfig::default()
     })]

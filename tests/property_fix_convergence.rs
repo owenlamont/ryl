@@ -14,7 +14,6 @@
 use crate::property::{ast, config, stack};
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::{
     FIX_PIPELINE_MAX_PASSES, RULE_FIX_MAX_ITERATIONS, apply_safe_fixes, safe_fix_start,
@@ -366,9 +365,7 @@ fn version_aware_comparison_still_rejects_changed_resolved_values() {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_fix_convergence.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_fix_convergence"),
         ..ProptestConfig::default()
     })]
 

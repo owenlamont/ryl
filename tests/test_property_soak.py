@@ -14,7 +14,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from property_soak import child_env, Run, soak, Suite, suites, summary
+from property_soak import (
+    child_env,
+    regression_report,
+    Run,
+    soak,
+    Suite,
+    suites,
+    summary,
+)
 
 
 CHECK: Final = Suite("ryl::integration", "property_check")
@@ -103,6 +111,27 @@ def test_child_env_draws_fresh_seeds_and_keeps_failure_persistence() -> None:
         "PROPTEST_DISABLE_FAILURE_PERSISTENCE": "1",
     }
     assert child_env(environ, cases=256) == {"PATH": "/bin", "PROPTEST_CASES": "256"}
+
+
+def test_regression_report_includes_both_packages(tmp_path: Path) -> None:
+    root_seed = tmp_path / "target/proptest-regressions/property_check.txt"
+    parser_seed = (
+        tmp_path
+        / "crates/ryl-yaml-parser/target/proptest-regressions/property_parser.txt"
+    )
+    root_seed.parent.mkdir(parents=True)
+    parser_seed.parent.mkdir(parents=True)
+    root_seed.write_text("cc root-seed\n")
+    parser_seed.write_text("cc parser-seed\n")
+    assert regression_report(tmp_path) == (
+        "target/proptest-regressions/property_check.txt:\ncc root-seed\n\n"
+        "crates/ryl-yaml-parser/target/proptest-regressions/property_parser.txt:\n"
+        "cc parser-seed\n"
+    )
+
+
+def test_regression_report_without_failures(tmp_path: Path) -> None:
+    assert regression_report(tmp_path) == ""
 
 
 if __name__ == "__main__":

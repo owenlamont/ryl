@@ -24,7 +24,6 @@ use std::path::Path;
 
 use lsp_types::Position;
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 
 use ryl::config::SourceKind;
 use ryl::fix::{Rewrite, apply_safe_fixes, rewrite_str};
@@ -133,9 +132,7 @@ fn position_to_byte(
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 512,
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_lsp.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_lsp"),
         ..ProptestConfig::default()
     })]
 

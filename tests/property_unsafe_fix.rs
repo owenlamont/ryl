@@ -21,7 +21,6 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::apply_safe_fixes;
 use ryl::rules::{octal_values, schema_dependent_values, truthy};
@@ -368,9 +367,7 @@ fn findings(text: &str, cfg: &YamlLintConfig) -> Vec<(String, bool)> {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_unsafe_fix.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_unsafe_fix"),
         ..ProptestConfig::default()
     })]
 
@@ -403,9 +400,7 @@ proptest! {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_unsafe_fix.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_unsafe_fix"),
         ..ProptestConfig::default()
     })]
 

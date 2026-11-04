@@ -18,8 +18,8 @@ import typer
 
 ROOT: Final = Path(__file__).resolve().parent.parent
 REGRESSION_DIRS: Final = (
-    "tests/proptest-regressions",
-    "crates/ryl-yaml-parser/tests/proptest-regressions",
+    "target/proptest-regressions",
+    "crates/ryl-yaml-parser/target/proptest-regressions",
 )
 _PROPERTY_FILTER: Final = "test(/^property_/)"
 _NEXTEST: Final = ("cargo", "nextest")
@@ -159,21 +159,19 @@ def _runner(env: Mapping[str, str]) -> Callable[[Suite], Run]:
     return run
 
 
-def _git(*args: str) -> str:
-    return subprocess.run(
-        ["git", *args, "--", *REGRESSION_DIRS],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
+def regression_report(root: Path) -> str:
+    """Return saved seed paths and contents beneath the workspace root."""
+    return "\n".join(
+        f"{path.relative_to(root)}:\n{path.read_text()}"
+        for directory in REGRESSION_DIRS
+        for path in sorted((root / directory).glob("*.txt"))
+    )
 
 
 def _report_failure(run: Run) -> None:
     typer.echo(run.output)
     typer.echo(f"{run.suite.module} failed; seeds now in the regression files:")
-    typer.echo(_git("status", "--porcelain", "--untracked-files=all"))
-    typer.echo(_git("diff"))
+    typer.echo(regression_report(ROOT))
 
 
 @app.command()

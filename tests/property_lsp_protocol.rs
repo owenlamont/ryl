@@ -36,7 +36,6 @@ use lsp_types::{
     Uri, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
 };
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use serde_json::{Value, json, to_value};
 use tempfile::tempdir;
 
@@ -434,9 +433,7 @@ fn formatting_params(uri: Uri) -> Value {
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 192,
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_lsp_protocol.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_lsp_protocol"),
         ..ProptestConfig::default()
     })]
 
