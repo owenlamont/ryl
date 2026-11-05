@@ -746,7 +746,8 @@ see [formatter imports](https://ryl-docs.pages.dev/getting-started/migrating-fro
    flags on the initial migration: retained YAML configs cause discovery warnings and
    can themselves be linted. To keep both tools, see [Keeping both files](#keeping-both-files).
 3. Replace `yamllint` with `ryl check` in CI and hooks. Convert comments with
-   `ryl --migrate-directives --migrate-from yamllint --migrate-write`.
+   `ryl --migrate-directives --migrate-from yamllint --migrate-write`. Keep the
+   yamllint spelling while yamllint still runs: yamllint ignores `# ryl` comments.
 4. Optionally review `ryl format --diff .` before adopting formatting. Generated
    `[format]` settings preserve choices the old lint config left unchecked.
 
@@ -793,6 +794,8 @@ positional paths: `ryl --migrate-configs sub/` exits 2, so scope it with
 
 To convert existing yamllint comments without importing configuration, preview
 `ryl --migrate-directives --migrate-from yamllint`; add `--migrate-write` to apply.
+Converted `# ryl` comments have no effect in yamllint. Keep `# yamllint` comments
+while yamllint still runs; aliases remain supported throughout 0.29.x.
 See [source comment conversion](https://ryl-docs.pages.dev/getting-started/migrating-from-formatters/#suppression-comments)
 for supported formatter markers and retained cases.
 
@@ -2997,6 +3000,9 @@ which enables only rules the formatter never touches and leaves layout to
 
 ## Running with `ryl check --fix`
 
+`# ryl format-ignore` and formatter regions do not stop `ryl check --fix` from
+rewriting protected nodes; lint fixes remain active.
+
 Run `ryl check --fix` before `ryl format`, in a pre-commit or prek config as on the
 command line, so the formatter has the last word on layout; ruff gives the same order
 for `ruff check --fix` and `ruff format`. Re-indenting can still push a line past
@@ -3265,14 +3271,18 @@ including a first-line `disable-file`, but only with the `ryl` spelling.
 ## yamllint compatibility
 
 The `# yamllint …` spelling remains accepted throughout 0.29.x, though only as a
-whole comment (see above). The CLI warns once per regular file or stdin input that
-uses an alias; use `# ryl …` instead or convert comments with `--migrate-directives`.
+whole comment (see above). The CLI warns once per run with the number of regular
+files or stdin inputs that use aliases; use `# ryl …` instead or convert comments
+with `--migrate-directives`.
 `--no-warnings`
 hides the notice. The notice does not affect lint results or strict-mode exit codes:
 
 ```yaml
 key:   value  # yamllint disable-line rule:colons
 ```
+
+Converted `# ryl` comments have no effect in yamllint. Keep the `# yamllint`
+spelling while yamllint still runs; aliases remain supported throughout 0.29.x.
 
 Preview and apply conversion (`--migrate-from yamllint` is optional):
 
@@ -4496,6 +4506,15 @@ which PyYAML reads as strings.
     1.2: `yes` means text and `0777` means decimal 777. For files written for
     PyYAML, Ansible or another 1.1 reader, set `source-version = "1.1"` first.
     Otherwise an unsafe fix can change the values your application loads.
+
+    For go-yaml consumers (Kubernetes, Helm, Docker Compose), neither setting matches
+    every value. With `"1.2"`, fix leading-zero octals such as `0777` by hand to
+    decimal `511`, and rewrite `1_000` and `0b1010` as decimal integers rather than
+    strings. With `"1.1"`, quote sexagesimal strings such as `22:22` by hand;
+    do not convert them to `1342`. go-yaml versions and typed fields also differ on
+    booleans and timestamps: check the [reader table](#which-yaml-version-each-reader-follows)
+    and your application's loaded values before fixing. Use `lint.unfixable` to
+    exclude `truthy`, `octal-values` or `schema-dependent-values` from bulk fixes.
 
 A document with no directive under the default `target-version = "1.1"` must
 mean the same to both versions, but a scalar such as `yes` already does not: a
@@ -7032,6 +7051,11 @@ permissions: 0o755
 
 ## Automatic fixing
 
+For go-yaml consumers (Kubernetes, Helm, Docker Compose), neither source version
+matches every value. Under `"1.2"`, fix `0777` by hand to decimal `511`; under
+`"1.1"`, handle sexagesimal strings separately.
+[Check the reader before bulk conversion](https://ryl-docs.pages.dev/yaml-version/#unsafe-fixes-and-source-version).
+
 No safe fix; rewriting an integer literal requires deciding whether the
 intended value is octal, decimal, or a string. In a document with no `%YAML`
 directive under the default `target-version = "1.1"`, an
@@ -7257,10 +7281,15 @@ config.yaml
   4:7       error    plain "08" is an integer in YAML 1.2 but a string in YAML 1.1  (schema-dependent-values)
   5:10      error    plain "y" is a string in YAML 1.2 but a boolean in YAML 1.1  (schema-dependent-values)
 
-5 unsafe fixes available with `--fix --unsafe-fixes`.
+5 unsafe fixes available with `--fix --unsafe-fixes` (source-version: 1.2; set source-version to change).
 ```
 
 ## Automatic fixing
+
+For go-yaml consumers (Kubernetes, Helm, Docker Compose), neither source version
+matches every value. Under `"1.1"`, quote sexagesimal strings such as `22:22` by hand
+instead of accepting numeric conversion; under `"1.2"`, handle leading-zero octals
+separately. [Check the reader before bulk conversion](https://ryl-docs.pages.dev/yaml-version/#unsafe-fixes-and-source-version).
 
 No safe fix. Quoting, retyping or rewriting the value each needs the author's
 intent: `22:22` may be a time of day or a port mapping, and `08` a zero-padded string
@@ -7612,6 +7641,11 @@ flagged. A document with no directive follows the top-level
 list by default, the 1.2 one under `target-version = "1.2"`.
 
 ## Automatic fixing
+
+For go-yaml consumers (Kubernetes, Helm, Docker Compose), neither source version
+matches every value; booleans depend on the loader version and destination field.
+[Check the reader and fix ambiguous values by hand](https://ryl-docs.pages.dev/yaml-version/#unsafe-fixes-and-source-version)
+before bulk conversion.
 
 `ryl check --fix` rewrites a flagged case variant of `true` or `false`
 (`True`, `TRUE`, `False`, `FALSE`) to the first spelling of the same boolean

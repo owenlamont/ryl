@@ -158,7 +158,7 @@ fn messages_name_the_fix_only_once_the_config_enables_it() {
 
 #[test]
 fn check_hints_at_unsafe_fixes_unless_turned_off() {
-    let hint = "3 unsafe fixes available with `--fix --unsafe-fixes`.";
+    let hint = "3 unsafe fixes available with `--fix --unsafe-fixes` (source-version: 1.2; set source-version to change).";
     let content = "a: yes\nb: 0777\nc: 22:22\n";
     let standard = ["check", "--format", "standard"];
     let (_, output, _) = ryl_with(RULES, content, &standard);
@@ -168,7 +168,7 @@ fn check_hints_at_unsafe_fixes_unless_turned_off() {
     assert!(output.contains(hint), "{output}");
     let (_, output, _) = ryl_with(RULES, "a: yes\n", &standard);
     assert!(
-        output.contains("1 unsafe fix available with `--fix --unsafe-fixes`."),
+        output.contains("1 unsafe fix available with `--fix --unsafe-fixes` (source-version: 1.2; set source-version to change)."),
         "{output}"
     );
     for (config, args) in [
@@ -272,4 +272,34 @@ fn effective_config_round_trips_the_unsafe_fix_settings() {
         error.contains("commas"),
         "a rule with no unsafe fix: {error}"
     );
+}
+
+#[test]
+fn unsafe_hint_names_the_configured_source_version_including_mixed_subtrees() {
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join("legacy")).unwrap();
+    fs::write(dir.path().join(".ryl.toml"), RULES).unwrap();
+    fs::write(
+        dir.path().join("legacy/.ryl.toml"),
+        format!("source-version = \"1.1\"\n{RULES}"),
+    )
+    .unwrap();
+    for file in ["a.yaml", "legacy/a.yaml"] {
+        fs::write(dir.path().join(file), "a: yes\n").unwrap();
+    }
+    for (inputs, version) in [
+        (vec!["legacy/a.yaml"], "1.1"),
+        (vec!["a.yaml", "legacy/a.yaml"], "1.1/1.2"),
+    ] {
+        let (_, _, stderr) = run(ryl(dir.path())
+            .current_dir(dir.path())
+            .args(["check", "--format", "standard"])
+            .args(inputs));
+        assert!(
+            stderr.contains(&format!(
+                "(source-version: {version}; set source-version to change)."
+            )),
+            "{stderr}"
+        );
+    }
 }

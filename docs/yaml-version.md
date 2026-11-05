@@ -145,6 +145,15 @@ which PyYAML reads as strings.
     PyYAML, Ansible or another 1.1 reader, set `source-version = "1.1"` first.
     Otherwise an unsafe fix can change the values your application loads.
 
+    For go-yaml consumers (Kubernetes, Helm, Docker Compose), neither setting matches
+    every value. With `"1.2"`, fix leading-zero octals such as `0777` by hand to
+    decimal `511`, and rewrite `1_000` and `0b1010` as decimal integers rather than
+    strings. With `"1.1"`, quote sexagesimal strings such as `22:22` by hand;
+    do not convert them to `1342`. go-yaml versions and typed fields also differ on
+    booleans and timestamps: check the [reader table](#which-yaml-version-each-reader-follows)
+    and your application's loaded values before fixing. Use `lint.unfixable` to
+    exclude `truthy`, `octal-values` or `schema-dependent-values` from bulk fixes.
+
 A document with no directive under the default `target-version = "1.1"` must
 mean the same to both versions, but a scalar such as `yes` already does not: a
 string to 1.2, a boolean to PyYAML. Rewriting it picks one reading, so

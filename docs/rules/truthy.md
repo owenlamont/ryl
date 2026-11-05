@@ -126,6 +126,11 @@ list by default, the 1.2 one under `target-version = "1.2"`.
 
 ## Automatic fixing
 
+For go-yaml consumers (Kubernetes, Helm, Docker Compose), neither source version
+matches every value; booleans depend on the loader version and destination field.
+[Check the reader and fix ambiguous values by hand](../yaml-version.md#unsafe-fixes-and-source-version)
+before bulk conversion.
+
 `ryl check --fix` rewrites a flagged case variant of `true` or `false`
 (`True`, `TRUE`, `False`, `FALSE`) to the first spelling of the same boolean
 that `allowed-values` permits, trying lowercase, then title case, then upper

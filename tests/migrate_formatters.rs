@@ -3201,3 +3201,66 @@ fn marker_removal_imports_without_an_option_warning() {
         );
     }
 }
+
+#[test]
+fn marker_import_conflicts_name_both_settings_and_resolutions_once() {
+    for (tool, filename, body, present, target) in [
+        (MigrationSource::Yamlfmt, ".yamlfmt", "{}", true, "remove"),
+        (
+            MigrationSource::Yamlfix,
+            ".yamlfix.toml",
+            "explicit_start = false\n",
+            true,
+            "remove",
+        ),
+        (
+            MigrationSource::Yamlfmt,
+            ".yamlfmt",
+            "formatter: {include_document_start: true}\n",
+            false,
+            "add",
+        ),
+        (
+            MigrationSource::Yamlfix,
+            ".yamlfix.toml",
+            "explicit_start = true\n",
+            false,
+            "add",
+        ),
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(filename), body).unwrap();
+        fs::write(
+            dir.path().join(".yamllint"),
+            format!(
+                "extends: default\nrules:\n  document-start: {{present: {present}}}\n"
+            ),
+        )
+        .unwrap();
+        let result = migrate_configs(&options(dir.path(), Some(tool))).unwrap();
+        let config = converted(&result);
+        assert_eq!(
+            config.rule_option_bool("document-start", "present", !present),
+            present
+        );
+        assert_eq!(
+            config.format().targets().document_start,
+            if present {
+                DocumentStartTarget::Remove
+            } else {
+                DocumentStartTarget::Add
+            }
+        );
+        let warnings: Vec<_> = result
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains("lint.rules.document-start.present"))
+            .collect();
+        assert_eq!(warnings.len(), 1, "{result:?}");
+        let expected = format!(
+            "lint.rules.document-start.present = {present} conflicts with format.document-start = \"{target}\"; set lint.rules.document-start.present = {} or format.document-start = \"preserve\"",
+            !present
+        );
+        assert!(warnings[0].contains(&expected), "{warnings:?}");
+    }
+}

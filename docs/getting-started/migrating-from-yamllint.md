@@ -77,7 +77,8 @@ see [formatter imports](migrating-from-formatters.md).
    flags on the initial migration: retained YAML configs cause discovery warnings and
    can themselves be linted. To keep both tools, see [Keeping both files](#keeping-both-files).
 3. Replace `yamllint` with `ryl check` in CI and hooks. Convert comments with
-   `ryl --migrate-directives --migrate-from yamllint --migrate-write`.
+   `ryl --migrate-directives --migrate-from yamllint --migrate-write`. Keep the
+   yamllint spelling while yamllint still runs: yamllint ignores `# ryl` comments.
 4. Optionally review `ryl format --diff .` before adopting formatting. Generated
    `[format]` settings preserve choices the old lint config left unchecked.
 
@@ -124,6 +125,8 @@ positional paths: `ryl --migrate-configs sub/` exits 2, so scope it with
 
 To convert existing yamllint comments without importing configuration, preview
 `ryl --migrate-directives --migrate-from yamllint`; add `--migrate-write` to apply.
+Converted `# ryl` comments have no effect in yamllint. Keep `# yamllint` comments
+while yamllint still runs; aliases remain supported throughout 0.29.x.
 See [source comment conversion](migrating-from-formatters.md#suppression-comments)
 for supported formatter markers and retained cases.
 

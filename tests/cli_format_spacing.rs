@@ -166,7 +166,7 @@ fn format_check_fails_only_on_what_it_would_change() {
         COMPACT.replace("a: 1", "a: 1  # yamllint disable-line rule:hyphens");
     let (code, stderr, _) = run_on(&disabled, &["format", "--check"]);
     assert_eq!(code, 0, "{stderr}");
-    assert!(stderr.ends_with("1 file already formatted\n"), "{stderr}");
+    assert!(stderr.contains("1 file already formatted\n"), "{stderr}");
     assert_eq!(
         stderr
             .matches("yamllint directive aliases are deprecated")

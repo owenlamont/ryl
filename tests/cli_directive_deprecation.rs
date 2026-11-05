@@ -42,7 +42,8 @@ fn file_commands_warn_once_without_changing_clean_status_or_stdout() {
                 let (code, stdout, stderr) = run(&mut cmd);
                 assert_eq!(code, 0, "{mode:?} {stdout}{stderr}");
                 assert_eq!(stderr.matches(NOTICE).count(), 1, "{mode:?} {stderr}");
-                assert!(stderr.contains("a.yaml:1:"), "{stderr}");
+                assert!(stderr.contains("deprecated in 1 file;"), "{stderr}");
+                assert!(stderr.lines().last().unwrap().contains(NOTICE), "{stderr}");
                 assert!(!stdout.contains(NOTICE), "{stdout}");
                 cmd.arg("--no-warnings");
                 let (quiet_code, _, quiet) = run(&mut cmd);
@@ -78,7 +79,7 @@ fn stdin_commands_warn_once_and_keep_warnings_off_stdout() {
             );
             assert!(!stdout.contains(NOTICE), "{stdout}");
             if !quiet {
-                assert!(stderr.contains("<stdin>:1:"), "{stderr}");
+                assert!(stderr.contains("deprecated in 1 file;"), "{stderr}");
             }
         }
     }
@@ -141,7 +142,7 @@ fn disable_file_alias_still_warns_without_lint_findings() {
 }
 
 #[test]
-fn markdown_warning_uses_first_active_region_host_line() {
+fn markdown_warning_counts_the_host_once_across_active_regions() {
     let dir = project(&format!("files = {{ markdown = [\"*.md\"] }}\n{CONFIG}"));
     let body = "# yamllint enable\n\n```text\n# yamllint enable\n```\n\n> ```yaml\n> # yamllint enable\n> a: 1\n> ```\n\n```yaml\n# yamllint enable\n```\n";
     fs::write(dir.path().join("a.md"), body).unwrap();
@@ -149,7 +150,7 @@ fn markdown_warning_uses_first_active_region_host_line() {
         let (code, _, stderr) = run(command(&dir).args(mode).arg("a.md"));
         assert_eq!(code, 0, "{stderr}");
         assert_eq!(stderr.matches(NOTICE).count(), 1, "{stderr}");
-        assert!(stderr.contains("a.md:8:"), "{stderr}");
+        assert!(stderr.contains("deprecated in 1 file;"), "{stderr}");
     }
 }
 
@@ -264,7 +265,7 @@ fn excluded_inputs_ignored_stdin_and_templates_do_not_warn() {
 }
 
 #[test]
-fn stdin_markdown_and_explicit_filename_use_host_location() {
+fn stdin_markdown_counts_as_one_file() {
     let dir = project(CONFIG);
     let input = "heading\n\n```yaml\n# yamllint enable\na: 1\n```\n";
     let (code, _, stderr) = run_with_stdin(
@@ -278,7 +279,7 @@ fn stdin_markdown_and_explicit_filename_use_host_location() {
         input.as_bytes(),
     );
     assert_eq!(code, 0, "{stderr}");
-    assert!(stderr.contains("article.md:4:"), "{stderr}");
+    assert!(stderr.contains("deprecated in 1 file;"), "{stderr}");
     assert_eq!(stderr.matches(NOTICE).count(), 1, "{stderr}");
 }
 
@@ -341,7 +342,7 @@ fn rewrite_warning_probe_does_not_replace_missing_file_errors() {
 }
 
 #[test]
-fn parallel_lint_notices_follow_input_order_in_baselines_and_cache_hits() {
+fn parallel_lint_summarizes_all_files_in_baselines_and_cache_hits() {
     let dir = project(CONFIG);
     let files: Vec<_> = (0..9).map(|index| format!("file-{index}.yaml")).collect();
     for (index, file) in files.iter().enumerate() {
@@ -367,15 +368,14 @@ fn parallel_lint_notices_follow_input_order_in_baselines_and_cache_hits() {
             .lines()
             .filter(|line| line.contains(NOTICE))
             .collect();
-        assert_eq!(actual.len(), files.len(), "{stderr}");
-        for (line, file) in actual.iter().zip(&files) {
-            assert!(line.contains(&format!("{file}:1:")), "{stderr}");
-        }
+        assert_eq!(actual.len(), 1, "{stderr}");
+        assert!(actual[0].contains("deprecated in 9 files;"), "{stderr}");
+        assert!(actual[0].contains("ryl --migrate-directives"), "{stderr}");
     }
 }
 
 #[test]
-fn rewrite_notices_keep_input_order_with_parse_skips_and_cached_neighbors() {
+fn rewrite_summary_follows_parse_skips_and_cached_neighbors() {
     let dir = project(CONFIG);
     fs::write(dir.path().join("first.yaml"), "a: [\n").unwrap();
     fs::write(dir.path().join("second.yaml"), SOURCE).unwrap();
@@ -393,16 +393,18 @@ fn rewrite_notices_keep_input_order_with_parse_skips_and_cached_neighbors() {
             let first = stderr
                 .find("first.yaml")
                 .expect("first input has a parse skip");
-            let second = stderr
-                .find("second.yaml")
-                .expect("second input has an alias notice");
+            let second = stderr.find(NOTICE).expect("alias summary exists");
+            assert_eq!(
+                stderr.lines().last().unwrap(),
+                stderr[second - "warning: ".len()..].trim_end()
+            );
             assert!(first < second, "{stderr}");
         }
     }
 }
 
 #[test]
-fn rewrite_notices_keep_input_order_between_cache_hits_and_misses() {
+fn rewrite_summary_combines_cache_hits_and_misses() {
     let dir = project(CONFIG);
     fs::write(dir.path().join("hit.yaml"), SOURCE).unwrap();
     let (code, _, stderr) = run(command(&dir).args(["format", "hit.yaml"]));
@@ -412,13 +414,8 @@ fn rewrite_notices_keep_input_order_between_cache_hits_and_misses() {
             fs::write(dir.path().join("miss.yaml"), format!("{SOURCE}b:   2\n"))
                 .unwrap();
             let (_, _, stderr) = run(command(&dir).args(&mode).args(inputs));
-            let notice_at = |file: &str| {
-                stderr
-                    .find(&format!("{file}:1: {NOTICE}"))
-                    .unwrap_or_else(|| panic!("{mode:?} {inputs:?}: {stderr}"))
-            };
-            assert!(notice_at(inputs[0]) < notice_at(inputs[1]), "{stderr}");
-            assert_eq!(stderr.matches(NOTICE).count(), 2, "{stderr}");
+            assert!(stderr.contains("deprecated in 2 files;"), "{stderr}");
+            assert_eq!(stderr.matches(NOTICE).count(), 1, "{stderr}");
         }
     }
 }

@@ -50,6 +50,11 @@ permissions: 0o755
 
 ## Automatic fixing
 
+For go-yaml consumers (Kubernetes, Helm, Docker Compose), neither source version
+matches every value. Under `"1.2"`, fix `0777` by hand to decimal `511`; under
+`"1.1"`, handle sexagesimal strings separately.
+[Check the reader before bulk conversion](../yaml-version.md#unsafe-fixes-and-source-version).
+
 No safe fix; rewriting an integer literal requires deciding whether the
 intended value is octal, decimal, or a string. In a document with no `%YAML`
 directive under the default `target-version = "1.1"`, an

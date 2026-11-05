@@ -1095,3 +1095,16 @@ fn clean_legacy_migration_rerun_does_not_repeat_conversion_warnings() {
     assert_eq!(code, 0, "{stderr}");
     assert!(stderr.is_empty(), "{stderr}");
 }
+
+#[test]
+fn directive_only_stdout_explains_the_default_preview() {
+    let dir = tempdir().unwrap();
+    let (code, stdout, stderr) =
+        run(cli(dir.path()).args(["--migrate-directives", "--migrate-stdout"]));
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert_eq!(
+        stderr.trim(),
+        "error: `--migrate-stdout` applies to config migration; `--migrate-directives` previews changes by default"
+    );
+}

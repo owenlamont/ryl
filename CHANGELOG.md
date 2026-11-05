@@ -69,12 +69,15 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Deprecated
 
-- Legacy `yamllint` suppression comments emit a CLI deprecation notice. Aliases
-  remain supported throughout 0.29.x; convert active aliases with
-  `--migrate-directives`. ([#660](https://github.com/owenlamont/ryl/issues/660))
+- Legacy `yamllint` suppression comments emit one CLI deprecation notice per run,
+  with a count of affected files. Aliases remain supported throughout 0.29.x;
+  convert active aliases with `--migrate-directives`.
+  ([#660](https://github.com/owenlamont/ryl/issues/660))
 
 ### Changed
 
+- Lint `document-start` with `present = false` now safely strips the optional
+  first `---` during `ryl check --fix`. Required document boundaries stay intact.
 - **Behaviour change for `sequence-style = "flow"` / `mapping-style = "flow"`:** a flow
   collection too long for `line-length` on one line, which `ryl format` used to leave
   alone, now becomes block, and each collection nested in it stays flow only where it
@@ -83,7 +86,8 @@ summarize user-visible changes from the tagged commits and published release rec
 - `indentation` expects a block body after a value's anchor and tag
   (`a: &x !!map`) `indent-width` past its key, as after a lone anchor or tag, rather
   than at the anchor's column as yamllint does; `ryl format` re-indents such bodies
-  once. ([#913](https://github.com/owenlamont/ryl/pull/913))
+  once; a parallel yamllint run will disagree on the body indentation.
+  ([#913](https://github.com/owenlamont/ryl/pull/913))
 - `ryl check` sorts each file's diagnostics by line, column, then rule ID, as yamllint
   and ruff do, rather than grouping them by rule. Files stay in input order.
   ([#905](https://github.com/owenlamont/ryl/issues/905))

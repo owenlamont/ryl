@@ -718,6 +718,9 @@ which enables only rules the formatter never touches and leaves layout to
 
 ## Running with `ryl check --fix`
 
+`# ryl format-ignore` and formatter regions do not stop `ryl check --fix` from
+rewriting protected nodes; lint fixes remain active.
+
 Run `ryl check --fix` before `ryl format`, in a pre-commit or prek config as on the
 command line, so the formatter has the last word on layout; ruff gives the same order
 for `ruff check --fix` and `ruff format`. Re-indenting can still push a line past

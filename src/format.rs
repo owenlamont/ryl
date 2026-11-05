@@ -670,6 +670,14 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
         .filter(|rule| rejected.contains(rule))
         .filter_map(|rule| {
             target(rule, cfg).map(|target| {
+                if rule == document_start::ID {
+                    let present = document_start::Config::resolve(cfg).requires_marker();
+                    let format = if present { "remove" } else { "add" };
+                    return format!(
+                        "the document-start lint rule's options are incompatible: lint.rules.document-start.present = {present} conflicts with format.document-start = \"{format}\"; set lint.rules.document-start.present = {} or format.document-start = \"preserve\"",
+                        !present
+                    );
+                }
                 format!(
                     "the {rule} lint rule's options are incompatible with the \
                      formatter's {target}. Disable {rule} when using `ryl format`, or \

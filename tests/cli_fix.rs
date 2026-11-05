@@ -1295,7 +1295,7 @@ fn fix_summary_counts_fixes_that_introduce_another_rules_problem() {
 }
 
 #[test]
-fn hard_links_emit_each_legacy_directive_notice_once() {
+fn hard_links_count_each_path_in_one_legacy_directive_summary() {
     let dir = tempdir().unwrap();
     let first = dir.path().join("a.yaml");
     let second = dir.path().join("b.yaml");
@@ -1316,9 +1316,10 @@ fn hard_links_emit_each_legacy_directive_notice_once() {
     assert_eq!(code, 0, "{stderr}");
     assert_eq!(
         stderr.matches("directive aliases are deprecated").count(),
-        2,
+        1,
         "{stderr}"
     );
+    assert!(stderr.contains("deprecated in 2 files;"), "{stderr}");
     assert_eq!(
         fs::read_to_string(&second).unwrap(),
         "# yamllint enable\na: 1\n"

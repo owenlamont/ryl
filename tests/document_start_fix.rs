@@ -223,3 +223,36 @@ fn only_document_start_accepts_the_remove_target() {
         );
     }
 }
+
+#[test]
+fn removal_normalizes_blank_lines_in_one_format_pass() {
+    for newline in ["\n", "\r\n"] {
+        for settings in ["", "max-blank-lines = 0\n", "max-blank-lines = 4\n"] {
+            let cfg = ryl::config::YamlLintConfig::from_toml_str(&format!(
+                "[format]\ndocument-start = 'remove'\nline-ending = 'auto'\n{settings}"
+            ))
+            .unwrap();
+            for (input, expected) in [
+                ("---\n\n\na: 1\n", "a: 1\n"),
+                (
+                    "---\n# c\n\na: 1\n",
+                    if settings.contains("= 0") {
+                        "# c\na: 1\n"
+                    } else {
+                        "# c\n\na: 1\n"
+                    },
+                ),
+            ] {
+                let input = input.replace('\n', newline);
+                let expected = expected.replace('\n', newline);
+                let once =
+                    ryl::format::format_str(&input, &cfg, Path::new("s.yaml"), &[]);
+                assert_eq!(once, expected, "{settings:?} {input:?}");
+                assert_eq!(
+                    ryl::format::format_str(&once, &cfg, Path::new("s.yaml"), &[]),
+                    once
+                );
+            }
+        }
+    }
+}
