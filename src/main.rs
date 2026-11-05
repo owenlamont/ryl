@@ -2338,9 +2338,8 @@ fn lint_files_cached(
             entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
         {
             warn_cached_encoding_override();
-            if let Some((_, bytes)) = &entry {
-                deprecation::record_bytes(bytes, cfg, *kind, no_warnings);
-            }
+            let (_, bytes) = entry.as_ref().expect("a lint cache hit has an entry");
+            deprecation::record_bytes(bytes, cfg, *kind, no_warnings);
             return Ok((Ok(problems), None));
         }
         let outcome = match entry.as_ref() {

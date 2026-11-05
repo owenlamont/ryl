@@ -400,14 +400,13 @@ pub fn rewrite_files(
     let aliases = rewrite == Rewrite::Fix
         && (batches.len() > 1 || files.iter().any(|file| is_symlink(&file.0)));
     let original = aliases.then(|| check_files(files, notice));
-    let notice: Notice<'_> = if aliases { &|_, _| None } else { notice };
+    let notice: Notice<'_> = if aliases { &|_, _| {} } else { notice };
     for batch in batches {
         let _ = read_in_order(
             &files[batch.clone()],
             notice,
             ReadOptions {
                 follow_symlinks: false,
-                notice_first: rewrite == Rewrite::Format,
             },
             |decoded, (path, base_dir, cfg, kind)| {
                 let output = rewrite_checked(
@@ -488,7 +487,7 @@ pub fn rewrite_files(
     if let Some((before, notices)) = original {
         stats.before = before;
         stats.leading_notices = notices;
-        stats.after = check_files(files, &|_, _| None).0;
+        stats.after = check_files(files, &|_, _| {}).0;
         for (index, error) in &stats.errors {
             stats.before[*index] = Err(error.clone());
             stats.after[*index] = Err(error.clone());
@@ -508,7 +507,6 @@ fn check_files(
         notice,
         ReadOptions {
             follow_symlinks: true,
-            notice_first: false,
         },
         |decoded, (path, base_dir, cfg, kind)| {
             Ok(match kind {
@@ -538,7 +536,6 @@ fn check_files(
 #[derive(Clone, Copy)]
 struct ReadOptions {
     follow_symlinks: bool,
-    notice_first: bool,
 }
 
 /// Input ranges in which no two paths name the same file, so the later path of a hard link
@@ -562,8 +559,8 @@ fn hard_link_batches(files: &[LintFile]) -> Vec<std::ops::Range<usize>> {
     batches
 }
 
-/// A file's leading stderr notice, derived from its decoded content.
-pub type Notice<'a> = &'a (dyn Fn(&str, &LintFile) -> Option<String> + Sync);
+/// Inspect decoded regular-file content before rewriting.
+pub type Notice<'a> = &'a (dyn Fn(&str, &LintFile) + Sync);
 
 /// Read and replay each result and its stderr in input order.
 fn read_in_order<T: Send>(
@@ -571,7 +568,7 @@ fn read_in_order<T: Send>(
     notice: Notice<'_>,
     options: ReadOptions,
     compute: impl Fn(decoder::DecodedFile, &LintFile) -> Result<T, String> + Sync,
-    mut emit: impl FnMut(usize, (Result<T, String>, Vec<u8>)) -> Result<(), String>,
+    emit: impl FnMut(usize, (Result<T, String>, Vec<u8>)) -> Result<(), String>,
 ) -> Result<(), String> {
     crate::cli_support::try_for_each_ordered(
         files,
@@ -581,32 +578,21 @@ fn read_in_order<T: Send>(
             if !options.follow_symlinks
                 && file_type.as_ref().is_ok_and(std::fs::FileType::is_symlink)
             {
-                return (None, Err(format!("skipped symlink {}", file.0.display())));
+                return Err(format!("skipped symlink {}", file.0.display()));
             }
             match decoder::read_file_lossless(&file.0) {
-                Ok(decoded) => (
-                    file_type
-                        .is_ok_and(|kind| {
-                            kind.is_file()
-                                || options.follow_symlinks && kind.is_symlink()
-                        })
-                        .then(|| notice(decoded.content(), file))
-                        .flatten(),
-                    compute(decoded, file),
-                ),
-                Err(error) => (None, Err(error)),
+                Ok(decoded) => {
+                    if file_type.is_ok_and(|kind| {
+                        kind.is_file() || options.follow_symlinks && kind.is_symlink()
+                    }) {
+                        notice(decoded.content(), file);
+                    }
+                    compute(decoded, file)
+                }
+                Err(error) => Err(error),
             }
         },
-        |index, ((notice, result), stderr)| {
-            let stderr = match notice {
-                Some(notice) if options.notice_first => {
-                    [notice.into_bytes(), stderr].concat()
-                }
-                Some(notice) => [stderr, notice.into_bytes()].concat(),
-                None => stderr,
-            };
-            emit(index, (result, stderr))
-        },
+        emit,
     )
 }
 
@@ -1255,7 +1241,6 @@ pub fn diff_files<'a>(
         notice,
         ReadOptions {
             follow_symlinks: false,
-            notice_first: true,
         },
         |decoded, (path, base_dir, cfg, kind)| {
             Ok(decoded_diff_outcome(

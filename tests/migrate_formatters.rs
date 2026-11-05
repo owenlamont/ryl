@@ -3264,3 +3264,18 @@ fn marker_import_conflicts_name_both_settings_and_resolutions_once() {
         assert!(warnings[0].contains(&expected), "{warnings:?}");
     }
 }
+
+#[test]
+fn competing_yamlfix_and_yamlfmt_configs_name_both_selection_flags() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".yamlfmt"), "{}").unwrap();
+    fs::write(dir.path().join(".yamlfix.toml"), "").unwrap();
+    let error = migrate_configs(&options(dir.path(), None)).unwrap_err();
+    assert_eq!(
+        error,
+        format!(
+            "multiple YAML formatter configurations apply in {} (yamlfmt, yamlfix); select one with --migrate-from",
+            dir.path().display()
+        )
+    );
+}

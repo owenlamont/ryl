@@ -52,11 +52,9 @@ pub(crate) fn record_bytes(
         return;
     }
     let encoding = std::env::var("YAMLLINT_FILE_ENCODING").ok();
-    if let Ok(content) =
-        ryl::decoder::decode_bytes_with_override(bytes, encoding.as_deref())
-    {
-        record(&content, cfg, kind, false);
-    }
+    let content = ryl::decoder::decode_bytes_with_override(bytes, encoding.as_deref())
+        .expect("cached content was decoded successfully under the same encoding");
+    record(&content, cfg, kind, false);
 }
 
 pub(crate) fn emit_summary() {
@@ -69,11 +67,8 @@ pub(crate) fn emit_summary() {
     }
 }
 
-pub(crate) fn file_notice(
-    no_warnings: bool,
-) -> impl Fn(&str, &LintFile) -> Option<String> + Sync {
+pub(crate) fn file_notice(no_warnings: bool) -> impl Fn(&str, &LintFile) + Sync {
     move |content, (_, _, cfg, kind)| {
         record(content, cfg, *kind, no_warnings);
-        None
     }
 }

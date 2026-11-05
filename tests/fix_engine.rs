@@ -19,7 +19,7 @@ fn rewrite_one_file(path: &Path, cfg: YamlLintConfig, base_dir: &Path) -> FixSta
             SourceKind::Yaml,
         )],
         Rewrite::Fix,
-        &|_, _| None,
+        &|_, _| {},
     )
 }
 
@@ -239,7 +239,7 @@ fn apply_safe_fixes_to_files_updates_each_entry() {
         ),
     ];
 
-    let stats = rewrite_files(&files, Rewrite::Fix, &|_, _| None);
+    let stats = rewrite_files(&files, Rewrite::Fix, &|_, _| {});
 
     assert_eq!(
         fs::read_to_string(&first).unwrap(),

@@ -18,11 +18,12 @@ macro_rules! option_union {
                 #[derive(Deserialize)]
                 #[serde(untagged)]
                 enum Options { $($variant($type)),+ }
-                let value = serde_json::Value::deserialize(deserializer)?;
-                match Options::deserialize(&value) {
-                    Ok(options) => Ok(match options { $(Options::$variant(value) => Self::$variant(value)),+ }),
-                    Err(_) => Err(invalid_option_value(&value, $expected)),
-                }
+                serde_json::Value::deserialize(deserializer).and_then(|value| {
+                    match Options::deserialize(&value) {
+                        Ok(options) => Ok(match options { $(Options::$variant(value) => Self::$variant(value)),+ }),
+                        Err(_) => Err(invalid_option_value(&value, $expected)),
+                    }
+                })
             }
         }
     };
@@ -193,7 +194,8 @@ impl<'de, K: DeserializeSeed<'de>> DeserializeSeed<'de> for OptionKeySeed<K> {
         self,
         deserializer: D,
     ) -> Result<Self::Value, D::Error> {
-        let key = String::deserialize(deserializer)?;
+        let key =
+            String::deserialize(deserializer).expect("TOML option keys are strings");
         match key.as_str() {
             "level" | "ignore" | "ignore-from-file" => {
                 Ok(OptionKey::Common(key, self.0))

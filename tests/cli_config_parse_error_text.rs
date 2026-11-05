@@ -203,3 +203,54 @@ fn pattern_file_errors_name_the_selected_toml_key() {
         "{stderr}"
     );
 }
+
+#[test]
+fn option_unions_propagate_numbers_beyond_the_json_range() {
+    for (table, key) in [
+        ("", "exclude"),
+        ("[lint.rules.braces]\n", "forbid"),
+        ("[lint.rules.indentation]\n", "spaces"),
+        ("[lint.rules.indentation]\n", "indent-sequences"),
+        ("[lint.rules.quoted-strings]\n", "required"),
+    ] {
+        let error = config_error(
+            "bad.toml",
+            &format!("{table}{key} = 18446744073709551616\n"),
+        );
+        assert!(error.contains("JSON number out of range"), "{error}");
+        assert!(error.ends_with(&format!("{key}`")), "{error}");
+    }
+}
+
+#[test]
+fn nonfinite_option_values_are_reported_as_unit_values() {
+    assert_eq!(
+        config_error("bad.toml", "exclude = nan\n"),
+        "failed to parse config data: TOML parse error at line 1, column 11: invalid value: unit value, expected a string or a list of strings in `exclude`"
+    );
+}
+
+#[test]
+fn unsigned_option_values_keep_their_full_integer_in_the_error() {
+    assert_eq!(
+        config_error("bad.toml", "exclude = 9223372036854775808\n"),
+        "failed to parse config data: TOML parse error at line 1, column 11: invalid value: integer `9223372036854775808`, expected a string or a list of strings in `exclude`"
+    );
+}
+
+#[test]
+fn line_length_common_options_reject_invalid_values() {
+    for (key, expected) in [
+        ("future-option", "unknown field `future-option`"),
+        ("level", "wanted string or table"),
+        ("ignore", "expected a string or a list of strings"),
+        ("ignore-from-file", "expected a string or a list of strings"),
+    ] {
+        let error = config_error(
+            "bad.toml",
+            &format!("[lint.rules.line-length]\n{key} = 1\n"),
+        );
+        assert!(error.contains(expected), "{key}: {error}");
+        assert!(error.contains("lint.rules.line-length"), "{error}");
+    }
+}

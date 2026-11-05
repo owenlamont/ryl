@@ -122,9 +122,9 @@ fn removal(input: Analysis<'_>) -> Option<Edit> {
         return None;
     }
     let mut events = input.event_iter();
-    events.find(|(event, _)| {
-        matches!(event, ryl_yaml_parser::Event::DocumentStart(..))
-    })?;
+    events
+        .find(|(event, _)| matches!(event, ryl_yaml_parser::Event::DocumentStart(..)))
+        .expect("starts found a document start in the same event stream");
     let (event, span) = events.next()?;
     if matches!(event, ryl_yaml_parser::Event::Scalar(..)) && span.is_empty() {
         return None;

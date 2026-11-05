@@ -256,3 +256,13 @@ fn removal_normalizes_blank_lines_in_one_format_pass() {
         }
     }
 }
+
+#[test]
+fn removal_leaves_a_stream_without_documents_unchanged() {
+    assert_eq!(document_start::fix("", &Config::new(false)), None);
+}
+
+#[test]
+fn removal_leaves_an_invalid_document_body_unchanged() {
+    assert_eq!(document_start::fix("--- @", &Config::new(false)), None);
+}
