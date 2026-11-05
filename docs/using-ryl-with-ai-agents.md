@@ -35,8 +35,10 @@ configuration warnings and deprecation notices; deprecation notices alone do not
 fail strict mode.
 
 Formatting defaults to two-space indentation; set top-level `indent-width` to keep
-another width. `format --disable` suppresses lint conflict warnings without
-disabling formatting passes. For syntax repair and encoded diff exit codes, use
+another width. For [lint conflict warnings](formatter.md#conflicting-lint-rules),
+use `format --disable <RULES>` to silence selected rules or `--no-warnings` to
+silence all warnings; formatting passes still run. For syntax repair and encoded
+diff exit codes, use
 the [formatter guarantees](formatter.md#guarantees) and
 [diff guidance](getting-started/quickstart.md#preview-fixes-as-a-diff).
 

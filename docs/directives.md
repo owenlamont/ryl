@@ -106,6 +106,13 @@ hides the notice. The notice does not affect lint results or strict-mode exit co
 key:   value  # yamllint disable-line rule:colons
 ```
 
+Preview and apply conversion (`--migrate-from yamllint` is optional):
+
+```bash
+ryl --migrate-directives --migrate-from yamllint
+ryl --migrate-directives --migrate-from yamllint --migrate-write
+```
+
 Both spellings follow the same grammar. A comment (or, for
 `# ryl …`, one `#` part of it) is only treated as a directive when it matches
 precisely &mdash; a single space after `#`, single
@@ -164,6 +171,20 @@ Only own-line YAML comments are recognized. Text inside strings or scalar bodies
 is ordinary data. Protected lines retain their spacing, quotes and line endings.
 Structural conversions and re-indentation can be left as written when suppression
 prevents applying them safely.
+
+With `sequence-style = "block"`, the following is both input and output:
+
+```yaml
+# ryl format-disable
+manually:    [1,2]
+# ryl format-enable
+formatted:
+  - 1
+  - 2
+```
+
+`ryl format --check` exits `0` for that file: the protected flow sequence produces
+neither an `unformatted` finding nor a refusal notice.
 
 ## Embedded Markdown
 

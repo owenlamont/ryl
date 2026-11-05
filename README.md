@@ -77,9 +77,10 @@ In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-a
   and `--diff` modes preview changes without writing; `[format]` in TOML controls
   the style. It also formats embedded YAML in Markdown with `--markdown`.
   Retain optional quotes with `keep-quotes = true`, or configure prose with
-  `prose-wrap = "preserve"`, `"always"` or `"never"`. Own-line
-  `# ryl format-ignore` protects the next node; `format-disable` / `format-enable`
-  protect a region while lint checks remain active.
+  `prose-wrap = "preserve"`, `"always"` or `"never"`.
+- [Protect formatting](docs/directives.md#formatter-only-suppression) with own-line
+  `# ryl format-ignore` for the next node, or `format-disable` / `format-enable`
+  for a region. Lint checks remain active.
 - ryl includes 29 rules, including `tags`, `merge-keys`,
   `block-scalar-chomping`, `unicode-line-breaks`, `yaml-directive` and
   `schema-dependent-values`. The rule reference

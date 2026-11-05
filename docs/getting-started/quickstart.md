@@ -293,7 +293,9 @@ If you already have a yamllint configuration, use the built-in converter:
 ryl --migrate-configs --migrate-write
 ```
 
-See [Migrating from yamllint](migrating-from-yamllint.md) for details.
+The converter also imports a formatter config found beside yamllint. Follow
+[After migrating](migrating-from-yamllint.md#after-migrating) to verify diagnostics,
+clean up old configs and update CI.
 
 Earlier releases put `[rules]`, `[fix]`, `per-file-ignores` and
 `per-line-ignores` at the top level. ryl still reads them, but warns once per

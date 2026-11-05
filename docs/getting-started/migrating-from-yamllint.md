@@ -47,9 +47,6 @@ Without `indent-width`, the lint rule still defaults to `"consistent"`.
 
 ## Automatic migration
 
-The converter also imports [YAML formatter configurations](migrating-from-formatters.md),
-combining one formatter with colocated yamllint lint settings.
-
 ryl ships with a built-in converter. From the root of your project:
 
 ```bash
@@ -68,6 +65,23 @@ ryl --migrate-configs --migrate-write --migrate-delete-old
 # Write and rename the original YAML configs (e.g. .yamllint.bak)
 ryl --migrate-configs --migrate-write --migrate-rename-old .bak
 ```
+
+The bare command also imports Prettier, yamlfmt, dprint or yamlfix settings found
+beside yamllint. Use `--migrate-from yamllint` to select only the linter;
+see [formatter imports](migrating-from-formatters.md).
+
+### After migrating
+
+1. Run `ryl check .` and compare diagnostics with yamllint.
+2. Remove or rename the old `.yamllint` if you no longer use yamllint. Prefer cleanup
+   flags on the initial migration: retained YAML configs cause discovery warnings and
+   can themselves be linted. To keep both tools, see [Keeping both files](#keeping-both-files).
+3. Replace `yamllint` with `ryl check` in CI and hooks. Convert comments with
+   `ryl --migrate-directives --migrate-from yamllint --migrate-write`.
+4. Optionally review `ryl format --diff .` before adopting formatting. Generated
+   `[format]` settings preserve choices the old lint config left unchecked.
+
+### User-global configuration
 
 To migrate your **user-global** yamllint config (the personal defaults at
 `<config-dir>/yamllint/config`) to ryl's own location
@@ -166,9 +180,6 @@ targets:
 | :--- | :--- |
 | `quote-style` | leaves `quoted-strings` off, as `extends: default` does |
 | `comment-starting-space` | leaves `comments` off, or sets its `require-starting-space: false` |
-
-After migration, run `ryl check .` to confirm diagnostics match what yamllint
-produced.
 
 ## What is preserved
 

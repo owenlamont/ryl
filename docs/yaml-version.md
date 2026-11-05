@@ -2,24 +2,49 @@
 
 ## How ryl handles YAML versions
 
-ryl parses YAML with its own fork of [granit-parser][granit]. It resolves a
-document with no `%YAML` directive under the YAML 1.2 core schema, as the spec
-directs. By default (`target-version = "1.1"`), `ryl format` and `--fix` write
-output that YAML 1.1 readers such as [PyYAML][pyyaml-home] and go-yaml v2 load to the
-same values, and the value rules flag plain scalars whose meaning differs
-between the two versions, so files drift toward spellings both read alike. Set
-`target-version = "1.2"` once every consumer is a YAML 1.2 reader.
-
-```toml
-target-version = "1.2"
-```
-
-Two top-level settings name a YAML version, and neither needs setting:
+A **reader** is the program or library loading your YAML. Two top-level TOML
+settings distinguish who must read the output from what the input originally meant:
 
 | Setting | Question it answers | Default | What it changes |
 | :--- | :--- | :--- | :--- |
 | `target-version` | Which readers must the output suit? | `"1.1"` | What the rules flag and what `ryl format` and `--fix` write |
 | `source-version` | Which version did the author of an undeclared document mean? | `"1.2"` | Only the direction of an [unsafe fix](#unsafe-fixes-and-source-version) |
+
+ryl parses YAML with its own fork of [granit-parser][granit]. A document with no
+`%YAML` directive uses the YAML 1.2 **core schema**: the standard rules deciding
+whether an unquoted value is a string, number, boolean or null. The default target
+keeps output compatible with 1.1 readers too. See [what differs in 1.2](#what-is-different-in-yaml-12).
+
+### Migrate undeclared YAML 1.1 files safely
+
+For files written for [PyYAML][pyyaml-home] or another 1.1 reader:
+
+1. Commit or back up the originals. Keep `target-version = "1.1"`, set
+   `source-version = "1.1"`, and enable the migration rules:
+
+    ```toml
+    target-version = "1.1"
+    source-version = "1.1"
+
+    [lint.rules]
+    truthy = "enable"
+    octal-values = "enable"
+    schema-dependent-values = "enable"
+    ```
+
+2. Preview with `ryl check --diff --unsafe-fixes .`; review the chosen meanings,
+   then apply with `ryl check --fix --unsafe-fixes .`.
+3. Resolve every remaining report manually, for example by quoting `zone: "08"`
+   if the intended value is text. Some 1.1 readers disagree; check your own reader.
+4. Load the original and edited files with your application's reader and compare
+   values and types. Test the application with the intended 1.2 reader too.
+5. Only once every consumer supports the intended 1.2 meanings, set
+   `target-version = "1.2"` and remove `source-version`. The compatibility rules
+   then go quiet; unresolved values such as `08` can change meaning without warning.
+
+Do not apply the 1.1 source setting to GitHub Actions workflows: Actions treats `on:`
+as text. Use a separate nearest config or the [workflow exemption](rules/truthy.md#github-actions-workflows).
+Files declaring `%YAML 1.1` use the [directive migration](#migrating-a-yaml-11-document-to-12) instead.
 
 A `%YAML` directive states a document's version outright, so no unsafe fix
 applies to that document and `source-version` plays no part in it.
@@ -53,10 +78,14 @@ ryl honours it per document, and it overrides `target-version`:
 | :--- | :--- |
 | none | Resolved as YAML 1.2; output also kept safe for 1.1 readers unless `target-version = "1.2"`. |
 | `%YAML 1.2` | Resolved as YAML 1.2, for 1.2 readers only. |
-| `%YAML 1.1` (or `1.0`) | Resolved as YAML 1.1, so scalars that 1.1 reads as a non-string keep that meaning. ryl still parses the document with the YAML 1.2 grammar and resolves only its scalars as 1.1, so a raw NEL, LS or PS, a non-break character under YAML 1.2.2 §5.4, is a syntax error where used as a line break. |
+| `%YAML 1.1` (or `1.0`) | Resolve scalar values as YAML 1.1; parse structure with the YAML 1.2 grammar. |
 | `%YAML 1.3`+ (higher minor) | Processed as YAML 1.2 with a warning, as the spec directs. |
 | `%YAML 2.0`+ (higher major) | Rejected as an error; the spec requires rejecting a higher major version. |
 | two `%YAML` directives in one document | Rejected as an error, even when both name the same version. |
+
+YAML 1.2 does not treat Unicode Next Line (NEL), Line Separator (LS), or Paragraph
+Separator (PS) as line breaks. Using those characters as breaks is a syntax error,
+even under `%YAML 1.1`; see [`unicode-line-breaks`](rules/unicode-line-breaks.md).
 
 Under an explicit `%YAML 1.1` the value-resolving rules follow 1.1:
 `quoted-strings` keeps quotes that are load-bearing under 1.1 and `truthy`
@@ -86,18 +115,18 @@ The scalars and the directive change together because neither half is safe
 alone: `0o777` is a string to PyYAML and ruamel.yaml's 1.1 mode, so respelling
 it before the directive changes would move its value.
 
-The fix leaves a document alone, and its report stands, when a scalar has no
-1.2 core spelling (a timestamp such as `2026-10-10`), or when PyYAML reads it
-as a string but go-yaml or ruamel.yaml's 1.1 mode reads a number or boolean
-(`08`, `1e5`, `-.5`, `y`, `0o777`). A scalar that would need respelling behind
-the non-specific `!` tag (`! 0777`) blocks it too: the spec reads it as a
-string, PyYAML and ruamel.yaml as if untagged. Rewrite or quote those by hand.
-A file holding a raw NEL, LS or PS character is never migrated, since YAML 1.1
-reads one as a line break and 1.2 as content; see
-[`unicode-line-breaks`](rules/unicode-line-breaks.md). Every
-other value keeps the meaning PyYAML and ruamel.yaml's 1.1 mode give it;
-go-yaml, which reads `22:22` as a string, rejects a `%YAML 1.2` file anyway. A
-merge key `<<` stays as it is.
+The fix leaves the whole document unchanged when the versions or readers cannot
+agree on a replacement. Resolve the blocking input manually, then rerun:
+
+| Input | Why migration stops | Action |
+| :--- | :--- | :--- |
+| Timestamp such as `2026-10-10` | No 1.2 core timestamp type | Choose text or an application-specific representation |
+| `08`, `1e5`, `-.5`, `y`, `0o777` | 1.1 readers disagree on the type | Quote intended strings or write an unambiguous number/boolean |
+| `! 0777` | The bare `!` tag requests a string in the spec, but some readers ignore it | Replace with an explicit string or number |
+| Raw NEL, LS or PS | Line breaks in 1.1, content in 1.2 | Resolve the line breaks manually |
+
+Other values keep PyYAML and ruamel.yaml's 1.1 meanings. go-yaml (used by Kubernetes
+and Helm) reads `22:22` as text and rejects `%YAML 1.2` anyway. Merge keys `<<` stay unchanged.
 
 Unless a document declares `%YAML 1.2` or `target-version = "1.2"` is set,
 `quoted-strings` and `ryl format` keep the quotes on any scalar YAML 1.1 reads
@@ -108,6 +137,13 @@ as booleans, and go-yaml's float spellings (`'08'`, `'1e5'`, `'-.5'`, `'0_8'`),
 which PyYAML reads as strings.
 
 ### Unsafe fixes and `source-version`
+
+!!! warning "Choose the input's meaning before applying unsafe fixes"
+
+    The default `source-version = "1.2"` assumes undeclared files were written for
+    1.2: `yes` means text and `0777` means decimal 777. For files written for
+    PyYAML, Ansible or another 1.1 reader, set `source-version = "1.1"` first.
+    Otherwise an unsafe fix can change the values your application loads.
 
 A document with no directive under the default `target-version = "1.1"` must
 mean the same to both versions, but a scalar such as `yes` already does not: a
@@ -134,30 +170,31 @@ bits, which go-yaml reads as a float. Quotes follow `quoted-strings`'
 `quote-type = "single"` when that rule is on, and a boolean takes the first
 spelling `truthy`'s `allowed-values` permits.
 
-```toml
-source-version = "1.1"
-```
-
 `source-version` steers only the fix: every rule, the formatter and the value
 checks still read an undeclared document as YAML 1.2. Like any setting, the
 nearest config wins, so a PyYAML-era subtree can carry its own
 `source-version = "1.1"`.
 
-### Migrating undeclared YAML 1.1 files
+For a plain `yes` with `truthy` enabled, target 1.1 plus source 1.2 offers `"yes"`;
+target 1.1 plus source 1.1 offers `true`. Target 1.2 reports neither: `yes` is already
+text, and `source-version` has no effect. Follow the [ordered migration recipe](#migrate-undeclared-yaml-11-files-safely)
+before changing the target.
 
-Files with no `%YAML` directive that were written for a YAML 1.1 reader such as
-PyYAML take two passes to move to 1.2. Under `target-version = "1.2"` ryl reads
-them as 1.2, where `yes` is already a string, so nothing flags it and
-`source-version` has no effect; ryl warns when a config sets both.
+## What is different in YAML 1.2
 
-1. Keep the default `target-version = "1.1"`, set `source-version = "1.1"`,
-   and run `ryl check --fix --unsafe-fixes`. Each scalar takes a spelling
-   both versions read as 1.1 did (`yes` becomes `true`, `0777` becomes `511`).
-   Review what remains flagged: the fix leaves alone the scalars listed above.
-2. Set `target-version = "1.2"` and drop `source-version`.
+| Literal | YAML 1.1 | YAML 1.2 |
+| :--- | :--- | :--- |
+| `yes`, `no`, `on`, `off` and case variants (`Yes`, `No`, `ON`, ...) | Booleans | Plain strings |
+| `y`, `Y`, `n`, `N` | Booleans | Plain strings |
+| `true`, `True`, `TRUE`, `false`, `False`, `FALSE` | Booleans | Booleans |
+| `null`, `Null`, `NULL`, `~` | Null | Null |
+| `0755` (leading zero integer) | Octal | Decimal |
+| `08` (leading zero, not octal) | String | Decimal |
+| `22:22` (base-60, or sexagesimal) | Integer 1342 | Plain string |
+| `1_000`, `0b1010` | Integers | Plain strings |
+| `2026-10-10` | Timestamp | Plain string |
 
-Declaring `%YAML 1.1` in each file instead hands the conversion to the
-[`yaml-directive` migration](#migrating-a-yaml-11-document-to-12) in one pass.
+ryl applies YAML 1.2 semantics to both linted files and configuration files.
 
 ## Which YAML version each reader follows
 
@@ -197,7 +234,8 @@ Last verified: 2026-11-02.
 
 "Rejected" means the reader refuses the whole file
 (`found incompatible YAML document`), so Kubernetes, Helm and Docker Compose
-cannot load a file declaring `%YAML 1.2`. The go-yaml rejection breaks both specs. YAML 1.2.2
+cannot load a file declaring `%YAML 1.2`. The go-yaml rejection breaks both specs.
+YAML 1.2.2
 [§6.8.1](https://yaml.org/spec/1.2.2/#681-yaml-directives) says a 1.2 processor
 *must* accept `%YAML 1.2`, and YAML 1.1
 [§7.1.1](https://yaml.org/spec/1.1/#id895631) says a 1.1 processor *should*
@@ -234,23 +272,6 @@ rejects every other version, although its README claims most of YAML 1.2.
   [prettier]: https://github.com/prettier/prettier
   [spring-boot]: https://github.com/spring-projects/spring-boot
   [jackson-yaml]: https://github.com/FasterXML/jackson-dataformats-text
-
-## What is different in YAML 1.2
-
-| Literal | YAML 1.1 | YAML 1.2 |
-| :--- | :--- | :--- |
-| `yes`, `no`, `on`, `off` and case variants (`Yes`, `No`, `ON`, ...) | Booleans | Plain strings |
-| `y`, `Y`, `n`, `N` | Booleans | Plain strings |
-| `true`, `True`, `TRUE`, `false`, `False`, `FALSE` | Booleans | Booleans |
-| `null`, `Null`, `NULL`, `~` | Null | Null |
-| `0755` (leading zero integer) | Octal | Decimal |
-| `08` (leading zero, not octal) | String | Decimal |
-| `22:22` (sexagesimal) | Integer 1342 | Plain string |
-| `1_000`, `0b1010` | Integers | Plain strings |
-| `2026-10-10` | Timestamp | Plain string |
-
-ryl applies YAML 1.2 semantics to both linted files and configuration
-files.
 
 ## Implications for the `quoted-strings` rule
 
@@ -304,7 +325,8 @@ input as YAML 1.2 (an explicit `%YAML 1.1` shifts the value-resolving rules to
   flags the other plain scalars the two versions read differently, such as
   `2026-10-10`, `22:22` and `1_000`.
 - [`yaml-directive`](rules/yaml-directive.md) &mdash; requires each document
-  to declare its version, so no reader has to guess.
+  to declare its version. Avoid requiring `%YAML 1.2` for Kubernetes, Helm or
+  Compose; see the [go-yaml warning](rules/yaml-directive.md).
 
 For documents that need to be portable between 1.1 and 1.2 consumers,
 the safest pattern is to quote any bareword that 1.1 would coerce.

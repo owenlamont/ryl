@@ -46,6 +46,10 @@ Quoting the key also works: `'on': push` passes both `truthy` and
 See [YAML version compatibility](../yaml-version.md) for how implicit types
 affect quoting.
 
+Do not apply unsafe fixes with `source-version = "1.1"` to workflows: `on:` becomes
+`true:`, breaking the workflow. Use the per-file exemption below or a separate nearest
+config with `source-version = "1.2"`.
+
 Three ways to settle it, narrowest first:
 
 | Approach | Effect |
@@ -65,7 +69,6 @@ The recommended form scopes the exemption to the files that need it:
 
 Both alternatives apply globally: `check-keys = false` skips all keys, while allowing
 `on` permits `on` in keys and values. Both still report `enabled: yes`.
-
 
 ## Examples
 
@@ -93,6 +96,17 @@ flag: On
 country: NO
 debug: true
 ```
+
+### :wrench: After `ryl check --fix --unsafe-fixes` (defaults)
+
+```yaml
+enabled: "yes"
+flag: "On"
+country: "NO"
+debug: true
+```
+
+For files written for a 1.1 reader, [choose `source-version` first](../yaml-version.md#unsafe-fixes-and-source-version).
 
 ### :white_check_mark: Allowed (with `allowed-values: ["true", "false", "yes", "no"]`)
 

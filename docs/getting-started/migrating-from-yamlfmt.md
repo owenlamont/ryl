@@ -1,5 +1,15 @@
 # Migrating from google/yamlfmt
 
+Import the basic formatter settings first (a successful import exits `0`; inspect warnings):
+
+```bash
+ryl --migrate-configs --migrate-from yamlfmt --migrate-stdout
+ryl --migrate-configs --migrate-from yamlfmt --migrate-write
+```
+
+Follow [After migrating](migrating-from-formatters.md#after-migrating) to verify
+formatting, convert comments and update CI, or use the manual profile below.
+
 The [config importer](migrating-from-formatters.md) imports `exclude` when
 `match_type: doublestar`, anchoring patterns to the configuration directory.
 The importer cleans relative path components and rebases absolute paths inside
@@ -16,7 +26,7 @@ in google/yamlfmt 0.21.0. They were compared on the same YAML inputs with
 ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
 another width.
 
-## Example
+## Manual configuration
 
 ```toml
 # .ryl.toml
@@ -36,15 +46,22 @@ See the [formatter settings](../formatter.md#configuration) for other options.
 
 ## Option mapping
 
+`formatter.*` below names keys nested under `formatter:`, rather than top-level keys:
+
+```yaml
+formatter:
+  indent: 4
+```
+
 | yamlfmt setting | ryl equivalent |
 | --- | --- |
-| `indent: 2` | top-level `indent-width = 2` |
-| `pad_line_comments: 1` | `[format] comment-spacing = 1` |
-| `line_ending: lf` | `[format] line-ending = "lf"` (default) |
-| `line_ending: crlf` | `[format] line-ending = "cr-lf"` |
-| `include_document_start: false` | `[format] document-start = "preserve"`; see [markers](#document-markers) |
-| `max_line_length: 0` | `[format] fold-long-lines = false` (default) |
-| `max_line_length: 40` | Approximately: top-level `line-length = 40` and `[format] fold-long-lines = true` |
+| `formatter.indent: 2` | top-level `indent-width = 2` |
+| `formatter.pad_line_comments: 1` | `[format] comment-spacing = 1` |
+| `formatter.line_ending: lf` | `[format] line-ending = "lf"` (default) |
+| `formatter.line_ending: crlf` | `[format] line-ending = "cr-lf"` |
+| `formatter.include_document_start: false` | `[format] document-start = "preserve"`; see [markers](#document-markers) |
+| `formatter.max_line_length: 0` | `[format] fold-long-lines = false` (default) |
+| `formatter.max_line_length: 40` | Approximately: top-level `line-length = 40` and `[format] fold-long-lines = true` |
 
 At 40 columns, yamlfmt wraps plain scalars differently and wraps flow sequences that ryl leaves on one line unless `sequence-expand` is set.
 

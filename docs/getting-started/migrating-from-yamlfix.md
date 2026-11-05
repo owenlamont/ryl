@@ -1,5 +1,15 @@
 # Migrating from yamlfix
 
+Import the settings first (a successful import exits `0`; inspect warnings):
+
+```bash
+ryl --migrate-configs --migrate-from yamlfix --migrate-stdout
+ryl --migrate-configs --migrate-from yamlfix --migrate-write
+```
+
+Follow [After migrating](migrating-from-formatters.md#after-migrating) to verify
+formatting and update CI, or use the manual profile below.
+
 `ryl format` covers most of [yamlfix](https://github.com/lyz-code/yamlfix)'s
 options through `[format]` keys and the top-level `line-length` and
 `indent-width`. Replace `yamlfix .` with `ryl format .`, and `yamlfix --check .`
@@ -13,7 +23,7 @@ environment variables.
 ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
 another width.
 
-## Example
+## Manual configuration
 
 A yamlfix configuration:
 

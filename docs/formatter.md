@@ -48,13 +48,9 @@ Every edit `ryl format` makes is checked by property tests to be:
 - **Comment-safe.** Every comment stays beside the node it annotates.
 - **Idempotent.** Formatting formatted output changes nothing.
 
-These hold by design: each rule's target reads only preserved facts and the targets of
-rules before it, so `ryl format` parses and plans each file, or each YAML block in
-Markdown, once. It writes or previews the result without parsing it again, and the
-property tests, not runtime checks, confirm the rule order. Two cases parse again: a
-repair parses its output to prove the repair (below), and a file with a `not fixed`
-notice is re-read to place the notice. `check --fix` replans its output
-until no edit remains, since lint rule options can contradict each other. Root strings such as `'---'` and `'...'` retain their quotes because
+### Syntax repairs and file handling
+
+Root strings such as `'---'` and `'...'` retain their quotes because
 the plain spellings are document markers. Marker prefixes followed by Unicode
 whitespace also keep quotes for
 [reference-parser compatibility](getting-started/migrating-from-yamllint.md#marker-like-root-strings-and-unicode-whitespace).
@@ -66,15 +62,14 @@ can be repaired when the repaired text parses strictly and preserves the relaxed
 values, tags, anchors and structure. `[?,]` becomes `[? ]`. Repairs print
 `input was YAML the spec rejects; repaired it`; `--check` exits 1.
 An unsafe or disabled repair leaves the entire file unchanged with a syntax skip.
-Flow closing delimiters stay deeper than the enclosing block, even when the
-yamllint indentation rule previously preferred the block's column.
 
 `ryl check` and LSP diagnostics parse strictly and report the original indentation
 as a syntax error. `check --fix`/`--diff`, LSP formatting and Fix All allow the same
 guarded repair; lint fixes otherwise keep their existing rule selection.
 Syntax repair in `check --fix`/`--diff` requires the default
 `lint.fixable = ["ALL"]`, honors indentation ignore settings and uses formatter
-indentation targets. Per-rule editor fixes leave syntax repair to Format Document or Fix All.
+indentation targets. Per-rule editor fixes leave syntax repair to Format Document
+or Fix All.
 
 See [File encodings](getting-started/quickstart.md#file-encodings) for encoding
 preservation and `--check`/`--diff` behavior when a text patch cannot be emitted.
@@ -120,6 +115,24 @@ indent-sequences = true
 dash-on-own-line = false
 ```
 
+### Choose settings by goal
+
+Set the keys below inside `[format]`; `line-length` stays at the top level.
+Here `*-style` and `*-expand` mean the corresponding `sequence-` and `mapping-` keys.
+
+| Goal | Settings | Result |
+| :--- | :--- | :--- |
+| Block collections | `sequence-style = "block"`, `mapping-style = "block"` | Convert eligible flow collections to block |
+| Short flow, long block | `sequence-style = "flow"`, `mapping-style = "flow"` | Choose style by `line-length` |
+| One entry per line in existing flow | `sequence-expand = "always"`, `mapping-expand = "always"` | Keep block collections block |
+| Wrap existing flow to fit | `sequence-expand = "auto"`, `mapping-expand = "auto"` | Try in place, below the key, then spread |
+| Wrap prose and retain quotes | `prose-wrap = "always"`, `keep-quotes = true` | Join and wrap paragraphs without dropping optional quotes |
+
+No single setting converts block collections to flow with one entry per line:
+`*-style = "flow"` combined with `*-expand = "always"` leaves block collections block.
+
+### Option reference
+
 | Key | Default | Values | What it sets |
 | :--- | :--- | :--- | :--- |
 | `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
@@ -127,7 +140,7 @@ dash-on-own-line = false
 | `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"`, `"auto"` | Line endings, including the final newline; `"native"` is the platform's, and `"auto"` keeps the ending most of the file's lines use (`"lf"` on a tie or a file without line breaks). |
 | `document-start` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
-| `prose-wrap` | `"preserve"` | `"preserve"`, `"always"`, `"never"` | Preserve physical prose breaks, join and wrap paragraphs, or join without wrapping. See [Long lines](#long-lines). |
+| `prose-wrap` | `"preserve"` | `"preserve"`, `"always"`, `"never"` | Preferred for new configs: preserve breaks, join and wrap paragraphs, or join without wrapping. See [Long lines](#long-lines). |
 | `fold-long-lines` | `false` | `true`, `false` | Legacy split-only folding at single spaces; cannot be combined with `prose-wrap`, even when false. |
 | `brace-spacing` | `false` | `true`, `false` | Whether to write one space inside non-empty flow mapping braces, `{ a: 1 }`. Empty braces and brackets stay unpadded. |
 | `comment-spacing` | `2` | `1` to `255` | Exact number of spaces between content and an inline comment. |
@@ -152,7 +165,8 @@ re-indents every block level to `indent-width`, and uses both as the fold width 
 continuation indent under `fold-long-lines`.
 
 Without `indent-width`, `ryl format` targets width 2. Set the top-level
-`indent-width` to keep another width. Linting still defaults to `spaces = "consistent"` when `indent-width` is unset.
+`indent-width` to keep another width. Linting still defaults to
+`spaces = "consistent"` when `indent-width` is unset.
 If re-indenting would leave inconsistent indentation, `ryl format` keeps that
 document's indentation and reports the sites it cannot fix.
 
@@ -180,36 +194,15 @@ it is and named on stderr.
 
 ## Default profile
 
-With no `[format]` table, `ryl format` writes the profile below. It preserves
+With no `[format]` table, `ryl format` uses the defaults in the reference above. It preserves
 existing document start markers, can remove redundant quotes or switch required
 double quotes to single, and can indent flush sequences. Migration writes
 `quote-style = "preserve"` when `quoted-strings` is disabled in the source preset.
 
-| Default | Why |
-| :--- | :--- |
-| `quote-style = "single"` | yamlfix's default; see [Quote style](#quote-style) for when it applies |
-| `keep-quotes = false` | Removes unnecessary quotes; retaining them is opt-in |
-| `line-ending = "lf"` | The default of prettier |
-| `document-start = "preserve"` | prettier keeps a file's markers as written |
-| `document-end = "preserve"` | No formatter adds `...`; prettier keeps it |
-| `prose-wrap = "preserve"` | Prose keeps its line breaks, as under prettier's `proseWrap: "preserve"` |
-| `brace-spacing = false` | yamlfix also leaves braces unpadded; prettier pads them |
-| `comment-spacing = 2` | The default of ruff and yamlfix |
-| `comment-starting-space = "add"` | Adds a space after `#` |
-| `max-blank-lines = 2` | Keeps short gaps between content |
-| `sequence-style = "preserve"` | Restyling a collection is opt-in |
-| `mapping-style = "preserve"` | Restyling a collection is opt-in |
-| `sequence-expand = "preserve"` | Rewrapping a flow collection is opt-in |
-| `mapping-expand = "preserve"` | Rewrapping a flow collection is opt-in |
-| `property-order = "preserve"` | Writers split: prettier and the spec's examples put the tag first, eemeli's `yaml` and libfyaml the anchor |
-| `indent-sequences = true` | prettier also indents them |
-| `dash-on-own-line = false` | prettier writes `- name: web` |
-| `preview = false` | Preview styles are opt-in, as in ruff |
-| `line-length = 80` | The default of prettier |
-| `indent-width = 2` | The default of prettier and yamlfix |
-| Fixed layout above | Every formatter probed agrees |
-
 ## Long lines
+
+Use `prose-wrap` for new configs. `fold-long-lines` is legacy; never set both,
+even `fold-long-lines = false`.
 
 `prose-wrap` controls paragraphs in plain and quoted values in block context and folded
 (`>`) bodies:
@@ -217,6 +210,19 @@ double quotes to single, and can indent flush sequences. Migration writes
 - `"preserve"` keeps their physical breaks without joining or wrapping.
 - `"always"` joins each paragraph, then wraps it at `line-length` (default 80).
 - `"never"` joins each paragraph without wrapping it to the configured width.
+
+!!! note "Wrapping and quotes are separate"
+
+    The default `keep-quotes = false` removes optional quotes, even with
+    `prose-wrap = "preserve"`. Set `keep-quotes = true` to keep existing quotes.
+
+```yaml
+# before
+message: "hello world"
+
+# after, with prose-wrap = "preserve" and keep-quotes = true
+message: 'hello world'
+```
 
 Paragraph breaks and more-indented folded sections keep their newline semantics.
 The prose setting preserves scalar styles, tags, anchors and comments. Literal (`|`)
@@ -234,9 +240,9 @@ message: >
   hello world
 ```
 
-When `prose-wrap` is absent, the legacy `fold-long-lines` option defaults to `false`
-and keeps its split-only behavior. Setting both is a configuration error, including
-`fold-long-lines = false`.
+### Legacy line folding
+
+When `prose-wrap` is absent, `fold-long-lines` defaults to `false`.
 
 With `fold-long-lines = true`, `ryl format` splits scalar lines longer than the top-level
 `line-length` (default 80) at single spaces. Folding applies to plain and quoted values
@@ -263,6 +269,12 @@ stay as they are. Folding ignores the `line-length` rule's own options, and
 `ryl check --fix` never folds.
 
 ## Collection style
+
+!!! note "Upgrading from 0.28"
+
+    With `sequence-style = "flow"` or `mapping-style = "flow"`, existing long flow
+    collections can now become block. Leave the style at `"preserve"` to retain
+    existing collection styles, or raise `line-length` to accommodate longer ones.
 
 With `sequence-style` or `mapping-style` set to `"block"`, `ryl format` rewrites flow
 collections of that kind in block style, indented by `indent-width`, copying each
@@ -330,16 +342,27 @@ nested:
 
 ## Flow line breaks
 
-`sequence-expand` and `mapping-expand` set where a flow collection of that kind breaks
-its lines; the default `"preserve"` leaves them as written. `"never"` puts each on one
-line, `"always"` puts each entry on its own line, and `"auto"` picks the first that fits
-`line-length`: one line where it starts, then, for a mapping value, one line alone on the
-line after its key, else one entry per line. A spread collection follows
+`sequence-expand` and `mapping-expand` control line breaks inside flow collections:
+
+| Value | Layout |
+| :--- | :--- |
+| `"preserve"` (default) | Keep existing breaks |
+| `"never"` | One line |
+| `"always"` | One entry per line |
+| `"auto"` | First layout below that fits `line-length` |
+
+`"auto"` tries, in order:
+
+1. One line where the collection starts.
+2. One line below its mapping key (for either a sequence or a mapping value).
+3. One entry per line.
+
+A spread collection follows
 prettier: its opening bracket goes on the line after its key, and every entry ends in a
 comma:
 
 ```yaml
-# before
+# before, with line-length = 60
 items: [first-item-with-long-name, second-item-with-long-name, third, fourth, fifth]
 short: [
   a, b,
@@ -359,6 +382,33 @@ items:
 short: [a, b]
 ```
 
+At the default `line-length = 80`, the same `items` collection instead fits alone
+below the key:
+
+```yaml
+items:
+  [first-item-with-long-name, second-item-with-long-name, third, fourth, fifth]
+short: [a, b]
+```
+
+Flow closing brackets and braces must be deeper than the enclosing block. A closer
+at column zero, as below, is repaired and prints
+`input was YAML the spec rejects; repaired it`; `--check` exits `1`:
+
+```yaml
+# before
+items: [
+  a, b
+]
+```
+
+```yaml
+# after, with sequence-expand = "preserve"
+items: [
+  a, b
+ ]
+```
+
 A trailing comma does not keep a collection spread; with either key set, one before a
 bracket on its own line stays, where `ryl format` otherwise removes it. Each nested
 collection is judged at
@@ -370,6 +420,7 @@ spread collection keeps its `[` and the comment on the key line, so the comment 
 its place among the data:
 
 ```yaml
+# input and output, sequence-expand = "auto"
 key: [  # note
   alpha-package-name,
   beta-package-name,
@@ -380,6 +431,20 @@ A collection that holds a comment stays as written, with a notice on stderr wher
 target rejects its current form. With `*-style = "flow"`, a collection that fits on
 one line keeps its `*-expand` layout, and under `"always"` a block collection stays
 block rather than become a spread flow one.
+
+## Property order
+
+`property-order` applies to nodes with both an anchor (`&name`) and a tag (`!!seq`).
+The default `"preserve"` keeps their order; choose `"anchor-first"` or `"tag-first"`
+to normalize it:
+
+```yaml
+# before
+items: !!seq &list [one, two]
+
+# after, with property-order = "anchor-first"
+items: &list !!seq [one, two]
+```
 
 ## Quote style
 
@@ -510,8 +575,8 @@ trailing spaces inside a block scalar can remain findings after `ryl format` and
 or `false`, `extra-required` is empty, and `quote-type` is either `"any"` or matches
 `quote-style`. A `quote-type` of `"single"` or `"double"` also needs
 `allow-quoted-quotes = true`, for strings quoted to avoid an escape, and `"single"`
-needs `allow-double-quotes-for-escaping = true`, for the strings that need escapes. The rule's
-defaults (`required = true`) conflict:
+needs `allow-double-quotes-for-escaping = true`, for strings that need escapes.
+The rule's defaults (`required = true`) conflict:
 
 <!-- ryl-config-check: format-conflict -->
 ```toml
