@@ -85,8 +85,15 @@ collection's indentation; `ryl format` closes the gap and re-indents the collect
 with it:
 
 ```yaml
--   name: web    # ryl format: `- name: web`, with `port` under `name`
+# before
+-   name: web
     port: 80
+```
+
+```yaml
+# after, with `ryl format`
+- name: web
+  port: 80
 ```
 
 `ryl check --fix` does not fix `dash-on-own-line`. `ryl format` joins `-` and its block

@@ -101,7 +101,7 @@ released: 2026-10-10
 $ ryl check legacy.yaml
 legacy.yaml
   1:1       error    version directive "%YAML 1.1" is older than target-version "1.2"  (yaml-directive)
-  7:1       error    version directive "%YAML 1.1" is older than target-version "1.2"  (yaml-directive)
+  7:1       error    version directive "%YAML 1.1" is older than target-version "1.2"; not migrated automatically: `2026-10-10` at 9:11 has no faithful YAML 1.2 equivalent; quote or edit it  (yaml-directive)
 ```
 
 ### :wrench: After `ryl check --fix`
@@ -179,6 +179,9 @@ document as above before removing its directive, under either target. Under
 `"1.1"` it also skips a document needing `0o777`, which PyYAML reads as a
 string. A directive keeps its report when a comment shares its line or its
 migration is skipped. Any `---` left behind is for `document-start`.
+
+A skipped migration reports the first blocking value and its location. Quote or edit that
+value, then rerun the command; Unicode line-break refusals identify the break.
 
 The rule is suppressed in YAML embedded in Markdown, which is not a standalone
 file.

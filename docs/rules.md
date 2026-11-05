@@ -183,6 +183,8 @@ that YAML 1.1 and 1.2 readers load differently (see
 `ryl check` counts the fixes it left out:
 
 ```console
+$ cat config.yaml
+enabled: yes
 $ ryl check config.yaml
 config.yaml
   1:10      error    truthy value should be one of [false, true]  (truthy)

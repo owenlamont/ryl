@@ -2248,6 +2248,8 @@ that YAML 1.1 and 1.2 readers load differently (see
 `ryl check` counts the fixes it left out:
 
 ```console
+$ cat config.yaml
+enabled: yes
 $ ryl check config.yaml
 config.yaml
   1:10      error    truthy value should be one of [false, true]  (truthy)
@@ -2661,6 +2663,7 @@ At the default `line-length = 80`, the same `items` collection instead fits alon
 below the key:
 
 ```yaml
+# after, with sequence-expand = "auto" and the default line-length
 items:
   [first-item-with-long-name, second-item-with-long-name, third, fourth, fifth]
 short: [a, b]
@@ -3184,8 +3187,9 @@ this:   file: is: not: linted
 
 It must be the first line, with no `rule:` tokens. The `#`
 may be followed by any spacing (`#ryl disable-file` is accepted too).
-A first-line Jinja renderer header such as `#!jinja|yaml` skips a file the same way; see
-[Jinja templates](https://ryl-docs.pages.dev/formatter/#jinja-templates).
+A first-line Jinja renderer header such as `#!jinja|yaml` also skips a file in a
+directory scan. Naming such a file, or piping it to stdin, exits `2`, where naming a
+`disable-file` file exits `0`; see [Jinja templates](https://ryl-docs.pages.dev/formatter/#jinja-templates).
 
 ### Targeting rules
 
@@ -3270,6 +3274,19 @@ Formatter directives also accept no space after `#`, for example `#ryl format-ig
 A mapping key includes its value, and a collection includes its descendants:
 
 ```yaml
+# before
+before:    0
+# ryl format-ignore
+section:
+  first:    1
+  second:    [1,2]
+after:    3
+```
+
+`ryl format` rewrites only the unprotected lines:
+
+```yaml
+# after
 before: 0
 # ryl format-ignore
 section:
@@ -3282,6 +3299,15 @@ Before a document's root node, `format-ignore` protects the entire root collecti
 To protect an explicit region, use `format-disable` and `format-enable`:
 
 ```yaml
+# before
+# ryl format-disable
+manually:    [1,2]
+# ryl format-enable
+formatted:    [1,2]
+```
+
+```yaml
+# after
 # ryl format-disable
 manually:    [1,2]
 # ryl format-enable
@@ -4994,7 +5020,7 @@ Source: https://ryl-docs.pages.dev/rules/block-scalar-chomping/
 ## What this rule does
 
 Requires every literal (`|`) or folded (`>`) block scalar to carry an explicit
-**chomping indicator** &mdash; `-` (strip) or `+` (keep):
+**chomping indicator** &mdash; `-` (strip) or `+` (keep), as in this compliant form:
 
 ```yaml
 script: |-
@@ -5330,9 +5356,17 @@ collection continuing below has its spaces set that collection's indentation, so
 `ryl check --fix` leaves it alone and `ryl format` re-indents the collection with it:
 
 ```yaml
+# before
 ? key
-:   - a      # ryl format: `: - a`, with `- b` under `- a`
+:   - a
     - b
+```
+
+```yaml
+# after, with `ryl format`
+? key
+: - a
+  - b
 ```
 
 ## Related rules
@@ -6143,8 +6177,15 @@ collection's indentation; `ryl format` closes the gap and re-indents the collect
 with it:
 
 ```yaml
--   name: web    # ryl format: `- name: web`, with `port` under `name`
+# before
+-   name: web
     port: 80
+```
+
+```yaml
+# after, with `ryl format`
+- name: web
+  port: 80
 ```
 
 `ryl check --fix` does not fix `dash-on-own-line`. `ryl format` joins `-` and its block
@@ -6593,7 +6634,7 @@ description: A short summary that fits within the configured line limit.
 description: This single line is well over eighty characters wide and so the line-length rule will flag it as too long.
 ```
 
-### :wrench: How to fix
+### :white_check_mark: Allowed (the Reported value, folded)
 
 Break the value onto multiple lines using a block scalar:
 
@@ -6655,6 +6696,12 @@ defaults: &defaults
 prod:
   <<: *defaults       # prod gains retries: 3 and timeout: 30
   host: prod.example.com
+```
+
+With `merge-keys` enabled, `ryl check` reports the `<<` line:
+
+```text
+5:3  error  forbidden merge key "<<"  (merge-keys)
 ```
 
 When enabled the rule flags every `<<` key, whether its value is an alias
@@ -7755,7 +7802,7 @@ released: 2026-10-10
 $ ryl check legacy.yaml
 legacy.yaml
   1:1       error    version directive "%YAML 1.1" is older than target-version "1.2"  (yaml-directive)
-  7:1       error    version directive "%YAML 1.1" is older than target-version "1.2"  (yaml-directive)
+  7:1       error    version directive "%YAML 1.1" is older than target-version "1.2"; not migrated automatically: `2026-10-10` at 9:11 has no faithful YAML 1.2 equivalent; quote or edit it  (yaml-directive)
 ```
 
 ### :wrench: After `ryl check --fix`
@@ -7833,6 +7880,9 @@ document as above before removing its directive, under either target. Under
 `"1.1"` it also skips a document needing `0o777`, which PyYAML reads as a
 string. A directive keeps its report when a comment shares its line or its
 migration is skipped. Any `---` left behind is for `document-start`.
+
+A skipped migration reports the first blocking value and its location. Quote or edit that
+value, then rerun the command; Unicode line-break refusals identify the break.
 
 The rule is suppressed in YAML embedded in Markdown, which is not a standalone
 file.

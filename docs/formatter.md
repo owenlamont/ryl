@@ -386,6 +386,7 @@ At the default `line-length = 80`, the same `items` collection instead fits alon
 below the key:
 
 ```yaml
+# after, with sequence-expand = "auto" and the default line-length
 items:
   [first-item-with-long-name, second-item-with-long-name, third, fourth, fifth]
 short: [a, b]

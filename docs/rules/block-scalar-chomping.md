@@ -3,7 +3,7 @@
 ## What this rule does
 
 Requires every literal (`|`) or folded (`>`) block scalar to carry an explicit
-**chomping indicator** &mdash; `-` (strip) or `+` (keep):
+**chomping indicator** &mdash; `-` (strip) or `+` (keep), as in this compliant form:
 
 ```yaml
 script: |-

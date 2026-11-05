@@ -28,7 +28,7 @@ description: A short summary that fits within the configured line limit.
 description: This single line is well over eighty characters wide and so the line-length rule will flag it as too long.
 ```
 
-### :wrench: How to fix
+### :white_check_mark: Allowed (the Reported value, folded)
 
 Break the value onto multiple lines using a block scalar:
 

@@ -58,8 +58,9 @@ this:   file: is: not: linted
 
 It must be the first line, with no `rule:` tokens. The `#`
 may be followed by any spacing (`#ryl disable-file` is accepted too).
-A first-line Jinja renderer header such as `#!jinja|yaml` skips a file the same way; see
-[Jinja templates](formatter.md#jinja-templates).
+A first-line Jinja renderer header such as `#!jinja|yaml` also skips a file in a
+directory scan. Naming such a file, or piping it to stdin, exits `2`, where naming a
+`disable-file` file exits `0`; see [Jinja templates](formatter.md#jinja-templates).
 
 ### Targeting rules
 
@@ -144,6 +145,19 @@ Formatter directives also accept no space after `#`, for example `#ryl format-ig
 A mapping key includes its value, and a collection includes its descendants:
 
 ```yaml
+# before
+before:    0
+# ryl format-ignore
+section:
+  first:    1
+  second:    [1,2]
+after:    3
+```
+
+`ryl format` rewrites only the unprotected lines:
+
+```yaml
+# after
 before: 0
 # ryl format-ignore
 section:
@@ -156,6 +170,15 @@ Before a document's root node, `format-ignore` protects the entire root collecti
 To protect an explicit region, use `format-disable` and `format-enable`:
 
 ```yaml
+# before
+# ryl format-disable
+manually:    [1,2]
+# ryl format-enable
+formatted:    [1,2]
+```
+
+```yaml
+# after
 # ryl format-disable
 manually:    [1,2]
 # ryl format-enable
