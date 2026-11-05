@@ -61,14 +61,6 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Viol
     walk(input, cfg).0
 }
 
-#[must_use]
-pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    fix_with_analysis(
-        crate::text_version::TextVersion::new(buffer).analysis(),
-        cfg,
-    )
-}
-
 pub(crate) fn fix_with_analysis(
     input: crate::text_version::Analysis<'_>,
     cfg: &Config,

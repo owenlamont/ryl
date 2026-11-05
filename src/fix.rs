@@ -122,12 +122,15 @@ impl Rewrite {
         match self {
             Self::Fix => {
                 let source = TextVersion::new(input);
-                if let Some(facts) = parsed.facts.take() {
-                    source.analysis().seed_facts(facts);
-                }
-                if let Some(tokens) = parsed.tokens.take() {
-                    source.analysis().seed_tokens(tokens);
-                }
+                source.analysis().seed_facts(
+                    parsed.facts.take().expect("fix facts are transferred once"),
+                );
+                source.analysis().seed_tokens(
+                    parsed
+                        .tokens
+                        .take()
+                        .expect("fix tokens are transferred once"),
+                );
                 let mut candidates = Vec::new();
                 let before = parsed.diagnostics.as_ref().map(|_| {
                     lint::lint_analysis_with_repair_help(
@@ -856,18 +859,7 @@ fn diff_and_skips(
             let mut skipped = if let Some(output) = &events.output {
                 unfixed_with_analysis(output.analysis(), cfg, path, base_dir)
             } else {
-                unfixed_notices(
-                    if rewrite == Rewrite::Format {
-                        content
-                    } else {
-                        &fixed
-                    },
-                    cfg,
-                    path,
-                    base_dir,
-                    rewrite,
-                    cache,
-                )
+                unfixed_notices(content, cfg, path, base_dir, rewrite, cache)
             };
             if let Some(problem) = rewrite_parse_notice(content, &fixed, &events) {
                 if fixed == content {
@@ -1746,7 +1738,7 @@ fn fix_version<'a>(
         } else {
             let problems =
                 lint::lint_with_analysis(input, path, cfg, base_dir, Some(&mut rules))
-                    .unwrap_or_else(|(problem, _)| vec![problem]);
+                    .expect("fix candidates are collected from strictly valid YAML");
             latest = Some((input.epoch(), problems));
         }
         rules.retain(|rule| {

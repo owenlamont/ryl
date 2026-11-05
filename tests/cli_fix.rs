@@ -7,6 +7,28 @@ use crate::common;
 use common::cli::{run, ryl};
 
 #[test]
+fn fix_activating_disable_file_suppresses_remaining_diagnostics() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "\n# ryl disable-file\na:  1\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint]\nunfixable = ['colons']\n[lint.rules]\ncolons = 'enable'\nempty-lines = 'enable'\n",
+    )
+    .unwrap();
+
+    let (code, stdout, stderr) =
+        run(ryl(dir.path()).arg("check").arg("--fix").arg(&file));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "# ryl disable-file\na:  1\n"
+    );
+    assert!(stderr.contains("0 remaining"), "{stderr}");
+}
+
+#[test]
 fn fix_applies_safe_newline_and_comment_fixes() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
