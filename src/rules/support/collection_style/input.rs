@@ -353,6 +353,10 @@ impl<'a> Initial<'a> {
         }
     }
 
+    pub(super) fn starts_below(&self, node: usize, from: Boundary) -> bool {
+        self.line_start(self.properties_start(node)) > self.line_start(from.0)
+    }
+
     pub(super) fn placement(
         &self,
         node: usize,

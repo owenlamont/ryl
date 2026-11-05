@@ -666,6 +666,62 @@ fn explicit_key_nested_flow_overflow_converges_in_one_pass() {
     .unwrap();
 }
 
+#[test]
+fn anchored_sequence_nested_flow_uses_the_body_column() {
+    let input = "- &a [[b]]\n";
+    let cfg = YamlLintConfig::from_toml_str(
+        "indent-width=3\nline-length=7\n[format]\nsequence-style='flow'\n",
+    )
+    .unwrap();
+    let format =
+        |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+    assert_eq!(format(input), "- &a\n  - [b]\n");
+    check_invariants(&format, input).unwrap();
+}
+
+#[test]
+fn mapping_below_dash_measures_nested_flow_at_its_indentation() {
+    let input = "-\n  &a {b: [c]}\n";
+    let cfg = YamlLintConfig::from_toml_str(
+        "indent-width=3\nline-length=8\n[format]\nsequence-style='flow'\nmapping-style='flow'\n",
+    )
+    .unwrap();
+    let format =
+        |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+    assert_eq!(format(input), "-\n   &a\n   b:\n      - c\n");
+    check_invariants(&format, input).unwrap();
+}
+
+#[test]
+fn collection_properties_keep_nested_flow_widths_stable() {
+    for properties in ["&a", "!t", "&a !t", "!t &a"] {
+        for expand in ["auto", "never", "preserve", "always"] {
+            for (body, width) in [
+                ("[[b]]", 7),
+                ("[{b: c}]", 10),
+                ("{b: [c]}", 8),
+                ("{b: {c: d}}", 11),
+            ] {
+                let cfg = YamlLintConfig::from_toml_str(&format!(
+                    "indent-width=3\nline-length={width}\n[format]\nsequence-style='flow'\nmapping-style='flow'\nsequence-expand='{expand}'\nmapping-expand='{expand}'\n"
+                ))
+                .unwrap();
+                let format = |text: &str| {
+                    ryl::format::format_str(text, &cfg, synthetic_path(), &[])
+                };
+                for input in [
+                    format!("- {properties} {body}\n"),
+                    format!("-\n  {properties} {body}\n"),
+                    format!("- {properties}\n  {body}\n"),
+                ] {
+                    check_invariants(&format, &input)
+                        .unwrap_or_else(|error| panic!("{input:?}, {expand}: {error}"));
+                }
+            }
+        }
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         failure_persistence: crate::property::failure_persistence!("property_format"),

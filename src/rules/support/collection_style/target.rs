@@ -851,8 +851,11 @@ impl<'a> Planner<'a> {
         {
             Some(Kind::Mapping) => place.base + self.body_indent(index),
             Some(Kind::Sequence)
-                if self.nodes[index].kind() == Kind::Sequence
-                    && !self.initial.outer(index).prefix().compact() =>
+                if self.initial.starts_below(index, place.boundary())
+                    || self.nodes[index].kind() == Kind::Sequence
+                        && !self.initial.outer(index).prefix().compact()
+                        && self.initial.properties_start(index)
+                            == self.initial.start_of(index) =>
             {
                 place.column - 1 + self.indent
             }
