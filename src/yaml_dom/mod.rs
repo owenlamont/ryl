@@ -6,6 +6,8 @@ mod scalar;
 mod tag;
 mod yaml_owned;
 
+pub(crate) use loader::load_owned_documents;
+
 pub use scalar::{Scalar, ScalarOwned, is_core_schema_int_spelling};
 pub(crate) use scalar::{
     canonical_core_schema_int, core_schema_int, is_core_schema_null,

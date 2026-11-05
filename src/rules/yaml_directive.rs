@@ -78,6 +78,23 @@ pub fn check(buffer: &str, cfg: Config) -> Vec<Violation> {
 }
 
 pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Violation> {
+    let blocked: std::collections::BTreeMap<_, _> = (cfg.targets_1_2 || !cfg.present)
+        .then(|| migrations(input, cfg))
+        .into_iter()
+        .flatten()
+        .filter_map(|document| {
+            document
+                .blocker
+                .map(|reason| (document.directive.line, reason))
+        })
+        .collect();
+    let explain = |line, mut message: String| {
+        if let Some(reason) = blocked.get(&line) {
+            message.push_str("; not migrated automatically: ");
+            message.push_str(reason);
+        }
+        message
+    };
     if !cfg.present {
         return collect_directives(input.text())
             .into_iter()
@@ -90,9 +107,9 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Viola
                  }| Violation {
                     line,
                     column,
-                    message: format!(
+                    message: explain(line, format!(
                         "found forbidden version directive \"%YAML {major}.{minor}\""
-                    ),
+                    )),
                 },
             )
             .collect();
@@ -109,9 +126,12 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Viola
         Violation {
             line: directive.line,
             column: directive.column,
-            message: format!(
-                "version directive \"%YAML {major}.{minor}\" is older than \
+            message: explain(
+                directive.line,
+                format!(
+                    "version directive \"%YAML {major}.{minor}\" is older than \
                  target-version \"1.2\""
+                ),
             ),
         }
     });
@@ -135,16 +155,22 @@ pub fn fix(
     cfg: &Config,
     per_line: &[PerLineRuleApply<'_>],
 ) -> Option<String> {
+    fix_with_analysis(TextVersion::new(buffer).analysis(), *cfg, per_line)
+}
+
+pub(crate) fn fix_with_analysis(
+    input: Analysis<'_>,
+    cfg: Config,
+    per_line: &[PerLineRuleApply<'_>],
+) -> Option<String> {
     if cfg.present && !cfg.targets_1_2 {
         return None;
     }
-    let source = TextVersion::new(buffer);
-    let input = source.analysis();
-    let migrated = migrate(input, *cfg, per_line);
+    let migrated = migrate(input, cfg, per_line);
     if cfg.present {
-        migrated.or_else(|| stamp(input, *cfg))
+        migrated.or_else(|| stamp(input, cfg))
     } else {
-        migrated.or_else(|| remove(input, *cfg, per_line))
+        migrated.or_else(|| remove(input, cfg, per_line))
     }
 }
 
@@ -158,8 +184,10 @@ fn remove(
     let buffer = input.text();
     let settled = migrations(input, cfg)
         .into_iter()
-        .filter(|(_, respellings)| respellings.is_empty())
-        .map(|(directive, _)| directive);
+        .filter(|document| {
+            document.blocker.is_none() && document.respellings.is_empty()
+        })
+        .map(|document| document.directive);
     let edits = collect_directives(buffer)
         .into_iter()
         .filter(|directive| !resolves_as_yaml_1_1(Some(directive.version)))
@@ -207,6 +235,8 @@ fn migrate(
     // leaves a document every 1.1 reader loads alike.
     let edits = migrations(input, cfg)
         .into_iter()
+        .filter(|document| document.blocker.is_none())
+        .map(|document| (document.directive, document.respellings))
         .filter(|(_, respellings)| cfg.targets_1_2 || !respellings.is_empty())
         .flat_map(|(directive, respellings)| {
             let stamp = (directive.start, directive.end, "%YAML 1.2".to_owned());
@@ -219,16 +249,34 @@ fn migrate(
     reconciled(input, &render(input.text(), edits)?, per_line)
 }
 
-/// Each `%YAML 1.1` document's directive with the respellings carrying its values over
-/// to 1.2, leaving out a document that declines.
-fn migrations(input: Analysis<'_>, cfg: Config) -> Vec<(Directive, Vec<Edit>)> {
+struct DocumentMigration {
+    directive: Directive,
+    respellings: Vec<Edit>,
+    blocker: Option<String>,
+}
+
+fn migrations(input: Analysis<'_>, cfg: Config) -> Vec<DocumentMigration> {
     // YAML 1.1 reads a raw NEL, LS or PS as a line break and 1.2 as content.
-    if input.text().contains(['\u{85}', '\u{2028}', '\u{2029}']) {
-        return Vec::new();
-    }
+    let line_break = input
+        .text()
+        .find(['\u{85}', '\u{2028}', '\u{2029}'])
+        .map(|at| {
+            let before = &input.text()[..at];
+            let line = before.bytes().filter(|byte| *byte == b'\n').count() + 1;
+            let column = before
+                .rsplit('\n')
+                .next()
+                .unwrap_or_default()
+                .chars()
+                .count()
+                + 1;
+            format!(
+                "YAML 1.1 line break at {line}:{column}; replace it before migration"
+            )
+        });
     let mut directives = older_directives(input.text(), cfg);
     let mut migrations = Vec::new();
-    let mut document: Option<(Directive, Vec<Edit>)> = None;
+    let mut document: Option<DocumentMigration> = None;
     for (event, span) in input.event_iter() {
         match event {
             Event::DocumentStart(_, version) => {
@@ -241,12 +289,19 @@ fn migrations(input: Analysis<'_>, cfg: Config) -> Vec<(Directive, Vec<Edit>)> {
                     .filter(|directive| {
                         cfg.present || removal(input.text(), directive).is_some()
                     })
-                    .map(|directive| (directive, Vec::new()));
+                    .map(|directive| DocumentMigration {
+                        directive,
+                        respellings: Vec::new(),
+                        blocker: line_break.clone(),
+                    });
             }
             Event::Scalar(text, style, _, tag) => {
-                let Some((_, pending)) = document.as_mut() else {
+                let Some(document) = document.as_mut() else {
                     continue;
                 };
+                if document.blocker.is_some() {
+                    continue;
+                }
                 let suffix = tag.as_deref().map(tag_suffix);
                 match migration(&text, style == ScalarStyle::Plain, suffix.as_deref()) {
                     Migration::Keep => {}
@@ -257,9 +312,21 @@ fn migrations(input: Analysis<'_>, cfg: Config) -> Vec<(Directive, Vec<Edit>)> {
                     {
                         let start = marker_byte_offset(span.start);
                         let end = BytePos::new(start.get() + text.len());
-                        pending.push((start, end, spelling));
+                        document.respellings.push((start, end, spelling));
                     }
-                    Migration::Respell(_) | Migration::Decline => document = None,
+                    blocked @ (Migration::Respell(_) | Migration::Decline) => {
+                        let reason = if matches!(blocked, Migration::Decline) {
+                            "has no faithful YAML 1.2 equivalent"
+                        } else {
+                            "cannot be respelled compatibly with YAML 1.1"
+                        };
+                        document.blocker = Some(format!(
+                            "`{}` at {}:{} {reason}; quote or edit it",
+                            text.escape_debug(),
+                            span.start.line(),
+                            span.start.col() + 1
+                        ));
+                    }
                 }
             }
             Event::DocumentEnd => migrations.extend(document.take()),

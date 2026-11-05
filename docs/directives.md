@@ -58,8 +58,9 @@ this:   file: is: not: linted
 
 It must be the first line, with no `rule:` tokens. The `#`
 may be followed by any spacing (`#ryl disable-file` is accepted too).
-A first-line Jinja renderer header such as `#!jinja|yaml` skips a file the same way; see
-[Jinja templates](formatter.md#jinja-templates).
+A first-line Jinja renderer header such as `#!jinja|yaml` also skips a file in a
+directory scan. Naming such a file, or piping it to stdin, exits `2`, where naming a
+`disable-file` file exits `0`; see [Jinja templates](formatter.md#jinja-templates).
 
 ### Targeting rules
 
@@ -97,13 +98,23 @@ including a first-line `disable-file`, but only with the `ryl` spelling.
 ## yamllint compatibility
 
 The `# yamllint …` spelling remains accepted throughout 0.29.x, though only as a
-whole comment (see above). The CLI warns once per regular file or stdin input that
-uses an alias; use `# ryl …` instead or convert comments with `--migrate-directives`.
+whole comment (see above). The CLI warns once per run with the number of regular
+files or stdin inputs that use aliases; use `# ryl …` instead or convert comments
+with `--migrate-directives`.
 `--no-warnings`
 hides the notice. The notice does not affect lint results or strict-mode exit codes:
 
 ```yaml
 key:   value  # yamllint disable-line rule:colons
+```
+
+`# yamllint` aliases remain supported throughout 0.29.x.
+
+Preview and apply conversion (`--migrate-from yamllint` is optional):
+
+```bash
+ryl --migrate-directives --migrate-from yamllint
+ryl --migrate-directives --migrate-from yamllint --migrate-write
 ```
 
 Both spellings follow the same grammar. A comment (or, for
@@ -133,9 +144,23 @@ untouched while still fixing `c:   3`.
 ## Formatter-only suppression
 
 Use `# ryl format-ignore` on its own line to keep the next YAML node as written.
+Formatter directives also accept no space after `#`, for example `#ryl format-ignore`.
 A mapping key includes its value, and a collection includes its descendants:
 
 ```yaml
+# before
+before:    0
+# ryl format-ignore
+section:
+  first:    1
+  second:    [1,2]
+after:    3
+```
+
+`ryl format` rewrites only the unprotected lines:
+
+```yaml
+# after
 before: 0
 # ryl format-ignore
 section:
@@ -148,6 +173,15 @@ Before a document's root node, `format-ignore` protects the entire root collecti
 To protect an explicit region, use `format-disable` and `format-enable`:
 
 ```yaml
+# before
+# ryl format-disable
+manually:    [1,2]
+# ryl format-enable
+formatted:    [1,2]
+```
+
+```yaml
+# after
 # ryl format-disable
 manually:    [1,2]
 # ryl format-enable
@@ -163,6 +197,20 @@ Only own-line YAML comments are recognized. Text inside strings or scalar bodies
 is ordinary data. Protected lines retain their spacing, quotes and line endings.
 Structural conversions and re-indentation can be left as written when suppression
 prevents applying them safely.
+
+With `sequence-style = "block"`, the following is both input and output:
+
+```yaml
+# ryl format-disable
+manually:    [1,2]
+# ryl format-enable
+formatted:
+  - 1
+  - 2
+```
+
+`ryl format --check` exits `0` for that file: the protected flow sequence produces
+neither an `unformatted` finding nor a refusal notice.
 
 ## Embedded Markdown
 

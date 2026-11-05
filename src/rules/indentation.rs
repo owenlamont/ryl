@@ -261,6 +261,7 @@ impl Kind {
         matches!(
             self,
             Self::Key { .. }
+                | Self::Value
                 | Self::BlockEnd
                 | Self::FlowMappingEnd
                 | Self::FlowSequenceEnd
@@ -464,7 +465,9 @@ impl Normalizer<'_> {
                     // the parser starts a block scalar at its content, PyYAML at
                     // `|`/`>`.
                     let from = self.previous.as_ref().map_or(0, |prev| prev.end);
-                    start = block_indicator(text, from).unwrap_or(start);
+                    start =
+                        crate::rules::support::line_syntax::block_indicator(text, from)
+                            .unwrap_or(start);
                     line = line_starts.partition_point(|&offset| offset <= start) - 1;
                     column = text[line_starts[line]..start].chars().count();
                     let end_line_start = line_starts[end_line];
@@ -534,14 +537,6 @@ const fn is_break(ch: char) -> bool {
     matches!(ch, '\n' | '\r')
 }
 
-fn block_indicator(text: &str, from: usize) -> Option<usize> {
-    let mut in_comment = false;
-    text[from..].char_indices().find_map(|(offset, ch)| {
-        in_comment = (in_comment || ch == '#') && !is_break(ch);
-        (!in_comment && matches!(ch, '|' | '>')).then_some(from + offset)
-    })
-}
-
 fn to_isize(value: usize) -> isize {
     isize::try_from(value).unwrap_or(isize::MAX)
 }
@@ -564,6 +559,7 @@ struct Parent {
     indent: isize,
     line_indent: isize,
     explicit_key: bool,
+    value_separator: bool,
     implicit_block_seq: bool,
     origin: usize,
 }
@@ -575,6 +571,7 @@ impl Parent {
             indent,
             line_indent: indent,
             explicit_key: false,
+            value_separator: false,
             implicit_block_seq: false,
             origin: 0,
         }
@@ -849,17 +846,11 @@ impl<'a> Analyzer<'a> {
         let next_column = self.column(next);
         match token.kind {
             Kind::BlockMappingStart | Kind::BlockSequenceStart => {
-                let (child, kind) = if token.kind == Kind::BlockMappingStart {
-                    (
-                        matches!(next.kind, Kind::Key { .. }),
-                        ParentKind::BlockMapping,
-                    )
+                let kind = if token.kind == Kind::BlockMappingStart {
+                    ParentKind::BlockMapping
                 } else {
-                    (next.kind == Kind::BlockEntry, ParentKind::BlockSequence)
+                    ParentKind::BlockSequence
                 };
-                if !child || next.line != token.line {
-                    return Err(UnexpectedToken);
-                }
                 self.stack.push(Parent {
                     origin: token.start,
                     ..Parent::new(kind, column)
@@ -911,7 +902,7 @@ impl<'a> Analyzer<'a> {
                     ..Parent::new(ParentKind::Key, self.top().indent)
                 });
             }
-            Kind::Value => self.push_value(prev, next, nextnext)?,
+            Kind::Value => self.push_value(token, next, nextnext)?,
             Kind::Property => self.settle_paired(token, prev, next),
             _ => {}
         }
@@ -920,19 +911,32 @@ impl<'a> Analyzer<'a> {
 
     fn push_value(
         &mut self,
-        prev: Option<&Token>,
+        separator: &Token,
         next: &Token,
         nextnext: Option<&Token>,
     ) -> Result<(), UnexpectedToken> {
+        if matches!(
+            self.top().kind,
+            ParentKind::BlockMapping
+                | ParentKind::FlowMapping
+                | ParentKind::FlowSequence
+        ) {
+            self.stack
+                .push(Parent::new(ParentKind::Key, self.top().indent));
+        }
         let key = self.top();
         if key.kind != ParentKind::Key {
             return Err(UnexpectedToken);
         }
-        let prev_line = prev.map_or(0, |prev| prev.line);
+        self.stack
+            .last_mut()
+            .expect("the key parent exists")
+            .value_separator = true;
+        let header_line = separator.line;
         let next = match nextnext {
             Some(after)
                 if next.kind == Kind::Property
-                    && next.line == prev_line
+                    && next.line == header_line
                     && next.line < after.line =>
             {
                 after
@@ -942,7 +946,7 @@ impl<'a> Analyzer<'a> {
         if next.kind.closes_property_value() {
             return Ok(());
         }
-        let indent = self.value_indent(key, next, next.line == prev_line);
+        let indent = self.value_indent(key, next, next.line == header_line);
         self.stack.push(Parent::new(ParentKind::Value, indent));
         self.paired = next.kind == Kind::Property
             && nextnext.is_some_and(|after| {
@@ -1057,9 +1061,10 @@ impl<'a> Analyzer<'a> {
                         true
                     }
                 }
-                ParentKind::Key => {
-                    next.is_some_and(|next| next.kind.closes_property_value())
-                }
+                ParentKind::Key => next.is_some_and(|next| {
+                    next.kind.closes_property_value()
+                        && (next.kind != Kind::Value || top.value_separator)
+                }),
                 ParentKind::Root => false,
             };
             if !pop {

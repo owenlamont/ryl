@@ -80,11 +80,6 @@ jobs:
       - name: Fetch the YAML test suite and reference parser
         run: git submodule update --init crates/ryl-yaml-parser/tests/yaml-test-suite tests/yaml-reference-parser
 
-      - name: Replay saved property seeds
-        env:
-          PROPTEST_CASES: '0'
-        run: cargo nextest run --workspace -E 'test(/^property_/)'
-
       - name: Run doctests
         run: cargo test --workspace --doc
 

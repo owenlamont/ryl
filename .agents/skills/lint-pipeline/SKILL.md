@@ -126,17 +126,17 @@ ruff's `MAX_ITERATIONS`): one `--fix` reaches the fixed point, and the "N fixed,
 remaining" summary and `--diff` see only the final text. N sums each file's drop per
 safe-fix rule and "Found" is N + M, as in ruff, so a problem a fix introduces raises it
 above the pre-fix count. After convergence,
-`key_ordering::unfixed` names each mapping its fix declined; `FixOutcome::skipped` and
+`key_ordering::unfixed` names each mapping its fix declined; `RewriteOutcome::skipped` and
 `DiffOutcome::skipped` carry those as `rule: Some("key-ordering")` problems, which the
 CLI prints as `<path>:L:C key-ordering not fixed: <reason>` (Markdown regions mapped to
-host lines like parse skips). Tests reach it through
-`apply_safe_fixes_capped` with a small cap. Lint behavior is unchanged: an undefined
+host lines like parse skips). Lint behavior is unchanged: an undefined
 alias is still not a lint syntax error (the `anchors` rule reports it, matching
 yamllint); only rewrites require resolved aliases, through the in-place and per-region
 Markdown paths.
 
-Every multi-file pass (`lint_files`, `lint_files_cached`, and `fix::rewrite_files` and
-`fix::diff_files` through `read_in_order`) runs on `cli_support::try_for_each_ordered`.
+Every multi-file pass (`lint_files_cached`, `fix::check_files`, `fix::rewrite_files`
+and `fix::diff_files` through `read_in_order`) runs on
+`cli_support::try_for_each_ordered`.
 The calling thread spawns chunks of files on the rayon pool, at most `8 × threads` chunks
 past the oldest unemitted one, and hands each result to its `emit` callback in input
 order, so memory stays flat in the file count. Tasks never block, so a nested

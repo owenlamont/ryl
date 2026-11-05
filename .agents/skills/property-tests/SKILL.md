@@ -25,22 +25,23 @@ PROPTEST_CASES=10240 cargo test --release --test integration property_check::<te
 `--exact` stops substring matching. Existing suites never run at 20×.
 Local suites use proptest's default 256
 cases unless they pin `cases` themselves; `PROPTEST_CASES` still overrides a pinned
-`cases`. Keep the whole step **under 10 minutes**. Commit only once it is green, and keep
-any newly-persisted seeds in `tests/proptest-regressions/`.
+`cases`. Keep the whole step **under 10 minutes**. Commit only once it is green.
+Seeds stay in gitignored
+`target/proptest-regressions/` beneath each package; never commit seed files.
 
 **An integration branch's tip runs every suite at its default count**, not only the
 touched ones; a release runs the soak below. Any failure a property run finds, in any
 branch, gets the fix plus a named deterministic regression test that reproduces it
-without proptest, in the branch where it was found; a committed seed alone is not
-enough.
+without proptest, in the branch where it was found. A seed regenerates input through
+the current generator, so a seed cannot preserve a concrete regression.
 
 ## Coverage and CI
 
 Deterministic tests own coverage: give every region a named example test, even when a
 property case already reaches the region. Coverage runs with `PROPTEST_CASES=0` and
 `PROPTEST_DISABLE_FAILURE_PERSISTENCE=1`, so neither random cases nor saved seeds can
-satisfy the gate. CI replays committed seeds separately with `PROPTEST_CASES=0` and
-failure persistence enabled; proptest replays seeds before generating random cases.
+satisfy the gate. Proptest replays local seeds before generating random cases;
+`PROPTEST_CASES=0` with persistence enabled runs only saved cases.
 Local property runs and the integration gate keep their default counts.
 
 ## Soak
@@ -48,10 +49,21 @@ Local property runs and the integration gate keep their default counts.
 `uv run --script scripts/property_soak.py --minutes N [--cases M]` builds the test
 binaries, then runs each `property_` suite round-robin, `M` cases per run (default 256)
 with fresh seeds, until `N` minutes pass. It stops at the first failure, keeping the seed
-and printing the regression files' status and diff, and exits 1. Its per-suite table of
-runs, cases and cases per second shows a suite that got slower. `property-soak.yml` runs
+and printing the regression files' paths and contents, and exits 1. The per-suite table
+of runs, cases and cases per second shows a suite that got slower. `property-soak.yml` runs
 it nightly for 60 minutes and uploads the seed on failure; a release runs it last before
 the timing gates (release skill).
+
+On a soak failure, download the `proptest-regressions` artifact, check out the soak's
+SHA, and restore each seed file under the corresponding package's
+`target/proptest-regressions/`. Run the failing suite at that SHA with
+`PROPTEST_CASES=0` and persistence enabled. Extract the concrete failing input and land
+a named deterministic regression test; never commit the seed. Replaying against a later
+generator can silently exercise a different input.
+
+The shared `failure_persistence!` macro in `tests/property.rs` anchors paths at
+`CARGO_MANIFEST_DIR`; the parser crate uses the same package-root convention. Proptest
+creates missing parent directories when saving a failure.
 
 ## Property Tests For Safe Fixes
 
@@ -98,9 +110,8 @@ When you add a new `FixSafety::Safe` rule:
 `key-ordering` reorders them; anything else that loads YAML to compare a fix's
 output (`property_markdown_fix`) goes through it.
 
-Failing inputs are persisted at `tests/proptest-regressions/property_safe_fix.txt`
-and replayed first on every run. That file is committed to git so the regression
-follows the codebase, not the developer's machine.
+Failing inputs persist locally at `target/proptest-regressions/property_safe_fix.txt`
+and replay first on every run.
 
 ## Property Tests For Unsafe Fixes
 
@@ -140,8 +151,8 @@ act on the same lines.
 When you add a new `FixSafety::Safe` rule, add it to `pipeline_rules` at its position
 in `fix::SAFE_FIX_RULE_IDS`; `probe_covers_every_safe_fix_rule` fails until you do,
 and the byte-for-byte assertion fails on a misordering that changes the output.
-Failing inputs persist to the committed
-`tests/proptest-regressions/property_fix_convergence.txt`; run with
+Failing inputs persist locally to
+`target/proptest-regressions/property_fix_convergence.txt`; run with
 `cargo test --test integration property_fix_convergence::`.
 
 ## Property Tests For The Formatter Guarantee
@@ -189,7 +200,7 @@ before it ships; widen the generator if it rewrites syntax the stacked documents
 `a_deliberately_broken_pass_fails_the_suite` feeds broken passes through the same checks,
 and `representation_tells_apart_what_value_preservation_forbids` pins the oracle's
 resolution; extend both when an invariant changes. Failing inputs persist to
-`tests/proptest-regressions/property_format.txt`; run with
+`target/proptest-regressions/property_format.txt`; run with
 `cargo test --test integration property_format::`.
 
 ### Formatter confluence
@@ -277,7 +288,7 @@ When you add a new rule, extend `collect_spans` in `harness.rs` to call its
 `property_check.rs`. The deterministic `each_rule_triggers_and_reports_in_bounds_spans`
 test asserts each rule fires on its crafted input, so the property assertions
 cannot silently pass vacuously if the generator drifts. Failing inputs persist
-to the committed `tests/proptest-regressions/property_check.txt`. Run with
+locally to `target/proptest-regressions/property_check.txt`. Run with
 `cargo test --test integration property_check::`.
 
 ## Property Tests For Markdown `--fix`
@@ -293,7 +304,7 @@ fence-crossing-front-matter cases.
 
 Extend this suite only when the Markdown extractor/wrapper grows new region shapes:
 add a `wrap.rs` variant and a deterministic sibling. A failure creates
-`tests/proptest-regressions/property_markdown_fix.txt`; commit the seed and run
+`target/proptest-regressions/property_markdown_fix.txt`; run
 `cargo test --test integration property_markdown_fix::`.
 
 ## Property Tests For Markdown Formatting
@@ -305,7 +316,7 @@ The shared Markdown wrapper embeds the formatter's decorated YAML generator; eac
 must preserve its core and YAML 1.1 representation, comments and anchor names, while
 host bytes stay identical and formatting is idempotent. Deterministic dirty-region and
 oracle-mutation tests prevent vacuous passes. A failure creates
-`tests/proptest-regressions/property_markdown_format.txt`; commit the seed and run
+`target/proptest-regressions/property_markdown_format.txt`; run
 `cargo test --test integration property_markdown_format::`.
 
 ## Property Tests For Config Parsing

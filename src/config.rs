@@ -25,6 +25,7 @@ use crate::decoder;
 use crate::format::FormatSettings;
 
 pub(crate) mod legacy_yaml;
+mod resolved;
 
 pub use crate::config_schema::{
     FixRuleName as FixRule, RuleLevel, SourceVersion, TargetVersion, UnsafeFixConfig,
@@ -238,6 +239,7 @@ pub struct YamlLintConfig {
     fix: FixConfig,
     deprecated_keys: Vec<DeprecatedKeyUse>,
     yaml_directive_from_all: bool,
+    resolved: resolved::Resolved,
 }
 
 const DEFAULT_YAML_FILE_PATTERNS: [&str; 3] = ["*.yaml", "*.yml", ".yamllint"];
@@ -628,6 +630,7 @@ impl Default for YamlLintConfig {
             fix: FixConfig::default(),
             deprecated_keys: Vec::new(),
             yaml_directive_from_all: false,
+            resolved: resolved::Resolved::default(),
         }
     }
 }
@@ -664,6 +667,7 @@ impl YamlLintConfig {
     /// config stays self-contained after it moves to ryl's config dir (the original
     /// relative path would otherwise dangle). Call only after `finalize`.
     pub fn inline_resolved_ignore_from_file(&mut self) {
+        self.resolved = resolved::Resolved::default();
         self.ignore_from_files.clear();
     }
 
@@ -706,6 +710,16 @@ impl YamlLintConfig {
     #[must_use]
     pub fn enables_any_rule(&self) -> bool {
         self.rules.values().any(|rule| rule.level().is_some())
+    }
+
+    /// `rule`'s options from `resolve`, computed once per config and again after any
+    /// mutation.
+    pub(crate) fn resolved<C: std::any::Any + Send + Sync>(
+        &self,
+        rule: &str,
+        resolve: fn(&Self) -> C,
+    ) -> &C {
+        self.resolved.rule(rule, || resolve(self))
     }
 
     #[must_use]
@@ -777,6 +791,7 @@ impl YamlLintConfig {
     /// content with no real path (e.g. stdin without `--stdin-filename`), so the ignore
     /// patterns cannot accidentally match the synthetic label.
     pub fn disable_path_based_rule_ignores(&mut self) {
+        self.resolved = resolved::Resolved::default();
         self.per_file_ignore_matchers.clear();
         self.key_orders.clear();
         // A per-line entry with a path constraint can't match a synthetic label, so
@@ -792,6 +807,17 @@ impl YamlLintConfig {
 
     #[must_use]
     pub fn is_rule_ignored(&self, rule: &str, path: &Path, base_dir: &Path) -> bool {
+        if !self.resolved.has_path_ignores(|| {
+            !self.per_file_ignore_matchers.is_empty()
+                || self.rules.values().any(|config| {
+                    config
+                        .filter
+                        .as_ref()
+                        .is_some_and(|filter| filter.matcher.is_some())
+                })
+        }) {
+            return false;
+        }
         self.rules.get(rule).is_some_and(|config| {
             config.is_ignored(path, base_dir, self.path_case.is_insensitive())
         }) || self
@@ -837,8 +863,7 @@ impl YamlLintConfig {
     pub fn is_yaml_candidate(&self, path: &Path, base_dir: &Path) -> bool {
         if let Some(matcher) = &self.yaml_matcher {
             let rel = relative_to_base(path, base_dir, self.path_case.is_insensitive());
-            let matched =
-                matcher.matched_path_or_any_parents(rel.as_ref(), path.is_dir());
+            let matched = matcher.matched_path_or_any_parents(&rel, path.is_dir());
             return matched.is_ignore();
         }
         crate::discover::is_yaml_path(path)
@@ -853,7 +878,7 @@ impl YamlLintConfig {
         };
         let rel = relative_to_base(path, base_dir, self.path_case.is_insensitive());
         matcher
-            .matched_path_or_any_parents(rel.as_ref(), path.is_dir())
+            .matched_path_or_any_parents(&rel, path.is_dir())
             .is_ignore()
     }
 
@@ -888,6 +913,7 @@ impl YamlLintConfig {
     /// Enable markdown linting with default globs when none are configured. Backs the
     /// `--markdown` flag. A no-op when `[files].markdown` already lists globs.
     pub fn enable_default_markdown(&mut self, base_dir: &Path) {
+        self.resolved = resolved::Resolved::default();
         if self.markdown_file_patterns.is_empty() {
             self.markdown_file_patterns = DEFAULT_MARKDOWN_FILE_PATTERNS
                 .iter()
@@ -938,6 +964,7 @@ impl YamlLintConfig {
 
     /// Backs `--enable`: run exactly `selected`, keeping the options of any already enabled.
     pub fn restrict_rules(&mut self, selected: &[&str]) {
+        self.resolved = resolved::Resolved::default();
         self.rules
             .retain(|name, _| selected.contains(&name.as_str()));
         self.rule_names
@@ -958,6 +985,7 @@ impl YamlLintConfig {
     }
 
     pub fn disable_rules(&mut self, disabled: &[&str]) {
+        self.resolved = resolved::Resolved::default();
         self.rules
             .retain(|name, _| !disabled.contains(&name.as_str()));
         self.rule_names
@@ -967,6 +995,7 @@ impl YamlLintConfig {
     /// # Errors
     /// Returns an error for an invalid exclusion glob.
     pub fn replace_exclude(&mut self, patterns: &[String]) -> Result<(), String> {
+        self.resolved = resolved::Resolved::default();
         let (matcher, _) = build_ignore_matcher(
             patterns,
             &[],
@@ -1061,7 +1090,8 @@ impl YamlLintConfig {
     }
 
     /// Override `unsafe-fixes`, as `--unsafe-fixes` and `--no-unsafe-fixes` do.
-    pub const fn set_unsafe_fixes(&mut self, enabled: bool) {
+    pub fn set_unsafe_fixes(&mut self, enabled: bool) {
+        self.resolved = resolved::Resolved::default();
         self.unsafe_fix.unsafe_fixes = Some(enabled);
     }
 
@@ -1301,7 +1331,8 @@ fn build_glob_matcher(
     if patterns.is_empty() {
         return None;
     }
-    let mut builder = GitignoreBuilder::new(base_dir);
+    let mut builder =
+        GitignoreBuilder::new(lexical_abspath(&process_cwd().join(base_dir)));
     builder
         .case_insensitive(case_insensitive)
         .expect("setting case sensitivity is infallible");
@@ -1324,7 +1355,8 @@ fn build_ignore_matcher(
         return Ok((None, Vec::new()));
     }
 
-    let mut builder = GitignoreBuilder::new(base_dir);
+    let mut builder =
+        GitignoreBuilder::new(lexical_abspath(&process_cwd().join(base_dir)));
     builder
         .case_insensitive(envx.case_insensitive_paths())
         .expect("setting case sensitivity is infallible");
@@ -1404,19 +1436,51 @@ fn relative_to_base<'a>(
     base_dir: &Path,
     case_insensitive: bool,
 ) -> Cow<'a, Path> {
+    let plain = |rel: &Path| {
+        rel.components()
+            .all(|part| matches!(part, Component::Normal(_) | Component::CurDir))
+    };
     if let Some(rel) = strip_path_prefix(path, base_dir, case_insensitive)
-        && (!case_insensitive || !rel.has_root())
+        && plain(rel)
+        && spelled_as_components(rel)
     {
         return Cow::Borrowed(rel);
     }
     let cwd = process_cwd();
-    let resolved =
-        strip_path_prefix(&cwd.join(path), &cwd.join(base_dir), case_insensitive)
-            .map(Path::to_path_buf);
+    let (path_from_cwd, base_from_cwd) = (cwd.join(path), cwd.join(base_dir));
+    if let Some(rel) =
+        strip_path_prefix(&path_from_cwd, &base_from_cwd, case_insensitive)
+        && plain(rel)
+    {
+        return Cow::Owned(rel.components().collect());
+    }
+    let parent =
+        |path: &Path| path.components().any(|part| part == Component::ParentDir);
+    let normalized = if parent(path) || parent(base_dir) {
+        strip_path_prefix(
+            &lexical_abspath(&path_from_cwd),
+            &lexical_abspath(&base_from_cwd),
+            case_insensitive,
+        )
+        .map(Path::to_path_buf)
+    } else {
+        None
+    };
     Cow::Owned(
-        resolved
+        normalized
             .unwrap_or_else(|| path.file_name().map(PathBuf::from).unwrap_or_default()),
     )
+}
+
+/// `components()` hides an interior `.` and doubled separators that the matcher still
+/// sees, so a path is only matchable as given when its components spell it exactly.
+fn spelled_as_components(path: &Path) -> bool {
+    let (parts, bytes) = path
+        .components()
+        .fold((0_usize, 0), |(parts, bytes), part| {
+            (parts + 1, bytes + part.as_os_str().len())
+        });
+    bytes + parts.saturating_sub(1) == path.as_os_str().len()
 }
 
 fn path_matches_ignore(

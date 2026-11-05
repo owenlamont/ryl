@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use ryl::config::{Overrides, YamlLintConfig, discover_config};
-use ryl::config_schema::{MarkerTarget, QuoteStyleTarget};
+use ryl::config_schema::{DocumentStartTarget, MarkerTarget, QuoteStyleTarget};
 use ryl::migrate::{
     MigrateOptions, OutputMode, SourceCleanup, WriteMode, migrate_configs,
 };
@@ -63,7 +63,11 @@ fn migrated_unenforced_targets_are_preserved() {
         let td = tempdir().unwrap();
         let cfg = migrate(td.path(), legacy);
         let targets = cfg.format().targets();
-        assert_eq!(targets.document_start, MarkerTarget::Preserve, "{name}");
+        assert_eq!(
+            targets.document_start,
+            DocumentStartTarget::Preserve,
+            "{name}"
+        );
         assert_eq!(targets.quote_style, quote_style, "{name}");
         if let Some(expected) = document_end {
             assert_eq!(targets.document_end, expected, "{name}");

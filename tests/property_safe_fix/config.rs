@@ -188,6 +188,18 @@ static SAFE_FIX_CONFIGS: LazyLock<Vec<PreparedConfig>> = LazyLock::new(|| {
         })
         .collect();
 
+    configs.push(PreparedConfig {
+        name: "remove-document-start",
+        cfg: YamlLintConfig::from_yaml_str(&format!(
+            "{}{}{TRUTHY_DEFAULT}{SPACING_DEFAULT}",
+            COMMON_SAFE_FIX_RULES_YAML
+                .replace("document-start: enable", "document-start: {present: false}"),
+            QUOTED_STRINGS_VARIANTS[1].1,
+        ))
+        .expect("removal config parses"),
+        _backing: None,
+    });
+
     let target_1_2 = format!(
         "target-version = '1.2'\n{COMMON_SAFE_FIX_RULES_TOML}\n[rules.comments]\n\
          [rules.yaml-directive]\n"

@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{CollectionStyleTarget, ExpandTarget};
 
@@ -334,9 +333,7 @@ fn scalar_indicator_text_does_not_change_collection_targets() {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_format_confluence.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_format_confluence"),
         ..ProptestConfig::default()
     })]
 

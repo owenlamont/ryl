@@ -24,7 +24,6 @@ use crate::common::encoding;
 use crate::property::{config, strategy, wrap};
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::{SourceKind, YamlLintConfig};
 use ryl::fix::{Rewrite, apply_safe_fixes, diff_outcome, fix_markdown_str};
 
@@ -183,9 +182,7 @@ fn encoded_preview_generator_seed_fits_default_stack() {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_diff.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_diff"),
         ..ProptestConfig::default()
     })]
 

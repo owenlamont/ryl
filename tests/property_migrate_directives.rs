@@ -1,5 +1,4 @@
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::directives::{
     Directives, FormatterComments, disables_file, legacy_directive_lines,
     migrate_comments, migrate_legacy_comments,
@@ -42,9 +41,7 @@ fn converter_byte_oracle_rejects_unrelated_edits_and_handles_utf8() {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_migrate_directives.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_migrate_directives"),
         ..ProptestConfig::default()
     })]
 
@@ -90,6 +87,8 @@ proptest! {
         ending in prop::sample::select(vec!["\n", "\r\n", "\r"]),
         eof in any::<bool>(),
         nested in any::<bool>(),
+        shape in 0_u8..8,
+        prefix in prop::sample::select(vec!["", "> ", "  ", "- "]),
     ) {
         let (marker, source) = if pretty {
             (custom, FormatterComments::PrettyYaml(custom))
@@ -98,16 +97,35 @@ proptest! {
         };
         let indent = if nested { "  " } else { "" };
         let gap = " ".repeat(padding);
-        let body = format!("{indent}before:{gap}[0,0]\n{indent}# {marker}\n{indent}held:{gap}[{atom},{atom}]\n{indent}after:{gap}[3,4]");
-        let input = format!("{}{}{}", if nested { "root:\n" } else { "" }, body, if eof { "" } else { "\n" }).replace('\n', ending);
+        let held = match shape {
+            1 => format!("{indent}- held:{gap}[{atom},{atom}]"),
+            2 => format!("[{atom},{atom}]"),
+            3 => format!("{indent}&held !!str held:{gap}[{atom},{atom}]"),
+            _ => format!("{indent}held:{gap}[{atom},{atom}]"),
+        };
+        let body = match shape {
+            1 => format!("{indent}- before:{gap}[0,0]\n{indent}# {marker}\n{held}\n{indent}- after:{gap}[3,4]"),
+            2 => format!("# {marker}\n{held}"),
+            4 => format!("before:{gap}[0,0]\n...\n---\n# {marker}\n{held}\n{indent}after:{gap}[3,4]"),
+            5 => format!("{indent}before:{gap}[0,0]\n{indent}# adjacent comment\n{indent}# {marker}\n{held} # trailing comment\n{indent}after:{gap}[3,4]"),
+            6 => format!("{indent}before:{gap}[0,0]\n{indent}# {marker}\n{indent}# {marker}\n{held}\n{indent}after:{gap}[3,4]"),
+            7 => format!("{indent}before:{gap}[0,0] # {marker}\n{indent}# {marker}\n{held}\n{indent}after:{gap}[3,4]"),
+            _ => format!("{indent}before:{gap}[0,0]\n{indent}# {marker}\n{held}\n{indent}after:{gap}[3,4]"),
+        };
+        let input = format!("{}{}{}", if nested && shape != 2 && shape != 4 { "root:\n" } else { "" }, body, if eof { "" } else { "\n" }).replace('\n', ending);
         let migration = migrate_comments(&input, source);
         let collision = pretty && custom.contains("# ryl ");
-        if collision {
+        let accepted = !collision && shape != 3 && !(pretty && shape == 4);
+        let markers = if shape >= 6 { 2 } else { 1 };
+        prop_assert_eq!(migration.retained_lines.len(), markers - usize::from(accepted), "input {:?}", input);
+        let converted = |text: &str| {
+            let (before, after) = text.rsplit_once(marker).unwrap();
+            format!("{before}ryl format-ignore{after}")
+        };
+        if !accepted {
             prop_assert!(migration.output.is_none());
-            prop_assert_eq!(migration.retained_lines.len(), 1);
         } else {
-            prop_assert!(migration.retained_lines.is_empty(), "input {:?}", input);
-            prop_assert_eq!(migration.output.as_ref(), Some(&input.replace(marker, "ryl format-ignore")));
+            prop_assert_eq!(migration.output.as_ref(), Some(&converted(&input)));
         }
         let output = migration.output.unwrap_or_else(|| input.clone());
         prop_assert!(migrate_comments(&output, source).output.is_none());
@@ -122,24 +140,44 @@ proptest! {
                 prop_assert_eq!(before.is_disabled(rule, line), after.is_disabled(rule, line));
             }
         }
-        if !collision {
+        if accepted {
             let config = ryl::config::YamlLintConfig::from_toml_str("[format]").unwrap();
             let path = std::path::Path::new("case.yaml");
             let formatted = ryl::format::format_str(&output, &config, path, &[]);
-            prop_assert!(formatted.contains(&format!("{indent}held:{gap}[{atom},{atom}]")), "held node changed: {:?}", formatted);
-            prop_assert!(formatted.contains(&format!("{indent}before: [0, 0]")), "before witness unchanged: {:?}", formatted);
-            prop_assert!(formatted.contains(&format!("{indent}after: [3, 4]")), "after witness unchanged: {:?}", formatted);
+            prop_assert!(formatted.contains(&held), "held node changed: {:?}", formatted);
+            if shape != 2 {
+                prop_assert!(formatted.contains("before: [0, 0]"), "before witness unchanged: {:?}", formatted);
+                if shape == 4 {
+                    prop_assert!(formatted.contains(&format!("after:{gap}[3,4]")), "root document changed: {:?}", formatted);
+                } else {
+                    prop_assert!(formatted.contains("after: [3, 4]"), "after witness unchanged: {:?}", formatted);
+                }
+            }
             prop_assert_eq!(ryl::format::format_str(&formatted, &config, path, &[]), formatted);
         }
         if ending != "\r" {
-            let markdown = format!("host before{ending}{ending}```yaml{ending}{input}{ending}```{ending}host after");
+            let opening = prefix;
+            let prefix = if prefix == "- " { "  " } else { prefix };
+            let body = input.split_inclusive(ending).map(|line| format!("{prefix}{line}")).collect::<String>();
+            let markdown = format!("host before{ending}{ending}{opening}```yaml{ending}{body}{ending}{prefix}```{ending}host after");
             let migrated = ryl::directives::migrate_markdown_comments(&markdown, source);
             if pretty {
                 prop_assert!(migrated.output.is_none());
-                prop_assert_eq!(migrated.retained_lines.len(), 1);
+                prop_assert_eq!(migrated.retained_lines.len(), markers);
+            } else if accepted {
+                prop_assert_eq!(migrated.output.as_ref(), Some(&converted(&markdown)));
+                prop_assert_eq!(migrated.retained_lines.len(), markers - 1);
+                let config = ryl::config::YamlLintConfig::from_toml_str("[format]").unwrap();
+                let converted = migrated.output.unwrap();
+                let format = |text: &str| ryl::fix::rewrite_str(text, &config, std::path::Path::new("case.md"), std::path::Path::new("."), ryl::config::SourceKind::Markdown, ryl::fix::Rewrite::Format).0.unwrap_or_else(|| text.to_owned());
+                let formatted = format(&converted);
+                prop_assert!(formatted.starts_with(&format!("host before{ending}{ending}{opening}```yaml{ending}")), "host prefix changed");
+                prop_assert!(formatted.ends_with(&format!("{prefix}```{ending}host after")), "host suffix changed");
+                prop_assert!(formatted.contains(&format!("{prefix}{held}")), "held Markdown node changed: {:?}", formatted);
+                prop_assert_eq!(format(&formatted), formatted);
             } else {
-                prop_assert_eq!(migrated.output, Some(markdown.replace(marker, "ryl format-ignore")));
-                prop_assert!(migrated.retained_lines.is_empty());
+                prop_assert!(migrated.output.is_none());
+                prop_assert_eq!(migrated.retained_lines.len(), markers);
             }
         }
     }

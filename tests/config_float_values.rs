@@ -6,7 +6,7 @@ fn error_on_non_bool_require_numeral() {
         "rules:\n  float-values:\n    require-numeral-before-decimal: 1\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.float-values"), "{err}");
 }
 
@@ -15,7 +15,7 @@ fn error_on_unknown_option() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  float-values:\n    minimum: true\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.float-values"), "{err}");
 }
 

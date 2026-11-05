@@ -21,10 +21,11 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::apply_safe_fixes;
 use ryl::rules::{octal_values, schema_dependent_values, truthy};
+
+use crate::property::underscored;
 
 #[derive(Debug, Clone)]
 enum Outcome {
@@ -37,19 +38,6 @@ enum Outcome {
 
 /// A scalar's text and its outcome under `source-version = "1.2"` and `"1.1"`.
 type Scalar = (String, [Outcome; 2]);
-
-fn underscored(digits: String) -> impl Strategy<Value = String> {
-    prop::collection::vec(prop::bool::weighted(0.3), digits.len()).prop_map(
-        move |marks| {
-            digits
-                .chars()
-                .zip(marks)
-                .flat_map(|(digit, mark)| [Some(digit), mark.then_some('_')])
-                .flatten()
-                .collect()
-        },
-    )
-}
 
 fn signed(sign: &str, value: u64) -> String {
     if sign == "-" && value != 0 {
@@ -174,7 +162,7 @@ fn arb_underscored() -> impl Strategy<Value = Scalar> {
                 16 => ("0x", format!("{n:X}")),
                 _ => ("", n.to_string()),
             };
-            underscored(digits).prop_map(move |body| {
+            underscored(digits, 0.3).prop_map(move |body| {
                 let text = format!("{sign}{prefix}{body}");
                 let core_int = radix == 10 || radix == 16 && sign.is_empty();
                 let outcomes = if core_int && !body.contains('_') {
@@ -194,7 +182,7 @@ fn arb_underscored_float() -> impl Strategy<Value = Scalar> {
         prop::option::of("[eE][-+][0-9]"),
     )
         .prop_flat_map(|(whole, fraction, exponent)| {
-            (underscored(whole), underscored(fraction)).prop_map(
+            (underscored(whole, 0.3), underscored(fraction, 0.3)).prop_map(
                 move |(whole, fraction)| {
                     let exponent = exponent.clone().unwrap_or_default();
                     let text = format!("{whole}.{fraction}{exponent}");
@@ -368,9 +356,7 @@ fn findings(text: &str, cfg: &YamlLintConfig) -> Vec<(String, bool)> {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_unsafe_fix.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_unsafe_fix"),
         ..ProptestConfig::default()
     })]
 
@@ -381,6 +367,8 @@ proptest! {
             1..=6,
         ),
         bits in 0..Variant::COUNT,
+        crlf in any::<bool>(),
+        host in 0_u8..3,
     ) {
         let variant = Variant::from_bits(bits);
         let cfg = &CONFIGS[usize::from(bits)];
@@ -398,14 +386,32 @@ proptest! {
             if variant.unsafe_fixes { (0, fixes) } else { (fixes, 0) };
         prop_assert_eq!(hidden, hidden_expected, "{:?}", found);
         prop_assert_eq!(named, named_expected, "{:?}", found);
+        let wrap = |text: &str| {
+            let text = match host {
+                1 => format!("host 🦀\n\n```yaml\n{text}```\nhost after\n"),
+                2 => format!("---\n{text}---\nhost 🦀\n"),
+                _ => text.to_owned(),
+            };
+            if crlf { text.replace('\n', "\r\n") } else { text }
+        };
+        let kind = if host == 0 { ryl::config::SourceKind::Yaml } else { ryl::config::SourceKind::Markdown };
+        let input = wrap(&input);
+        let expected = wrap(&expected);
+        let (fixed, _) = ryl::fix::rewrite_str(&input, cfg, path, base, kind, ryl::fix::Rewrite::Fix);
+        prop_assert_eq!(fixed.as_deref().unwrap_or(&input), expected.as_str());
+        let outcome = ryl::fix::diff_outcome(&input, cfg, path, base, kind, ryl::fix::Rewrite::Fix);
+        prop_assert!(outcome.skipped.is_empty(), "{:?}", outcome.skipped);
+        let applied = match outcome.diff {
+            Some(diff) => diffy::apply(&input, &diffy::Patch::from_str(&diff).unwrap()).unwrap(),
+            None => input,
+        };
+        prop_assert_eq!(applied, expected);
     }
 }
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_unsafe_fix.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_unsafe_fix"),
         ..ProptestConfig::default()
     })]
 

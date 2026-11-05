@@ -6,7 +6,7 @@ fn rejects_unknown_option() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  hyphens:\n    unexpected: true\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.hyphens"), "{err}");
 }
 
@@ -15,7 +15,7 @@ fn rejects_non_integer_max_spaces_after() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  hyphens:\n    max-spaces-after: []\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.hyphens"), "{err}");
 }
 
@@ -54,7 +54,7 @@ fn dash_on_own_line_rejected_in_yaml_config() {
         "rules:\n  hyphens:\n    dash-on-own-line: true\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.hyphens"), "{err}");
 }
 

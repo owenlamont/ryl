@@ -5,14 +5,46 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+## v0.29.0
+
 ### Added
 
+- `[format] document-start = "remove"` removes the first optional `---`, as does
+  `document-start` lint fixing with `present = false`. yamlfmt and yamlfix imports
+  map their marker-removal settings to the shared safe removal policy.
+- Import static Prettier, yamlfmt, dprint pretty_yaml and yamlfix configs with
+  `--migrate-configs`, including representable defaults. Use `--migrate-from`
+  when multiple source formatters apply; the error lists accepted flag values.
+  Unsupported settings produce warnings; skipped source cleanup names the reason
+  and leaves the file in place to delete by hand.
+  Imports apply supported YAML-only Prettier overrides, preserve supported source
+  exclusions, follow local dprint inheritance, and report lint/format conflicts.
+  `--migrate-stdout` exports TOML beside existing targets without overwriting them;
+  skipped sources and refused writes exit `2`, as do warnings under `--strict`.
+  ([#660](https://github.com/owenlamont/ryl/issues/660))
+- Opt into source suppression-comment conversion with `--migrate-directives`,
+  independently or alongside config import. Preview diffs before applying with
+  `--migrate-write`; uncertain scopes remain unchanged with warnings.
+  Runs report converted and retained comment totals plus skipped file counts.
+  Official pretty_yaml `0.5.x` ignore markers are supported alongside `0.6.0`.
+  Prettier config imports name the command for converting ignore comments.
+  ([#660](https://github.com/owenlamont/ryl/issues/660))
+- Formatter-only `# ryl format-ignore` protects the next YAML node, including
+  descendants; `format-disable` / `format-enable` protect a region. Lint checks
+  and lint fixes remain active.
+  ([#917](https://github.com/owenlamont/ryl/issues/917))
+- `[format] keep-quotes = true` retains optional scalar quotes while `quote-style`
+  chooses their character. ([#916](https://github.com/owenlamont/ryl/issues/916))
+- `[format] prose-wrap = "preserve" | "always" | "never"` controls prose reflow
+  while preserving values and paragraph breaks. Existing `fold-long-lines`
+  retains split-only behavior; configuring both settings is an error.
+  ([#915](https://github.com/owenlamont/ryl/issues/915))
 - Under `target-version = "1.2"`, `yaml-directive` reports a document that declares
   `%YAML 1.1` or `1.0`, and its safe fix migrates the document to 1.2 in one edit:
   `yes` becomes `true`, `0777` becomes `0o777`, `22:22` becomes `1342`, `1_000` becomes
   `1000`, and the directive becomes `%YAML 1.2`. A document holding a date, or a value
   PyYAML reads as a string and other 1.1 readers do not (`08`, `1e5`, `y`), keeps its
-  report and is left as is.
+  report naming the first blocking value and its location, and is left as is.
   ([#365](https://github.com/owenlamont/ryl/issues/365))
 - `yaml-directive` gains `present = false`, which forbids `%YAML` directives:
   its safe fix removes a `%YAML 1.2` one, and migrates a `%YAML 1.1` document before
@@ -35,8 +67,17 @@ summarize user-visible changes from the tagged commits and published release rec
   `"preserve"`) writes each node's anchor and tag in one order; `"tag-first"` matches
   prettier. ([#913](https://github.com/owenlamont/ryl/pull/913))
 
+### Deprecated
+
+- Legacy `yamllint` suppression comments emit one CLI deprecation notice per run,
+  with a count of affected files. Aliases remain supported throughout 0.29.x;
+  convert active aliases with `--migrate-directives`.
+  ([#660](https://github.com/owenlamont/ryl/issues/660))
+
 ### Changed
 
+- Lint `document-start` with `present = false` now safely strips the optional
+  first `---` during `ryl check --fix`. Required document boundaries stay intact.
 - **Behaviour change for `sequence-style = "flow"` / `mapping-style = "flow"`:** a flow
   collection too long for `line-length` on one line, which `ryl format` used to leave
   alone, now becomes block, and each collection nested in it stays flow only where it
@@ -45,13 +86,25 @@ summarize user-visible changes from the tagged commits and published release rec
 - `indentation` expects a block body after a value's anchor and tag
   (`a: &x !!map`) `indent-width` past its key, as after a lone anchor or tag, rather
   than at the anchor's column as yamllint does; `ryl format` re-indents such bodies
-  once. ([#913](https://github.com/owenlamont/ryl/pull/913))
+  once; a parallel yamllint run will disagree on the body indentation.
+  ([#913](https://github.com/owenlamont/ryl/pull/913))
 - `ryl check` sorts each file's diagnostics by line, column, then rule ID, as yamllint
   and ruff do, rather than grouping them by rule. Files stay in input order.
   ([#905](https://github.com/owenlamont/ryl/issues/905))
+- `ryl check --fix` parses each file once and skips fixers with nothing to fix. With
+  nothing to fix it now costs about what `ryl check` does, where it took four to eight
+  times as long; files that need fixes take about a third less work.
 
 ### Fixed
 
+- Yamllint YAML configs now resolve booleans and numbers with upstream's YAML 1.1
+  semantics, including `yes`/`no`, legacy octal and sexagesimal integers, during
+  linting and config migration.
+- Config errors name the rule, offending option and invalid value, including accepted
+  values for option unions, and retain TOML line and column locations.
+- Omitted mapping keys (`: value`) no longer trigger false indentation errors or
+  prevent `ryl format` from formatting the surrounding document, including when
+  their values have anchors or tags.
 - With `fold-long-lines` and `dash-on-own-line`, `ryl format` no longer folds a scalar
   whose trailing comment keeps its mapping on the `-` line, which let a second run move
   the mapping below the `-`. ([#913](https://github.com/owenlamont/ryl/pull/913))
@@ -65,6 +118,9 @@ summarize user-visible changes from the tagged commits and published release rec
 - `trailing-spaces` no longer reports a block scalar's whitespace-only content lines when
   a `:` inside an anchor or tag before it (`- &a: |+`) looked like a compact key.
   ([#906](https://github.com/owenlamont/ryl/pull/906))
+- A root-anchored `exclude` pattern now skips its file when the input is an absolute
+  path under a relative `-c` config, is spelled with `..` or an interior `./`, or
+  sits below a `-c` config in a subdirectory; such files were linted and formatted.
 
 ## v0.28.0
 

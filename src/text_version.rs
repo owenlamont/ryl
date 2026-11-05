@@ -241,7 +241,10 @@ impl<'text> Analysis<'text> {
         }
         self.source
             .headers
-            .get_or_init(|| block_scalar_chomping::headers_with_analysis(self))
+            .get_or_init(|| match self.source.parsed.get() {
+                Some(facts) if !facts.has_block_scalars() => Vec::new(),
+                _ => block_scalar_chomping::headers_with_analysis(self),
+            })
     }
 
     pub(crate) fn event_iter(self) -> impl Iterator<Item = (Event<'text>, Span)> {
@@ -422,6 +425,12 @@ pub(crate) struct ParsedFacts {
 }
 
 impl ParsedFacts {
+    pub(crate) fn has_block_scalars(&self) -> bool {
+        self.scalars.iter().any(|(style, _)| {
+            matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+        })
+    }
+
     pub(crate) fn scalar_contains(&self, at: usize) -> bool {
         use crate::rules::support::span_utils::marker_byte_offset;
         let after = self.scalars.partition_point(|&(_, event)| {

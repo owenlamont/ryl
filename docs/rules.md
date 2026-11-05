@@ -173,9 +173,18 @@ meaning where readers disagree, so it applies only when you opt in, as with ruff
 that YAML 1.1 and 1.2 readers load differently (see
 [YAML version compatibility](yaml-version.md#unsafe-fixes-and-source-version)).
 
+!!! warning "Check the source version first"
+
+    Unsafe fixes default to YAML 1.2 meanings for undeclared files. For files
+    written for PyYAML, Ansible or another YAML 1.1 reader, set
+    `source-version = "1.1"` before applying them. Follow the
+    [migration recipe](yaml-version.md#migrate-undeclared-yaml-11-files-safely).
+
 `ryl check` counts the fixes it left out:
 
 ```console
+$ cat config.yaml
+enabled: yes
 $ ryl check config.yaml
 config.yaml
   1:10      error    truthy value should be one of [false, true]  (truthy)
@@ -183,19 +192,16 @@ config.yaml
 1 unsafe fix available with `--fix --unsafe-fixes`.
 ```
 
-Apply every unsafe fix with `--unsafe-fixes` or the top-level setting, or one rule's
-with `extend-safe-fixes`, which lets plain `--fix` apply it:
+| Control | Effect |
+| :--- | :--- |
+| `--unsafe-fixes` or top-level `unsafe-fixes = true` | Permit unsafe fixes with `--fix`; preview with `--diff --unsafe-fixes` |
+| `[lint] extend-safe-fixes = ["octal-values"]` | Let plain `--fix` apply that rule's unsafe fixes; use sparingly |
+| `--no-unsafe-fixes` | Override the configured unsafe-fix setting |
+| Top-level `unsafe-fixes = false` | Disable unsafe fixes and silence the count |
+| `[lint] unfixable = ["truthy"]` | Block the rule's safe and unsafe fixes |
 
-```toml
-unsafe-fixes = true
-
-[lint]
-extend-safe-fixes = ["octal-values"]
-```
-
-`--diff` previews them, and once the config enables a fix its message names the old
-and new spelling (`; unsafe fix: yes -> "yes"`). `--no-unsafe-fixes` overrides the setting,
-and `unsafe-fixes = false` also silences the count. `unfixable` blocks a rule's unsafe
-fix too, and `ryl format` never applies one. In an editor, `ryl server` offers each
+Once enabled, an unsafe fix's message names the old and new spelling
+(`; unsafe fix: yes -> "yes"`). `ryl format` never applies unsafe fixes.
+In an editor, `ryl server` offers each
 rule's unsafe fixes as a quick fix, kept out of "Fix all" until the config applies
 them.

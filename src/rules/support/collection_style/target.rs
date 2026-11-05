@@ -170,7 +170,8 @@ impl<'a> Planner<'a> {
             .initial
             .scalar(key)
             .is_some_and(quoted_strings::Retained::empty);
-        self.nodes[key].kind() == Kind::Alias || empty && !text.empty()
+        (self.nodes[key].kind() == Kind::Alias || empty && !text.empty())
+            && self.initial.key_gap(key).own().present()
     }
 
     fn measure_pair(
@@ -849,6 +850,15 @@ impl<'a> Planner<'a> {
             .map(|parent| self.nodes[parent].kind())
         {
             Some(Kind::Mapping) => place.base + self.body_indent(index),
+            Some(Kind::Sequence)
+                if self.initial.starts_below(index, place.boundary())
+                    || self.nodes[index].kind() == Kind::Sequence
+                        && !self.initial.outer(index).prefix().compact()
+                        && self.initial.properties_start(index)
+                            == self.initial.start_of(index) =>
+            {
+                place.column - 1 + self.indent
+            }
             Some(_) => self.item_column(index, place.column - 1),
             None => 0,
         }

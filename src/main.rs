@@ -14,7 +14,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 mod cache;
 mod deprecation;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -136,6 +136,9 @@ fn run_config_settings(
 }
 
 fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
+    if cli.migrate.stdout && !cli.migrate_configs && !cli.migrate_user_config {
+        return Err("error: `--migrate-stdout` applies to config migration; `--migrate-directives` previews changes by default".to_string());
+    }
     if !cli.lint_args.source.inputs.is_empty() {
         return Err(
             "error: migration takes no input paths; use --migrate-root <PATH> to \
@@ -177,7 +180,9 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         },
         cleanup,
     };
-    let (result, directive_files) = if cli.migrate_directives {
+    let (result, directive_files, counts, directive_warnings) = if cli
+        .migrate_directives
+    {
         let migrated =
             migrate_with_directives(&options, &migration_root).map_err(|error| {
                 let mut message = error.to_string();
@@ -190,15 +195,40 @@ fn run_migration(cli: &Cli) -> Result<ExitCode, String> {
         for warning in &migrated.warnings {
             eprintln!("warning: {}", sanitize_control(warning));
         }
-        (migrated.config, migrated.files)
+        (
+            migrated.config,
+            migrated.files,
+            migrated.counts,
+            !migrated.warnings.is_empty(),
+        )
     } else {
-        (migrate_configs(&options)?, Vec::new())
+        (
+            migrate_configs(&options)?,
+            Vec::new(),
+            ryl::migrate::DirectiveCounts::default(),
+            false,
+        )
     };
     print_config_migration(cli, &options, &result);
     if cli.migrate_directives {
-        print_directive_migration(&migration_root, &directive_files, cli.migrate.write);
+        print_directive_migration(
+            &migration_root,
+            &directive_files,
+            &counts,
+            cli.migrate.write,
+            cli.migrate.stdout,
+        );
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(
+        if result.skipped > 0
+            || cli.lint_args.lint.compatibility.strict(false)
+                && (directive_warnings || !result.warnings.is_empty())
+        {
+            ExitCode::from(2)
+        } else {
+            ExitCode::SUCCESS
+        },
+    )
 }
 
 fn print_config_migration(
@@ -206,15 +236,22 @@ fn print_config_migration(
     options: &MigrateOptions,
     result: &ryl::migrate::MigrateResult,
 ) {
+    let progress = |message: String| {
+        if cli.migrate.stdout {
+            eprintln!("{message}");
+        } else {
+            println!("{message}");
+        }
+    };
     for warning in &result.warnings {
         eprintln!("{}", sanitize_control(warning));
     }
     for entry in &result.entries {
-        println!(
+        progress(format!(
             "{} -> {}",
             sanitize_control(&entry.source.display().to_string()),
             sanitize_control(&entry.target.display().to_string())
-        );
+        ));
     }
     let user_sources: Vec<PathBuf> =
         options.user_config.as_ref().map_or_else(Vec::new, |user| {
@@ -228,10 +265,10 @@ fn print_config_migration(
             .iter()
             .any(|entry| !is_user_source(&entry.source, &user_sources));
         if !project_migrated {
-            println!(
+            progress(format!(
                 "No legacy config files migrated under {}",
                 sanitize_control(&root.display().to_string())
-            );
+            ));
         }
     }
     if cli.migrate_user_config {
@@ -240,16 +277,22 @@ fn print_config_migration(
             .iter()
             .any(|entry| is_user_source(&entry.source, &user_sources));
         if !user_migrated {
-            println!("No user-global config migrated.");
+            progress("No user-global config migrated.".to_owned());
         }
     }
     if !cli.migrate.write && !cli.migrate.stdout && !result.entries.is_empty() {
-        println!(
+        progress(
             "Preview only: add `--migrate-stdout` to see the migrated content, or \
              `--migrate-write` to apply it."
+                .to_owned(),
         );
     }
     if options.output_mode == MigrateOutputMode::IncludeToml {
+        if result.entries.len() > 1 {
+            println!(
+                "# Multiple targets follow; each section is a separate configuration."
+            );
+        }
         for entry in &result.entries {
             println!(
                 "# {}",
@@ -263,28 +306,47 @@ fn print_config_migration(
 fn print_directive_migration(
     root: &Path,
     files: &[ryl::migrate::DirectiveFile],
+    counts: &ryl::migrate::DirectiveCounts,
     write: bool,
+    toml_stdout: bool,
 ) {
-    if files.is_empty() {
-        println!(
-            "No source comments migrated under {}",
+    let progress = |message: String| {
+        if toml_stdout {
+            eprint!("{message}");
+        } else {
+            print!("{message}");
+        }
+    };
+    if files.is_empty() && counts.retained == 0 && counts.skipped == 0 {
+        progress(format!(
+            "No source comments migrated under {}\n",
             sanitize_control(&root.display().to_string())
-        );
+        ));
     }
     for file in files {
         if !write && let Some(diff) = &file.diff {
-            print!("{diff}");
+            progress(diff.clone());
         } else {
-            println!(
-                "{} comments in {}",
+            progress(format!(
+                "{} comments in {}\n",
                 if write { "Migrated" } else { "Would migrate" },
                 sanitize_control(&file.path.display().to_string())
-            );
+            ));
         }
     }
     if !write && !files.is_empty() {
-        println!("Preview only: add `--migrate-write` to apply comment conversion.");
+        progress(
+            "Preview only: add `--migrate-write` to apply comment conversion.\n"
+                .to_owned(),
+        );
     }
+    eprintln!(
+        "Source comments: {} converted, {} retained, {} skipped files{}.",
+        counts.converted,
+        counts.retained,
+        counts.skipped,
+        if write { "" } else { " (preview)" }
+    );
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -635,7 +697,7 @@ struct MigrateFlags {
     #[arg(
         long = "migrate-stdout",
         default_value_t = false,
-        requires = "config_migration"
+        requires = "migrate_mode"
     )]
     stdout: bool,
 
@@ -1344,7 +1406,9 @@ fn main() -> ExitCode {
     let cli =
         Cli::from_arg_matches(&matches).expect("Cli parses from its own ArgMatches");
 
-    match run_cli(&cli, &matches) {
+    let result = run_cli(&cli, &matches);
+    deprecation::emit_summary();
+    match result {
         Ok(code) => code,
         Err(err) => {
             // Sanitize: errors embed user-controlled paths/values that could otherwise
@@ -1467,23 +1531,14 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     }
 
     if args.lint.fix.diff {
-        let notices: Vec<_> = files
-            .iter()
-            .map(|file| {
-                deprecation::rewrite_notice(
-                    file,
-                    None,
-                    args.lint.compatibility.no_warnings,
-                )
-                .unwrap_or_default()
-                .into_bytes()
-            })
-            .collect();
         let mut out = PreviewOutput::new(Preview::Diff, None);
         let stats = diff_files(
             &files,
             (Rewrite::Fix, "--diff"),
-            &notices,
+            (
+                &[],
+                &deprecation::file_notice(args.lint.compatibility.no_warnings),
+            ),
             &mut |path, outcome| {
                 out.push(path, outcome);
             },
@@ -1567,36 +1622,39 @@ fn lint_and_exit(
     let sinks = open_targets(targets)?;
 
     let no_warnings = args.lint.compatibility.no_warnings;
-    let before_fix = args
+    let mut before_fix = args
         .lint
         .fix
         .fix
         .then(|| apply_fixes_reporting_skips(files, no_warnings));
 
+    let after = before_fix
+        .as_mut()
+        .map(|stats| std::mem::take(&mut stats.after));
     let mut stream = RecordStream::start(targets, sinks, file_paths(files))?;
     let mut summary = LintSummary::default();
     let mut fixed = 0;
     let emit = |idx: usize, (outcome, stderr): (LintOutcome, Vec<u8>)| {
         let (path, ..) = &files[idx];
         let outcome = match &before_fix {
-            Some((before, errors)) => {
-                fixed += before[idx]
+            Some(stats) => {
+                fixed += fix_rule_counts(&stats.before[idx], no_warnings)
                     .iter()
                     .zip(fix_rule_counts(&outcome, no_warnings))
                     .map(|(before, after)| before.saturating_sub(after))
                     .sum::<usize>();
-                match errors.get(&idx) {
-                    Some(error) => Err(error.clone()),
-                    None => outcome,
-                }
+                outcome
             }
             None => outcome,
         };
         stream.replay_stderr(&stderr);
         stream.push(&summary.record(path, outcome, no_warnings));
     };
-    if before_fix.is_some() {
-        lint_files(files, true, emit);
+    if let Some(after) = after {
+        let mut emit = emit;
+        for (index, outcome) in after.into_iter().enumerate() {
+            emit(index, (outcome, Vec::new()));
+        }
     } else {
         lint_files_cached(files, &args.source.cache_settings(), no_warnings, emit)?;
     }
@@ -1620,19 +1678,30 @@ fn lint_and_exit(
             )
         });
         if summary.hidden_unsafe_fixes > 0 && (human || before_fix.is_some()) {
+            let versions = files
+                .iter()
+                .map(|(_, _, cfg, _)| match cfg.source_version() {
+                    ryl::config::SourceVersion::Yaml11 => "1.1",
+                    ryl::config::SourceVersion::Yaml12 => "1.2",
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join("/");
             eprintln!(
-                "{} unsafe {} available with `--fix --unsafe-fixes`.",
+                "{} unsafe {} available with `--fix --unsafe-fixes` (source-version: {}; set source-version to change).",
                 summary.hidden_unsafe_fixes,
                 if summary.hidden_unsafe_fixes == 1 {
                     "fix"
                 } else {
                     "fixes"
-                }
+                },
+                versions
             );
         }
         if before_fix
             .as_ref()
-            .is_none_or(|(_, errors)| errors.is_empty())
+            .is_none_or(|stats| stats.errors.is_empty())
         {
             summary_to_exit(&summary, args.lint.compatibility.strict(config_strict))
         } else {
@@ -1641,21 +1710,15 @@ fn lint_and_exit(
     })
 }
 
-/// Apply safe fixes in place and report skips, returning pre-fix rule counts and
-/// file errors for the shared report records.
-///
-fn apply_fixes_reporting_skips(files: &[LintFile], no_warnings: bool) -> FixBaseline {
-    let mut before = Vec::with_capacity(files.len());
-    lint_files(files, no_warnings, |_, (outcome, stderr)| {
-        let _ = std::io::stderr().write_all(&stderr);
-        before.push(fix_rule_counts(&outcome, no_warnings));
-    });
-    let fix_stats = rewrite_files(files, Rewrite::Fix);
-    let _ = std::io::stderr().write_all(&fix_stats.notices);
-    for (index, _) in &fix_stats.errors {
-        before[*index] = [0; ALL_RULE_IDS.len()];
-    }
-    (before, fix_stats.errors.into_iter().collect())
+fn apply_fixes_reporting_skips(
+    files: &[LintFile],
+    no_warnings: bool,
+) -> ryl::fix::FixStats {
+    let stats =
+        rewrite_files(files, Rewrite::Fix, &deprecation::file_notice(no_warnings));
+    let _ = std::io::stderr().write_all(&stats.leading_notices);
+    let _ = std::io::stderr().write_all(&stats.notices);
+    stats
 }
 
 fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
@@ -1724,13 +1787,12 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
     }
 
     let outcome = read_stdin_decoded(&path, Some(kind))?.map(|(content, _)| {
-        deprecation::emit(deprecation::notice(
+        deprecation::record(
             content.content(),
-            &path,
             &cfg,
             kind,
             args.lint.compatibility.no_warnings,
-        ));
+        );
         match kind {
             SourceKind::Markdown => {
                 lint_markdown_str(content.content(), &path, &cfg, &base_dir)
@@ -1830,13 +1892,7 @@ fn stdin_preview<'a>(
     out: &mut PreviewOutput<'a>,
 ) -> Result<DiffStats, String> {
     let (decoded, _) = read_stdin_decoded(path, Some(kind))??;
-    deprecation::emit(deprecation::notice(
-        decoded.content(),
-        path,
-        cfg,
-        kind,
-        no_warnings,
-    ));
+    deprecation::record(decoded.content(), cfg, kind, no_warnings);
     let outcome = decoded_diff_outcome(&decoded, cfg, path, base_dir, kind, rewrite);
     let mut stats = DiffStats::default();
     stats.record(path, &outcome, out.preview.flag());
@@ -1966,8 +2022,8 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
     let mut pending = Vec::new();
     let mut entries = Vec::new();
     let mut cache_hits = Vec::new();
-    let mut notices = Vec::new();
-    for file @ (path, base_dir, cfg, kind) in &files {
+    let notice = deprecation::file_notice(format.no_warnings);
+    for (path, base_dir, cfg, kind) in &files {
         let symlink = std::fs::symlink_metadata(path)
             .is_ok_and(|metadata| metadata.file_type().is_symlink());
         let entry = if format.diff || symlink {
@@ -1975,17 +2031,11 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         } else {
             settings.entry(path, base_dir, cfg, *kind, "format")?
         };
-        notices.push(
-            deprecation::rewrite_notice(
-                file,
-                entry.as_ref().map(|(_, bytes)| bytes.as_slice()),
-                format.no_warnings,
-            )
-            .unwrap_or_default()
-            .into_bytes(),
-        );
-        let entry = entry.map(|(path, _)| path);
+        let (entry, bytes) = entry.unzip();
         let hit = entry.as_deref().is_some_and(cache::clean_hit);
+        if let Some(bytes) = bytes.filter(|_| hit) {
+            deprecation::record_bytes(&bytes, cfg, *kind, format.no_warnings);
+        }
         cache_hits.push(hit);
         if !hit {
             pending.push((path.clone(), base_dir.clone(), Arc::clone(cfg), *kind));
@@ -2001,13 +2051,13 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         let targets =
             format_targets(preview, format.output_format, output_config.as_ref())?;
         reject_input_collisions(&targets, file_paths(&files))?;
-        let prefixes = cache_notice_prefixes(&cache_hits, &notices);
+        let prefixes = cache_notice_prefixes(&cache_hits);
         let findings = RecordStream::open(&targets, file_paths(&pending))?;
         let mut out = PreviewOutput::new(preview, Some(findings));
         let stats = diff_files(
             &pending,
             (Rewrite::Format, preview.flag()),
-            &prefixes,
+            (&prefixes, &notice),
             &mut |path, outcome| out.push(path, outcome),
         )?;
         if preview == Preview::Check && stats.changed_files == 0 && !stats.skipped {
@@ -2017,7 +2067,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         }
         return out.finish(&stats, cache_hits.iter().filter(|hit| **hit).count());
     }
-    let mut stats = rewrite_files(&pending, Rewrite::Format);
+    let mut stats = rewrite_files(&pending, Rewrite::Format, &notice);
     for (index, entry) in entries.into_iter().enumerate() {
         if stats.errors.iter().any(|(failed, _)| *failed == index)
             || stats.skipped.contains(&index)
@@ -2036,7 +2086,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
                 })?;
         }
     }
-    stats.notices = ordered_cache_notices(&cache_hits, &stats.file_notices, &notices);
+    stats.notices = ordered_cache_notices(&cache_hits, &stats.file_notices);
     let _ = std::io::stderr().write_all(&stats.notices);
     Ok(if stats.errors.is_empty() {
         ExitCode::SUCCESS
@@ -2045,15 +2095,10 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
     })
 }
 
-fn ordered_cache_notices(
-    cache_hits: &[bool],
-    file_notices: &[Vec<u8>],
-    notices: &[Vec<u8>],
-) -> Vec<u8> {
+fn ordered_cache_notices(cache_hits: &[bool], file_notices: &[Vec<u8>]) -> Vec<u8> {
     let mut pending = file_notices.iter();
     let mut ordered = Vec::new();
-    for (hit, notice) in cache_hits.iter().zip(notices) {
-        ordered.extend_from_slice(notice);
+    for hit in cache_hits {
         if *hit {
             ordered.extend_from_slice(cache_hit_notice());
         } else {
@@ -2065,13 +2110,9 @@ fn ordered_cache_notices(
     ordered
 }
 
-fn cache_notice_prefixes(cache_hits: &[bool], notices: &[Vec<u8>]) -> Vec<Vec<u8>> {
+fn cache_notice_prefixes(cache_hits: &[bool]) -> Vec<Vec<u8>> {
     let mut prefixes = vec![Vec::new()];
-    for (hit, notice) in cache_hits.iter().zip(notices) {
-        prefixes
-            .last_mut()
-            .expect("the first notice bucket exists")
-            .extend_from_slice(notice);
+    for hit in cache_hits {
         if *hit {
             prefixes
                 .last_mut()
@@ -2185,13 +2226,12 @@ fn run_stdin_format(
     }
     let (content, raw) = read_stdin_decoded(&path, kind)??;
     if let Some(kind) = kind {
-        deprecation::emit(deprecation::notice(
+        deprecation::record(
             content.content(),
-            &path,
             &cfg,
             kind,
             args.lint.compatibility.no_warnings,
-        ));
+        );
     }
     let (formatted, skipped) = kind.map_or((None, Vec::new()), |kind| {
         rewrite_str(
@@ -2260,24 +2300,7 @@ fn emit_notices(notices: &[String], no_warnings: bool) {
     }
 }
 
-/// Lint `files` in parallel, handing each outcome to `emit` in input order.
-fn lint_files(
-    files: &[LintFile],
-    no_warnings: bool,
-    mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>)),
-) {
-    let Ok(()) = ryl::cli_support::try_for_each_ordered(
-        files,
-        |file| lint_path(file, no_warnings),
-        |idx, ((outcome, notice), mut stderr)| {
-            stderr.extend(notice.unwrap_or_default().bytes());
-            emit(idx, (outcome, stderr));
-            Ok::<(), std::convert::Infallible>(())
-        },
-    );
-}
-
-fn lint_path(file: &LintFile, no_warnings: bool) -> (LintOutcome, Option<String>) {
+fn lint_path(file: &LintFile, no_warnings: bool) -> LintOutcome {
     lint_decoded(file, ryl::decoder::read_file(&file.0), no_warnings)
 }
 
@@ -2285,15 +2308,14 @@ fn lint_decoded(
     (path, base_dir, cfg, kind): &LintFile,
     content: Result<String, String>,
     no_warnings: bool,
-) -> (LintOutcome, Option<String>) {
-    let notice = content.as_ref().ok().and_then(|content| {
-        deprecation::notice(content, path, cfg, *kind, no_warnings)
-    });
-    let outcome = content.map(|content| match kind {
+) -> LintOutcome {
+    if let Ok(content) = &content {
+        deprecation::record(content, cfg, *kind, no_warnings);
+    }
+    content.map(|content| match kind {
         SourceKind::Markdown => lint_markdown_str(&content, path, cfg, base_dir),
         SourceKind::Yaml => lint_str_with_repair_help(&content, path, cfg, base_dir),
-    });
-    (outcome, notice)
+    })
 }
 
 /// Cache misses stored per batch file, so the pending entries stay bounded.
@@ -2316,12 +2338,11 @@ fn lint_files_cached(
             entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
         {
             warn_cached_encoding_override();
-            let notice = entry.as_ref().and_then(|(_, bytes)| {
-                deprecation::notice_bytes(bytes, path, cfg, *kind, no_warnings)
-            });
-            return Ok((Ok(problems), None, notice));
+            let (_, bytes) = entry.as_ref().expect("a lint cache hit has an entry");
+            deprecation::record_bytes(bytes, cfg, *kind, no_warnings);
+            return Ok((Ok(problems), None));
         }
-        let (outcome, notice) = match entry.as_ref() {
+        let outcome = match entry.as_ref() {
             Some((_, bytes)) => lint_decoded(
                 file,
                 ryl::decoder::decode_bytes(bytes)
@@ -2330,7 +2351,7 @@ fn lint_files_cached(
             ),
             None => lint_path(file, no_warnings),
         };
-        Ok((outcome, entry.map(|(path, _)| path), notice))
+        Ok((outcome, entry.map(|(path, _)| path)))
     };
     let mut misses: Vec<(PathBuf, Vec<LintProblem>)> = Vec::new();
     let store = |misses: &mut Vec<(PathBuf, Vec<LintProblem>)>| {
@@ -2341,23 +2362,18 @@ fn lint_files_cached(
         )
     };
     let mut stored = Ok(());
-    ryl::cli_support::try_for_each_ordered(
-        files,
-        compute,
-        |idx, (result, mut stderr)| {
-            let (outcome, entry, notice) = result?;
-            stderr.extend(notice.unwrap_or_default().bytes());
-            if let (Some(entry), Ok(problems)) = (entry, &outcome) {
-                misses.push((entry, problems.clone()));
-                if misses.len() == CACHE_BATCH {
-                    stored = std::mem::replace(&mut stored, Ok(()))
-                        .and_then(|()| store(&mut misses));
-                }
+    ryl::cli_support::try_for_each_ordered(files, compute, |idx, (result, stderr)| {
+        let (outcome, entry) = result?;
+        if let (Some(entry), Ok(problems)) = (entry, &outcome) {
+            misses.push((entry, problems.clone()));
+            if misses.len() == CACHE_BATCH {
+                stored = std::mem::replace(&mut stored, Ok(()))
+                    .and_then(|()| store(&mut misses));
             }
-            emit(idx, (outcome, stderr));
-            Ok::<(), String>(())
-        },
-    )?;
+        }
+        emit(idx, (outcome, stderr));
+        Ok::<(), String>(())
+    })?;
     stored.and_then(|()| store(&mut misses))
 }
 
@@ -2491,9 +2507,6 @@ impl LintSummary {
 }
 
 type FixRuleCounts = [usize; ALL_RULE_IDS.len()];
-
-/// Each file's pre-fix counts, and the files `--fix` failed to write.
-type FixBaseline = (Vec<FixRuleCounts>, HashMap<usize, String>);
 
 /// A file's reported problems per rule with a safe or unsafe fix, so a fix that adds
 /// another rule's problem cannot cancel one it cleared.

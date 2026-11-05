@@ -41,9 +41,17 @@ pub struct DirectiveFile {
 }
 
 pub struct DirectiveMigration {
+    pub counts: DirectiveCounts,
     pub config: MigrateResult,
     pub files: Vec<DirectiveFile>,
     pub warnings: Vec<String>,
+}
+
+#[derive(Default)]
+pub struct DirectiveCounts {
+    pub converted: usize,
+    pub retained: usize,
+    pub skipped: usize,
 }
 
 struct Profile {
@@ -56,6 +64,24 @@ struct Profile {
 }
 
 impl Profile {
+    fn permits(&self, path: &Path, kind: SourceKind) -> bool {
+        let known_parser = !self.infer_prettier_parser
+            || path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    ["yaml", "yml", "md", "markdown", "mdx"]
+                        .iter()
+                        .any(|known| extension.eq_ignore_ascii_case(known))
+                });
+        known_parser
+            && if kind == SourceKind::Yaml {
+                self.yaml
+            } else {
+                self.markdown
+            }
+    }
+
     fn comments(&self) -> FormatterComments<'_> {
         match self.source {
             Some(MigrationSource::Prettier) => FormatterComments::Prettier,
@@ -106,14 +132,13 @@ impl Profile {
                     marker.clone_into(&mut profile.marker);
                 }
                 profile.yaml = audited_pretty_yaml_plugin(&values)
-                    && !values.contains_key("extends")
                     && values
                         .get("yaml")
                         .is_none_or(|yaml| yaml.get("associations").is_none())
                     && !profile.marker.is_empty()
                     && profile.marker.trim() == profile.marker;
                 if !profile.yaml {
-                    warnings.push("dprint plugin, inheritance, association or ignore-marker settings prevent proving formatter comment scope; source markers retained".to_owned());
+                    warnings.push("dprint plugin, association or ignore-marker settings prevent proving formatter comment scope; source markers retained".to_owned());
                 }
             }
             _ => {}
@@ -122,7 +147,7 @@ impl Profile {
     }
 
     fn prettier(&mut self, values: &Map<String, Value>, warnings: &mut Vec<String>) {
-        let unsupported = values.contains_key("overrides")
+        let unsupported = !imports::prettier::directive_overrides_safe(values)
             || values.contains_key("plugins")
             || values.get("requirePragma") == Some(&Value::Bool(true))
             || values.get("checkIgnorePragma") == Some(&Value::Bool(true));
@@ -130,6 +155,7 @@ impl Profile {
         self.infer_prettier_parser = parser.is_none();
         self.yaml = !unsupported && parser.is_none_or(|parser| parser == "yaml");
         self.markdown = !unsupported
+            && !values.contains_key("overrides")
             && parser.is_none_or(|parser| parser == "markdown")
             && values
                 .get("embeddedLanguageFormatting")
@@ -142,24 +168,32 @@ impl Profile {
 }
 
 fn audited_pretty_yaml_plugin(values: &Map<String, Value>) -> bool {
-    const PLUGIN: &str = "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm";
     values
         .get("plugins")
         .and_then(Value::as_array)
         .is_some_and(|plugins| {
             plugins.iter().filter_map(Value::as_str).any(|plugin| {
-                if plugin == "npm:dprint-plugin-yaml@0.6.0" {
-                    return true;
+                if let Some(version) = plugin.strip_prefix("npm:dprint-plugin-yaml@") {
+                    return audited_pretty_yaml_version(version);
                 }
                 let (url, checksum) = plugin
                     .split_once('@')
                     .map_or((plugin, None), |(url, checksum)| (url, Some(checksum)));
-                url == PLUGIN
+                url.strip_prefix("https://plugins.dprint.dev/g-plane/pretty_yaml-v")
+                    .and_then(|url| url.strip_suffix(".wasm"))
+                    .is_some_and(audited_pretty_yaml_version)
                     && checksum.is_none_or(|checksum| {
                         checksum.len() == 64
                             && checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
                     })
             })
+        })
+}
+
+fn audited_pretty_yaml_version(version: &str) -> bool {
+    version == "0.6.0"
+        || version.strip_prefix("0.5.").is_some_and(|patch| {
+            !patch.is_empty() && patch.bytes().all(|byte| byte.is_ascii_digit())
         })
 }
 
@@ -236,8 +270,10 @@ fn plan_file(
     profile: &Profile,
     protected: &[PathBuf],
     warnings: &mut Vec<String>,
+    counts: &mut DirectiveCounts,
 ) -> Result<Option<DirectiveFile>, Error> {
     if super::is_symlink(&path) {
+        counts.skipped += 1;
         warnings.push(format!("{}: symlink left unchanged", path.display()));
         return Ok(None);
     }
@@ -255,12 +291,14 @@ fn plan_file(
     let decoded = match crate::decoder::decode_bytes_lossless(&original) {
         Ok(decoded) => decoded,
         Err(error) => {
+            counts.skipped += 1;
             warnings.push(format!("{}: {error}; comments retained", path.display()));
             return Ok(None);
         }
     };
     let content = decoded.content();
     if decoded.encode(content) != original {
+        counts.skipped += 1;
         warnings.push(format!(
             "{}: encoding does not round-trip exactly; comments retained",
             path.display()
@@ -270,24 +308,11 @@ fn plan_file(
     if kind == SourceKind::Markdown
         && crate::markdown_embed::markdown_has_unsupported_cr(content)
     {
+        counts.skipped += 1;
         warnings.push(format!("{}: bare carriage return prevents extracting embedded YAML; comments retained", path.display()));
         return Ok(None);
     }
-    let known_parser = !profile.infer_prettier_parser
-        || path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| {
-                ["yaml", "yml", "md", "markdown", "mdx"]
-                    .iter()
-                    .any(|known| extension.eq_ignore_ascii_case(known))
-            });
-    let permit = known_parser
-        && if kind == SourceKind::Yaml {
-            profile.yaml
-        } else {
-            profile.markdown
-        };
+    let permit = profile.permits(&path, kind);
     if profile.source.is_none() {
         let lines = match kind {
             SourceKind::Yaml => unknown_marker_lines(content),
@@ -306,11 +331,14 @@ fn plan_file(
             })
             .collect(),
         };
+        counts.retained += lines.len();
         for line in lines {
             warnings.push(format!("{}:{line}: formatter directive retained; select its source with --migrate-from", path.display()));
         }
     }
     let migration = migrate_source_comments(content, profile.comments(), kind, permit);
+    counts.converted += migration.converted;
+    counts.retained += migration.retained_lines.len();
     for line in migration.retained_lines {
         warnings.push(format!("{}:{line}: formatter directive retained because equivalent native scope is not proven", path.display()));
     }
@@ -381,10 +409,14 @@ pub fn migrate_with_directives(
     }
     let mut preview = options.clone();
     preview.write_mode = WriteMode::Preview;
-    let config = super::migrate_configs(&preview).map_err(Error::Config)?;
+    if options.write_mode == WriteMode::Write {
+        preview.output_mode = super::OutputMode::SummaryOnly;
+    }
+    let config = super::migrate_configs_inner(&preview, true).map_err(Error::Config)?;
     let mut warnings = Vec::new();
     let mut profiles = BTreeMap::new();
     let mut files = Vec::new();
+    let mut counts = DirectiveCounts::default();
     let explicit_source = options
         .project_root
         .as_ref()
@@ -433,6 +465,7 @@ pub fn migrate_with_directives(
             &profiles[&directory],
             &discovered.configs,
             &mut warnings,
+            &mut counts,
         )? {
             files.push(file);
         }
@@ -457,6 +490,7 @@ pub fn migrate_with_directives(
     warnings.sort();
     warnings.dedup();
     Ok(DirectiveMigration {
+        counts,
         config,
         files,
         warnings,

@@ -55,6 +55,8 @@ pub enum Property {
     AliasKey,
     /// A tag from `TAGS`, or an anchor past its end, on an empty key.
     EmptyKey(usize),
+    OmittedKey,
+    AnchoredOmittedKey,
     GapInteractions,
 }
 
@@ -69,6 +71,8 @@ fn arb_property() -> impl Strategy<Value = Property> {
         2 => (0..QUOTED_KEYS.len()).prop_map(Property::QuotedKey),
         1 => Just(Property::AliasKey),
         1 => (0..=TAGS.len()).prop_map(Property::EmptyKey),
+        1 => Just(Property::OmittedKey),
+        1 => Just(Property::AnchoredOmittedKey),
         1 => Just(Property::GapInteractions),
     ]
 }
@@ -82,11 +86,23 @@ struct Decorator<'a> {
 impl Decorator<'_> {
     fn decorate(&mut self, entries: &mut [BlockEntry]) {
         for entry in entries {
+            if matches!(
+                self.properties[self.next % self.properties.len()],
+                Property::AnchoredOmittedKey
+            ) {
+                self.next += 1;
+                entry.key.clear();
+                entry.colon.explicit = None;
+                entry.value =
+                    Node::Scalar(Scalar::Plain(format!("{}[x, y]", self.anchor())));
+                continue;
+            }
             let key = match self.properties[self.next % self.properties.len()] {
                 Property::QuotedKey(index) => Some(QUOTED_KEYS[index].to_string()),
                 Property::AliasKey if self.anchors > 0 => {
                     Some(format!("*a{} ", self.next % self.anchors))
                 }
+                Property::OmittedKey => Some(String::new()),
                 Property::EmptyKey(index) => Some(
                     TAGS.get(index)
                         .map_or_else(|| self.anchor(), |tag| format!("{tag} ")),
@@ -135,9 +151,16 @@ impl Decorator<'_> {
                 self.decorate_collection(node);
             }
             Node::FlowMap(pairs, _) => {
-                pairs
-                    .iter_mut()
-                    .for_each(|(_, value)| self.decorate_inline(value));
+                for (key, value) in pairs {
+                    if matches!(
+                        self.properties[self.next % self.properties.len()],
+                        Property::OmittedKey
+                    ) {
+                        *key = Scalar::Plain(String::new());
+                        self.next += 1;
+                    }
+                    self.decorate_inline(value);
+                }
                 self.decorate_collection(node);
             }
             Node::MultilineFlowSeq(spec) => {
@@ -184,10 +207,14 @@ impl Decorator<'_> {
             Property::GapInteractions => {
                 return Scalar::Plain("{ é :  [ \"é\tvalue\" ,y ] }".into());
             }
+            Property::OmittedKey => {
+                return Scalar::Plain("[: 1, {: [a, b]}]".into());
+            }
             Property::None
             | Property::QuotedKey(_)
             | Property::AliasKey
-            | Property::EmptyKey(_) => return scalar.clone(),
+            | Property::EmptyKey(_)
+            | Property::AnchoredOmittedKey => return scalar.clone(),
             Property::Escaped(index) => {
                 let (double, payload) = ESCAPED[index];
                 let payload = payload.to_string();
@@ -276,6 +303,28 @@ pub fn arb_document_with_properties() -> impl Strategy<Value = StackedDocument> 
             }
             .decorate(&mut stacked.document.entries);
             stacked
+        })
+}
+
+#[allow(
+    dead_code,
+    reason = "the benchmark shares only the decorated AST generator"
+)]
+pub fn arb_nested_sequence_tail() -> impl Strategy<Value = String> {
+    (
+        1usize..=4,
+        0usize..=8,
+        prop::sample::select(vec!["", "...\n", "---\nnext: value\n"]),
+        prop::sample::select(vec!["\n", "\r\n", "\r"]),
+    )
+        .prop_map(|(width, comment, marker, newline)| {
+            format!(
+                "links:\n{}- nested:\n{}- value\n{}# tail\n{marker}",
+                " ".repeat(width),
+                " ".repeat(width + 2),
+                " ".repeat(comment),
+            )
+            .replace('\n', newline)
         })
 }
 
@@ -398,4 +447,36 @@ pub fn arb_whitespace_block_scalar() -> impl Strategy<Value = String> {
         format!("root:\n  - a: {style}2{chomp}\n{}\n    b: x\nother: ' alpha beta {word} gamma delta'\n", " ".repeat(spaces)).replace('\n', ending)
     });
     prop_oneof![3 => ordinary, 1 => movable_blank]
+}
+
+pub fn arb_document_start_removal() -> impl Strategy<Value = String> {
+    (
+        prop::sample::select(vec![
+            "---\nvalue\n",
+            "---\n\nvalue\n",
+            "--- |\n  value\n",
+            "--- !tag value\n",
+            "--- &a [value, *a]\n",
+            "--- # comment\na: value\n",
+            "---\na: value\n---\nb: 2\n",
+            "---\n---\na: value\n",
+            "%YAML 1.2\n---\na: value\n",
+            "...\n---\na: value\n",
+        ]),
+        "[a-zé]{1,8}",
+        any::<bool>(),
+        any::<bool>(),
+    )
+        .prop_map(|(shape, value, bom, crlf)| {
+            let input = format!(
+                "{}{}",
+                if bom { "\u{feff}" } else { "" },
+                shape.replace("value", &value)
+            );
+            if crlf {
+                input.replace('\n', "\r\n")
+            } else {
+                input
+            }
+        })
 }

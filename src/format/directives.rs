@@ -112,15 +112,15 @@ impl Builder {
 
     fn comment(&mut self, text: &str, span: Span) {
         let line = span.start.line();
-        match text.trim_end() {
-            " ryl format-ignore" => {
+        match text.trim() {
+            "ryl format-ignore" => {
                 self.lines.push(line..line + 1);
                 self.pending = Some(line);
             }
-            " ryl format-disable" => {
+            "ryl format-disable" => {
                 self.disabled.get_or_insert(line);
             }
-            " ryl format-enable" => self.enable(line),
+            "ryl format-enable" => self.enable(line),
             _ => {}
         }
         if let Some(collection) = self.stack.last() {

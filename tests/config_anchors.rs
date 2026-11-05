@@ -30,7 +30,7 @@ fn anchors_yaml_config_rejects_forbid_all_option() {
     )
     .unwrap_err();
     assert!(error.contains("rules.anchors"), "{error}");
-    assert!(error.contains("failed to parse config data:"), "{error}");
+    assert!(error.contains("invalid config:"), "{error}");
 }
 
 #[test]
@@ -72,7 +72,7 @@ rules:
     )
     .expect_err("invalid value");
 
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.anchors"), "{err}");
 }
 
@@ -93,7 +93,7 @@ rules:
     )
     .expect_err("unknown option");
 
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.anchors"), "{err}");
 }
 
@@ -129,7 +129,7 @@ rules:
     )
     .expect_err("ryl-only option");
 
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.anchors"), "{err}");
 }
 

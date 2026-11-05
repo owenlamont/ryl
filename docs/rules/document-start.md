@@ -61,8 +61,9 @@ file or a later document, stays before the `---`. A line-1 `#!` shebang or
 cloud-init `#cloud-config` header stays first, with the `---` inserted after it,
 since the interpreter or cloud-init reads it from byte 0.
 
-The `present: false` case (removing existing `---` markers) is never auto-fixed
-because removal can collide with multi-document boundaries.
+With `present: false`, `--fix` removes the first document's optional marker.
+Content or a comment on the marker line moves to column one. Directives, empty
+documents and stream separators retain their markers and remain reported.
 
 Disable with:
 
@@ -72,7 +73,8 @@ fixable = ["ALL"]
 unfixable = ["document-start"]
 ```
 
-`ryl format` adds `---` the same way only when `[format] document-start` is `"add"`, and then conflicts with `present = false`; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
+`ryl format` shares the marker fixes through `[format] document-start = "add"`
+or `"remove"`; see [Conflicting lint rules](../formatter.md#conflicting-lint-rules).
 
 ## Related rules
 

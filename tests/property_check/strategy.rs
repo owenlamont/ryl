@@ -166,6 +166,7 @@ fn arb_multibyte() -> impl Strategy<Value = char> {
 
 fn arb_key() -> impl Strategy<Value = String> {
     prop_oneof![
+        Just(String::new()),
         Just("a".to_string()),
         Just("b".to_string()),
         Just("c".to_string()),
@@ -233,6 +234,7 @@ fn arb_bare_value() -> impl Strategy<Value = String> {
         Just("\"plain\"".to_string()),
         Just("[a , b]".to_string()),
         Just("{ a: 1 }".to_string()),
+        Just("[: 1, {: [a, b]}]".to_string()),
         Just("[missing: ]".to_string()),
         Just("[? missing: ]".to_string()),
         Just("[ ]".to_string()),

@@ -8,8 +8,8 @@ mod directives;
 mod imports;
 
 pub use directives::{
-    DirectiveFile, DirectiveMigration, Error as DirectiveMigrationError,
-    apply_directive_entries, migrate_with_directives,
+    DirectiveCounts, DirectiveFile, DirectiveMigration,
+    Error as DirectiveMigrationError, apply_directive_entries, migrate_with_directives,
 };
 pub use imports::MigrationSource;
 
@@ -95,6 +95,7 @@ impl MigrationEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrateResult {
+    pub skipped: usize,
     pub entries: Vec<MigrationEntry>,
     pub cleanup_only_sources: Vec<PathBuf>,
     pub warnings: Vec<String>,
@@ -102,6 +103,8 @@ pub struct MigrateResult {
 
 #[derive(Debug, Default)]
 struct MigrationPlan {
+    export: bool,
+    skipped: usize,
     entries: Vec<MigrationEntry>,
     cleanup_only_sources: Vec<PathBuf>,
     warnings: Vec<String>,
@@ -381,7 +384,9 @@ fn build_entry(
     plan: &mut MigrationPlan,
     user_global: bool,
 ) -> Result<bool, String> {
+    let warnings_start = plan.warnings.len();
     if is_symlink(source) {
+        plan.skipped += 1;
         plan.warnings.push(format!(
             "warning: skipping {}: refusing to follow a symlink",
             source.display()
@@ -389,17 +394,10 @@ fn build_entry(
         return Ok(false);
     }
     if is_symlink(&target) {
+        plan.skipped += 1;
         plan.warnings.push(format!(
             "warning: skipping migration to {}: refusing to follow a symlink",
             target.display()
-        ));
-        return Ok(false);
-    }
-    if let Some(existing) = existing_ryl_native_config(&target, user_global)? {
-        plan.warnings.push(format!(
-            "warning: skipping migration of {}: a ryl-native config already exists at {}",
-            source.display(),
-            existing.display()
         ));
         return Ok(false);
     }
@@ -412,6 +410,7 @@ fn build_entry(
     // At runtime a user-global relative path resolves from each linted file's directory,
     // which no single migrated file can express.
     if user_global && let Some(path) = config.relative_ignore_from_file() {
+        plan.skipped += 1;
         plan.warnings.push(format!(
             "warning: skipping migration of {}: its relative ignore-from-file `{path}` \
              resolves against each linted file's directory, which the ryl user-global \
@@ -440,6 +439,13 @@ fn build_entry(
         toml.push('\n');
         toml.push_str(&toml::to_string(&table).expect("a string table serializes"));
     }
+    let skipped = plan.skipped;
+    if !accept_target(source, &target, &mut toml, plan, user_global)? {
+        if plan.skipped == skipped {
+            plan.warnings.truncate(warnings_start);
+        }
+        return Ok(false);
+    }
     plan.entries.push(MigrationEntry {
         cleanup_source: true,
         source: source.to_path_buf(),
@@ -447,6 +453,36 @@ fn build_entry(
         toml,
     });
     Ok(true)
+}
+
+fn accept_target(
+    source: &Path,
+    target: &Path,
+    toml: &mut String,
+    plan: &mut MigrationPlan,
+    user_global: bool,
+) -> Result<bool, String> {
+    let Some(existing) = existing_ryl_native_config(target, user_global)? else {
+        return Ok(true);
+    };
+    let current = fs::read_to_string(&existing)
+        .ok()
+        .and_then(|text| toml::from_str::<toml::Table>(&text).ok());
+    let candidate =
+        toml::from_str::<toml::Table>(toml).expect("migration writes valid TOML");
+    if !plan.export
+        && resolved_source_path(&existing) == resolved_source_path(target)
+        && current.as_ref() == Some(&candidate)
+    {
+        return Ok(false);
+    }
+    if plan.export {
+        toml.insert_str(0, "# Existing native configuration was not merged; merge this candidate by hand.\n");
+        return Ok(true);
+    }
+    plan.skipped += 1;
+    plan.warnings.push(format!("warning: skipping migration of {}: a ryl-native config already exists at {}; use --migrate-stdout and merge the candidate by hand", source.display(), existing.display()));
+    Ok(false)
 }
 
 /// `preserve` for each `[format]` target whose rule `cfg` disables, or whose enforcing
@@ -620,6 +656,7 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
             }
             Ok((_, _, None, _, _)) => return,
             Err(err) => {
+                plan.skipped += 1;
                 plan.warnings
                     .push(format!("warning: skipping {}: {err}", path.display()));
                 return;
@@ -630,6 +667,7 @@ fn plan_toml_rewrite(path: PathBuf, plan: &mut MigrationPlan) {
         return;
     }
     if is_symlink(&path) {
+        plan.skipped += 1;
         plan.warnings.push(format!(
             "warning: skipping {}: refusing to follow a symlink",
             path.display()
@@ -865,7 +903,18 @@ fn rename_excludes(root: &mut Table) {
 /// # Errors
 /// Returns an error if migration planning fails or file operations fail in write mode.
 pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String> {
-    let mut plan = MigrationPlan::default();
+    migrate_configs_inner(options, false)
+}
+
+fn migrate_configs_inner(
+    options: &MigrateOptions,
+    migrate_directives: bool,
+) -> Result<MigrateResult, String> {
+    let mut plan = MigrationPlan {
+        export: options.output_mode == OutputMode::IncludeToml
+            && options.write_mode == WriteMode::Preview,
+        ..MigrationPlan::default()
+    };
     if let Some(root) = &options.project_root {
         if !root.exists() {
             return Err(format!(
@@ -877,6 +926,7 @@ pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String
             root,
             options.from,
             &options.cleanup,
+            migrate_directives,
             &mut plan,
         )?;
         build_toml_rewrites(root, &mut plan);
@@ -898,6 +948,7 @@ pub fn migrate_configs(options: &MigrateOptions) -> Result<MigrateResult, String
     }
 
     Ok(MigrateResult {
+        skipped: plan.skipped,
         entries: plan.entries,
         cleanup_only_sources: plan.cleanup_only_sources,
         warnings: plan.warnings,

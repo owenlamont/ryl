@@ -36,7 +36,7 @@ pub enum Cause {
     /// An inline directive turns off `indentation`, or the rule owning a gap it would close.
     Disabled,
     Tab,
-    /// The analyzer met a token it cannot place.
+    /// The analyzer cannot place a token or satisfy scalar indentation safely.
     Unfollowable,
     Inconsistent,
     /// The re-indented document parses to different events.
@@ -771,7 +771,7 @@ impl<'a> Layout<'a> {
             gaps: analyzer.gaps,
             refused,
             scalar_owners: analyzer.scalar_owners.unwrap_or_default(),
-            last_token: analyzer.shifts.iter().rposition(Option::is_some),
+            document_tails: document_tails(&analyzer.shifts[..self.lines.len()]),
         }
     }
 
@@ -1674,8 +1674,7 @@ pub(crate) struct Candidates {
     pub(crate) gaps: Vec<Gap>,
     pub(crate) refused: Vec<Option<Cause>>,
     pub(crate) scalar_owners: Vec<(usize, usize)>,
-    /// The last line a token leads or a scalar carries.
-    pub(crate) last_token: Option<usize>,
+    pub(crate) document_tails: Vec<std::ops::Range<usize>>,
 }
 
 pub(crate) struct Targets(Candidates);
@@ -1742,7 +1741,7 @@ impl StreamTargets {
             deltas,
             gaps: self.gaps,
             scalar_owners: self.scalar_owners,
-            last_token: self.shifts.iter().rposition(Option::is_some),
+            document_tails: document_tails(&self.shifts[..layout.lines.len()]),
         }
     }
 }
@@ -1923,6 +1922,25 @@ fn edited(
     }
     text.extend(content[at - start..].chars());
     text
+}
+
+fn document_tails(shifts: &[Option<Shift>]) -> Vec<std::ops::Range<usize>> {
+    let mut tails = Vec::new();
+    let mut last = None;
+    for (line, shift) in shifts.iter().enumerate() {
+        if matches!(shift, Some(Shift::Marker(_)))
+            && let Some(last) = last
+        {
+            tails.push(last..line);
+        }
+        if shift.is_some() {
+            last = Some(line);
+        }
+    }
+    if let Some(last) = last {
+        tails.push(last..shifts.len());
+    }
+    tails
 }
 
 /// Each line's shift, settling the lines no token or scalar leads: a whole-line comment

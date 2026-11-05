@@ -22,7 +22,6 @@ use crate::property::{ast, config, strategy};
 use crate::quote_cache;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::apply_safe_fixes;
 
@@ -67,9 +66,7 @@ fn last_block_scalar(node: &Node) -> Option<&BlockScalarSpec> {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_safe_fix.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_safe_fix"),
         ..ProptestConfig::default()
     })]
 

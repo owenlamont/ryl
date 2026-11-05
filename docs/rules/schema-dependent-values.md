@@ -79,10 +79,15 @@ config.yaml
   4:7       error    plain "08" is an integer in YAML 1.2 but a string in YAML 1.1  (schema-dependent-values)
   5:10      error    plain "y" is a string in YAML 1.2 but a boolean in YAML 1.1  (schema-dependent-values)
 
-5 unsafe fixes available with `--fix --unsafe-fixes`.
+5 unsafe fixes available with `--fix --unsafe-fixes` (source-version: 1.2; set source-version to change).
 ```
 
 ## Automatic fixing
+
+For go-yaml consumers (Kubernetes, Helm, Docker Compose), neither source version
+matches every value. Under `"1.1"`, quote sexagesimal strings such as `22:22` by hand
+instead of accepting numeric conversion; under `"1.2"`, handle leading-zero octals
+separately. [Check the reader before bulk conversion](../yaml-version.md#unsafe-fixes-and-source-version).
 
 No safe fix. Quoting, retyping or rewriting the value each needs the author's
 intent: `22:22` may be a time of day or a port mapping, and `08` a zero-padded string

@@ -1,25 +1,26 @@
-use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use ryl::cli_support::{LintFile, sanitize_control};
+use ryl::cli_support::LintFile;
 use ryl::config::{SourceKind, YamlLintConfig};
 use ryl::directives::{legacy_directive_lines, starts_with_jinja_header};
 use ryl::{MarkdownSources, extract_regions};
 
-pub(crate) fn notice(
+static FILES: AtomicUsize = AtomicUsize::new(0);
+
+pub(crate) fn record(
     content: &str,
-    path: &Path,
     cfg: &YamlLintConfig,
     kind: SourceKind,
     no_warnings: bool,
-) -> Option<String> {
+) {
     if no_warnings || !content.contains("yamllint ") {
-        return None;
+        return;
     }
-    let first = match kind {
-        SourceKind::Yaml => first_alias(content),
+    let found = match kind {
+        SourceKind::Yaml => has_alias(content),
         SourceKind::Markdown => {
             if content.lines().any(|line| line.contains('\r')) {
-                return None;
+                return;
             }
             extract_regions(
                 content,
@@ -29,70 +30,45 @@ pub(crate) fn notice(
                 },
             )
             .into_iter()
-            .filter_map(|region| {
-                first_alias(&region.content).map(|line| line + region.line_offset)
-            })
-            .min()
+            .any(|region| has_alias(&region.content))
         }
     };
-    first.map(|line| format!(
-        "warning: {}:{line}: yamllint directive aliases are deprecated; use ryl directives or --migrate-directives\n",
-        sanitize_control(&path.display().to_string())
-    ))
-}
-
-fn first_alias(content: &str) -> Option<usize> {
-    if starts_with_jinja_header(content) {
-        return None;
+    if found {
+        FILES.fetch_add(1, Ordering::Relaxed);
     }
-    legacy_directive_lines(content).into_iter().min()
 }
 
-pub(crate) fn notice_bytes(
+fn has_alias(content: &str) -> bool {
+    !starts_with_jinja_header(content) && !legacy_directive_lines(content).is_empty()
+}
+
+pub(crate) fn record_bytes(
     bytes: &[u8],
-    path: &Path,
     cfg: &YamlLintConfig,
     kind: SourceKind,
     no_warnings: bool,
-) -> Option<String> {
+) {
     if no_warnings {
-        return None;
+        return;
     }
     let encoding = std::env::var("YAMLLINT_FILE_ENCODING").ok();
-    ryl::decoder::decode_bytes_with_override(bytes, encoding.as_deref())
-        .ok()
-        .and_then(|content| notice(&content, path, cfg, kind, false))
+    let content = ryl::decoder::decode_bytes_with_override(bytes, encoding.as_deref())
+        .expect("cached content was decoded successfully under the same encoding");
+    record(&content, cfg, kind, false);
 }
 
-fn notice_file(
-    path: &Path,
-    cfg: &YamlLintConfig,
-    kind: SourceKind,
-    no_warnings: bool,
-) -> Option<String> {
-    if no_warnings
-        || !std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
-    {
-        return None;
-    }
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| notice_bytes(&bytes, path, cfg, kind, false))
-}
-
-pub(crate) fn emit(notice: Option<String>) {
-    if let Some(notice) = notice {
-        eprint!("{notice}");
+pub(crate) fn emit_summary() {
+    let count = FILES.load(Ordering::Relaxed);
+    if count > 0 {
+        eprintln!(
+            "warning: yamllint directive aliases are deprecated in {count} {}; use `ryl --migrate-directives` to convert",
+            if count == 1 { "file" } else { "files" }
+        );
     }
 }
 
-pub(crate) fn rewrite_notice(
-    (path, _, cfg, kind): &LintFile,
-    bytes: Option<&[u8]>,
-    no_warnings: bool,
-) -> Option<String> {
-    bytes.map_or_else(
-        || notice_file(path, cfg, *kind, no_warnings),
-        |bytes| notice_bytes(bytes, path, cfg, *kind, no_warnings),
-    )
+pub(crate) fn file_notice(no_warnings: bool) -> impl Fn(&str, &LintFile) + Sync {
+    move |content, (_, _, cfg, kind)| {
+        record(content, cfg, *kind, no_warnings);
+    }
 }

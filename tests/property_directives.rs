@@ -4,7 +4,6 @@
 use std::sync::LazyLock;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use regex::Regex;
 use ryl::directives::Directives;
 use ryl::rules::ALL_RULE_IDS;
@@ -71,9 +70,7 @@ fn old_disabled(payload: &str) -> (Vec<&'static str>, Vec<&'static str>) {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_directives.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_directives"),
         ..ProptestConfig::default()
     })]
 

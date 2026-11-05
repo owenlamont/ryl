@@ -153,7 +153,7 @@ fn user_global_relative_ignore_from_file_is_refused_not_migrated() {
         .current_dir(home.path())
         .env("XDG_CONFIG_HOME", &xdg)
         .args(["--migrate-user-config", "--migrate-write"]));
-    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert_eq!(code, 2, "stdout={stdout} stderr={stderr}");
     assert!(
         stderr.contains("relative ignore-from-file `ignores.txt`"),
         "{stderr}"

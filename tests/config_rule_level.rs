@@ -155,7 +155,7 @@ rules:
     level: [1]
 "#;
     let err = YamlLintConfig::from_yaml_str(cfg).expect_err("invalid");
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.new-line-at-end-of-file"), "{err}");
 }
 
@@ -167,7 +167,7 @@ rules:
     level: invalid
 "#;
     let err = YamlLintConfig::from_yaml_str(cfg).expect_err("invalid");
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.new-line-at-end-of-file"), "{err}");
 }
 
@@ -178,7 +178,7 @@ rules:
   new-line-at-end-of-file: 42
 "#;
     let err = YamlLintConfig::from_yaml_str(cfg).expect_err("invalid");
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.new-line-at-end-of-file"), "{err}");
 }
 
@@ -189,7 +189,7 @@ rules:
   new-line-at-end-of-file: other
 "#;
     let err = YamlLintConfig::from_yaml_str(cfg).expect_err("invalid");
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.new-line-at-end-of-file"), "{err}");
 }
 

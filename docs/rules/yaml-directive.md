@@ -1,5 +1,17 @@
 # yaml-directive
 
+!!! warning "Not for go-yaml consumers"
+
+    go-yaml v2, v3 and v4, and `sigs.k8s.io/yaml`, reject any file containing
+    `%YAML 1.2` (`found incompatible YAML document`). That is a conformance bug
+    in those parsers, not in the file: YAML 1.2.2 §6.8.1 says a 1.2 processor
+    *must* accept `%YAML 1.2`, and even YAML 1.1 §7.1.1 says a 1.1 processor
+    *should* process it with a warning. For files that Kubernetes, Helm,
+    Docker Compose or another program built on go-yaml loads, set
+    `present = false`, which removes the directive. Not every Go parser has
+    the bug: goccy/go-yaml accepts the directive. PyYAML accepts it but ignores it. See
+    [Which YAML version each reader follows](../yaml-version.md#which-yaml-version-each-reader-follows).
+
 ## What this rule does
 
 Requires a `%YAML` version directive before every document, so each document
@@ -15,18 +27,6 @@ it also reports a document that declares `%YAML 1.1` or `1.0`. With
   directive states the author's version once.
 - **Per document.** A directive binds only the document it precedes (YAML 1.2.2
   §6.8.1), so every document in a stream needs its own.
-
-!!! warning "Not for go-yaml consumers"
-
-    go-yaml v2, v3 and v4, and `sigs.k8s.io/yaml`, reject any file containing
-    `%YAML 1.2` (`found incompatible YAML document`). That is a conformance bug
-    in those parsers, not in the file: YAML 1.2.2 §6.8.1 says a 1.2 processor
-    *must* accept `%YAML 1.2`, and even YAML 1.1 §7.1.1 says a 1.1 processor
-    *should* process it with a warning. For files that Kubernetes, Helm,
-    Docker Compose or another program built on go-yaml loads, set
-    `present = false`, which removes the directive. Not every Go parser has
-    the bug: goccy/go-yaml accepts the directive. PyYAML accepts it but ignores it. See
-    [Which YAML version each reader follows](../yaml-version.md#which-yaml-version-each-reader-follows).
 
 ## Configuration
 
@@ -84,7 +84,8 @@ name: web
 name: db
 ```
 
-With `target-version = "1.2"`, a document declaring an older version:
+With only `yaml-directive` enabled and `target-version = "1.2"`, a document
+declaring an older version:
 
 ```console
 $ cat legacy.yaml
@@ -100,7 +101,7 @@ released: 2026-10-10
 $ ryl check legacy.yaml
 legacy.yaml
   1:1       error    version directive "%YAML 1.1" is older than target-version "1.2"  (yaml-directive)
-  7:1       error    version directive "%YAML 1.1" is older than target-version "1.2"  (yaml-directive)
+  7:1       error    version directive "%YAML 1.1" is older than target-version "1.2"; not migrated automatically: `2026-10-10` at 9:11 has no faithful YAML 1.2 equivalent; quote or edit it  (yaml-directive)
 ```
 
 ### :wrench: After `ryl check --fix`
@@ -178,6 +179,9 @@ document as above before removing its directive, under either target. Under
 `"1.1"` it also skips a document needing `0o777`, which PyYAML reads as a
 string. A directive keeps its report when a comment shares its line or its
 migration is skipped. Any `---` left behind is for `document-start`.
+
+A skipped migration reports the first blocking value and its location. Quote or edit that
+value, then rerun the command; Unicode line-break refusals identify the break.
 
 The rule is suppressed in YAML embedded in Markdown, which is not a standalone
 file.

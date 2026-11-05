@@ -23,7 +23,6 @@ mod indentation_render;
 use std::collections::BTreeSet;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::{TargetVersion, YamlLintConfig};
 use ryl::fix::apply_safe_fixes;
 use ryl::lint::lint_str;
@@ -297,8 +296,9 @@ fn nested_blank_block_scalar_before_dedented_mapping_is_not_rewritten() {
 #[test]
 fn explicit_blank_scalar_before_document_end_uses_key_indent() {
     let input = "? a\n:  a: |3+\n    \n\n\n...\n# gap\nvz: 1\n";
-    assert!(ryl::rules::trailing_spaces::check(input).is_empty());
-    assert!(ryl::rules::trailing_spaces::fix(input).is_none());
+    let fixed = ryl::rules::trailing_spaces::fix(input).unwrap();
+    assert_eq!(fixed, input.replacen("    \n", "\n", 1));
+    reference::check_strict_events(input, &fixed).unwrap();
     let expected = Value::Core(ryl::yaml_dom::ScalarOwned::String("\n\n\n\n".into()));
     assert!(
         representation(input).is_some_and(|nodes| {
@@ -577,7 +577,7 @@ fn check_preserved(input: &str, output: &str) -> Result<(), String> {
 fn check_invariants(
     format: &dyn Fn(&str) -> String,
     input: &str,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let once = format(input);
     check_preserved(input, &once)?;
     if once != input {
@@ -592,7 +592,7 @@ fn check_invariants(
     if twice != once {
         return Err(format!("idempotence: once {once:?}; twice {twice:?}"));
     }
-    Ok(())
+    Ok(once)
 }
 
 fn check_yaml_1_1_values(
@@ -603,25 +603,61 @@ fn check_yaml_1_1_values(
     check_yaml_1_1_preserved(input, &once)
 }
 
-fn check_pass(pass: &FormatPass, input: &str) -> Result<(), String> {
+fn check_pass(pass: &FormatPass, input: &str) -> Result<String, String> {
     check_invariants(&pass.format, input)
-        .and_then(|()| {
-            if pass.cfg.target_version() == TargetVersion::Yaml12 {
-                return Ok(());
+        .and_then(|once| {
+            if pass.cfg.target_version() != TargetVersion::Yaml12 {
+                check_yaml_1_1_preserved(input, &once)?;
             }
-            check_yaml_1_1_values(&pass.format, input)
+            Ok(once)
         })
         .map_err(|violation| format!("pass '{}' on {input:?}: {violation}", pass.name))
 }
 
 #[test]
-fn explicit_key_flow_overflow_property_replay_keeps_the_guarantee() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/collection_geometry/explicit-key-yaml.txt"
-    ))
+fn omitted_mapping_key_formats_without_indentation_errors() {
+    let input = ":  a\n";
+    let cfg =
+        YamlLintConfig::from_toml_str("[lint.rules]\nindentation='enable'\n").unwrap();
+    let (formatted, refusals) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = formatted.expect("the extra space after the colon needs formatting");
+    assert!(refusals.is_empty(), "{refusals:?}");
+    assert!(ryl::format::conflicts(&cfg).is_empty());
+    let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert!(problems.is_empty(), "{problems:?}");
+    check_invariants(
+        &|text| ryl::format::format_str(text, &cfg, synthetic_path(), &[]),
+        input,
+    )
     .unwrap();
-    let input = fixture["input"].as_str().unwrap();
-    let settings = fixture["config"].as_str().unwrap();
+}
+
+#[test]
+fn anchored_sequence_after_omitted_key_converts_to_block() {
+    let input = ": &a [b]\n";
+    let cfg =
+        YamlLintConfig::from_toml_str("[format]\nsequence-style='block'\n").unwrap();
+    let output = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+    assert_ne!(output, input);
+    check_invariants(
+        &|text| ryl::format::format_str(text, &cfg, synthetic_path(), &[]),
+        input,
+    )
+    .unwrap();
+}
+
+#[test]
+fn explicit_key_nested_flow_overflow_converges_in_one_pass() {
+    let input = "? a\n: [[b]]\n";
+    let settings =
+        "line-length=5\n[format]\nsequence-style='flow'\nindent-sequences=false\n";
     let cfg = YamlLintConfig::from_toml_str(settings).unwrap();
     check_invariants(
         &|text| ryl::format::format_str(text, &cfg, synthetic_path(), &[]),
@@ -630,11 +666,65 @@ fn explicit_key_flow_overflow_property_replay_keeps_the_guarantee() {
     .unwrap();
 }
 
+#[test]
+fn anchored_sequence_nested_flow_uses_the_body_column() {
+    let input = "- &a [[b]]\n";
+    let cfg = YamlLintConfig::from_toml_str(
+        "indent-width=3\nline-length=7\n[format]\nsequence-style='flow'\n",
+    )
+    .unwrap();
+    let format =
+        |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+    assert_eq!(format(input), "- &a\n  - [b]\n");
+    check_invariants(&format, input).unwrap();
+}
+
+#[test]
+fn mapping_below_dash_measures_nested_flow_at_its_indentation() {
+    let input = "-\n  &a {b: [c]}\n";
+    let cfg = YamlLintConfig::from_toml_str(
+        "indent-width=3\nline-length=8\n[format]\nsequence-style='flow'\nmapping-style='flow'\n",
+    )
+    .unwrap();
+    let format =
+        |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+    assert_eq!(format(input), "-\n   &a\n   b:\n      - c\n");
+    check_invariants(&format, input).unwrap();
+}
+
+#[test]
+fn collection_properties_keep_nested_flow_widths_stable() {
+    for properties in ["&a", "!t", "&a !t", "!t &a"] {
+        for expand in ["auto", "never", "preserve", "always"] {
+            for (body, width) in [
+                ("[[b]]", 7),
+                ("[{b: c}]", 10),
+                ("{b: [c]}", 8),
+                ("{b: {c: d}}", 11),
+            ] {
+                let cfg = YamlLintConfig::from_toml_str(&format!(
+                    "indent-width=3\nline-length={width}\n[format]\nsequence-style='flow'\nmapping-style='flow'\nsequence-expand='{expand}'\nmapping-expand='{expand}'\n"
+                ))
+                .unwrap();
+                let format = |text: &str| {
+                    ryl::format::format_str(text, &cfg, synthetic_path(), &[])
+                };
+                for input in [
+                    format!("- {properties} {body}\n"),
+                    format!("-\n  {properties} {body}\n"),
+                    format!("- {properties}\n  {body}\n"),
+                ] {
+                    check_invariants(&format, &input)
+                        .unwrap_or_else(|error| panic!("{input:?}, {expand}: {error}"));
+                }
+            }
+        }
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_format.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_format"),
         ..ProptestConfig::default()
     })]
 
@@ -701,6 +791,32 @@ proptest! {
             &fixed, ryl_yaml_parser::options! { strict_indentation: true },
         ).collect::<Result<Vec<_>, _>>().is_ok(), "fixed output must parse strictly");
         check_preserved(&input, &fixed).map_err(TestCaseError::fail)?;
+    }
+
+    #[test]
+    fn imported_format_config_keeps_the_guarantee(
+        document in arb_document_with_properties(),
+        source in crate::property::migration_strategy::arb_source(),
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(source.filename), &source.body).unwrap();
+        let migration = ryl::migrate::migrate_configs(&ryl::migrate::MigrateOptions {
+            from: Some(source.tool), project_root: Some(dir.path().to_path_buf()),
+            user_config: None, write_mode: ryl::migrate::WriteMode::Preview,
+            output_mode: ryl::migrate::OutputMode::IncludeToml,
+            cleanup: ryl::migrate::SourceCleanup::Delete,
+        }).unwrap();
+        prop_assert_eq!(migration.entries.len(), 1);
+        let table = &migration.entries[0].toml;
+        let cfg = YamlLintConfig::from_toml_str(table).unwrap();
+        let pass = FormatPass {
+            name: format!("{:?}: {table}", source.tool), cfg: cfg.clone(),
+            format: Box::new(move |input| ryl::format::format_str(input, &cfg, synthetic_path(), &[])),
+        };
+        check_pass(&pass, &document.render()).map_err(TestCaseError::fail)?;
+        let witness = "root:\n   value: [ 1,2 ]\n";
+        let output = check_pass(&pass, witness).map_err(TestCaseError::fail)?;
+        prop_assert_ne!(output, witness);
     }
 
     #[test]
@@ -774,9 +890,7 @@ fn lenient_repairs_preserve_values_across_presentation_changes() {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_format_consistency.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_format_consistency"),
         ..ProptestConfig::default()
     })]
 
@@ -819,9 +933,7 @@ proptest! {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_format.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_format"),
         ..ProptestConfig::default()
     })]
 
@@ -856,6 +968,13 @@ proptest! {
         for cfg in profile_anchor_configs() {
             let fixed = apply_safe_fixes(&output, cfg, synthetic_path(), synthetic_base_dir());
             prop_assert_eq!(&fixed, &output, "the preset's fixes still change the output");
+        }
+    }
+
+    #[test]
+    fn nested_sequence_tail_keeps_the_guarantee(input in properties::arb_nested_sequence_tail()) {
+        for pass in format_passes() {
+            check_pass(pass, &input).map_err(TestCaseError::fail)?;
         }
     }
 
@@ -2793,9 +2912,7 @@ fn g11_refusal_maps_indentation_through_trailing_space_cleanup() {
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 16,
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_format.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_format"),
         ..ProptestConfig::default()
     })]
 
@@ -2834,4 +2951,46 @@ fn annotations_count_delayed_property_only_empty_values_before_comments() {
             representation::annotations(&moved)
         );
     }
+}
+
+#[test]
+fn document_start_removal_preserves_the_stream_and_comments() {
+    let pass = named_pass("format/remove-document-start");
+    for input in [
+        "--- # comment\na: 1\n---\nb: 2\n",
+        "--- |\n  text\n",
+        "--- !tag &a value\n",
+        "---\n---\na: 1\n",
+        "%TAG !e! tag:example.com,2026:\n---\n!e!v value\n",
+    ] {
+        check_invariants(&pass.format, input).unwrap();
+    }
+    assert!(check_invariants(&|_| "a: 1\n".into(), "---\n---\na: 1\n").is_err());
+    assert!(check_annotations("--- # comment\na: 1\n", "a: 1 # comment\n").is_err());
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        failure_persistence: crate::property::failure_persistence!("property_format"),
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn optional_document_start_removal_keeps_invariants(
+        input in properties::arb_document_start_removal(),
+    ) {
+        let decoded = ryl::decoder::decode_bytes_lossless(input.as_bytes()).unwrap();
+        for name in ["format/remove-document-start", "fix/remove-document-start"] {
+            check_invariants(&named_pass(name).format, decoded.content()).map_err(TestCaseError::fail)?;
+        }
+    }
+}
+
+#[test]
+fn removed_document_marker_does_not_hide_leading_blank_lines() {
+    let pass = named_pass("format/remove-document-start");
+    assert_eq!(
+        check_invariants(&pass.format, "---\n\na: 1\n").unwrap(),
+        "a: 1\n",
+    );
 }

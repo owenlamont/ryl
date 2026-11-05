@@ -119,8 +119,8 @@ pub struct FormatTable {
     pub keep_quotes: bool,
     /// Line ending; `native` is the platform's, `auto` the one most of the file uses.
     pub line_ending: LineEndingTarget,
-    /// Whether to add a missing `---` document start marker.
-    pub document_start: MarkerTarget,
+    /// Whether to add, preserve or remove an optional first `---` marker.
+    pub document_start: DocumentStartTarget,
     /// Whether to add a missing `...` document end marker.
     pub document_end: MarkerTarget,
     /// Whether to split plain, quoted and `>` scalar lines longer than `line-length` at spaces.
@@ -163,7 +163,7 @@ impl Default for FormatTable {
             quote_style: QuoteStyleTarget::Single,
             keep_quotes: false,
             line_ending: LineEndingTarget::Lf,
-            document_start: MarkerTarget::Preserve,
+            document_start: DocumentStartTarget::Preserve,
             document_end: MarkerTarget::Preserve,
             fold_long_lines: None,
             prose_wrap: None,
@@ -264,6 +264,14 @@ pub enum MarkerTarget {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
+pub enum DocumentStartTarget {
+    Add,
+    Preserve,
+    Remove,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
 pub enum CollectionStyleTarget {
     Preserve,
     Block,
@@ -313,7 +321,6 @@ pub struct DeprecatedKey {
     pub removed_in: Option<&'static str>,
 }
 
-/// Placeholder until the release carrying the `[lint]` table is cut.
 const LINT_TABLE_SINCE: &str = "0.25.0";
 
 /// Every deprecated TOML key location, the single source the deprecation warnings and
@@ -639,8 +646,8 @@ struct PyProjectToolTable {
 }
 
 /// A TOML field that accepts either one string or a list of strings.
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(untagged)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(untagged, expecting = "a string or a list of strings")]
 pub enum StringOrVec {
     One(String),
     Many(Vec<String>),
@@ -665,7 +672,7 @@ pub enum RuleSwitch {
 }
 
 /// Common rule entry shape used by TOML config.
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 #[schemars(rename = "RuleEntryFor{T}")]
 #[serde(untagged)]
 pub enum RuleEntry<T> {
@@ -1020,8 +1027,8 @@ pub struct BraceLikeOptions {
     pub max_spaces_inside_empty: Option<i64>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(untagged)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(untagged, expecting = "a boolean or \"non-empty\"")]
 pub enum ForbidSetting {
     Bool(bool),
     Mode(ForbidMode),
@@ -1146,8 +1153,8 @@ pub struct IndentationOptions {
     pub check_multi_line_strings: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(untagged)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(untagged, expecting = "an integer or \"consistent\"")]
 pub enum SpacesSetting {
     Int(i64),
     Mode(SpacesMode),
@@ -1159,8 +1166,8 @@ pub enum SpacesMode {
     Consistent,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(untagged)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(untagged, expecting = "a boolean, \"whatever\", or \"consistent\"")]
 pub enum IndentSequencesSetting {
     Bool(bool),
     Mode(IndentSequencesMode),
@@ -1336,8 +1343,8 @@ pub enum QuoteType {
     Consistent,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(untagged)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(untagged, expecting = "a boolean or \"only-when-needed\"")]
 pub enum QuotedStringsRequired {
     Bool(bool),
     Mode(QuotedStringsRequiredMode),
@@ -1555,10 +1562,15 @@ fn toml_error_text(mut err: toml::de::Error, input: Option<&str>) -> String {
     let text = err.to_string();
     let keys = text.strip_prefix(err.message()).unwrap_or_default().trim();
     let separator = if keys.is_empty() { "" } else { " " };
-    format!(
-        "failed to parse config data: {location}{}{separator}{keys}",
-        err.message()
-    )
+    let prefix = if keys
+        .strip_prefix("in `")
+        .is_some_and(|path| path.starts_with("rules.") || path.contains(".rules."))
+    {
+        "invalid config"
+    } else {
+        "failed to parse config data"
+    };
+    format!("{prefix}: {location}{}{separator}{keys}", err.message())
 }
 
 /// Whether the relevant TOML table has no entries: the whole document for a standalone

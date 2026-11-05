@@ -1,13 +1,18 @@
+use std::path::{Component, Path, PathBuf};
+
 use serde_json::{Map, Value};
 
 use crate::config_schema::{
-    CollectionStyleTarget, ExpandTarget, FormatTable, LineEndingTarget, MarkerTarget,
-    PropertyOrderTarget, ProseWrap, QuoteStyleTarget,
+    CollectionStyleTarget, DocumentStartTarget, ExpandTarget, FormatTable,
+    LineEndingTarget, MarkerTarget, PropertyOrderTarget, ProseWrap, QuoteStyleTarget,
 };
 
 use super::options::{Converted, Options, strings};
 
-pub(super) fn convert(mut values: Map<String, Value>) -> Result<Converted, String> {
+pub(super) fn convert(
+    mut values: Map<String, Value>,
+    directory: &Path,
+) -> Result<Converted, String> {
     let formatter = match values.remove("formatter") {
         None | Some(Value::Null) => Map::new(),
         Some(Value::Object(value)) => value,
@@ -52,13 +57,6 @@ pub(super) fn convert(mut values: Map<String, Value>) -> Result<Converted, Strin
     };
     options.text("line_ending", "")?;
     let include_start = options.boolean("include_document_start", false)?;
-    if !include_start {
-        options.warn(
-            "include_document_start",
-            &Value::Bool(false),
-            "document-start removal is not available; existing markers are preserved",
-        );
-    }
     let max_blank_lines = blank_limit(&mut options)?;
     let (sequence_style, indent_sequences) =
         collection_policy(&mut options, requested_indent, indent_value)?;
@@ -77,15 +75,16 @@ pub(super) fn convert(mut values: Map<String, Value>) -> Result<Converted, Strin
     if width_value > 0 {
         options.note("flow-collection wrapping differs; ryl retains its own collection layout rules");
     }
+    let excludes = source_excludes(&mut root, directory)?;
     warn_unmapped(&mut options, &mut root)?;
     let targets = FormatTable {
         quote_style,
         keep_quotes: true,
         line_ending,
         document_start: if include_start {
-            MarkerTarget::Add
+            DocumentStartTarget::Add
         } else {
-            MarkerTarget::Preserve
+            DocumentStartTarget::Remove
         },
         prose_wrap: Some(prose_wrap),
         max_blank_lines,
@@ -99,9 +98,62 @@ pub(super) fn convert(mut values: Map<String, Value>) -> Result<Converted, Strin
         ..FormatTable::default()
     };
     let mut converted = options.finish(targets, indent, width);
+    converted.excludes = excludes;
     converted.cleanup_safe &= !root.has_unknown_options();
     converted.warnings.extend(root.into_warnings());
     Ok(converted)
+}
+
+fn source_excludes(
+    root: &mut Options,
+    directory: &Path,
+) -> Result<Vec<String>, String> {
+    if !root.values_match("match_type", "doublestar") {
+        return Ok(Vec::new());
+    }
+    root.take("match_type");
+    let mut excludes = Vec::new();
+    for pattern in root.strings("exclude")? {
+        if let Some(pattern) = anchored_exclude(&pattern, directory) {
+            excludes.push(pattern);
+        } else {
+            root.warn(
+                "exclude",
+                &Value::String(pattern),
+                "path cannot be represented as a root-anchored file exclusion; configure exclude manually",
+            );
+        }
+    }
+    Ok(excludes)
+}
+
+fn anchored_exclude(pattern: &str, directory: &Path) -> Option<String> {
+    let mut normalized = PathBuf::new();
+    for component in Path::new(pattern).components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return None;
+                }
+            }
+            component => normalized.push(component),
+        }
+    }
+    let relative = if normalized.is_absolute() {
+        normalized.strip_prefix(directory).ok()?
+    } else {
+        normalized.as_path()
+    };
+    if relative.as_os_str().is_empty() || directory.join(relative).is_dir() {
+        return None;
+    }
+    let pattern = relative
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    Some(format!("/{pattern}"))
 }
 
 fn quote_policy(options: &mut Options) -> Result<QuoteStyleTarget, String> {

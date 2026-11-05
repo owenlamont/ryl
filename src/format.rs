@@ -4,8 +4,8 @@ use std::path::Path;
 
 use crate::config::YamlLintConfig;
 use crate::config_schema::{
-    CollectionStyleTarget, ExpandTarget, FormatTable, LineEndingTarget, MarkerTarget,
-    PropertyOrderTarget, ProseWrap, QuoteStyleTarget,
+    CollectionStyleTarget, DocumentStartTarget, ExpandTarget, FormatTable,
+    LineEndingTarget, MarkerTarget, PropertyOrderTarget, ProseWrap, QuoteStyleTarget,
 };
 use crate::fix::{
     NewlinePolicy, ParsedInput, PassTracking, Passes, ReindentCache, rewrite_parse_gate,
@@ -120,9 +120,11 @@ impl Passes<'static> {
                 },
             ),
             trailing_spaces: on(trailing_spaces::ID),
-            document_start: (table.document_start == MarkerTarget::Add
+            document_start: (table.document_start != DocumentStartTarget::Preserve
                 && on(document_start::ID))
-            .then_some(document_start::Config::new(true)),
+            .then_some(document_start::Config::new(
+                table.document_start == DocumentStartTarget::Add,
+            )),
             document_end: (table.document_end == MarkerTarget::Add
                 && on(document_end::ID))
             .then_some(document_end::Config::new(true)),
@@ -256,6 +258,7 @@ pub fn format_str(
         path,
         skip,
         &mut PassTracking {
+            candidates: None,
             edited: &mut Vec::new(),
             reindented: None,
             strict_input: Some(parsed.strict_error.is_none()),
@@ -431,6 +434,7 @@ impl FormatCache {
                 path,
                 skip,
                 &mut PassTracking {
+                    candidates: None,
                     edited: &mut edited,
                     reindented: Some(&mut self.reindented),
                     strict_input,
@@ -666,6 +670,14 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
         .filter(|rule| rejected.contains(rule))
         .filter_map(|rule| {
             target(rule, cfg).map(|target| {
+                if rule == document_start::ID {
+                    let present = document_start::Config::resolve(cfg).requires_marker();
+                    let format = if present { "remove" } else { "add" };
+                    return format!(
+                        "the document-start lint rule's options are incompatible: lint.rules.document-start.present = {present} conflicts with format.document-start = \"{format}\"; set lint.rules.document-start.present = {} or format.document-start = \"preserve\"",
+                        !present
+                    );
+                }
                 format!(
                     "the {rule} lint rule's options are incompatible with the \
                      formatter's {target}. Disable {rule} when using `ryl format`, or \
@@ -731,7 +743,9 @@ fn target(rule: &str, cfg: &YamlLintConfig) -> Option<String> {
         indentation::ID => Some("indent-sequences"),
         quoted_strings::ID if table.quote_style == QuoteStyleTarget::Preserve => None,
         quoted_strings::ID if table.keep_quotes => Some("keep-quotes"),
-        document_start::ID if table.document_start == MarkerTarget::Preserve => None,
+        document_start::ID if table.document_start == DocumentStartTarget::Preserve => {
+            None
+        }
         document_end::ID if table.document_end == MarkerTarget::Preserve => None,
         line_length::ID => return None,
         braces::ID if table.mapping_style == CollectionStyleTarget::Flow => {

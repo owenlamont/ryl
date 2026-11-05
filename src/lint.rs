@@ -102,7 +102,7 @@ macro_rules! emit_problems {
 macro_rules! lint_rule {
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, value) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check_with_analysis($input, $m::Config::resolve($cfg)),
+            $m::check_with_analysis($input, *$cfg.resolved($m::ID, $m::Config::resolve)),
             |hit: $m::Violation| hit.message);
     };
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, path) => {
@@ -122,23 +122,23 @@ macro_rules! lint_rule {
     };
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check_with_analysis($input, &$m::Config::resolve($cfg)),
+            $m::check_with_analysis($input, $cfg.resolved($m::ID, $m::Config::resolve)),
             |hit: $m::Violation| hit.message);
     };
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, unsafe_fix) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check_with_analysis($input, &$m::Config::resolve($cfg)),
+            $m::check_with_analysis($input, $cfg.resolved($m::ID, $m::Config::resolve)),
             |hit: $m::Violation| hit.message,
             |hit: &$m::Violation| hit.hidden_unsafe_fix);
     };
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, message) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check_with_analysis($input, $m::Config::resolve($cfg)),
+            $m::check_with_analysis($input, *$cfg.resolved($m::ID, $m::Config::resolve)),
             |_| $m::MESSAGE.to_string());
     };
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check($content, &$m::Config::resolve($cfg)),
+            $m::check($content, $cfg.resolved($m::ID, $m::Config::resolve)),
             |hit: $m::Violation| hit.message);
     };
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, no_config) => {
@@ -153,7 +153,7 @@ macro_rules! lint_rule {
     };
     ($d:ident, $cfg:expr, $content:expr, $path:expr, $base:expr, $m:ident, platform) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
-            $m::check($content, $m::Config::resolve($cfg), $m::platform_newline()),
+            $m::check($content, *$cfg.resolved($m::ID, $m::Config::resolve), $m::platform_newline()),
             |hit: $m::Violation| hit.message);
     };
     (@gated $d:ident, $cfg:expr, $path:expr, $base:expr, $m:ident, $hits:expr, $message:expr) => {
@@ -168,6 +168,13 @@ macro_rules! lint_rule {
     };
 }
 
+macro_rules! lint_rules {
+    ($d:ident, $cfg:ident, $path:ident, $base:ident;
+     $($input:ident => $rule:ident $(, $mode:ident)*;)*) => {
+        $(lint_rule!($d, $cfg, $input, $path, $base, $rule $(, $mode)*);)*
+    };
+}
+
 // Split dispatch for clippy's complexity limit.
 fn collect_layout_diagnostics(
     diagnostics: &mut Vec<LintProblem>,
@@ -177,60 +184,18 @@ fn collect_layout_diagnostics(
     base_dir: &Path,
 ) {
     let content = input.text();
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        document_start,
-        analysis,
-        value
+    lint_rules!(diagnostics, cfg, path, base_dir;
+        input => document_start, analysis, value;
+        input => document_end, analysis, value;
+        input => yaml_directive, analysis, value;
+        content => new_line_at_end_of_file, no_config, message;
+        content => new_lines, platform;
+        content => empty_lines;
+        input => commas, analysis;
+        input => colons, analysis;
+        input => braces, analysis;
+        input => brackets, analysis;
     );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        document_end,
-        analysis,
-        value
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        yaml_directive,
-        analysis,
-        value
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        content,
-        path,
-        base_dir,
-        new_line_at_end_of_file,
-        no_config,
-        message
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        content,
-        path,
-        base_dir,
-        new_lines,
-        platform
-    );
-    lint_rule!(diagnostics, cfg, content, path, base_dir, empty_lines);
-    lint_rule!(diagnostics, cfg, input, path, base_dir, commas, analysis);
-    lint_rule!(diagnostics, cfg, input, path, base_dir, colons, analysis);
-    lint_rule!(diagnostics, cfg, input, path, base_dir, braces, analysis);
-    lint_rule!(diagnostics, cfg, input, path, base_dir, brackets, analysis);
 }
 
 fn collect_value_diagnostics(
@@ -240,75 +205,16 @@ fn collect_value_diagnostics(
     path: &Path,
     base_dir: &Path,
 ) {
-    lint_rule!(diagnostics, cfg, input, path, base_dir, comments, analysis);
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        anchors,
-        analysis,
-        value
-    );
-    lint_rule!(diagnostics, cfg, input, path, base_dir, tags, analysis);
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        octal_values,
-        analysis,
-        unsafe_fix
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        float_values,
-        analysis
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        empty_values,
-        analysis,
-        value
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        quoted_strings,
-        analysis
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        truthy,
-        analysis,
-        unsafe_fix
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        schema_dependent_values,
-        analysis,
-        unsafe_fix
+    lint_rules!(diagnostics, cfg, path, base_dir;
+        input => comments, analysis;
+        input => anchors, analysis, value;
+        input => tags, analysis;
+        input => octal_values, analysis, unsafe_fix;
+        input => float_values, analysis;
+        input => empty_values, analysis, value;
+        input => quoted_strings, analysis;
+        input => truthy, analysis, unsafe_fix;
+        input => schema_dependent_values, analysis, unsafe_fix;
     );
 }
 
@@ -320,87 +226,17 @@ fn collect_block_diagnostics(
     base_dir: &Path,
 ) {
     let content = input.text();
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        key_duplicates,
-        analysis,
-        value
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        key_ordering,
-        analysis,
-        path
-    );
-    lint_rule!(diagnostics, cfg, input, path, base_dir, hyphens, analysis);
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        comments_indentation,
-        analysis,
-        message
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        indentation,
-        analysis
-    );
-    lint_rule!(diagnostics, cfg, content, path, base_dir, line_length);
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        trailing_spaces,
-        analysis,
-        no_config,
-        message
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        content,
-        path,
-        base_dir,
-        unicode_line_breaks,
-        no_config
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        merge_keys,
-        analysis,
-        no_config
-    );
-    lint_rule!(
-        diagnostics,
-        cfg,
-        input,
-        path,
-        base_dir,
-        block_scalar_chomping,
-        analysis,
-        no_config,
-        message
+    lint_rules!(diagnostics, cfg, path, base_dir;
+        input => key_duplicates, analysis, value;
+        input => key_ordering, analysis, path;
+        input => hyphens, analysis;
+        input => comments_indentation, analysis, message;
+        input => indentation, analysis;
+        content => line_length;
+        input => trailing_spaces, analysis, no_config, message;
+        content => unicode_line_breaks, no_config;
+        input => merge_keys, analysis, no_config;
+        input => block_scalar_chomping, analysis, no_config, message;
     );
 }
 
@@ -432,7 +268,16 @@ fn lint_unless_syntax_error(
         return Ok(Vec::new());
     }
 
-    let mut diagnostics: Vec<LintProblem> = Vec::new();
+    let snapshot = source(content, path, cfg, base_dir);
+    lint_with_analysis(snapshot.analysis(), path, cfg, base_dir, None)
+}
+
+pub(crate) fn source<'a>(
+    content: &'a str,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+) -> TextVersion<'a> {
     let snapshot = TextVersion::new(content);
     let input = snapshot.analysis();
     let lexical = [
@@ -460,6 +305,22 @@ fn lint_unless_syntax_error(
     } else {
         (ParsedFacts::parse(content, 0), None)
     };
+    input.seed_facts(facts);
+    if let Some(tokens) = tokens {
+        input.seed_tokens(tokens);
+    }
+    snapshot
+}
+
+pub(crate) fn lint_with_analysis(
+    input: Analysis<'_>,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+    candidates: Option<&mut Vec<&'static str>>,
+) -> Result<Vec<LintProblem>, (LintProblem, bool)> {
+    let content = input.text();
+    let facts = input.parsed();
     if let Some(syntax) = syntax_diagnostic(content, facts.strict_error()) {
         let repairable = facts.strict_error().is_some_and(|error| {
             matches!(
@@ -472,16 +333,14 @@ fn lint_unless_syntax_error(
         });
         return Err((syntax, repairable));
     }
-    if facts.valid {
-        input.seed_facts(facts);
-        if let Some(tokens) = tokens {
-            input.seed_tokens(tokens);
-        }
-    }
+    let mut diagnostics = Vec::new();
     collect_layout_diagnostics(&mut diagnostics, input, cfg, path, base_dir);
     collect_value_diagnostics(&mut diagnostics, input, cfg, path, base_dir);
     collect_block_diagnostics(&mut diagnostics, input, cfg, path, base_dir);
 
+    if let Some(candidates) = candidates {
+        candidates.extend(diagnostics.iter().filter_map(|problem| problem.rule));
+    }
     let per_line = cfg.per_line_applies(path);
     let directives =
         crate::directives::Directives::parse_per_line_with_analysis(input, &per_line);
@@ -521,22 +380,6 @@ fn syntax_problem(err: &ryl_yaml_parser::ScanError) -> LintProblem {
         rule: None,
         hidden_unsafe_fix: false,
     }
-}
-
-/// `content`'s relaxed parse error and the error a strict parse stops at, from one parse.
-pub(crate) fn parse_errors(
-    content: &str,
-) -> (Option<LintProblem>, Option<LintProblem>) {
-    if let Some(problem) = unsupported_version_error(content) {
-        return (Some(problem.clone()), Some(problem));
-    }
-    let mut parser = ryl_yaml_parser::Parser::new_from_str(content);
-    let relaxed = parser.load(&mut NullSink, true).err();
-    let strict = parser.strict_indentation_error().or(relaxed.as_ref());
-    (
-        relaxed.as_ref().map(syntax_problem),
-        strict.map(syntax_problem),
-    )
 }
 
 pub(crate) fn strict_parse_error(content: &str) -> Option<LintProblem> {
@@ -612,7 +455,22 @@ pub fn lint_str_with_repair_help(
     cfg: &YamlLintConfig,
     base_dir: &Path,
 ) -> Vec<LintProblem> {
-    let mut problem = match lint_unless_syntax_error(content, path, cfg, base_dir) {
+    if crate::directives::disables_file(content) {
+        return Vec::new();
+    }
+    let source = source(content, path, cfg, base_dir);
+    lint_analysis_with_repair_help(source.analysis(), path, cfg, base_dir, None)
+}
+
+pub(crate) fn lint_analysis_with_repair_help(
+    input: Analysis<'_>,
+    path: &Path,
+    cfg: &YamlLintConfig,
+    base_dir: &Path,
+    candidates: Option<&mut Vec<&'static str>>,
+) -> Vec<LintProblem> {
+    let content = input.text();
+    let mut problem = match lint_with_analysis(input, path, cfg, base_dir, candidates) {
         Ok(problems) => return problems,
         Err((problem, false)) => return vec![problem],
         Err((problem, true)) => problem,

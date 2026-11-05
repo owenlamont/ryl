@@ -3,7 +3,6 @@ use crate::property::{
 };
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::fix::{Rewrite, fix_markdown_str};
 use ryl::{MarkdownSources, extract_regions};
 
@@ -157,6 +156,19 @@ fn format(markdown: &str, cfg: &ryl::config::YamlLintConfig) -> String {
     .unwrap_or_else(|| markdown.to_string())
 }
 
+#[test]
+fn expanded_omitted_value_keeps_no_separator_after_its_anchored_key() {
+    let input = "before\n\n```yaml\n{&a}\n```\n\nafter\n";
+    let cfg = ryl::config::YamlLintConfig::from_toml_str(
+        "line-length=1\n[format]\nmapping-expand='auto'\n",
+    )
+    .unwrap();
+    let output = format(input, &cfg);
+    assert_eq!(output, "before\n\n```yaml\n{\n  &a,\n}\n```\n\nafter\n");
+    verify_preserved(input, &output, false).unwrap();
+    assert_eq!(format(&output, &cfg), output);
+}
+
 fn check_config(
     markdown: &str,
     name: &str,
@@ -185,6 +197,25 @@ fn run_invariants(markdown: &str) -> Result<(), TestCaseError> {
         check_config(markdown, &pass.name, &pass.cfg)?;
     }
     Ok(())
+}
+
+#[test]
+fn empty_explicit_key_keeps_nested_inline_comment_when_dash_joins() {
+    let input = "  ```yaml\r\n  ?\r\n  : -\r\n      b: [a, b] # note\r\n  ```\r\n";
+    for markdown in [
+        input,
+        "```yaml\n?\n: [a, b] # note\n```\n",
+        "```yaml\n: &a0 [a, b] # note\n```\n",
+    ] {
+        run_invariants(markdown).unwrap();
+    }
+    let cfg = ryl::config::YamlLintConfig::from_toml_str("[format]\n").unwrap();
+    assert_eq!(
+        format(input, &cfg),
+        "  ```yaml\r\n  ?\r\n  : - b: [a, b]  # note\r\n  ```\r\n"
+    );
+    let moved = "  ```yaml\r\n  ?\r\n  : - # note\r\n      b: [a, b]\r\n  ```\r\n";
+    assert!(verify_preserved(input, moved, true).is_err());
 }
 
 #[test]
@@ -267,22 +298,17 @@ quote-style='preserve'
 }
 
 #[test]
-fn explicit_key_flow_overflow_property_replay_is_idempotent_in_markdown() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/collection_geometry/explicit-key-markdown.txt"
-    ))
-    .unwrap();
-    let input = fixture["markdown"].as_str().unwrap();
-    let settings = fixture["config"].as_str().unwrap();
+fn explicit_key_nested_flow_overflow_is_idempotent_in_markdown() {
+    let input = "```yaml\n? a\n: [[b]]\n```\n";
+    let settings =
+        "line-length=5\n[format]\nsequence-style='flow'\nindent-sequences=false\n";
     let cfg = ryl::config::YamlLintConfig::from_toml_str(settings).unwrap();
     check_config(input, settings, &cfg).unwrap();
 }
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_markdown_format.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_markdown_format"),
         ..ProptestConfig::default()
     })]
 

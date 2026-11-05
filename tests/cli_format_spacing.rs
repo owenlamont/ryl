@@ -12,7 +12,7 @@ use common::cli::{run, ryl, ryl_on};
 
 const DIRTY: &str = "---\na :  1\nlist:\n  -   x\n";
 const COMPACT: &str = "---\nseq:\n  -   a: 1\n      b: 2\n? k\n:   - x\n    - y\n";
-const UNFOLLOWABLE: &str = "k:\n  a: 1\nj:\n    b: 1\n---\n: v\n";
+const REFUSED_INDENTATION: &str = "k:\n  a: 1\nj:\n    b: 1\n...\nb: |\n  \tx\n";
 
 #[test]
 fn format_and_lint_fixes_preserve_ytt_directives() {
@@ -84,10 +84,9 @@ fn refusal_checks_preserve_output_and_only_report_active_documents() {
             "",
         ),
         (
-            "a :  1\nlist:\n  -   x\n---\n:   - x\n    - y\n",
-            "a: 1\nlist:\n  - x\n---\n:   - x\n    - y\n",
-            "5:1 indentation not fixed: cannot re-indent this document safely\n\
-             5:4 colons not fixed: too many spaces after colon\n",
+            "a :  1\nlist:\n  -   x\n---\nb: |\n  \tx\n",
+            "a: 1\nlist:\n  - x\n---\nb: |\n  \tx\n",
+            "4:1 indentation not fixed: cannot re-indent this document safely\n",
         ),
     ] {
         let (code, stdout, stderr, formatted) =
@@ -156,7 +155,7 @@ fn flush_sequence_explicit_key_does_not_override_scalar_indent_width() {
 
 #[test]
 fn format_check_fails_only_on_what_it_would_change() {
-    let (code, stderr, _) = run_on(UNFOLLOWABLE, &["format", "--check"]);
+    let (code, stderr, _) = run_on(REFUSED_INDENTATION, &["format", "--check"]);
     assert!(
         stderr.contains("cannot re-indent this document"),
         "{stderr}"
@@ -167,7 +166,7 @@ fn format_check_fails_only_on_what_it_would_change() {
         COMPACT.replace("a: 1", "a: 1  # yamllint disable-line rule:hyphens");
     let (code, stderr, _) = run_on(&disabled, &["format", "--check"]);
     assert_eq!(code, 0, "{stderr}");
-    assert!(stderr.ends_with("1 file already formatted\n"), "{stderr}");
+    assert!(stderr.contains("1 file already formatted\n"), "{stderr}");
     assert_eq!(
         stderr
             .matches("yamllint directive aliases are deprecated")
@@ -193,14 +192,14 @@ fn check_fix_respaces_to_the_tolerance() {
 
 #[test]
 fn notices_count_lines_in_the_file_each_mode_leaves() {
-    let input = "k: 1\n\n\n\n\n---\n: v\n";
+    let input = "k: 1\n...\n\n\n\n\nk: |\n  \tx\n";
     let (_, stderr, _) = run_on(input, &["format", "--check"]);
     assert!(
         stderr.contains("a.yaml:7:1 indentation not fixed"),
         "{stderr}"
     );
     let (_, stderr, formatted) = run_on(input, &["format"]);
-    assert_eq!(formatted, "k: 1\n\n\n---\n: v\n");
+    assert_eq!(formatted, "k: 1\n...\n\n\nk: |\n  \tx\n");
     assert!(
         stderr.contains("a.yaml:5:1 indentation not fixed"),
         "{stderr}"
@@ -216,7 +215,7 @@ fn markdown_notices_count_lines_in_the_unchanged_host() {
     )
     .unwrap();
     let file = dir.path().join("doc.md");
-    fs::write(&file, "```yaml\nk: 1\n\n\n\n---\n: v\n```\n").unwrap();
+    fs::write(&file, "```yaml\nk: 1\n...\n\n\n\nk: |\n  \tx\n```\n").unwrap();
     let (_, _, stderr) = run(ryl(dir.path()).args(["format", "--check"]).arg(&file));
     assert!(
         stderr.contains("doc.md:7:1 indentation not fixed"),
@@ -250,7 +249,8 @@ fn a_dash_join_never_crosses_an_indentation_disable() {
 
 #[test]
 fn each_refused_document_is_named_in_line_order() {
-    let (_, stderr, _) = run_on(": a\n---\n: b\n", &["format", "--check"]);
+    let (_, stderr, _) =
+        run_on("a: |\n  \tx\n...\nb: |\n  \ty\n", &["format", "--check"]);
     let lines: Vec<&str> = stderr
         .lines()
         .filter_map(|line| line.split_once("a.yaml:").map(|(_, notice)| notice))
@@ -258,7 +258,7 @@ fn each_refused_document_is_named_in_line_order() {
         .collect();
     assert_eq!(lines.len(), 2, "{stderr}");
     assert!(
-        lines[0].starts_with("1:1") && lines[1].starts_with("3:1"),
+        lines[0].starts_with("1:1") && lines[1].starts_with("4:1"),
         "{stderr}"
     );
 }

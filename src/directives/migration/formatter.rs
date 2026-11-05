@@ -15,6 +15,7 @@ pub enum FormatterComments<'a> {
 }
 
 pub struct Migration {
+    pub converted: usize,
     pub output: Option<String>,
     pub retained_lines: Vec<usize>,
 }
@@ -112,17 +113,12 @@ pub(super) fn migrate(
         legacy
             .into_iter()
             .filter(|usage| !retained_lines.contains(&usage.line))
-            .map(|usage| {
-                (
-                    BytePos::new(usage.tool.start),
-                    BytePos::new(usage.tool.end),
-                    "ryl".to_owned(),
-                )
-            }),
+            .map(super::LegacyUse::replacement),
     );
     retained_lines.sort_unstable();
     retained_lines.dedup();
     Migration {
+        converted: replacements.len(),
         output: (!replacements.is_empty())
             .then(|| apply_replacements(input.text(), replacements)),
         retained_lines,

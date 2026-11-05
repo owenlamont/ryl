@@ -19,6 +19,21 @@ const SEQUENCES: &str = "[format]\nsequence-style = 'block'\n";
 const MAPPINGS: &str = "[format]\nmapping-style = 'block'\n";
 
 #[test]
+fn a_nested_sequence_after_an_explicit_value_measures_its_own_line() {
+    let input = "? a\n: - [{a: b}]\n";
+    let cfg = config(
+        "indent-width=3\nline-length=12\n[format]\nsequence-style='block'\nmapping-style='flow'\n",
+    );
+    let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+    assert_eq!(output, "? a\n: -\n     - a: b\n");
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
+}
+
+#[test]
 fn converted_children_keep_the_original_trailing_comment_alignment() {
     let input = "a: {b: c}\n # d\n";
     let cfg = config(MAPPINGS);
@@ -635,7 +650,7 @@ fn flow_conversions_in_same_refused_document_stay_flow() {
 }
 
 #[test]
-fn flow_conversion_handles_each_reindent_refusal_cause() {
+fn flow_conversion_handles_reindent_refusals() {
     use ryl::rules::indentation::{
         Cause, Config, IndentSequencesSetting, SpacesSetting, reindent,
     };
@@ -655,7 +670,6 @@ fn flow_conversion_handles_each_reindent_refusal_cause() {
             Cause::Disabled,
             "b: c  # yamllint disable-line rule:indentation\n",
         ),
-        (Cause::Unfollowable, ": value\n"),
     ] {
         let candidate = format!("a:\n  - a\n{suffix}");
         assert_eq!(reindent(&candidate, &target).refused[0].cause, cause);
@@ -1000,6 +1014,39 @@ fn converted_sibling_keeps_the_other_documents_refused_dash_shape() {
 }
 
 #[test]
+fn unspaced_flow_item_properties_keep_the_body_beside_the_dash() {
+    let cfg = config(
+        "indent-width=12\nline-length=20\n[format]\nsequence-style='flow'\nmapping-style='flow'\ndash-on-own-line=true\n",
+    );
+    for (input, expected) in [
+        (
+            "[&a {k: {x: y}, key: value}]\n",
+            "- &a\n  k: {x: y}\n  key: value\n",
+        ),
+        (
+            "[1,&a {k: {x: y}, key: value}]\n",
+            "- 1\n- &a\n  k: {x: y}\n  key: value\n",
+        ),
+        (
+            "[!<tag:yaml.org,2002:map> {k: {x: y}, key: value}]\n",
+            "- !<tag:yaml.org,2002:map>\n  k: {x: y}\n  key: value\n",
+        ),
+        (
+            "[\"x,!foo\", {k: {x: y}, key: value}]\n",
+            "- x,!foo\n-\n            k:\n                        x: y\n            key: value\n",
+        ),
+    ] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, expected, "{input:?}");
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
+    }
+}
+
+#[test]
 fn joined_explicit_key_closes_its_gap_when_colons_are_skipped() {
     let input = "-\n  ?   a\n  : b\n";
     let cfg = config("[format]\nmapping-style='flow'\ndash-on-own-line=false\n");
@@ -1210,4 +1257,16 @@ fn reconsidered_mapping_counts_the_explicit_value_gap_once() {
         );
         assert!(ryl::format::conflicts(&cfg).is_empty());
     }
+}
+
+#[test]
+fn omitted_implicit_keys_allow_independent_collection_conversion() {
+    let cfg = config(
+        "indent-width = 2\n[format]\nsequence-style = 'block'\nindent-sequences = false\n",
+    );
+    let input = "a: [a]\n: value\n";
+    assert_eq!(
+        format_str(input, &cfg, Path::new("case.yaml"), &[]),
+        "a:\n- a\n: value\n"
+    );
 }

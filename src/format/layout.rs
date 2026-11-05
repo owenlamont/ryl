@@ -756,23 +756,10 @@ impl Presentation {
         presentation.settle().map(|()| presentation)
     }
 
-    fn extend(&mut self, rule: &'static str, mut edits: Vec<Edit>) {
-        if let Some(guard) = &self.guard {
-            edits.retain(|(start, end, _)| guard.allows(rule, *start, *end));
-        }
-        if let Some(retained) = &self.retained {
-            edits.retain(|(start, end, _)| retained.keeps(*start, *end));
-        }
-        if !edits.is_empty() {
-            self.rules.push(rule);
-        }
-        self.edits.extend(edits.into_iter().map(plan_edit));
-    }
-
-    fn extend_spaces(
+    fn select_edits<T>(
         &mut self,
         rule: &'static str,
-        mut edits: Vec<crate::rules::support::token_spacing::SpaceEdit>,
+        edits: &mut Vec<(BytePos, BytePos, T)>,
     ) {
         if let Some(guard) = &self.guard {
             edits.retain(|(start, end, _)| guard.allows(rule, *start, *end));
@@ -783,6 +770,19 @@ impl Presentation {
         if !edits.is_empty() {
             self.rules.push(rule);
         }
+    }
+
+    fn extend(&mut self, rule: &'static str, mut edits: Vec<Edit>) {
+        self.select_edits(rule, &mut edits);
+        self.edits.extend(edits.into_iter().map(plan_edit));
+    }
+
+    fn extend_spaces(
+        &mut self,
+        rule: &'static str,
+        mut edits: Vec<crate::rules::support::token_spacing::SpaceEdit>,
+    ) {
+        self.select_edits(rule, &mut edits);
         self.edits.extend(
             edits.into_iter().map(|(from, to, spaces)| {
                 (from, to, pieces::Replacement::Spaces(spaces))
@@ -1377,8 +1377,6 @@ impl<'a> DocumentPlan<'a> {
         let keep_magic = !self.magic.changed();
         let input = self.input;
 
-        let boundaries = &mut self.boundaries;
-        let rules = &mut self.rules;
         for (rule, mut next) in [
             (
                 document_start::ID,
@@ -1397,17 +1395,24 @@ impl<'a> DocumentPlan<'a> {
                 next.retain(|(start, end, _)| guard.allows(rule, *start, *end));
             }
             if !next.is_empty() {
-                rules.push(rule);
+                self.rules.push(rule);
             }
             for mut edit in next {
-                if edit.0 != edit.1 {
-                    blank_whitespace_line(
-                        input,
-                        &mut self.layout,
-                        &self.targets,
-                        edit.0,
-                    );
-                    continue;
+                match (edit.0 != edit.1, rule) {
+                    (true, document_start::ID) => {
+                        self.remove_marker(edit);
+                        continue;
+                    }
+                    (true, _) => {
+                        blank_whitespace_line(
+                            input,
+                            &mut self.layout,
+                            &self.targets,
+                            edit.0,
+                        );
+                        continue;
+                    }
+                    (false, _) => {}
                 }
                 if rule == document_start::ID {
                     attach_marker_bom(input, &mut self.layout, &self.targets, edit.0);
@@ -1415,8 +1420,24 @@ impl<'a> DocumentPlan<'a> {
                 if rule == document_end::ID {
                     edit = document_end::finalize_boundary(input, edit, final_newline);
                 }
-                boundaries.push(edit);
+                self.boundaries.push(edit);
             }
+        }
+    }
+
+    fn remove_marker(&mut self, edit: Edit) {
+        self.edits
+            .retain(|(from, to, _)| *from < edit.0 || *to > edit.1);
+        let starts = self.input.byte_line_starts();
+        let line = starts.partition_point(|&at| at <= edit.0.get()) - 1;
+        let end = starts
+            .get(line + 1)
+            .copied()
+            .unwrap_or(self.input.text().len());
+        if edit.1.get() == end {
+            self.removed.push(starts[line]..end);
+        } else {
+            self.edits.push(plan_edit(edit));
         }
     }
 
@@ -1433,6 +1454,7 @@ impl<'a> DocumentPlan<'a> {
     }
 
     fn empty_lines(&mut self, cfg: &empty_lines::Config) {
+        let removed = std::mem::take(&mut self.removed);
         let mut empty: Vec<_> = self
             .input
             .lines()
@@ -1451,6 +1473,9 @@ impl<'a> DocumentPlan<'a> {
         for (index, line) in self.layout.lines.iter().enumerate() {
             let at =
                 self.input.byte_line_starts()[line.origin] + usize::from(line.bom) * 3;
+            if removed.iter().any(|range| range.contains(&at)) {
+                continue;
+            }
             let marker = self
                 .boundaries
                 .get(boundary)
@@ -1493,6 +1518,7 @@ impl<'a> DocumentPlan<'a> {
         if !self.removed.is_empty() {
             self.rules.push(empty_lines::ID);
         }
+        self.removed.extend(removed);
     }
 }
 
@@ -2474,6 +2500,7 @@ impl<'a> LayoutTargets<'a> {
         if let Some(cfg) = passes.empty_lines {
             self.0.empty_lines(&cfg);
         }
+        self.0.removed.sort_by_key(|range| range.start);
         let edits = &mut self.0.edits;
         let boundaries = &mut self.0.boundaries;
         let rules = &mut self.0.rules;

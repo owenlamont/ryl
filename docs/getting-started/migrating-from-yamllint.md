@@ -1,6 +1,9 @@
 # Migrating from yamllint
 
 ryl implements yamllint's rule set, and its own configuration is TOML.
+Rules, options and config semantics follow yamllint 1.38.0, the latest release when this
+ryl version shipped. An option added in a later yamllint release is rejected as unknown
+(exit 2) until ryl supports it.
 ryl still reads a yamllint YAML config (`.yamllint`, `.yamllint.yml`,
 `.yamllint.yaml`, `-c`/`-d` YAML, `YAMLLINT_CONFIG_FILE` and the yamllint
 user-global config) with the same semantics as upstream, but that support is
@@ -44,9 +47,6 @@ Without `indent-width`, the lint rule still defaults to `"consistent"`.
 
 ## Automatic migration
 
-The converter also imports [YAML formatter configurations](migrating-from-formatters.md),
-combining one formatter with colocated yamllint lint settings.
-
 ryl ships with a built-in converter. From the root of your project:
 
 ```bash
@@ -65,6 +65,23 @@ ryl --migrate-configs --migrate-write --migrate-delete-old
 # Write and rename the original YAML configs (e.g. .yamllint.bak)
 ryl --migrate-configs --migrate-write --migrate-rename-old .bak
 ```
+
+The bare command also imports Prettier, yamlfmt, dprint or yamlfix settings found
+beside yamllint. Use `--migrate-from yamllint` to select only the linter;
+see [formatter imports](migrating-from-formatters.md).
+
+### After migrating
+
+1. Run `ryl check .` and compare diagnostics with yamllint.
+2. Remove or rename the old `.yamllint`. Prefer cleanup flags on the initial
+   migration: retained YAML configs cause discovery warnings and can themselves be
+   linted.
+3. Replace `yamllint` with `ryl check` in CI and hooks. Convert comments with
+   `ryl --migrate-directives --migrate-from yamllint --migrate-write`.
+4. Optionally review `ryl format --diff .` before adopting formatting. Generated
+   `[format]` settings preserve choices the old lint config left unchecked.
+
+### User-global configuration
 
 To migrate your **user-global** yamllint config (the personal defaults at
 `<config-dir>/yamllint/config`) to ryl's own location
@@ -107,6 +124,7 @@ positional paths: `ryl --migrate-configs sub/` exits 2, so scope it with
 
 To convert existing yamllint comments without importing configuration, preview
 `ryl --migrate-directives --migrate-from yamllint`; add `--migrate-write` to apply.
+`# yamllint` aliases remain supported throughout 0.29.x.
 See [source comment conversion](migrating-from-formatters.md#suppression-comments)
 for supported formatter markers and retained cases.
 
@@ -163,9 +181,6 @@ targets:
 | :--- | :--- |
 | `quote-style` | leaves `quoted-strings` off, as `extends: default` does |
 | `comment-starting-space` | leaves `comments` off, or sets its `require-starting-space: false` |
-
-After migration, run `ryl check .` to confirm diagnostics match what yamllint
-produced.
 
 ## What is preserved
 
@@ -837,9 +852,8 @@ layout fixes to every file without enabling the rules. yamllint's `default` pres
 conflicts with none of the formatter's default settings, so a migrated config needs no
 changes to run alongside it.
 
-## Keeping both files
+## A leftover `.yamllint`
 
-`.yamllint` and `.ryl.toml` can coexist for separate tools. When both are
-present in the same directory, ryl uses TOML exclusively and ignores `.yamllint`.
-Keep shared lint settings synchronized: `--migrate-configs` skips `.yamllint` when
-a `.ryl.toml` already exists.
+When `.yamllint` and `.ryl.toml` are in the same directory, ryl uses TOML and
+ignores `.yamllint`. `--migrate-configs` skips `.yamllint` when a `.ryl.toml`
+already exists.

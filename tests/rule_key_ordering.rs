@@ -143,7 +143,7 @@ fn ignored_keys_rejects_scalar_configuration() {
         "rules:\n  key-ordering:\n    ignored-keys: \"name\"\n",
     )
     .expect_err("config should fail");
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.key-ordering"), "{err}");
 }
 

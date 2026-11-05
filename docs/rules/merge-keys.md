@@ -14,6 +14,12 @@ prod:
   host: prod.example.com
 ```
 
+With `merge-keys` enabled, `ryl check` reports the `<<` line:
+
+```text
+5:3  error  forbidden merge key "<<"  (merge-keys)
+```
+
 When enabled the rule flags every `<<` key, whether its value is an alias
 (`<<: *defaults`), an inline mapping (`<<: {a: 1}`), or a list of either
 (`<<: [*a, *b]`). A key explicitly tagged `!!merge` is also flagged regardless of

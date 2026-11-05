@@ -132,11 +132,12 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Viol
     walk(input, cfg).map(|(violation, _)| violation).collect()
 }
 
-#[must_use]
-pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let replacements: Vec<_> = walk(TextVersion::new(buffer).analysis(), cfg)
-        .filter_map(|(_, edit)| edit)
-        .collect();
+pub(crate) fn fix_with_analysis(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &Config,
+) -> Option<String> {
+    let buffer = input.text();
+    let replacements: Vec<_> = walk(input, cfg).filter_map(|(_, edit)| edit).collect();
     (!replacements.is_empty()).then(|| apply_replacements(buffer, replacements))
 }
 

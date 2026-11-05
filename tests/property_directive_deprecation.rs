@@ -1,7 +1,6 @@
 use std::fs;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use tempfile::tempdir;
 
 use crate::common::cli::{run, ryl};
@@ -10,7 +9,7 @@ use crate::property::check_strategy::arb_document;
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 256,
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct("tests/proptest-regressions/property_directive_deprecation.txt"))),
+        failure_persistence: crate::property::failure_persistence!("property_directive_deprecation"),
         ..ProptestConfig::default()
     })]
 

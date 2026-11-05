@@ -90,7 +90,7 @@ FIXTURES: Final[dict[str, str | bytes]] = {
     "root-marker-bom-content.yaml": "'first\n  ---\ufeffx'\n",
     "nested-markers.yaml": "key: '---'\nlist: ['...', '--- x']\n'---': '...'\n",
     "marker-continuation.yaml": "'first\n  --- x'\n",
-    "per-document-refusal.yaml": "a : 1\n---\n: v\n",
+    "per-document-refusal.yaml": "a :  1\nlist:\n  -   x\n---\nb: |\n  \tx\n",
     "blank-lf.yaml": "\n\n\n",
     "blank-lf-large.yaml": "\n" * 70_000,
     "blank-whitespace.yaml": " \n\t\n\n",

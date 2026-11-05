@@ -1,9 +1,20 @@
 # Migrating from yamlfix
 
+Import the settings first (a successful import exits `0`; inspect warnings):
+
+```bash
+ryl --migrate-configs --migrate-from yamlfix --migrate-stdout
+ryl --migrate-configs --migrate-from yamlfix --migrate-write
+```
+
+Follow [After migrating](migrating-from-formatters.md#after-migrating) to verify
+formatting and update CI, or use the manual profile below.
+
 `ryl format` covers most of [yamlfix](https://github.com/lyz-code/yamlfix)'s
 options through `[format]` keys and the top-level `line-length` and
 `indent-width`. Replace `yamlfix .` with `ryl format .`, and `yamlfix --check .`
-with `ryl format --check .`.
+with `ryl format --check .`. The mapping and `--migrate-from yamlfix` import follow
+yamlfix 1.19.1; older configurations may work, but defaults follow that release.
 
 ryl reads configuration from `.ryl.toml`, `ryl.toml` or `[tool.ryl]` in
 `pyproject.toml`, or the file passed with `-c`. It does not read `YAMLFIX_*`
@@ -12,7 +23,7 @@ environment variables.
 ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
 another width.
 
-## Example
+## Manual configuration
 
 A yamlfix configuration:
 
@@ -32,7 +43,7 @@ line-length = 100
 
 [tool.ryl.format]
 fold-long-lines = true
-document-start = "preserve"
+document-start = "remove"
 max-blank-lines = 1
 comment-spacing = 1
 ```
@@ -46,7 +57,7 @@ comment-spacing = 1
 | `whitelines` (0) | `[format] max-blank-lines` (default 2), see [blank lines](#blank-lines) |
 | `comments_whitelines` (1) | none, see [blank lines](#blank-lines) |
 | `section_whitelines` (0) | none, see [blank lines](#blank-lines) |
-| `explicit_start` (true) | `[format] document-start = "add"`; `false` maps to `"preserve"` |
+| `explicit_start` (true) | `[format] document-start = "add"`; `false` maps to `"remove"` |
 | `indent_mapping` (2) | top-level `indent-width` |
 | `indent_sequence` (4), `indent_offset` (2) | top-level `indent-width` with `[format] indent-sequences` selects indented or flush sequences; independent sequence width and offset have no exact equivalent |
 | `line_length` (80) | top-level `line-length` with `[format] fold-long-lines = true` |
@@ -78,8 +89,9 @@ sets the gap exactly, so `comment-spacing = 1` also shrinks a wider gap.
 ### Removing `---`
 
 yamlfix's `explicit_start = false` removes document start markers, which merges
-the documents of a multi-document stream. ryl never removes `---`;
-`document-start = "preserve"` leaves markers as written.
+the documents of a multi-document stream. Imported `document-start = "remove"`
+removes only the first optional marker; directives, empty documents and stream
+separators keep required markers.
 
 ### Forcing quotes
 

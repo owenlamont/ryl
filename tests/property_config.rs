@@ -37,7 +37,6 @@ use crate::common;
 use std::path::Path;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::{Overrides, YamlLintConfig, discover_config, discover_config_with};
 use ryl::config_schema::TomlConfig;
 use ryl::config_schema::{
@@ -94,9 +93,7 @@ fn parse_toml_without_panicking(toml_config: &str) {
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 256,
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_config.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_config"),
         ..ProptestConfig::default()
     })]
 

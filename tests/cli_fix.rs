@@ -7,6 +7,28 @@ use crate::common;
 use common::cli::{run, ryl};
 
 #[test]
+fn fix_activating_disable_file_suppresses_remaining_diagnostics() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("input.yaml");
+    fs::write(&file, "\n# ryl disable-file\na:  1\n").unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint]\nunfixable = ['colons']\n[lint.rules]\ncolons = 'enable'\nempty-lines = 'enable'\n",
+    )
+    .unwrap();
+
+    let (code, stdout, stderr) =
+        run(ryl(dir.path()).arg("check").arg("--fix").arg(&file));
+    assert_eq!(code, 0, "stdout={stdout} stderr={stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "# ryl disable-file\na:  1\n"
+    );
+    assert!(stderr.contains("0 remaining"), "{stderr}");
+}
+
+#[test]
 fn fix_applies_safe_newline_and_comment_fixes() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("input.yaml");
@@ -1270,4 +1292,36 @@ fn fix_summary_counts_fixes_that_introduce_another_rules_problem() {
         "expected both braces fixes counted: {stderr}"
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), "a: { x: 1 }\n");
+}
+
+#[test]
+fn hard_links_count_each_path_in_one_legacy_directive_summary() {
+    let dir = tempdir().unwrap();
+    let first = dir.path().join("a.yaml");
+    let second = dir.path().join("b.yaml");
+    fs::write(dir.path().join(".ryl.toml"), "[lint]\n").unwrap();
+    fs::write(&first, "# yamllint enable\na: 1").unwrap();
+    fs::hard_link(&first, &second).unwrap();
+
+    let (code, _, stderr) = run(ryl(dir.path())
+        .args([
+            "check",
+            "--fix",
+            "--no-cache",
+            "--enable",
+            "new-line-at-end-of-file",
+        ])
+        .arg(&first)
+        .arg(&second));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        stderr.matches("directive aliases are deprecated").count(),
+        1,
+        "{stderr}"
+    );
+    assert!(stderr.contains("deprecated in 2 files;"), "{stderr}");
+    assert_eq!(
+        fs::read_to_string(&second).unwrap(),
+        "# yamllint enable\na: 1\n"
+    );
 }

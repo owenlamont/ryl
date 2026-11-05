@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use ryl_yaml_parser::{
-    Event, Marker, Parser, ScanError, Span, SpannedEventReceiver, Tag,
+    Event, Marker, Parser, ScalarStyle, ScanError, Span, SpannedEventReceiver, Tag,
 };
 
 use super::{core_schema_suffix, is_core_schema};
@@ -19,9 +19,15 @@ const MAX_EXPANDED_NODES: usize = 1_000_000;
 /// # Errors
 /// Propagates [`ScanError`] when the parser rejects the input, or when
 /// alias expansion exceeds [`MAX_EXPANDED_NODES`] (a billion-laughs payload).
-pub fn load_owned_documents(source: &str) -> Result<Vec<YamlOwned>, ScanError> {
+pub fn load_owned_documents(
+    source: &str,
+    resolve_plain: Option<fn(Cow<'_, str>) -> Option<Scalar<'_>>>,
+) -> Result<Vec<YamlOwned>, ScanError> {
     let mut parser = Parser::new_from_str(source);
-    let mut loader = Loader::default();
+    let mut loader = Loader {
+        resolve_plain,
+        ..Loader::default()
+    };
     parser.load(&mut loader, true)?;
     if let Some(mark) = loader.overflow {
         return Err(ScanError::new(
@@ -51,6 +57,7 @@ struct Frame {
 
 #[derive(Default)]
 struct Loader {
+    resolve_plain: Option<fn(Cow<'_, str>) -> Option<Scalar<'_>>>,
     docs: Vec<YamlOwned>,
     stack: Vec<Frame>,
     root: Option<YamlOwned>,
@@ -100,18 +107,22 @@ impl<'input> SpannedEventReceiver<'input> for Loader {
                 self.attach(node, size);
             }
             Event::Scalar(value, style, aid, tag) => {
+                let scalar = if tag.is_none()
+                    && style == ScalarStyle::Plain
+                    && let Some(resolve) = self.resolve_plain
+                {
+                    resolve(value)
+                } else {
+                    Scalar::resolve_scalar(value, style, tag.as_ref())
+                };
+                let node = scalar.map_or(YamlOwned::BadValue, |scalar| {
+                    YamlOwned::Value(scalar.into_owned())
+                });
                 let node = match tag.as_ref() {
-                    Some(tag_ref) if !is_core_schema(tag_ref) => {
-                        let inner = Scalar::resolve_scalar(value, style, None)
-                            .map_or(YamlOwned::BadValue, |scalar| {
-                                YamlOwned::Value(scalar.into_owned())
-                            });
-                        YamlOwned::Tagged(tag_ref.as_ref().clone(), Box::new(inner))
+                    Some(tag) if !is_core_schema(tag) => {
+                        YamlOwned::Tagged(tag.as_ref().clone(), Box::new(node))
                     }
-                    _ => Scalar::resolve_scalar(value, style, tag.as_ref())
-                        .map_or(YamlOwned::BadValue, |scalar| {
-                            YamlOwned::Value(scalar.into_owned())
-                        }),
+                    _ => node,
                 };
                 if aid > 0 {
                     self.anchor_map.insert(aid, node.clone());

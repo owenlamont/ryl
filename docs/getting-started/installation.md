@@ -69,14 +69,20 @@ release binary on the runner, verifies its checksum and runs `ryl check .`:
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: owenlamont/ryl-action@v0.28.0
-- uses: owenlamont/ryl-action@v0.28.0
+- name: Check YAML lint
+  uses: owenlamont/ryl-action@v0.29.0
+  with:
+    args: check .
+- name: Check YAML formatting
+  uses: owenlamont/ryl-action@v0.29.0
   with:
     args: format --check .
 ```
 
 Each action tag installs the matching ryl release. ryl enables no rules without
-a config, so commit a `.ryl.toml` first. The other inputs are `version`, `config`
+a config, so commit a `.ryl.toml` first. The action reads the same config as local
+commands. Formatter-only imports enable no lint rules: enable selected rules before
+adding the lint step, or run only the formatting step. The other inputs are `version`, `config`
 (passed as `-c`), `config-data` (inline config, passed whole as `-d`) and
 `install-only`, which puts `ryl` on `PATH` for later steps. `args` splits on
 whitespace without quote handling, so pass inline config through `config-data`.

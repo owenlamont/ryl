@@ -24,6 +24,8 @@ description: >-
 - `crates/ryl-yaml-parser` is versioned on its own API, not in lockstep. Bump its
   `Cargo.toml` `version` (and ryl's dependency on it) whenever its source changed since
   its last publish; the publish job fails on a published version whose contents differ.
+  Workspace dependency updates can also change the generated packaged `Cargo.lock`
+  without changing parser source; the release job rejects that content drift too.
   Its first version needs one local `cargo publish -p ryl-yaml-parser` with a short-lived
   `publish-new` token (Trusted Publishing cannot create a crate); then add its Trusted
   Publishing config (`owenlamont/ryl`, `release.yml`) on crates.io and revoke the token.
@@ -104,7 +106,7 @@ description: >-
 
     It builds the test binaries before the clock starts, then runs each `property_`
     suite round-robin with fresh seeds until the budget is spent, stopping at the first
-    failure with its seed saved under `tests/proptest-regressions/` (or the parser
+    failure with its seed saved under `target/proptest-regressions/` (or the parser
     crate's). A failure blocks the tag: fix it with a named deterministic regression
     test (property-tests skill), then re-run the soak; re-run it only after such a fix.
     Paste the per-suite table it prints into the release PR.

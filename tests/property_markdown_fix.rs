@@ -11,7 +11,6 @@
 use crate::property::{config, wrap};
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::fix::{
     Rewrite, apply_safe_fixes_filtered, fix_markdown_str, suppressed_rules,
@@ -136,9 +135,7 @@ fn run_invariants(markdown: &str) -> Result<(), TestCaseError> {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_markdown_fix.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_markdown_fix"),
         ..ProptestConfig::default()
     })]
 

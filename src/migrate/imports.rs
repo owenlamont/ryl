@@ -15,7 +15,7 @@ mod bounded_json5;
 mod discovery;
 mod dprint;
 mod options;
-mod prettier;
+pub(super) mod prettier;
 mod read;
 mod yamlfix;
 mod yamlfmt;
@@ -60,6 +60,15 @@ impl Formatter {
             Self::Yamlfix => "yamlfix",
         }
     }
+
+    fn flag_value(self) -> &'static str {
+        match self {
+            Self::Prettier => "prettier",
+            Self::Yamlfmt => "yamlfmt",
+            Self::Dprint => "dprint",
+            Self::Yamlfix => "yamlfix",
+        }
+    }
 }
 
 #[derive(Default)]
@@ -72,6 +81,7 @@ pub(super) fn build_project_entries(
     root: &Path,
     selection: Option<MigrationSource>,
     cleanup: &SourceCleanup,
+    migrate_directives: bool,
     plan: &mut MigrationPlan,
 ) -> Result<(), String> {
     if selection == Some(MigrationSource::Yamllint) {
@@ -111,8 +121,16 @@ pub(super) fn build_project_entries(
             .push(path);
     }
     for (directory, files) in directories {
-        let directory_plan =
-            build_directory(&directory, files, root, selection, cleanup)?;
+        let directory_plan = build_directory(
+            &directory,
+            files,
+            root,
+            selection,
+            cleanup,
+            migrate_directives,
+            plan.export,
+        )?;
+        plan.skipped += directory_plan.skipped;
         plan.entries.extend(directory_plan.entries);
         plan.cleanup_only_sources
             .extend(directory_plan.cleanup_only_sources);
@@ -161,7 +179,7 @@ fn select_candidate(
     if candidates.len() > 1 {
         let names = candidates
             .iter()
-            .map(|candidate| candidate.tool.name())
+            .map(|candidate| candidate.tool.flag_value())
             .collect::<Vec<_>>()
             .join(", ");
         return Err(format!(
@@ -172,13 +190,16 @@ fn select_candidate(
     Ok(candidates.pop())
 }
 
-fn convert(candidate: &mut Candidate) -> Result<Option<Converted>, String> {
+fn convert(
+    candidate: &mut Candidate,
+    migrate_directives: bool,
+) -> Result<Option<Converted>, String> {
     let Some(values) = candidate.values.take() else {
         return Ok(None);
     };
     let converted = match candidate.tool {
-        Formatter::Prettier => prettier::convert(values),
-        Formatter::Yamlfmt => yamlfmt::convert(values),
+        Formatter::Prettier => prettier::convert(&values, migrate_directives),
+        Formatter::Yamlfmt => yamlfmt::convert(values, &parent(&candidate.source)),
         Formatter::Dprint => dprint::convert(values),
         Formatter::Yamlfix => yamlfix::convert(values),
     };
@@ -196,43 +217,42 @@ fn build_directory(
     root: &Path,
     selection: Option<MigrationSource>,
     cleanup: &SourceCleanup,
+    migrate_directives: bool,
+    export: bool,
 ) -> Result<MigrationPlan, String> {
-    let mut plan = MigrationPlan::default();
+    let mut plan = MigrationPlan {
+        export,
+        ..MigrationPlan::default()
+    };
     files
         .lint
         .sort_by_key(|path| (super::yaml_config_rank(path), path.clone()));
     let target = directory.join(".ryl.toml");
-    let primary = files
-        .lint
-        .first()
-        .or_else(|| files.format.first())
-        .expect("a discovered directory contains a source");
     if !files.lint.is_empty()
         && !build_lint_entry(&files.lint, root, &target, cleanup, &mut plan)?
     {
         return Ok(plan);
     }
-    if files.lint.is_empty() {
-        if super::is_symlink(&target) {
-            plan.warnings.push(format!(
-                "warning: skipping migration to {}: refusing to follow a symlink",
-                target.display()
-            ));
-            return Ok(plan);
-        }
-        if let Some(existing) = super::existing_ryl_native_config(&target, false)? {
-            plan.warnings.push(format!("warning: skipping migration of {}: a ryl-native config already exists at {}", primary.display(), existing.display()));
-            return Ok(plan);
-        }
+    if files.lint.is_empty() && super::is_symlink(&target) {
+        plan.skipped += 1;
+        plan.warnings.push(format!(
+            "warning: skipping migration to {}: refusing to follow a symlink",
+            target.display()
+        ));
+        return Ok(plan);
     }
     let mut candidate =
         select_candidate(&files.format, root.is_file(), selection, directory)?;
     let mut converted = match &mut candidate {
-        Some(candidate) => convert(candidate)?,
+        Some(candidate) => convert(candidate, migrate_directives)?,
         None => None,
     };
     if root.is_file() && converted.is_none() {
-        plan = MigrationPlan::default();
+        plan.entries.clear();
+        plan.cleanup_only_sources.clear();
+    }
+    if candidate.is_some() && converted.is_none() {
+        plan.skipped += 1;
     }
     let imported = converted.is_some();
     let cleanup_safe = converted
@@ -249,6 +269,7 @@ fn build_directory(
             .as_ref()
             .expect("converted settings have a source");
         if let Some(inherited) = inherited_lint(directory) {
+            plan.skipped += 1;
             plan.warnings.push(discovery::warning(&candidate.source, &format!("formatter-only import would shadow inherited configuration {}; source retained; combine lint and formatter settings in the ancestor ryl config manually", escaped(&inherited.display().to_string()))));
             return Ok(plan);
         }
@@ -264,13 +285,15 @@ fn build_directory(
     if let Some(candidate) = &candidate {
         if *cleanup != SourceCleanup::Keep {
             for source in &candidate.sources {
-                if !cleanup_safe || !cleanup_allowed(candidate, source, root) {
-                    warnings.push(format!("source cleanup skipped for {}; shared, unrecognized, inherited-outside-root or unimported configurations are retained", escaped(&source.display().to_string())));
+                if let Some(reason) =
+                    cleanup_reason(candidate, source, root, imported, cleanup_safe)
+                {
+                    warnings.push(format!("source cleanup skipped for {}; {reason}; file left in place; delete it by hand", escaped(&source.display().to_string())));
                 }
             }
         }
         if let Some(entry) = plan.entries.first_mut() {
-            entry.toml = compose(&entry.toml, converted, candidate, &warnings);
+            entry.toml = compose(&entry.toml, converted, candidate, &mut warnings);
             for source in &candidate.sources {
                 if imported
                     && cleanup_safe
@@ -287,6 +310,27 @@ fn build_directory(
                 .map(|warning| discovery::warning(&candidate.source, warning)),
         );
     }
+    finish_directory(plan)
+}
+
+fn finish_directory(mut plan: MigrationPlan) -> Result<MigrationPlan, String> {
+    if let Some(mut entry) = plan.entries.pop() {
+        let skipped = plan.skipped;
+        if super::accept_target(
+            &entry.source,
+            &entry.target,
+            &mut entry.toml,
+            &mut plan,
+            false,
+        )? {
+            plan.entries.push(entry);
+        } else {
+            plan.cleanup_only_sources.clear();
+            if plan.skipped == skipped {
+                plan.warnings.clear();
+            }
+        }
+    }
     Ok(plan)
 }
 
@@ -298,7 +342,11 @@ fn build_lint_entry(
     plan: &mut MigrationPlan,
 ) -> Result<bool, String> {
     let lint = files.first().expect("lint sources were discovered");
-    if !super::build_entry(lint, target.to_path_buf(), plan, false)? {
+    let export = plan.export;
+    plan.export = true;
+    let built = super::build_entry(lint, target.to_path_buf(), plan, false)?;
+    plan.export = export;
+    if !built {
         return Ok(false);
     }
     if root.is_file() {
@@ -329,7 +377,7 @@ fn compose(
     legacy: &str,
     converted: Option<Converted>,
     candidate: &Candidate,
-    warnings: &[String],
+    warnings: &mut Vec<String>,
 ) -> String {
     let mut table = if legacy.is_empty() {
         toml::Table::new()
@@ -337,7 +385,9 @@ fn compose(
         toml::from_str::<toml::Table>(legacy)
             .expect("the legacy converter writes valid TOML")
     };
+    let mut excludes = candidate.excludes.clone();
     if let Some(converted) = converted {
+        excludes.extend(converted.excludes);
         if !legacy.is_empty() {
             let before = YamlLintConfig::from_toml_str(legacy)
                 .expect("the legacy converter writes loadable TOML");
@@ -362,13 +412,26 @@ fn compose(
                 .expect("typed formatter settings serialize"),
         );
     }
+    if !excludes.is_empty() {
+        let mut patterns = table.remove("exclude").map_or_else(Vec::new, |value| {
+            value
+                .as_array()
+                .expect("the legacy converter writes exclusion arrays")
+                .clone()
+        });
+        patterns.extend(excludes.into_iter().map(toml::Value::String));
+        table.insert("exclude".to_owned(), patterns.into());
+    }
     let body = toml::to_string_pretty(&table).expect("a TOML table serializes");
+    let effective = YamlLintConfig::from_toml_str(&body)
+        .expect("imported settings write loadable TOML");
+    warnings.extend(crate::format::conflicts(&effective));
     let mut result = format!(
         "# Migration source: {} ({})\n",
         escaped(&candidate.source.display().to_string()),
         candidate.tool.name()
     );
-    for warning in warnings {
+    for warning in warnings.iter() {
         writeln!(result, "# Migration warning: {}", escaped(warning))
             .expect("writing to a String cannot fail");
     }
@@ -421,6 +484,32 @@ fn pin_lint(
 fn cleanup_allowed(candidate: &Candidate, source: &Path, root: &Path) -> bool {
     discovery::can_cleanup(candidate.tool, source)
         && resolved_source_path(source).starts_with(resolved_source_path(root))
+}
+
+fn cleanup_reason(
+    candidate: &Candidate,
+    source: &Path,
+    root: &Path,
+    imported: bool,
+    cleanup_safe: bool,
+) -> Option<&'static str> {
+    if !imported {
+        Some("configuration was not imported")
+    } else if !resolved_source_path(source).starts_with(resolved_source_path(root)) {
+        Some("configuration is inherited from outside the migration root")
+    } else if matches!(candidate.tool, Formatter::Prettier | Formatter::Dprint)
+        || source
+            .file_name()
+            .is_some_and(|name| name == "pyproject.toml")
+    {
+        Some("configuration is shared with other tools or file types")
+    } else if !cleanup_safe {
+        Some("configuration contains unrecognized settings")
+    } else if !discovery::can_cleanup(candidate.tool, source) {
+        Some("source filename is unrecognized for cleanup")
+    } else {
+        None
+    }
 }
 
 fn parent(path: &Path) -> PathBuf {
@@ -493,7 +582,7 @@ pub(super) fn source_context(
     if applicable.len() > 1 {
         let names = applicable
             .iter()
-            .map(|candidate| candidate.tool.name())
+            .map(|candidate| candidate.tool.flag_value())
             .collect::<Vec<_>>()
             .join(", ");
         return Err(format!(
@@ -503,7 +592,7 @@ pub(super) fn source_context(
     }
     for candidate in &mut applicable {
         let original = candidate.values.clone();
-        convert(candidate)?;
+        convert(candidate, true)?;
         candidate.values = original;
     }
     Ok(applicable.pop().map(|candidate| SourceContext {

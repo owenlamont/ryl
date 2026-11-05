@@ -411,20 +411,6 @@ fn sequence_plain_scalar_creates_other_context() {
 }
 
 #[test]
-fn value_without_key_cannot_infer_indentation() {
-    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
-    let hits = indentation::check(": value\n", &cfg);
-    assert_eq!(
-        hits[0],
-        Violation {
-            line: 1,
-            column: 1,
-            message: "cannot infer indentation: unexpected token".to_string(),
-        }
-    );
-}
-
-#[test]
 fn consistent_spacing_records_initial_delta() {
     let cfg = config(
         SpacesSetting::Consistent,
@@ -639,4 +625,72 @@ fn a_body_after_an_anchor_and_a_tag_indents_from_its_key() {
             message: "wrong indentation: expected 4 but found 5".to_string(),
         }]
     );
+}
+
+#[test]
+fn omitted_implicit_keys_accept_scalar_collection_and_property_values() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    for input in [
+        ": 1\n",
+        ":\n: 1\n",
+        "a: 1\n: 2\n",
+        "?'a: b'\n: [a, b]\n",
+        "root:\n  : 1\n",
+        "- : 1\n",
+        "{: 1, a: 2}\n",
+        "[: 1]\n",
+        "[:]\n",
+        "[a: !tag, : 1]\n",
+        "{a: 1, : 2, :}\n",
+        "root:\n  :\n    child: value\n  : [a, b]\n",
+        "a: !tag\n: 1\n",
+        ": !tag\n: 1\n",
+        "a: &empty !!str\n: [a, b]\n",
+    ] {
+        assert_eq!(indentation::check(input, &cfg), [], "{input:?}");
+    }
+}
+
+#[test]
+fn omitted_implicit_keys_keep_normal_and_explicit_key_separators() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    for input in [
+        "a: 1\nb: 2\n",
+        "?\n: 1\n",
+        "? !tag\n: 1\n",
+        "? &key\n: !tag\n: 1\n",
+        "? [a, b]\n: 1\n: 2\n",
+        "? 'a: b'\n: [a, b]\n: 1\n",
+        "{a: !tag, : 1}\n",
+        "a: &value 1\n*value: 2\n: 3\n",
+    ] {
+        assert_eq!(indentation::check(input, &cfg), [], "{input:?}");
+    }
+}
+
+#[test]
+fn malformed_mapping_tokens_report_violations_without_panicking() {
+    let cfg = config(SpacesSetting::Fixed(2), IndentSequencesSetting::True, false);
+    let input = "a:\n - b\n : c\n";
+    assert!(indentation::check(input, &cfg).iter().any(|problem| {
+        problem.message == "cannot infer indentation: unexpected token"
+    }));
+}
+
+#[test]
+fn anchored_omitted_key_values_obey_the_sequence_indent_setting() {
+    for setting in [IndentSequencesSetting::False, IndentSequencesSetting::True] {
+        let cfg = config(SpacesSetting::Fixed(2), setting, false);
+        let indent = if setting == IndentSequencesSetting::True {
+            "  "
+        } else {
+            ""
+        };
+        let input =
+            format!(": &a\n{indent}- x\n: &b\n{indent}- y\n: &c\n{indent}- z\n");
+        assert_eq!(indentation::check(&input, &cfg), []);
+        let output = indentation::reindent(&input, &cfg);
+        assert_eq!(output.refused, []);
+        assert_eq!(output.text, input);
+    }
 }

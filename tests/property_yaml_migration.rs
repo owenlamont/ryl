@@ -16,10 +16,11 @@
 //! declined too when a respelling is one `PyYAML` reads as a string (`0o777`).
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::config::YamlLintConfig;
 use ryl::rules::yaml_directive;
 use std::sync::LazyLock;
+
+use crate::property::underscored;
 
 #[derive(Debug, Clone)]
 enum Outcome {
@@ -52,19 +53,6 @@ enum Directive {
     Forbidden { target_1_1: bool },
 }
 
-fn underscored(digits: String) -> impl Strategy<Value = String> {
-    prop::collection::vec(prop::bool::weighted(0.2), digits.len()).prop_map(
-        move |marks| {
-            digits
-                .chars()
-                .zip(marks)
-                .flat_map(|(digit, mark)| [Some(digit), mark.then_some('_')])
-                .flatten()
-                .collect()
-        },
-    )
-}
-
 fn arb_bool() -> impl Strategy<Value = Scalar> {
     prop::sample::select(&["yes", "No", "ON", "off", "True", "false", "Yes", "OFF"][..])
         .prop_map(|word| {
@@ -91,7 +79,7 @@ fn arb_int() -> impl Strategy<Value = Scalar> {
                 16 => ("0x", format!("{n:X}")),
                 _ => ("", n.to_string()),
             };
-            underscored(digits).prop_map(move |body| {
+            underscored(digits, 0.2).prop_map(move |body| {
                 let text = format!("{sign}{prefix}{body}");
                 let value = if sign == "-" {
                     format!("-{n}")
@@ -157,7 +145,7 @@ fn arb_float() -> impl Strategy<Value = Scalar> {
         prop::option::of("[eE][-+][0-9]"),
     )
         .prop_flat_map(|(whole, fraction, exponent)| {
-            (underscored(whole), underscored(fraction)).prop_map(
+            (underscored(whole, 0.2), underscored(fraction, 0.2)).prop_map(
                 move |(whole, fraction)| {
                     let exponent = exponent.clone().unwrap_or_default();
                     let text = format!("{whole}.{fraction}{exponent}");
@@ -210,6 +198,7 @@ enum Place {
     Value,
     Key,
     Flow,
+    NestedAlias,
 }
 
 #[derive(Debug, Clone)]
@@ -248,6 +237,9 @@ impl Document {
                 Place::Value => format!("k{index}: {text}\n"),
                 Place::Key => format!("{text}: k{index}\n"),
                 Place::Flow => format!("k{index}: [{text}, x]\n"),
+                Place::NestedAlias => format!(
+                    "k{index}:\n  - &a{index} {text}\n  - nested: [*a{index}]\n"
+                ),
             });
         }
         out
@@ -255,7 +247,12 @@ impl Document {
 }
 
 fn arb_document() -> impl Strategy<Value = Document> {
-    let place = prop_oneof![Just(Place::Value), Just(Place::Key), Just(Place::Flow)];
+    let place = prop_oneof![
+        Just(Place::Value),
+        Just(Place::Key),
+        Just(Place::Flow),
+        Just(Place::NestedAlias)
+    ];
     (
         prop::bool::weighted(0.8),
         prop::collection::vec((arb_scalar(), place), 1..=5),
@@ -280,9 +277,7 @@ fn reports(text: &str, cfg: yaml_directive::Config, message: &str) -> usize {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_yaml_migration.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_yaml_migration"),
         ..ProptestConfig::default()
     })]
 

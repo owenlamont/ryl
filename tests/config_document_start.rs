@@ -27,7 +27,7 @@ fn invalid_present_value_is_rejected() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  document-start:\n    present: 1\n")
             .expect_err("invalid bool should fail");
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.document-start"), "{err}");
 }
 
@@ -36,7 +36,7 @@ fn unknown_option_is_rejected() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  document-start:\n    extra: true\n")
             .expect_err("unknown option should fail");
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.document-start"), "{err}");
 }
 

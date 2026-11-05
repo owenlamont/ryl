@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use ryl::config::YamlLintConfig;
 
 #[test]
@@ -5,7 +7,7 @@ fn error_when_allowed_values_not_sequence() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  truthy:\n    allowed-values: foo\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.truthy"), "{err}");
 }
 
@@ -14,7 +16,7 @@ fn error_when_allowed_values_has_invalid_entry() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  truthy:\n    allowed-values: [foo]\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.truthy"), "{err}");
 }
 
@@ -23,7 +25,7 @@ fn error_when_allowed_values_contains_non_string() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  truthy:\n    allowed-values: [1]\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.truthy"), "{err}");
 }
 
@@ -31,7 +33,7 @@ fn error_when_allowed_values_contains_non_string() {
 fn error_when_check_keys_not_bool() {
     let err = YamlLintConfig::from_yaml_str("rules:\n  truthy:\n    check-keys: 1\n")
         .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.truthy"), "{err}");
 }
 
@@ -39,7 +41,7 @@ fn error_when_check_keys_not_bool() {
 fn error_on_unknown_truthy_option() {
     let err = YamlLintConfig::from_yaml_str("rules:\n  truthy:\n    unknown: true\n")
         .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.truthy"), "{err}");
 }
 
@@ -61,4 +63,17 @@ fn rule_option_returns_none_for_scalar_rule_value() {
 fn rule_option_returns_none_when_rule_missing() {
     let cfg = YamlLintConfig::from_yaml_str("rules: {}\n").expect("config parses");
     assert!(cfg.rule_option("truthy", "allowed-values").is_none());
+}
+
+#[test]
+fn mutating_a_linted_config_rederives_its_rule_options() {
+    let hides_unsafe_fix = |cfg: &YamlLintConfig| {
+        ryl::lint::lint_str("k: yes\n", Path::new("a.yaml"), cfg, Path::new("."))
+            .iter()
+            .any(|problem| problem.rule == Some("truthy") && problem.hidden_unsafe_fix)
+    };
+    let mut cfg = YamlLintConfig::from_yaml_str("rules:\n  truthy: enable\n").unwrap();
+    assert!(hides_unsafe_fix(&cfg));
+    cfg.set_unsafe_fixes(true);
+    assert!(!hides_unsafe_fix(&cfg));
 }

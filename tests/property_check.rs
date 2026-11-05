@@ -3,7 +3,6 @@ use crate::property::{check_harness as harness, check_strategy as strategy};
 use std::path::Path;
 
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
 use ryl::lint::lint_str;
 
 use harness::{
@@ -72,9 +71,7 @@ fn shared_native_enable_replays_the_rule_specific_generator_witness() {
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 512,
-        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
-            "tests/proptest-regressions/property_check.txt",
-        ))),
+        failure_persistence: crate::property::failure_persistence!("property_check"),
         ..ProptestConfig::default()
     })]
 

@@ -44,8 +44,121 @@ fn pyproject_syntax_error_counts_columns_in_chars() {
 fn yaml_config_type_error_keeps_key_path_on_one_line() {
     assert_eq!(
         config_error("bad.yaml", "rules:\n  indentation:\n    spaces: x\n"),
-        "failed to parse config data: data did not match any variant of untagged \
-         enum RuleEntry in `rules.indentation`"
+        "invalid config: invalid value: string \"x\", expected an integer or \"consistent\" in `rules.indentation.spaces`"
+    );
+}
+
+#[test]
+fn option_unions_name_invalid_values_and_expected_types() {
+    for (rule, key, expected) in [
+        ("indentation", "spaces", "an integer or \"consistent\""),
+        (
+            "indentation",
+            "indent-sequences",
+            "a boolean, \"whatever\", or \"consistent\"",
+        ),
+        ("braces", "forbid", "a boolean or \"non-empty\""),
+        (
+            "quoted-strings",
+            "required",
+            "a boolean or \"only-when-needed\"",
+        ),
+    ] {
+        assert_eq!(
+            config_error(
+                "bad.yaml",
+                &format!("rules: {{{rule}: {{{key}: maybe}}}}\n")
+            ),
+            format!(
+                "invalid config: invalid value: string \"maybe\", expected {expected} in `rules.{rule}.{key}`"
+            )
+        );
+        assert_eq!(
+            config_error(
+                "bad.toml",
+                &format!("[lint.rules.{rule}]\n{key} = \"maybe\"\n")
+            ),
+            format!(
+                "invalid config: TOML parse error at line 2, column {}: invalid value: string \"maybe\", expected {expected} in `lint.rules.{rule}.{key}`",
+                key.len() + 4
+            )
+        );
+    }
+    for (name, config, prefix) in [
+        ("bad.yaml", "ignore: 42\n", "failed to parse config data: "),
+        (
+            "bad.toml",
+            "exclude = 42\n",
+            "failed to parse config data: TOML parse error at line 1, column 11: ",
+        ),
+    ] {
+        let key = if name.ends_with("yaml") {
+            "ignore"
+        } else {
+            "exclude"
+        };
+        assert_eq!(
+            config_error(name, config),
+            format!(
+                "{prefix}invalid value: integer `42`, expected a string or a list of strings in `{key}`"
+            )
+        );
+    }
+}
+
+#[test]
+fn option_union_errors_describe_each_invalid_value_shape() {
+    for (value, description) in [
+        ("true", "boolean `true`"),
+        ("1.5", "floating point `1.5`"),
+        ("[]", "sequence"),
+        ("{}", "map"),
+    ] {
+        assert_eq!(
+            config_error(
+                "bad.toml",
+                &format!("[lint.rules.indentation]\nspaces = {value}\n")
+            ),
+            format!(
+                "invalid config: TOML parse error at line 2, column 10: invalid value: {description}, expected an integer or \"consistent\" in `lint.rules.indentation.spaces`"
+            )
+        );
+    }
+}
+
+#[test]
+fn yaml_unknown_rule_option_names_rule_and_option() {
+    assert_eq!(
+        config_error("bad.yaml", "rules: {truthy: {future-option: true}}\n"),
+        "invalid config: unknown field `future-option`, expected `allowed-values` \
+         or `check-keys` in `rules.truthy`"
+    );
+}
+
+#[test]
+fn toml_unknown_rule_option_names_rule_and_option() {
+    assert_eq!(
+        config_error("bad.toml", "[lint.rules.truthy]\nfuture-option = true\n"),
+        "invalid config: TOML parse error at line 2, column 1: unknown field \
+         `future-option`, expected `allowed-values` or `check-keys` in `lint.rules.truthy`"
+    );
+}
+
+#[test]
+fn yaml_invalid_rule_option_value_names_option_and_expected_type() {
+    assert_eq!(
+        config_error("bad.yaml", "rules: {truthy: {check-keys: maybe}}\n"),
+        "invalid config: invalid type: string \"maybe\", expected a boolean \
+         in `rules.truthy.check-keys`"
+    );
+}
+
+#[test]
+fn toml_invalid_rule_option_value_names_option_and_expected_type() {
+    assert_eq!(
+        config_error("bad.toml", "[lint.rules.truthy]\ncheck-keys = \"maybe\"\n"),
+        "invalid config: TOML parse error at line 2, column 14: invalid type: \
+         string \"maybe\", expected a boolean in `lint.rules.truthy.check-keys`"
     );
 }
 
@@ -89,4 +202,55 @@ fn pattern_file_errors_name_the_selected_toml_key() {
         stderr.contains("invalid config: exclude-from-file pattern"),
         "{stderr}"
     );
+}
+
+#[test]
+fn option_unions_propagate_numbers_beyond_the_json_range() {
+    for (table, key) in [
+        ("", "exclude"),
+        ("[lint.rules.braces]\n", "forbid"),
+        ("[lint.rules.indentation]\n", "spaces"),
+        ("[lint.rules.indentation]\n", "indent-sequences"),
+        ("[lint.rules.quoted-strings]\n", "required"),
+    ] {
+        let error = config_error(
+            "bad.toml",
+            &format!("{table}{key} = 18446744073709551616\n"),
+        );
+        assert!(error.contains("JSON number out of range"), "{error}");
+        assert!(error.ends_with(&format!("{key}`")), "{error}");
+    }
+}
+
+#[test]
+fn nonfinite_option_values_are_reported_as_unit_values() {
+    assert_eq!(
+        config_error("bad.toml", "exclude = nan\n"),
+        "failed to parse config data: TOML parse error at line 1, column 11: invalid value: unit value, expected a string or a list of strings in `exclude`"
+    );
+}
+
+#[test]
+fn unsigned_option_values_keep_their_full_integer_in_the_error() {
+    assert_eq!(
+        config_error("bad.toml", "exclude = 9223372036854775808\n"),
+        "failed to parse config data: TOML parse error at line 1, column 11: invalid value: integer `9223372036854775808`, expected a string or a list of strings in `exclude`"
+    );
+}
+
+#[test]
+fn line_length_common_options_reject_invalid_values() {
+    for (key, expected) in [
+        ("future-option", "unknown field `future-option`"),
+        ("level", "wanted string or table"),
+        ("ignore", "expected a string or a list of strings"),
+        ("ignore-from-file", "expected a string or a list of strings"),
+    ] {
+        let error = config_error(
+            "bad.toml",
+            &format!("[lint.rules.line-length]\n{key} = 1\n"),
+        );
+        assert!(error.contains(expected), "{key}: {error}");
+        assert!(error.contains("lint.rules.line-length"), "{error}");
+    }
 }

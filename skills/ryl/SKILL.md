@@ -2,7 +2,7 @@
 name: ryl
 description: >-
   Fast YAML linter and formatter. Use when checking or formatting YAML, setting
-  up YAML tooling, or migrating from yamllint. Covers rule selection, exit codes,
+  up YAML tooling, or migrating from other YAML tools. Covers rule selection, exit codes,
   safe fixes versus formatting, TOML configuration, output formats, directives,
   and YAML embedded in Markdown.
 license: MIT
@@ -16,7 +16,7 @@ codes, machine-readable output, in-place edits, and stdin support.
 Install: `pip install ryl`, `cargo install ryl`, or `npm i -g @owenlamont/ryl`.
 Pre-commit via `owenlamont/ryl-pre-commit`: `ryl-check` and `ryl-format`, plus
 `ryl-check-markdown` and `ryl-format-markdown` for embedded YAML. GitHub Actions:
-`owenlamont/ryl-action@v0.28.0` (default `args: check .`).
+`owenlamont/ryl-action@v0.29.0` (default `args: check .`).
 
 ## Critical: ryl has no default-on rules
 
@@ -63,12 +63,13 @@ Exit codes from a plain lint run (`--fix`/`--diff` differ, see below):
 - `0`: no errors (warnings still exit `0` unless strict mode is enabled).
 - `1`: error-level findings, invalid YAML, or an unreadable path.
 - `2`: usage error (no inputs, bad flags), no rules enabled by config or `--enable`,
-  strict mode with only warnings, or a named Jinja template (first line `#!jinja|yaml`
+  strict mode with only lint warnings, or a named Jinja template (first line `#!jinja|yaml`
   or `#!yaml_jinja`), which a directory scan skips instead.
 
-Enable strict mode with `--strict` or TOML `[lint] strict = true` to make warnings
-fail (exit `2`). `--no-strict` overrides configuration; `--no-warnings` suppresses
-warnings and their failing status.
+Enable strict mode with `--strict` or TOML `[lint] strict = true` to make lint
+warnings fail (exit `2`). `--no-strict` overrides configuration; `--no-warnings` suppresses
+lint warnings, configuration warnings and deprecation notices. Deprecation notices
+alone do not fail strict mode.
 
 ## Fix or preview
 
@@ -87,6 +88,9 @@ The formatter also has a check mode that reports pending changes without a patch
 It reads `[format]` in TOML and handles Markdown with `--markdown`.
 Formatter indentation defaults to 2; set top-level `indent-width` to keep another
 width. Lint indentation still defaults to `consistent`.
+Under `[format]`, `keep-quotes = true` retains optional scalar quotes;
+`prose-wrap = "preserve"`, `"always"` or `"never"` controls prose reflow.
+Do not combine explicit `prose-wrap` and `fold-long-lines` settings.
 
 ## Machine-readable output
 
@@ -114,7 +118,13 @@ the check-mode command.
   a migration warning. `YAMLLINT_CONFIG_FILE` takes a YAML config only: a
   `.toml` target errors (use `-c`/`-d` or project discovery for ryl TOML).
 
-Migrate a yamllint setup with `ryl --migrate-configs` (add `--migrate-write` to apply).
+Migrate yamllint or a static formatter setup with `ryl --migrate-configs`;
+select `--migrate-from prettier`, `yamlfmt`, `dprint` or `yamlfix` when needed.
+Representable source defaults are imported too; inspect warnings for parity gaps.
+Add `--migrate-directives` separately to convert source suppression comments,
+including when native config already exists. Preview first; `--migrate-write`
+applies changes. Unproven source scopes are retained with warnings.
+See [formatter migration](https://ryl-docs.pages.dev/getting-started/migrating-from-formatters/).
 
 ## Stdin, directives, Markdown
 
@@ -122,6 +132,10 @@ Migrate a yamllint setup with `ryl --migrate-configs` (add `--migrate-write` to 
   and filtering behave as if the path were on disk.
 - Suppress rules inline with `# ryl disable`/`enable`/`disable-line`, or a first-line
   `# ryl disable-file`; a `# ryl` directive may share a line with other `#` comments.
+- Formatter-only own-line `# ryl format-ignore` protects the following YAML node;
+  `# ryl format-disable` / `# ryl format-enable` protect a region. Lint checks and
+  lint fixes still apply. Legacy `yamllint` directives warn but remain supported
+  throughout 0.29.x; `--migrate-directives` converts active aliases.
 - `--markdown` lints YAML front matter and fenced `yaml`/`yml` blocks in Markdown.
 
 ## Full documentation

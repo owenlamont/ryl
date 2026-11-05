@@ -1,8 +1,8 @@
 use serde_json::{Map, Value};
 
 use crate::config_schema::{
-    CollectionStyleTarget, ExpandTarget, FormatTable, MarkerTarget,
-    PropertyOrderTarget, QuoteStyleTarget,
+    CollectionStyleTarget, DocumentStartTarget, ExpandTarget, FormatTable,
+    MarkerTarget, PropertyOrderTarget, QuoteStyleTarget,
 };
 
 use super::options::{Converted, Options};
@@ -23,13 +23,6 @@ pub(super) fn convert(values: Map<String, Value>) -> Result<Converted, String> {
     }
     let (quote_style, preserve_quotes) = quote_policy(&mut options)?;
     let start = options.boolean("explicit_start", true)?;
-    if !start {
-        options.warn(
-            "explicit_start",
-            &Value::Bool(false),
-            "document-start removal is not available; existing markers are preserved",
-        );
-    }
     let spacing_value = options.integer("comments_min_spaces_from_content", 2)?;
     let comment_spacing =
         options.spacing("comments_min_spaces_from_content", spacing_value, 2);
@@ -88,9 +81,9 @@ pub(super) fn convert(values: Map<String, Value>) -> Result<Converted, String> {
         quote_style,
         keep_quotes: preserve_quotes,
         document_start: if start {
-            MarkerTarget::Add
+            DocumentStartTarget::Add
         } else {
-            MarkerTarget::Preserve
+            DocumentStartTarget::Remove
         },
         fold_long_lines: Some(true),
         comment_spacing,

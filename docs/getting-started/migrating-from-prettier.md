@@ -1,15 +1,30 @@
 # Migrating from Prettier
 
+Import the YAML settings first (a successful import exits `0`; inspect warnings):
+
+```bash
+ryl --migrate-configs --migrate-from prettier --migrate-stdout
+ryl --migrate-configs --migrate-from prettier --migrate-write
+```
+
+Follow [After migrating](migrating-from-formatters.md#after-migrating) to verify
+formatting, convert comments and update CI, or use the manual profile below.
+
 For YAML files, run `ryl format .` to write changes and
 `ryl format --check .` in CI. Keep Prettier for other file types. The settings below follow
 Prettier 3.9.10's YAML output on the same inputs used with `ryl format -`.
 Prettier's [general options](https://prettier.io/docs/options) can alter the
 starting profile.
 
+The [config importer](migrating-from-formatters.md) applies supported YAML-only
+overrides in source order and imports `.prettierignore`, including negations.
+Unsupported override scopes still warn; inspect the generated configuration before
+replacing Prettier.
+
 ryl defaults to indent width 2. Set top-level `indent-width` explicitly to keep
 another width.
 
-## Example
+## Manual configuration
 
 ```toml
 # .ryl.toml

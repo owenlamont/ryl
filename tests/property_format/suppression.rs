@@ -18,8 +18,9 @@ pub fn arb_document() -> impl Strategy<Value = Document> {
         any::<bool>(),
         0usize..3,
         prop::sample::select(vec!["", " &previous", " !!str", " &previous !!str", " !!str &previous"]),
+        any::<bool>(),
     )
-        .prop_map(|(word, shape, region, crlf, indent, nested, separated, extra_shape, properties)| {
+        .prop_map(|(word, shape, region, crlf, indent, nested, separated, extra_shape, properties, compact)| {
             let body = match shape {
                 0 => format!("held:    ['{word}', 1,2]\n"),
                 1 => format!(
@@ -34,10 +35,11 @@ pub fn arb_document() -> impl Strategy<Value = Document> {
                 7 => format!("held: &kept !!str 'alpha beta\n    gamma {word}\n    delta'\n"),
                 _ => format!("held: &kept !!str \"alpha beta\n    gamma {word}\n    delta\"\n"),
             };
-            let (open, close) = if region {
-                ("# ryl format-disable\n", "# ryl format-enable\n")
-            } else {
-                ("# ryl format-ignore\n", "")
+            let (open, close) = match (region, compact) {
+                (true, false) => ("# ryl format-disable\n", "# ryl format-enable\n"),
+                (true, true) => ("#ryl format-disable\n", "#ryl format-enable\n"),
+                (false, false) => ("# ryl format-ignore\n", ""),
+                (false, true) => ("#ryl format-ignore\n", ""),
             };
             let open = format!("{open}{}", if separated { "\n" } else { "" });
             let (content, body) = if nested == 7 {

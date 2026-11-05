@@ -137,6 +137,11 @@ impl Block<'_> {
     pub(super) fn compact_indent(&self) -> usize {
         let line = self.source.line_content(self.header.line - 1);
         let mut rest = line.trim_start_matches(' ');
+        if let Some(after) = rest.strip_prefix(':')
+            && after.starts_with(' ')
+        {
+            rest = after.trim_start_matches(' ');
+        }
         while let Some(after) = rest
             .strip_prefix('-')
             .filter(|after| after.starts_with(' '))

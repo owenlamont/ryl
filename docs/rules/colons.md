@@ -84,9 +84,17 @@ collection continuing below has its spaces set that collection's indentation, so
 `ryl check --fix` leaves it alone and `ryl format` re-indents the collection with it:
 
 ```yaml
+# before
 ? key
-:   - a      # ryl format: `: - a`, with `- b` under `- a`
+:   - a
     - b
+```
+
+```yaml
+# after, with `ryl format`
+? key
+: - a
+  - b
 ```
 
 ## Related rules

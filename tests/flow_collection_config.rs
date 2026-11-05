@@ -41,10 +41,7 @@ fn run_config_suite<C>(suite: ConfigSuite<C>) {
         suite.rule_name
     ))
     .expect_err("config should fail");
-    assert!(
-        err.contains("failed to parse config data:"),
-        "unexpected error: {err}"
-    );
+    assert!(err.contains("invalid config:"), "unexpected error: {err}");
     assert!(
         err.contains(&format!("rules.{}", suite.rule_name)),
         "unexpected error: {err}"
@@ -61,10 +58,7 @@ fn run_config_suite<C>(suite: ConfigSuite<C>) {
             suite.rule_name, option
         ))
         .expect_err("config should fail");
-        assert!(
-            err.contains("failed to parse config data:"),
-            "unexpected error: {err}"
-        );
+        assert!(err.contains("invalid config:"), "unexpected error: {err}");
         assert!(
             err.contains(&format!("rules.{}", suite.rule_name)),
             "unexpected error: {err}"
@@ -76,10 +70,7 @@ fn run_config_suite<C>(suite: ConfigSuite<C>) {
         suite.rule_name
     ))
     .expect_err("config should fail");
-    assert!(
-        err.contains("failed to parse config data:"),
-        "unexpected error: {err}"
-    );
+    assert!(err.contains("invalid config:"), "unexpected error: {err}");
     assert!(
         err.contains(&format!("rules.{}", suite.rule_name)),
         "unexpected error: {err}"

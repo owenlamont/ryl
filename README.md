@@ -64,14 +64,23 @@ and Homebrew builds with its own Rust where it has no prebuilt bottle.
 In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-action):
 
 ```yaml
-- uses: owenlamont/ryl-action@v0.28.0
+- uses: owenlamont/ryl-action@v0.29.0
 ```
 
 ## Status and scope
 
+- Import static Prettier, yamlfmt, dprint pretty_yaml or yamlfix settings with
+  `ryl --migrate-configs --migrate-from prettier`. Add `--migrate-write` to apply;
+  opt into suppression-comment conversion separately with `--migrate-directives`.
+  See [formatter migration](docs/getting-started/migrating-from-formatters.md).
 - `ryl format` formats YAML in place without enabling lint rules. Its `--check`
   and `--diff` modes preview changes without writing; `[format]` in TOML controls
   the style. It also formats embedded YAML in Markdown with `--markdown`.
+  Retain optional quotes with `keep-quotes = true`, or configure prose with
+  `prose-wrap = "preserve"`, `"always"` or `"never"`.
+- [Protect formatting](docs/directives.md#formatter-only-suppression) with own-line
+  `# ryl format-ignore` for the next node, or `format-disable` / `format-enable`
+  for a region. Lint checks and `ryl check --fix` remain active.
 - ryl includes 29 rules, including `tags`, `merge-keys`,
   `block-scalar-chomping`, `unicode-line-breaks`, `yaml-directive` and
   `schema-dependent-values`. The rule reference
@@ -83,7 +92,9 @@ In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-a
   `truthy` (case only, e.g. `True` to `true`), and `yaml-directive` (under
   `target-version = "1.2"`). The set of rules that may
   apply fixes is configurable via the TOML `lint.fixable`/`lint.unfixable`
-  keys.
+  keys. Add `--unsafe-fixes` for opt-in fixes to ambiguous scalar spellings;
+  top-level `source-version` selects the interpretation preserved during conversion.
+  See [YAML version compatibility](docs/yaml-version.md).
 - `--diff` previews those safe fixes as a unified diff on stdout instead
   of writing them (modelled on `ruff check --diff`); it is mutually
   exclusive with `--fix`, works with stdin, and exits `1` iff some file
@@ -107,7 +118,7 @@ In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-a
 - `--list-files` prints the files ryl would lint (after ignores and
   config discovery) and exits, without running rules. `--no-warnings`
   suppresses warning-level diagnostics in the output. `--strict` turns a
-  warning-only run into exit code `2`; TOML `[lint] strict = true` enables the
+  run with only lint warnings into exit code `2`; TOML `[lint] strict = true` enables the
   same behavior for a project, and `--no-strict` overrides the config.
   `--enable <RULES>` runs exactly the
   listed rules (comma-separated IDs, or `ALL`) in place of the config's
@@ -147,35 +158,34 @@ are logarithmic.
 
 ![Lint and max-common-work format: wall time and peak memory](https://raw.githubusercontent.com/owenlamont/ryl/main/img/benchmark.svg)
 
-The format panel uses **max common work**: every formatter configured for output
-as close as its options allow, plus the two rewrites all four offer, single quotes
-and folding long lines at 80 columns. It is the most work each tool can be asked to
-do in common. Median of 10 runs; peak RSS is the median of 3 more:
+The format panel uses **max common work**: the fixed comparison settings below,
+plus single quotes and folding long lines at 80 columns. The release performance
+gate uses the same common-work settings for the candidate and previous release.
+Median of 10 runs; peak RSS is the median of 3 more:
 
 | Input | ryl | yamlfmt | dprint + pretty_yaml | Prettier |
 | --- | ---: | ---: | ---: | ---: |
-| 1 KiB file | 2.2 ms, 8.4 MiB | 2.5 ms, 5.6 MiB | 6.2 ms, 16 MiB | 104 ms, 64 MiB |
-| 16 KiB file | 3.3 ms, 8.9 MiB | 3.7 ms, 6.5 MiB | 9.1 ms, 17 MiB | 148 ms, 79 MiB |
-| 0.9 MiB file | 64 ms, 24 MiB | 127 ms, 71 MiB | 502 ms, 38 MiB | 1.20 s, 366 MiB |
-| 9.4 MiB file | 0.80 s, 170 MiB | 1.18 s, 649 MiB | 4.74 s, 241 MiB | 9.43 s, 1.8 GiB |
-| 1,000 files | 25 ms, 16 MiB | 231 ms, 18 MiB | 120 ms, 23 MiB | 3.37 s, 243 MiB |
-| 10,000 files | 207 ms, 26 MiB | 2.06 s, 95 MiB | 1.19 s, 45 MiB | 28.5 s, 282 MiB |
+| 1 KiB file | 2.1 ms, 9.0 MiB | 2.6 ms, 5.1 MiB | 6.0 ms, 17 MiB | 104 ms, 64 MiB |
+| 16 KiB file | 3.1 ms, 9.5 MiB | 3.8 ms, 6.1 MiB | 9.0 ms, 17 MiB | 146 ms, 80 MiB |
+| 0.9 MiB file | 65 ms, 24 MiB | 127 ms, 72 MiB | 0.51 s, 38 MiB | 1.20 s, 368 MiB |
+| 9.4 MiB file | 0.82 s, 170 MiB | 1.22 s, 652 MiB | 4.87 s, 241 MiB | 9.61 s, 1.8 GiB |
+| 1,000 files | 25 ms, 16 MiB | 232 ms, 17 MiB | 125 ms, 23 MiB | 3.48 s, 248 MiB |
+| 10,000 files | 222 ms, 27 MiB | 2.09 s, 94 MiB | 1.26 s, 45 MiB | 29.4 s, 290 MiB |
 
 | Lint, `extends: default` | 1 KiB | 9.4 MiB | 1,000 files | 10,000 files |
 | --- | ---: | ---: | ---: | ---: |
-| ryl | 2.2 ms | 0.50 s | 19 ms | 155 ms |
-| yamllint | 69 ms | 29.2 s | 5.09 s | 49.3 s |
+| ryl | 2.2 ms | 0.51 s | 19 ms | 162 ms |
+| yamllint | 68 ms | 30.0 s | 5.25 s | 50.5 s |
 
 ryl formats faster than the other three at every size and file count, under all
-three profiles. yamlfmt uses less memory up to 16 KiB and up to 10 files (5.6–6.9 MiB
-against ryl's 8.4–9.2 MiB).
+three profiles. yamlfmt uses less memory up to 16 KiB and up to 100 files (5.1–10.6 MiB
+against ryl's 9.0–11.5 MiB).
 
 Profiles and what they cannot equalise:
 
 - **Max common work** (charted): aligned configs plus single quotes and folding at
   80 columns; 89–95% identical lines, as each tool folds differently.
-- **Aligned configs**: each formatter set up to produce output as close
-  to the others' as its options allow. ryl `quote-style = "double"`,
+- **Aligned configs**: fixed comparison settings. ryl `quote-style = "double"`,
   `max-blank-lines = 1`, `comment-spacing = 1`, `comment-starting-space =
   "preserve"`, `brace-spacing = true`; yamlfmt `retain_line_breaks_single`, double quotes,
   `pad_line_comments: 1`, `trim_trailing_whitespace`; dprint and Prettier defaults.

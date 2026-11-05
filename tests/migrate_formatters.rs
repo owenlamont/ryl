@@ -3,8 +3,8 @@ use std::path::Path;
 
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{
-    ExpandTarget, LineEndingTarget, MarkerTarget, PropertyOrderTarget, ProseWrap,
-    QuoteStyleTarget,
+    DocumentStartTarget, ExpandTarget, LineEndingTarget, MarkerTarget,
+    PropertyOrderTarget, ProseWrap, QuoteStyleTarget,
 };
 use ryl::migrate::{
     MigrateOptions, MigrateResult, MigrationSource, OutputMode, SourceCleanup,
@@ -15,6 +15,122 @@ use tempfile::tempdir;
 use crate::common::cli::{run, ryl};
 
 const DPRINT: &str = r#"{"plugins":["https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm"],"yaml":{}}"#;
+
+#[test]
+fn prettier_warning_names_directive_migration_command() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".prettierrc"), "{}").unwrap();
+    let (code, _, stderr) = run(ryl(dir.path())
+        .current_dir(dir.path())
+        .args(["--migrate-configs"]));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        stderr
+            .lines()
+            .find_map(|line| line.split_once("Prettier ignore").map(|(_, rest)| rest)),
+        Some(
+            " comments are not rewritten by config migration; convert them with ryl --migrate-directives --migrate-from prettier before replacing the formatter"
+        )
+    );
+}
+
+#[test]
+fn formatter_conflict_lists_accepted_source_flags() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".yamlfmt"), "{}").unwrap();
+    fs::write(dir.path().join("dprint.json"), DPRINT).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path())
+        .current_dir(dir.path())
+        .args(["--migrate-configs"]));
+    assert_eq!(code, 2, "{stderr}");
+    assert_eq!(
+        stderr.trim(),
+        "multiple YAML formatter configurations apply in . (yamlfmt, dprint); select one with --migrate-from"
+    );
+}
+
+#[test]
+fn cleanup_warning_names_source_retention_reason() {
+    for (name, body, tool, reason) in [
+        (
+            ".prettierrc",
+            "{}",
+            "prettier",
+            "configuration is shared with other tools or file types",
+        ),
+        (
+            "yamlfix.toml",
+            "unknown = true\n",
+            "yamlfix",
+            "configuration contains unrecognized settings",
+        ),
+        (
+            "custom.toml",
+            "line_length = 90\n",
+            "yamlfix",
+            "source filename is unrecognized for cleanup",
+        ),
+        (
+            ".prettierrc.js",
+            "export default {};\n",
+            "prettier",
+            "configuration was not imported",
+        ),
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(name), body).unwrap();
+        let (code, _, stderr) = run(ryl(dir.path()).current_dir(dir.path()).args([
+            "--migrate-configs",
+            "--migrate-write",
+            "--migrate-delete-old",
+            "--migrate-from",
+            tool,
+            "--migrate-root",
+            name,
+        ]));
+        assert!([0, 2].contains(&code), "{stderr}");
+        let warning = stderr
+            .lines()
+            .find_map(|line| {
+                line.find("source cleanup skipped for ")
+                    .map(|at| &line[at..])
+            })
+            .unwrap_or_else(|| panic!("{stderr}"));
+        let (_, message) = warning.split_once("; ").unwrap();
+        assert_eq!(
+            message,
+            format!("{reason}; file left in place; delete it by hand")
+        );
+        assert_eq!(fs::read_to_string(dir.path().join(name)).unwrap(), body);
+    }
+}
+
+#[test]
+fn cleanup_warning_names_inherited_source_outside_root() {
+    let dir = tempdir().unwrap();
+    let project = dir.path().join("project");
+    fs::create_dir(&project).unwrap();
+    fs::write(dir.path().join("base.json"), DPRINT).unwrap();
+    fs::write(project.join("dprint.json"), r#"{"extends":"../base.json"}"#).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(&project).args([
+        "--migrate-configs",
+        "--migrate-write",
+        "--migrate-delete-old",
+    ]));
+    assert_eq!(code, 0, "{stderr}");
+    let warning = stderr
+        .lines()
+        .find(|line| line.contains("base.json; "))
+        .unwrap();
+    assert_eq!(
+        warning.split_once("; ").unwrap().1,
+        "configuration is inherited from outside the migration root; file left in place; delete it by hand"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("base.json")).unwrap(),
+        DPRINT
+    );
+}
 
 #[test]
 fn yamlfmt_engine_dimension_defaults_and_array_indent_gaps_are_imported() {
@@ -294,7 +410,7 @@ fn well_typed_unmapped_options_are_reported_without_running_source_behavior() {
             "dprint.json",
             vec![
                 r#"{"yaml":{"locked":true,"associations":"*.yaml"},"plugins":[],"extends":[],"includes":[],"excludes":["*.other"],"incremental":false}"#,
-                r#"{"yaml":{"locked":false,"associations":["*.yaml"]},"extends":"never-fetched"}"#,
+                r#"{"yaml":{"locked":false,"associations":["*.yaml"]}}"#,
             ],
         ),
         (
@@ -594,7 +710,7 @@ fn effective_source_defaults_are_written_as_native_format_targets() {
             true,
             Some(ProseWrap::Preserve),
             None,
-            MarkerTarget::Preserve,
+            DocumentStartTarget::Preserve,
             1,
             1,
             PropertyOrderTarget::TagFirst,
@@ -609,7 +725,7 @@ fn effective_source_defaults_are_written_as_native_format_targets() {
             true,
             Some(ProseWrap::Never),
             None,
-            MarkerTarget::Preserve,
+            DocumentStartTarget::Remove,
             1,
             0,
             PropertyOrderTarget::AnchorFirst,
@@ -624,7 +740,7 @@ fn effective_source_defaults_are_written_as_native_format_targets() {
             true,
             Some(ProseWrap::Preserve),
             None,
-            MarkerTarget::Preserve,
+            DocumentStartTarget::Preserve,
             1,
             1,
             PropertyOrderTarget::Preserve,
@@ -639,7 +755,7 @@ fn effective_source_defaults_are_written_as_native_format_targets() {
             false,
             None,
             Some(true),
-            MarkerTarget::Add,
+            DocumentStartTarget::Add,
             2,
             0,
             PropertyOrderTarget::AnchorFirst,
@@ -692,16 +808,19 @@ fn explicit_prettier_options_and_overrides_are_reported_without_execution() {
         migrate_configs(&options(&source, Some(MigrationSource::Prettier))).unwrap();
     let config = converted(&result);
     let format = config.format().targets();
-    assert_eq!(ryl::format::indent_width(&config), 4);
+    assert_eq!(ryl::format::indent_width(&config), 6);
     assert_eq!(ryl::format::line_length(&config), 96);
     assert_eq!(format.quote_style, QuoteStyleTarget::Single);
     assert!(!format.brace_spacing);
     assert_eq!(format.prose_wrap, Some(ProseWrap::Always));
     assert_eq!(format.line_ending, LineEndingTarget::CrLf);
-    for key in ["overrides", "plugins"] {
-        assert!(result.warnings.iter().any(|warning| warning.contains(key)));
-        assert!(result.entries[0].toml.contains(key));
-    }
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("plugins"))
+    );
+    assert!(result.entries[0].toml.contains("plugins"));
 }
 
 #[test]
@@ -806,22 +925,6 @@ fn cleanup_preserves_shared_sources_and_ignores_their_backup_collisions() {
             assert!(result.entries[0].toml.contains("cleanup skipped"));
         }
     }
-}
-
-#[test]
-fn existing_native_target_refuses_before_parsing_external_source() {
-    let dir = tempdir().unwrap();
-    let source = dir.path().join(".prettierrc.json5");
-    fs::write(&source, "{ malformed syntax").unwrap();
-    fs::write(dir.path().join(".ryl.toml"), "[format]\n").unwrap();
-    let result = migrate_configs(&options(dir.path(), None)).unwrap();
-    assert!(result.entries.is_empty());
-    assert!(
-        result
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("already exists"))
-    );
 }
 
 #[test]
@@ -1145,7 +1248,7 @@ fn explicit_yamlfmt_policies_map_with_specific_gap_warnings() {
     assert_eq!(ryl::format::line_length(&config), 100);
     assert_eq!(format.line_ending, LineEndingTarget::CrLf);
     assert_eq!(format.quote_style, QuoteStyleTarget::Single);
-    assert_eq!(format.document_start, MarkerTarget::Add);
+    assert_eq!(format.document_start, DocumentStartTarget::Add);
     assert_eq!(format.prose_wrap, Some(ProseWrap::Preserve));
     assert_eq!(
         format.sequence_style,
@@ -1230,7 +1333,7 @@ fn yamlfix_preservation_and_sequence_styles_use_bare_toml_fields() {
         assert_eq!(ryl::format::line_length(&config), 100);
         assert_eq!(format.quote_style, QuoteStyleTarget::Preserve);
         assert!(format.keep_quotes);
-        assert_eq!(format.document_start, MarkerTarget::Preserve);
+        assert_eq!(format.document_start, DocumentStartTarget::Remove);
         assert_eq!(format.comment_starting_space, MarkerTarget::Preserve);
         assert_eq!(format.comment_spacing.get(), 3);
         assert_eq!(format.max_blank_lines, 2);
@@ -1395,7 +1498,23 @@ fn source_warnings_cannot_inject_toml_or_terminal_control_lines() {
             "{warning:?}"
         );
     }
-    assert!(result.entries[0].toml.contains("\\n[lint]"));
+    assert!(result.entries[0].toml.contains("\\u{a}[lint]"));
+
+    fs::write(&source, r#"{"unknown":"ryl's"}"#).unwrap();
+    let result =
+        migrate_configs(&options(&source, Some(MigrationSource::Prettier))).unwrap();
+    for output in [&result.warnings.join("\n"), &result.entries[0].toml] {
+        assert!(output.contains(r#"unknown = "ryl's""#), "{output}");
+    }
+
+    let source = dir.path().join("pyproject.toml");
+    fs::write(&source, "[tool.yamlfix]\nline_length = 100\n").unwrap();
+    let result =
+        migrate_configs(&options(&source, Some(MigrationSource::Yamlfix))).unwrap();
+    for output in [&result.warnings.join("\n"), &result.entries[0].toml] {
+        assert!(output.contains(r#"none_representation = """#), "{output}");
+        assert!(output.contains("ryl's"), "{output}");
+    }
 }
 
 #[test]
@@ -2007,14 +2126,18 @@ fn discovery_ignores_non_unicode_filenames_and_reports_unreadable_formatter_sour
 }
 
 #[test]
-fn prettier_external_selection_metadata_warns_without_importing_it() {
+fn prettier_imports_ignore_patterns_but_warns_about_editorconfig() {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join(".prettierrc"), "tabWidth: 4\n").unwrap();
     fs::write(dir.path().join(".editorconfig"), "[*]\nindent_size=6\n").unwrap();
-    fs::write(dir.path().join(".prettierignore"), "ignored.yaml\n").unwrap();
+    fs::write(dir.path().join(".prettierignore"), "ignored.yaml\n[\n").unwrap();
     let result = migrate_configs(&options(dir.path(), None)).unwrap();
     assert_eq!(ryl::format::indent_width(&converted(&result)), 4);
-    for marker in ["EditorConfig", ".prettierignore"] {
+    assert!(
+        converted(&result)
+            .is_file_ignored(&dir.path().join("ignored.yaml"), dir.path())
+    );
+    for marker in ["EditorConfig", ".prettierignore:2"] {
         assert!(
             result
                 .warnings
@@ -2632,4 +2755,527 @@ fn normalization_rejects_unsupported_numeric_keys_before_writing_a_target() {
     assert!(migrate_configs(&opts).is_err());
     assert_eq!(fs::read_to_string(source).unwrap(), body);
     assert!(!dir.path().join(".ryl.toml").exists());
+}
+
+#[test]
+fn yaml_only_prettier_overrides_apply_in_source_order() {
+    for (files, applied) in [
+        (r#""*.yaml""#, true),
+        (r#""src/**/*.yaml""#, true),
+        (r#""[abc]*.yml""#, true),
+        (r#"["**/*.{yaml,yml}", "*.yml"]"#, true),
+        (r#""*.md""#, false),
+        (r#""*""#, false),
+        (r#""*.{yaml,md}""#, false),
+        (r#"["*.yaml", "*.md"]"#, false),
+        (r#""!*.yaml""#, false),
+        (r#""*.{yaml}""#, false),
+        (r#""*.yaml,yml""#, false),
+        (r#""*.{yaml,,yml}""#, false),
+        (r#""**/{src,test}/*.yaml""#, false),
+        (r#"[]"#, false),
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(".prettierrc"), format!(r#"{{"proseWrap":"always","overrides":[{{"files":{files},"options":{{"proseWrap":"never"}}}},{{"files":{files},"options":{{"proseWrap":"preserve"}}}}]}}"#)).unwrap();
+        let result =
+            migrate_configs(&options(dir.path(), Some(MigrationSource::Prettier)))
+                .unwrap();
+        let table: toml::Value = toml::from_str(&result.entries[0].toml).unwrap();
+        assert_eq!(
+            table["format"]["prose-wrap"].as_str(),
+            Some(if applied { "preserve" } else { "always" })
+        );
+        assert_eq!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("option overrides")),
+            !applied,
+            "{result:?}"
+        );
+    }
+}
+
+#[test]
+fn imported_exclusions_preserve_source_patterns_and_negations() {
+    for (tool, filename, body, ignore) in [
+        (
+            MigrationSource::Prettier,
+            ".prettierrc",
+            "{}",
+            Some("# comment\n*.yaml\n!keep.yaml\n"),
+        ),
+        (
+            MigrationSource::Yamlfmt,
+            ".yamlfmt",
+            "match_type: doublestar\nexclude: ['skip.yaml', '!keep.yaml']\n",
+            None,
+        ),
+        (
+            MigrationSource::Dprint,
+            "dprint.json",
+            r#"{"yaml":{},"excludes":["*.yaml","!keep.yaml"]}"#,
+            None,
+        ),
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(filename), body).unwrap();
+        if let Some(ignore) = ignore {
+            fs::write(dir.path().join(".prettierignore"), ignore).unwrap();
+        }
+        let result = migrate_configs(&options(dir.path(), Some(tool))).unwrap();
+        let config = converted(&result);
+        assert!(
+            config.is_file_ignored(&dir.path().join("skip.yaml"), dir.path()),
+            "{result:?}"
+        );
+        assert!(
+            !config.is_file_ignored(&dir.path().join("keep.yaml"), dir.path()),
+            "{result:?}"
+        );
+        assert_eq!(
+            config.is_file_ignored(&dir.path().join("sub/skip.yaml"), dir.path()),
+            tool != MigrationSource::Yamlfmt
+        );
+    }
+}
+
+#[test]
+fn import_reports_the_formatter_conflicts_with_colocated_lint() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".yamllint"), "extends: default\n").unwrap();
+    fs::write(dir.path().join(".prettierrc"), "{}").unwrap();
+    let result =
+        migrate_configs(&options(dir.path(), Some(MigrationSource::Prettier))).unwrap();
+    let conflicts = ryl::format::conflicts(&converted(&result));
+    assert!(!conflicts.is_empty());
+    for conflict in conflicts {
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains(&conflict)),
+            "{result:?}"
+        );
+    }
+}
+
+#[test]
+fn dprint_local_extends_merges_first_base_precedence_and_exclusions() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join("first.json"),
+        r#"{"yaml":{"printWidth":40},"excludes":["first.yaml"]}"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("second.json"),
+        r#"{"yaml":{"printWidth":60,"indentWidth":4},"excludes":["second.yaml"]}"#,
+    )
+    .unwrap();
+    fs::write(dir.path().join("dprint.json"), r#"{"extends":["first.json","second.json"],"yaml":{"indentWidth":3},"excludes":["own.yaml"]}"#).unwrap();
+    let result =
+        migrate_configs(&options(dir.path(), Some(MigrationSource::Dprint))).unwrap();
+    let config = converted(&result);
+    assert_eq!(ryl::format::line_length(&config), 40);
+    assert_eq!(ryl::format::indent_width(&config), 3);
+    for name in ["first.yaml", "second.yaml", "own.yaml"] {
+        assert!(config.is_file_ignored(&dir.path().join(name), dir.path()));
+    }
+}
+
+#[test]
+fn unresolvable_dprint_extends_skips_the_entire_source() {
+    for extends in [
+        "missing.json",
+        "dprint.json",
+        "https://example.invalid/base.json",
+    ] {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("dprint.json");
+        fs::write(
+            &source,
+            format!(r#"{{"extends":"{extends}","yaml":{{"printWidth":100}}}}"#),
+        )
+        .unwrap();
+        let mut opts = options(dir.path(), Some(MigrationSource::Dprint));
+        opts.write_mode = WriteMode::Write;
+        let result = migrate_configs(&opts).unwrap();
+        assert!(result.entries.is_empty(), "{result:?}");
+        assert_eq!(result.skipped, 1);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("flatten"))
+        );
+        assert!(!dir.path().join(".ryl.toml").exists());
+        assert!(source.exists());
+    }
+}
+
+#[test]
+fn dprint_extends_bounds_depth_and_repeated_base_expansion() {
+    for repeated in [false, true] {
+        let dir = tempdir().unwrap();
+        for index in 0..33 {
+            fs::write(
+                dir.path().join(format!("base{index}.json")),
+                if repeated {
+                    "{\"yaml\":{}}".to_owned()
+                } else {
+                    format!(r#"{{"extends":"base{}.json","yaml":{{}}}}"#, index + 1)
+                },
+            )
+            .unwrap();
+        }
+        let bases = if repeated {
+            vec!["base0.json"; 257]
+        } else {
+            vec!["base0.json"]
+        };
+        fs::write(
+            dir.path().join("dprint.json"),
+            serde_json::json!({"extends":bases,"yaml":{}}).to_string(),
+        )
+        .unwrap();
+        let result =
+            migrate_configs(&options(dir.path(), Some(MigrationSource::Dprint)))
+                .unwrap();
+        assert_eq!(result.skipped, 1);
+        assert!(result.entries.is_empty());
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("excessive")),
+            "{result:?}"
+        );
+    }
+}
+
+#[test]
+fn inherited_dprint_values_reject_invalid_extends_and_non_objects() {
+    for body in [r#"{"extends":true}"#, r#"{"extends":[42]}"#, "[]"] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("base.json"), body).unwrap();
+        fs::write(
+            dir.path().join("dprint.json"),
+            r#"{"extends":"base.json","yaml":{}}"#,
+        )
+        .unwrap();
+        let result =
+            migrate_configs(&options(dir.path(), Some(MigrationSource::Dprint)))
+                .unwrap();
+        assert_eq!(result.skipped, 1, "{result:?}");
+        assert!(result.entries.is_empty());
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("flatten"))
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn inherited_dprint_symlinks_are_retained_without_importing_settings() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join("real.json"),
+        r#"{"yaml":{"printWidth":100}}"#,
+    )
+    .unwrap();
+    symlink(dir.path().join("real.json"), dir.path().join("base.json")).unwrap();
+    fs::write(dir.path().join("dprint.json"), r#"{"extends":"base.json"}"#).unwrap();
+    let result =
+        migrate_configs(&options(dir.path(), Some(MigrationSource::Dprint))).unwrap();
+    assert_eq!(result.skipped, 1);
+    assert!(result.entries.is_empty());
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("symlink"))
+    );
+    assert!(dir.path().join("base.json").is_symlink());
+}
+
+#[cfg(unix)]
+#[test]
+fn prettier_ignore_symlinks_warn_and_unreadable_files_fail_import() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".prettierrc"), "{}").unwrap();
+    let source = dir.path().join("patterns");
+    fs::write(&source, "ignored.yaml\n").unwrap();
+    let ignore = dir.path().join(".prettierignore");
+    symlink(&source, &ignore).unwrap();
+    let result =
+        migrate_configs(&options(dir.path(), Some(MigrationSource::Prettier))).unwrap();
+    assert!(
+        !converted(&result)
+            .is_file_ignored(&dir.path().join("ignored.yaml"), dir.path())
+    );
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|warning| warning.contains(".prettierignore is a symlink"))
+    );
+    fs::remove_file(&ignore).unwrap();
+    fs::write(&ignore, "ignored.yaml\n").unwrap();
+    fs::set_permissions(&ignore, fs::Permissions::from_mode(0o000)).unwrap();
+    let result = migrate_configs(&options(dir.path(), Some(MigrationSource::Prettier)));
+    fs::set_permissions(&ignore, fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(result.unwrap_err().contains("cannot read"));
+}
+
+#[test]
+fn yamlfmt_exclusion_path_spellings_are_normalized_or_warned() {
+    let dir = tempdir().unwrap();
+    let source = dir.path().join(".yamlfmt");
+    fs::create_dir(dir.path().join("nested")).unwrap();
+    for (pattern, expected) in [
+        ("skip.yaml".to_owned(), Some("/skip.yaml")),
+        ("./skip.yaml".to_owned(), Some("/skip.yaml")),
+        ("nested/../skip.yaml".to_owned(), Some("/skip.yaml")),
+        ("skip.yaml/".to_owned(), Some("/skip.yaml")),
+        (
+            dir.path().join("skip.yaml").display().to_string(),
+            Some("/skip.yaml"),
+        ),
+        ("./nested/*.yaml".to_owned(), Some("/nested/*.yaml")),
+        ("nested/**".to_owned(), Some("/nested/**")),
+        ("../skip.yaml".to_owned(), None),
+        (
+            dir.path()
+                .parent()
+                .unwrap()
+                .join("skip.yaml")
+                .display()
+                .to_string(),
+            None,
+        ),
+        ("nested".to_owned(), None),
+        ("nested/".to_owned(), None),
+        (".".to_owned(), None),
+        (String::new(), None),
+    ] {
+        let body = serde_json::json!({
+            "match_type": "doublestar",
+            "exclude": [pattern],
+            "formatter": {"include_document_start": true},
+        });
+        fs::write(&source, body.to_string()).unwrap();
+        let result =
+            migrate_configs(&options(&source, Some(MigrationSource::Yamlfmt))).unwrap();
+        let table: toml::Table = toml::from_str(&result.entries[0].toml).unwrap();
+        let config = converted(&result);
+        if let Some(expected) = expected {
+            assert_eq!(
+                table["exclude"].as_array().unwrap(),
+                &[toml::Value::from(expected)],
+                "{pattern}"
+            );
+            assert!(result.warnings.is_empty(), "{pattern}: {result:?}");
+            let ignored = if expected.starts_with("/nested/") {
+                "nested/skip.yaml"
+            } else {
+                "skip.yaml"
+            };
+            assert!(
+                config.is_file_ignored(&dir.path().join(ignored), dir.path()),
+                "{pattern}"
+            );
+            assert!(
+                !config
+                    .is_file_ignored(&dir.path().join("other/skip.yaml"), dir.path()),
+                "{pattern}"
+            );
+        } else {
+            assert!(!table.contains_key("exclude"), "{pattern}");
+            assert!(
+                result
+                    .warnings
+                    .iter()
+                    .any(|warning| warning.contains("yamlfmt option exclude")
+                        && warning.contains("configure exclude manually")),
+                "{pattern}: {result:?}"
+            );
+            assert!(
+                !config
+                    .is_file_ignored(&dir.path().join("nested/skip.yaml"), dir.path()),
+                "{pattern}"
+            );
+        }
+    }
+}
+
+#[test]
+fn formatter_exclusions_append_to_colocated_lint_exclusions() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".yamllint"),
+        "ignore: lint.yaml\nrules: {truthy: enable}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("dprint.json"),
+        r#"{"yaml":{},"excludes":["format.yaml"]}"#,
+    )
+    .unwrap();
+    let result =
+        migrate_configs(&options(dir.path(), Some(MigrationSource::Dprint))).unwrap();
+    let config = converted(&result);
+    for name in ["lint.yaml", "format.yaml"] {
+        assert!(config.is_file_ignored(&dir.path().join(name), dir.path()));
+    }
+}
+
+#[test]
+fn yaml_specific_overrides_and_doublestar_exclusions_validate_imported_values() {
+    for (tool, filename, body, error) in [
+        (
+            MigrationSource::Prettier,
+            ".prettierrc",
+            r#"{"overrides":[{"files":"*.yaml","options":{"overrides":true}}]}"#,
+            "option overrides",
+        ),
+        (
+            MigrationSource::Yamlfmt,
+            ".yamlfmt",
+            "match_type: doublestar\nexclude: true\n",
+            "option exclude",
+        ),
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(filename), body).unwrap();
+        let result = migrate_configs(&options(dir.path(), Some(tool)));
+        assert!(result.unwrap_err().contains(error));
+        assert!(!dir.path().join(".ryl.toml").exists());
+    }
+}
+
+#[test]
+fn marker_removal_imports_without_an_option_warning() {
+    for (tool, filename, body, option) in [
+        (
+            MigrationSource::Yamlfmt,
+            ".yamlfmt",
+            "{}",
+            "include_document_start",
+        ),
+        (
+            MigrationSource::Yamlfmt,
+            ".yamlfmt",
+            "formatter: {include_document_start: false}\n",
+            "include_document_start",
+        ),
+        (
+            MigrationSource::Yamlfix,
+            ".yamlfix.toml",
+            "explicit_start = false\n",
+            "explicit_start",
+        ),
+    ] {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join(filename);
+        fs::write(&source, body).unwrap();
+        let result = migrate_configs(&options(&source, Some(tool))).unwrap();
+        assert_eq!(
+            converted(&result).format().targets().document_start,
+            DocumentStartTarget::Remove
+        );
+        assert!(
+            !result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains(option)),
+            "{:?}",
+            result.warnings
+        );
+    }
+}
+
+#[test]
+fn marker_import_conflicts_name_both_settings_and_resolutions_once() {
+    for (tool, filename, body, present, target) in [
+        (MigrationSource::Yamlfmt, ".yamlfmt", "{}", true, "remove"),
+        (
+            MigrationSource::Yamlfix,
+            ".yamlfix.toml",
+            "explicit_start = false\n",
+            true,
+            "remove",
+        ),
+        (
+            MigrationSource::Yamlfmt,
+            ".yamlfmt",
+            "formatter: {include_document_start: true}\n",
+            false,
+            "add",
+        ),
+        (
+            MigrationSource::Yamlfix,
+            ".yamlfix.toml",
+            "explicit_start = true\n",
+            false,
+            "add",
+        ),
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(filename), body).unwrap();
+        fs::write(
+            dir.path().join(".yamllint"),
+            format!(
+                "extends: default\nrules:\n  document-start: {{present: {present}}}\n"
+            ),
+        )
+        .unwrap();
+        let result = migrate_configs(&options(dir.path(), Some(tool))).unwrap();
+        let config = converted(&result);
+        assert_eq!(
+            config.rule_option_bool("document-start", "present", !present),
+            present
+        );
+        assert_eq!(
+            config.format().targets().document_start,
+            if present {
+                DocumentStartTarget::Remove
+            } else {
+                DocumentStartTarget::Add
+            }
+        );
+        let warnings: Vec<_> = result
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains("lint.rules.document-start.present"))
+            .collect();
+        assert_eq!(warnings.len(), 1, "{result:?}");
+        let expected = format!(
+            "lint.rules.document-start.present = {present} conflicts with format.document-start = \"{target}\"; set lint.rules.document-start.present = {} or format.document-start = \"preserve\"",
+            !present
+        );
+        assert!(warnings[0].contains(&expected), "{warnings:?}");
+    }
+}
+
+#[test]
+fn competing_yamlfix_and_yamlfmt_configs_name_both_selection_flags() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".yamlfmt"), "{}").unwrap();
+    fs::write(dir.path().join(".yamlfix.toml"), "").unwrap();
+    let error = migrate_configs(&options(dir.path(), None)).unwrap_err();
+    assert_eq!(
+        error,
+        format!(
+            "multiple YAML formatter configurations apply in {} (yamlfmt, yamlfix); select one with --migrate-from",
+            dir.path().display()
+        )
+    );
 }

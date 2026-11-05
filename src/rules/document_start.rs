@@ -1,9 +1,7 @@
 //! `document-start` rule: require (or forbid) the `---` start marker.
 //!
-//! `--fix` rewrites only `present: true`, inserting `---` before each implicit document:
-//! after the last `...` that precedes it, else at the buffer start or after a line-1
-//! shebang or `#cloud-config`. Removing `---` (`present: false`) can collide with
-//! document boundaries, so it is not fixed.
+//! `--fix` adds missing markers or removes the first marker when the document can
+//! stand alone without directives; empty documents and stream separators retain theirs.
 use crate::rules::support::span_utils::BytePos;
 use crate::text_version::edits::Edit;
 mod input;
@@ -81,6 +79,9 @@ pub(crate) fn edits_keeping_magic(
     cfg: Config,
     keep_magic: bool,
 ) -> Vec<Edit> {
+    if !cfg.requires_marker() {
+        return removal(input).into_iter().collect();
+    }
     let buffer = input.text();
     let content_lines = scan(input, cfg).implicit_starts;
     if content_lines.is_empty() {
@@ -107,6 +108,48 @@ pub(crate) fn edits_keeping_magic(
         offset += content.len() + ending.len();
     }
     edits
+}
+
+fn removal(input: Analysis<'_>) -> Option<Edit> {
+    let start = starts(input).next()?;
+    let buffer = input.text();
+    if !start.explicit
+        || input.lines().take(start.line - 1).any(|(_, line, _)| {
+            let line = line.trim_start_matches('\u{feff}');
+            line.starts_with('%') || line.starts_with("...")
+        })
+    {
+        return None;
+    }
+    let mut events = input.event_iter();
+    events
+        .find(|(event, _)| matches!(event, ryl_yaml_parser::Event::DocumentStart(..)))
+        .expect("starts found a document start in the same event stream");
+    let (event, span) = events.next()?;
+    if matches!(event, ryl_yaml_parser::Event::Scalar(..)) && span.is_empty() {
+        return None;
+    }
+    let after = start.offset + 3;
+    let tail = &buffer[after..];
+    let spaces = tail.len() - tail.trim_start_matches([' ', '\t']).len();
+    let content = &tail[spaces..];
+    if ["---", "..."].into_iter().any(|marker| {
+        content.strip_prefix(marker).is_some_and(|rest| {
+            rest.is_empty() || rest.starts_with([' ', '\t', '\r', '\n'])
+        })
+    }) {
+        return None;
+    }
+    let ending = if content.starts_with("\r\n") {
+        2
+    } else {
+        usize::from(content.starts_with(['\r', '\n']))
+    };
+    Some((
+        BytePos::new(start.offset),
+        BytePos::new(after + spaces + ending),
+        String::new(),
+    ))
 }
 
 fn split_bom(line: &str) -> (&str, &str) {

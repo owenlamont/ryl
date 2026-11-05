@@ -6,7 +6,7 @@ fn error_on_non_bool_for_forbid_merge_keys() {
         "rules:\n  key-duplicates:\n    forbid-duplicated-merge-keys: 1\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.key-duplicates"), "{err}");
 }
 
@@ -15,7 +15,7 @@ fn error_on_unknown_option() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  key-duplicates:\n    foo: true\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.key-duplicates"), "{err}");
 }
 
@@ -32,7 +32,7 @@ fn error_when_check_canonical_in_yaml_config() {
         "rules:\n  key-duplicates:\n    check-canonical: true\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.key-duplicates"), "{err}");
 }
 
@@ -42,7 +42,7 @@ fn error_when_forbid_merge_key_shadowing_in_yaml_config() {
         "rules:\n  key-duplicates:\n    forbid-merge-key-shadowing: true\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.key-duplicates"), "{err}");
 }
 

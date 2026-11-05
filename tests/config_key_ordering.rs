@@ -21,7 +21,7 @@ fn ignored_keys_sequence_non_string_errors() {
         "rules:\n  key-ordering:\n    ignored-keys: [1]\n",
     )
     .expect_err("non-string sequence entries should error");
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.key-ordering"), "{err}");
 }
 
@@ -40,7 +40,7 @@ fn ignored_keys_scalar_invalid_regex_errors() {
         "rules:\n  key-ordering:\n    ignored-keys: \"[\"\n",
     )
     .expect_err("invalid scalar regex should error");
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.key-ordering"), "{err}");
 }
 
@@ -50,7 +50,7 @@ fn ignored_keys_invalid_type_errors() {
         "rules:\n  key-ordering:\n    ignored-keys: {bad: true}\n",
     )
     .expect_err("non sequence/string should error");
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.key-ordering"), "{err}");
 }
 
@@ -60,7 +60,7 @@ fn key_ordering_unknown_option_errors() {
         "rules:\n  key-ordering:\n    unexpected: true\n",
     )
     .expect_err("unknown option should error");
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.key-ordering"), "{err}");
 }
 
@@ -126,7 +126,7 @@ fn yaml_orders_and_unknown_unlisted_values_are_rejected() {
     let err = orders_error(
         "files = [\"*\"]\npath = \"$\"\nkeys = [\"a\"]\nunlisted = \"drop\"",
     );
-    assert!(err.contains("failed to parse config data"), "{err}");
+    assert!(err.contains("invalid config"), "{err}");
 }
 
 #[test]

@@ -107,6 +107,10 @@ Exit codes:
 `--strict` (`-s`) enables strict mode; `--no-strict` disables strict mode even when
 configured in TOML. See [Strict mode](#strict-mode) for project configuration.
 
+Config migration exits `2` for a wholly skipped source or a refused write.
+Approximations and retained source directives exit `0` with warnings, or `2`
+under `--strict`; a clean rerun exits `0`.
+
 ryl never enables a rule unless a configuration or `--enable` explicitly turns it on, so two
 cases exit `2` rather than silently linting nothing:
 
@@ -289,7 +293,9 @@ If you already have a yamllint configuration, use the built-in converter:
 ryl --migrate-configs --migrate-write
 ```
 
-See [Migrating from yamllint](migrating-from-yamllint.md) for details.
+The converter also imports a formatter config found beside yamllint. Follow
+[After migrating](migrating-from-yamllint.md#after-migrating) to verify diagnostics,
+clean up old configs and update CI.
 
 Earlier releases put `[rules]`, `[fix]`, `per-file-ignores` and
 `per-line-ignores` at the top level. ryl still reads them, but warns once per
