@@ -241,7 +241,10 @@ impl<'text> Analysis<'text> {
         }
         self.source
             .headers
-            .get_or_init(|| block_scalar_chomping::headers_with_analysis(self))
+            .get_or_init(|| match self.source.parsed.get() {
+                Some(facts) if !facts.has_block_scalars() => Vec::new(),
+                _ => block_scalar_chomping::headers_with_analysis(self),
+            })
     }
 
     pub(crate) fn event_iter(self) -> impl Iterator<Item = (Event<'text>, Span)> {

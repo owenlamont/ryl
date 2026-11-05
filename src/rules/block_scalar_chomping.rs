@@ -53,9 +53,6 @@ pub(crate) struct Header {
 }
 
 pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
-    if !input.parsed().has_block_scalars() {
-        return Vec::new();
-    }
     let mut scanner = Headers::new(input);
     for (span, token_type) in input.tokens().iter(input.text()) {
         scanner.push(span, &token_type);
