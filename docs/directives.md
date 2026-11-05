@@ -108,8 +108,7 @@ hides the notice. The notice does not affect lint results or strict-mode exit co
 key:   value  # yamllint disable-line rule:colons
 ```
 
-Converted `# ryl` comments have no effect in yamllint. Keep the `# yamllint`
-spelling while yamllint still runs; aliases remain supported throughout 0.29.x.
+`# yamllint` aliases remain supported throughout 0.29.x.
 
 Preview and apply conversion (`--migrate-from yamllint` is optional):
 

@@ -73,12 +73,11 @@ see [formatter imports](migrating-from-formatters.md).
 ### After migrating
 
 1. Run `ryl check .` and compare diagnostics with yamllint.
-2. Remove or rename the old `.yamllint` if you no longer use yamllint. Prefer cleanup
-   flags on the initial migration: retained YAML configs cause discovery warnings and
-   can themselves be linted. To keep both tools, see [Keeping both files](#keeping-both-files).
+2. Remove or rename the old `.yamllint`. Prefer cleanup flags on the initial
+   migration: retained YAML configs cause discovery warnings and can themselves be
+   linted.
 3. Replace `yamllint` with `ryl check` in CI and hooks. Convert comments with
-   `ryl --migrate-directives --migrate-from yamllint --migrate-write`. Keep the
-   yamllint spelling while yamllint still runs: yamllint ignores `# ryl` comments.
+   `ryl --migrate-directives --migrate-from yamllint --migrate-write`.
 4. Optionally review `ryl format --diff .` before adopting formatting. Generated
    `[format]` settings preserve choices the old lint config left unchecked.
 
@@ -125,8 +124,7 @@ positional paths: `ryl --migrate-configs sub/` exits 2, so scope it with
 
 To convert existing yamllint comments without importing configuration, preview
 `ryl --migrate-directives --migrate-from yamllint`; add `--migrate-write` to apply.
-Converted `# ryl` comments have no effect in yamllint. Keep `# yamllint` comments
-while yamllint still runs; aliases remain supported throughout 0.29.x.
+`# yamllint` aliases remain supported throughout 0.29.x.
 See [source comment conversion](migrating-from-formatters.md#suppression-comments)
 for supported formatter markers and retained cases.
 
@@ -854,9 +852,8 @@ layout fixes to every file without enabling the rules. yamllint's `default` pres
 conflicts with none of the formatter's default settings, so a migrated config needs no
 changes to run alongside it.
 
-## Keeping both files
+## A leftover `.yamllint`
 
-`.yamllint` and `.ryl.toml` can coexist for separate tools. When both are
-present in the same directory, ryl uses TOML exclusively and ignores `.yamllint`.
-Keep shared lint settings synchronized: `--migrate-configs` skips `.yamllint` when
-a `.ryl.toml` already exists.
+When `.yamllint` and `.ryl.toml` are in the same directory, ryl uses TOML and
+ignores `.yamllint`. `--migrate-configs` skips `.yamllint` when a `.ryl.toml`
+already exists.
