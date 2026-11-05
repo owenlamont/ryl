@@ -165,21 +165,21 @@ Median of 10 runs; peak RSS is the median of 3 more:
 
 | Input | ryl | yamlfmt | dprint + pretty_yaml | Prettier |
 | --- | ---: | ---: | ---: | ---: |
-| 1 KiB file | 2.1 ms, 9.0 MiB | 2.5 ms, 5.4 MiB | 6.1 ms, 16 MiB | 104 ms, 64 MiB |
-| 16 KiB file | 3.0 ms, 9.3 MiB | 3.8 ms, 6.2 MiB | 9.1 ms, 16 MiB | 152 ms, 79 MiB |
-| 0.9 MiB file | 66 ms, 24 MiB | 129 ms, 71 MiB | 0.51 s, 38 MiB | 1.22 s, 370 MiB |
-| 9.4 MiB file | 0.83 s, 170 MiB | 1.20 s, 667 MiB | 4.91 s, 240 MiB | 9.63 s, 1.8 GiB |
-| 1,000 files | 26 ms, 16 MiB | 235 ms, 17 MiB | 137 ms, 23 MiB | 3.59 s, 249 MiB |
-| 10,000 files | 231 ms, 28 MiB | 2.09 s, 94 MiB | 1.30 s, 44 MiB | 29.6 s, 285 MiB |
+| 1 KiB file | 2.1 ms, 9.0 MiB | 2.6 ms, 5.1 MiB | 6.0 ms, 17 MiB | 104 ms, 64 MiB |
+| 16 KiB file | 3.1 ms, 9.5 MiB | 3.8 ms, 6.1 MiB | 9.0 ms, 17 MiB | 146 ms, 80 MiB |
+| 0.9 MiB file | 65 ms, 24 MiB | 127 ms, 72 MiB | 0.51 s, 38 MiB | 1.20 s, 368 MiB |
+| 9.4 MiB file | 0.82 s, 170 MiB | 1.22 s, 652 MiB | 4.87 s, 241 MiB | 9.61 s, 1.8 GiB |
+| 1,000 files | 25 ms, 16 MiB | 232 ms, 17 MiB | 125 ms, 23 MiB | 3.48 s, 248 MiB |
+| 10,000 files | 222 ms, 27 MiB | 2.09 s, 94 MiB | 1.26 s, 45 MiB | 29.4 s, 290 MiB |
 
 | Lint, `extends: default` | 1 KiB | 9.4 MiB | 1,000 files | 10,000 files |
 | --- | ---: | ---: | ---: | ---: |
-| ryl | 2.2 ms | 0.51 s | 19 ms | 164 ms |
-| yamllint | 68 ms | 30.3 s | 5.49 s | 51.0 s |
+| ryl | 2.2 ms | 0.51 s | 19 ms | 162 ms |
+| yamllint | 68 ms | 30.0 s | 5.25 s | 50.5 s |
 
 ryl formats faster than the other three at every size and file count, under all
-three profiles. yamlfmt uses less memory up to 16 KiB and up to 100 files (5.2–10.9 MiB
-against ryl's 9.0–11.3 MiB).
+three profiles. yamlfmt uses less memory up to 16 KiB and up to 100 files (5.1–10.6 MiB
+against ryl's 9.0–11.5 MiB).
 
 Profiles and what they cannot equalise:
 
