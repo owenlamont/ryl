@@ -3,7 +3,8 @@
 `ryl format` covers most of [yamlfix](https://github.com/lyz-code/yamlfix)'s
 options through `[format]` keys and the top-level `line-length` and
 `indent-width`. Replace `yamlfix .` with `ryl format .`, and `yamlfix --check .`
-with `ryl format --check .`.
+with `ryl format --check .`. The mapping and `--migrate-from yamlfix` import follow
+yamlfix 1.19.1; older configurations may work, but defaults follow that release.
 
 ryl reads configuration from `.ryl.toml`, `ryl.toml` or `[tool.ryl]` in
 `pyproject.toml`, or the file passed with `-c`. It does not read `YAMLFIX_*`

@@ -1,6 +1,9 @@
 # Migrating from yamllint
 
 ryl implements yamllint's rule set, and its own configuration is TOML.
+Rules, options and config semantics follow yamllint 1.38.0, the latest release when this
+ryl version shipped. An option added in a later yamllint release is rejected as unknown
+(exit 2) until ryl supports it.
 ryl still reads a yamllint YAML config (`.yamllint`, `.yamllint.yml`,
 `.yamllint.yaml`, `-c`/`-d` YAML, `YAMLLINT_CONFIG_FILE` and the yamllint
 user-global config) with the same semantics as upstream, but that support is

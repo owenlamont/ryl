@@ -664,6 +664,9 @@ Source: https://ryl-docs.pages.dev/getting-started/migrating-from-yamllint/
 # Migrating from yamllint
 
 ryl implements yamllint's rule set, and its own configuration is TOML.
+Rules, options and config semantics follow yamllint 1.38.0, the latest release when this
+ryl version shipped. An option added in a later yamllint release is rejected as unknown
+(exit 2) until ryl supports it.
 ryl still reads a yamllint YAML config (`.yamllint`, `.yamllint.yml`,
 `.yamllint.yaml`, `-c`/`-d` YAML, `YAMLLINT_CONFIG_FILE` and the yamllint
 user-global config) with the same semantics as upstream, but that support is
@@ -1709,7 +1712,8 @@ Source: https://ryl-docs.pages.dev/getting-started/migrating-from-yamlfix/
 `ryl format` covers most of [yamlfix](https://github.com/lyz-code/yamlfix)'s
 options through `[format]` keys and the top-level `line-length` and
 `indent-width`. Replace `yamlfix .` with `ryl format .`, and `yamlfix --check .`
-with `ryl format --check .`.
+with `ryl format --check .`. The mapping and `--migrate-from yamlfix` import follow
+yamlfix 1.19.1; older configurations may work, but defaults follow that release.
 
 ryl reads configuration from `.ryl.toml`, `ryl.toml` or `[tool.ryl]` in
 `pyproject.toml`, or the file passed with `-c`. It does not read `YAMLFIX_*`
