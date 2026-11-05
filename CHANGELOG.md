@@ -100,6 +100,9 @@ summarize user-visible changes from the tagged commits and published release rec
 - `trailing-spaces` no longer reports a block scalar's whitespace-only content lines when
   a `:` inside an anchor or tag before it (`- &a: |+`) looked like a compact key.
   ([#906](https://github.com/owenlamont/ryl/pull/906))
+- A root-anchored `exclude` pattern now skips its file when the input is an absolute
+  path under a relative `-c` config, is spelled with `..` or an interior `./`, or
+  sits below a `-c` config in a subdirectory; such files were linted and formatted.
 
 ## v0.28.0
 
