@@ -8,6 +8,61 @@ use common::cli::{command_output, run, ryl};
 const TARGET_1_2: &str =
     "target-version = \"1.2\"\n[lint.rules]\nyaml-directive = \"enable\"\n";
 
+#[test]
+fn blocked_migration_names_first_value_and_location() {
+    for (config, message) in [
+        (
+            TARGET_1_2,
+            "version directive \"%YAML 1.1\" is older than target-version \"1.2\"",
+        ),
+        (
+            "target-version = \"1.2\"\n[lint.rules.yaml-directive]\npresent = false\n",
+            "found forbidden version directive \"%YAML 1.1\"",
+        ),
+    ] {
+        for value in ["2026-10-10", "08", "1e5", "y"] {
+            let input = format!("%YAML 1.1\n---\na: {value}\nb: 2026-10-11\n");
+            let (code, output, fixed) = ryl_with(config, &input, &["check", "--fix"]);
+            assert_eq!(code, 1, "{output}");
+            assert_eq!(fixed, input);
+            let reason = format!(
+                "; not migrated automatically: `{value}` at 3:4 has no faithful YAML 1.2 equivalent; quote or edit it"
+            );
+            assert!(
+                output
+                    .replace("%25", "%")
+                    .contains(&format!("{message}{reason}")),
+                "{output}"
+            );
+            assert_eq!(
+                output.matches("not migrated automatically:").count(),
+                1,
+                "{output}"
+            );
+        }
+    }
+}
+
+#[test]
+fn blocked_removal_names_spelling_incompatible_with_target_1_1() {
+    let input = "%YAML 1.1\n---\nmode: 0755\n";
+    let (code, output, fixed) = ryl_with(FORBID, input, &["check", "--fix"]);
+    assert_eq!(code, 1, "{output}");
+    assert_eq!(fixed, input);
+    assert!(output.replace("%25", "%").contains("found forbidden version directive \"%YAML 1.1\"; not migrated automatically: `0755` at 3:7 cannot be respelled compatibly with YAML 1.1; quote or edit it"), "{output}");
+}
+
+#[test]
+fn blocked_migration_names_unicode_line_break_location() {
+    for line_break in ['\u{85}', '\u{2028}', '\u{2029}'] {
+        let input = format!("%YAML 1.1\n---\na: \"é{line_break}b\"\n");
+        let (code, output, fixed) = ryl_with(TARGET_1_2, &input, &["check", "--fix"]);
+        assert_eq!(code, 1, "{output}");
+        assert_eq!(fixed, input);
+        assert!(output.replace("%25", "%").contains("version directive \"%YAML 1.1\" is older than target-version \"1.2\"; not migrated automatically: YAML 1.1 line break at 3:6; replace it before migration"), "{output}");
+    }
+}
+
 fn ryl_with(config: &str, content: &str, args: &[&str]) -> (i32, String, String) {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join(".ryl.toml"), config).unwrap();

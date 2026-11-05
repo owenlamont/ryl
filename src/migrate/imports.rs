@@ -60,6 +60,15 @@ impl Formatter {
             Self::Yamlfix => "yamlfix",
         }
     }
+
+    fn flag_value(self) -> &'static str {
+        match self {
+            Self::Prettier => "prettier",
+            Self::Yamlfmt => "yamlfmt",
+            Self::Dprint => "dprint",
+            Self::Yamlfix => "yamlfix",
+        }
+    }
 }
 
 #[derive(Default)]
@@ -170,7 +179,7 @@ fn select_candidate(
     if candidates.len() > 1 {
         let names = candidates
             .iter()
-            .map(|candidate| candidate.tool.name())
+            .map(|candidate| candidate.tool.flag_value())
             .collect::<Vec<_>>()
             .join(", ");
         return Err(format!(
@@ -276,8 +285,10 @@ fn build_directory(
     if let Some(candidate) = &candidate {
         if *cleanup != SourceCleanup::Keep {
             for source in &candidate.sources {
-                if !cleanup_safe || !cleanup_allowed(candidate, source, root) {
-                    warnings.push(format!("source cleanup skipped for {}; shared, unrecognized, inherited-outside-root or unimported configurations are retained", escaped(&source.display().to_string())));
+                if let Some(reason) =
+                    cleanup_reason(candidate, source, root, imported, cleanup_safe)
+                {
+                    warnings.push(format!("source cleanup skipped for {}; {reason}; file left in place; delete it by hand", escaped(&source.display().to_string())));
                 }
             }
         }
@@ -475,6 +486,32 @@ fn cleanup_allowed(candidate: &Candidate, source: &Path, root: &Path) -> bool {
         && resolved_source_path(source).starts_with(resolved_source_path(root))
 }
 
+fn cleanup_reason(
+    candidate: &Candidate,
+    source: &Path,
+    root: &Path,
+    imported: bool,
+    cleanup_safe: bool,
+) -> Option<&'static str> {
+    if !imported {
+        Some("configuration was not imported")
+    } else if !resolved_source_path(source).starts_with(resolved_source_path(root)) {
+        Some("configuration is inherited from outside the migration root")
+    } else if matches!(candidate.tool, Formatter::Prettier | Formatter::Dprint)
+        || source
+            .file_name()
+            .is_some_and(|name| name == "pyproject.toml")
+    {
+        Some("configuration is shared with other tools or file types")
+    } else if !cleanup_safe {
+        Some("configuration contains unrecognized settings")
+    } else if !discovery::can_cleanup(candidate.tool, source) {
+        Some("source filename is unrecognized for cleanup")
+    } else {
+        None
+    }
+}
+
 fn parent(path: &Path) -> PathBuf {
     path.parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -545,7 +582,7 @@ pub(super) fn source_context(
     if applicable.len() > 1 {
         let names = applicable
             .iter()
-            .map(|candidate| candidate.tool.name())
+            .map(|candidate| candidate.tool.flag_value())
             .collect::<Vec<_>>()
             .join(", ");
         return Err(format!(

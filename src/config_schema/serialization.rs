@@ -11,6 +11,83 @@ use super::{
     YamlConfig,
 };
 
+macro_rules! option_union {
+    ($name:ident, $expected:literal, $($variant:ident($type:ty)),+ $(,)?) => {
+        impl<'de> Deserialize<'de> for super::$name {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                #[derive(Deserialize)]
+                #[serde(untagged)]
+                enum Options { $($variant($type)),+ }
+                let value = serde_json::Value::deserialize(deserializer)?;
+                match Options::deserialize(&value) {
+                    Ok(options) => Ok(match options { $(Options::$variant(value) => Self::$variant(value)),+ }),
+                    Err(_) => Err(invalid_option_value(&value, $expected)),
+                }
+            }
+        }
+    };
+}
+
+option_union!(
+    StringOrVec,
+    "a string or a list of strings",
+    One(String),
+    Many(Vec<String>)
+);
+option_union!(
+    ForbidSetting,
+    "a boolean or \"non-empty\"",
+    Bool(bool),
+    Mode(super::ForbidMode)
+);
+option_union!(
+    SpacesSetting,
+    "an integer or \"consistent\"",
+    Int(i64),
+    Mode(super::SpacesMode)
+);
+option_union!(
+    IndentSequencesSetting,
+    "a boolean, \"whatever\", or \"consistent\"",
+    Bool(bool),
+    Mode(super::IndentSequencesMode)
+);
+option_union!(
+    QuotedStringsRequired,
+    "a boolean or \"only-when-needed\"",
+    Bool(bool),
+    Mode(super::QuotedStringsRequiredMode)
+);
+
+fn invalid_option_value<E: serde::de::Error>(
+    value: &serde_json::Value,
+    expected: &str,
+) -> E {
+    use serde::de::Unexpected;
+    use serde_json::Value;
+    let unexpected = match value {
+        Value::Null => Unexpected::Unit,
+        Value::Bool(value) => Unexpected::Bool(*value),
+        Value::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                Unexpected::Signed(value)
+            } else if let Some(value) = value.as_u64() {
+                Unexpected::Unsigned(value)
+            } else {
+                Unexpected::Float(
+                    value
+                        .as_f64()
+                        .expect("JSON numbers have a numeric representation"),
+                )
+            }
+        }
+        Value::String(value) => Unexpected::Str(value),
+        Value::Array(_) => Unexpected::Seq,
+        Value::Object(_) => Unexpected::Map,
+    };
+    E::invalid_value(unexpected, &expected)
+}
+
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for RuleEntry<T> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct EntryVisitor<T>(PhantomData<T>);

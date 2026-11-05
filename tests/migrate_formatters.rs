@@ -17,6 +17,122 @@ use crate::common::cli::{run, ryl};
 const DPRINT: &str = r#"{"plugins":["https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm"],"yaml":{}}"#;
 
 #[test]
+fn prettier_warning_names_directive_migration_command() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".prettierrc"), "{}").unwrap();
+    let (code, _, stderr) = run(ryl(dir.path())
+        .current_dir(dir.path())
+        .args(["--migrate-configs"]));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        stderr
+            .lines()
+            .find_map(|line| line.split_once("Prettier ignore").map(|(_, rest)| rest)),
+        Some(
+            " comments are not rewritten by config migration; convert them with ryl --migrate-directives --migrate-from prettier before replacing the formatter"
+        )
+    );
+}
+
+#[test]
+fn formatter_conflict_lists_accepted_source_flags() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".yamlfmt"), "{}").unwrap();
+    fs::write(dir.path().join("dprint.json"), DPRINT).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path())
+        .current_dir(dir.path())
+        .args(["--migrate-configs"]));
+    assert_eq!(code, 2, "{stderr}");
+    assert_eq!(
+        stderr.trim(),
+        "multiple YAML formatter configurations apply in . (yamlfmt, dprint); select one with --migrate-from"
+    );
+}
+
+#[test]
+fn cleanup_warning_names_source_retention_reason() {
+    for (name, body, tool, reason) in [
+        (
+            ".prettierrc",
+            "{}",
+            "prettier",
+            "configuration is shared with other tools or file types",
+        ),
+        (
+            "yamlfix.toml",
+            "unknown = true\n",
+            "yamlfix",
+            "configuration contains unrecognized settings",
+        ),
+        (
+            "custom.toml",
+            "line_length = 90\n",
+            "yamlfix",
+            "source filename is unrecognized for cleanup",
+        ),
+        (
+            ".prettierrc.js",
+            "export default {};\n",
+            "prettier",
+            "configuration was not imported",
+        ),
+    ] {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join(name), body).unwrap();
+        let (code, _, stderr) = run(ryl(dir.path()).current_dir(dir.path()).args([
+            "--migrate-configs",
+            "--migrate-write",
+            "--migrate-delete-old",
+            "--migrate-from",
+            tool,
+            "--migrate-root",
+            name,
+        ]));
+        assert!([0, 2].contains(&code), "{stderr}");
+        let warning = stderr
+            .lines()
+            .find_map(|line| {
+                line.find("source cleanup skipped for ")
+                    .map(|at| &line[at..])
+            })
+            .unwrap_or_else(|| panic!("{stderr}"));
+        let (_, message) = warning.split_once("; ").unwrap();
+        assert_eq!(
+            message,
+            format!("{reason}; file left in place; delete it by hand")
+        );
+        assert_eq!(fs::read_to_string(dir.path().join(name)).unwrap(), body);
+    }
+}
+
+#[test]
+fn cleanup_warning_names_inherited_source_outside_root() {
+    let dir = tempdir().unwrap();
+    let project = dir.path().join("project");
+    fs::create_dir(&project).unwrap();
+    fs::write(dir.path().join("base.json"), DPRINT).unwrap();
+    fs::write(project.join("dprint.json"), r#"{"extends":"../base.json"}"#).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(&project).args([
+        "--migrate-configs",
+        "--migrate-write",
+        "--migrate-delete-old",
+    ]));
+    assert_eq!(code, 0, "{stderr}");
+    let warning = stderr
+        .lines()
+        .find(|line| line.contains("base.json; "))
+        .unwrap();
+    assert_eq!(
+        warning.split_once("; ").unwrap().1,
+        "configuration is inherited from outside the migration root; file left in place; delete it by hand"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("base.json")).unwrap(),
+        DPRINT
+    );
+}
+
+#[test]
 fn yamlfmt_engine_dimension_defaults_and_array_indent_gaps_are_imported() {
     for (indent, width, expected_indent, expected_width, array_gap) in [
         (0, 8, 4, 80, false),

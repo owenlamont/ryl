@@ -410,7 +410,9 @@ fn combined_prettier_migration_omits_separate_directive_conversion_note() {
         let toml = fs::read_to_string(dir.path().join(".ryl.toml")).unwrap();
         for output in [&stderr, &toml] {
             assert_eq!(
-                output.contains("convert them separately"),
+                output.contains(
+                    "convert them with ryl --migrate-directives --migrate-from prettier"
+                ),
                 !directives,
                 "{output}"
             );

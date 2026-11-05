@@ -11,7 +11,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 - Import static Prettier, yamlfmt, dprint pretty_yaml and yamlfix configs with
   `--migrate-configs`, including representable defaults. Use `--migrate-from`
-  when multiple source formatters apply; unsupported settings produce warnings.
+  when multiple source formatters apply; the error lists accepted flag values.
+  Unsupported settings produce warnings; skipped source cleanup names the reason
+  and leaves the file in place to delete by hand.
   Imports apply supported YAML-only Prettier overrides, preserve supported source
   exclusions, follow local dprint inheritance, and report lint/format conflicts.
   `--migrate-stdout` exports TOML beside existing targets without overwriting them;
@@ -22,6 +24,7 @@ summarize user-visible changes from the tagged commits and published release rec
   `--migrate-write`; uncertain scopes remain unchanged with warnings.
   Runs report converted and retained comment totals plus skipped file counts.
   Official pretty_yaml `0.5.x` ignore markers are supported alongside `0.6.0`.
+  Prettier config imports name the command for converting ignore comments.
   ([#660](https://github.com/owenlamont/ryl/issues/660))
 - Formatter-only `# ryl format-ignore` protects the next YAML node, including
   descendants; `format-disable` / `format-enable` protect a region. Lint checks
@@ -38,7 +41,7 @@ summarize user-visible changes from the tagged commits and published release rec
   `yes` becomes `true`, `0777` becomes `0o777`, `22:22` becomes `1342`, `1_000` becomes
   `1000`, and the directive becomes `%YAML 1.2`. A document holding a date, or a value
   PyYAML reads as a string and other 1.1 readers do not (`08`, `1e5`, `y`), keeps its
-  report and is left as is.
+  report naming the first blocking value and its location, and is left as is.
   ([#365](https://github.com/owenlamont/ryl/issues/365))
 - `yaml-directive` gains `present = false`, which forbids `%YAML` directives:
   its safe fix removes a `%YAML 1.2` one, and migrates a `%YAML 1.1` document before
@@ -87,8 +90,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
-- Config errors name the rule and offending option, including accepted values for
-  invalid options, and retain TOML line and column locations.
+- Config errors name the rule, offending option and invalid value, including accepted
+  values for option unions, and retain TOML line and column locations.
 - Omitted mapping keys (`: value`) no longer trigger false indentation errors or
   prevent `ryl format` from formatting the surrounding document, including when
   their values have anchors or tags.

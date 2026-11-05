@@ -83,7 +83,7 @@ pub(super) fn convert(
         |value| value.is_null() || value.is_boolean(),
     )?;
     if !migrate_directives {
-        options.note("Prettier ignore comments are not rewritten by config migration; convert them separately before replacing the formatter");
+        options.note("Prettier ignore comments are not rewritten by config migration; convert them with ryl --migrate-directives --migrate-from prettier before replacing the formatter");
     }
     let targets = FormatTable {
         quote_style,

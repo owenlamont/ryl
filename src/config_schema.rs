@@ -638,7 +638,7 @@ struct PyProjectToolTable {
 }
 
 /// A TOML field that accepts either one string or a list of strings.
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(untagged, expecting = "a string or a list of strings")]
 pub enum StringOrVec {
     One(String),
@@ -1019,7 +1019,7 @@ pub struct BraceLikeOptions {
     pub max_spaces_inside_empty: Option<i64>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(untagged, expecting = "a boolean or \"non-empty\"")]
 pub enum ForbidSetting {
     Bool(bool),
@@ -1145,7 +1145,7 @@ pub struct IndentationOptions {
     pub check_multi_line_strings: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(untagged, expecting = "an integer or \"consistent\"")]
 pub enum SpacesSetting {
     Int(i64),
@@ -1158,7 +1158,7 @@ pub enum SpacesMode {
     Consistent,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(untagged, expecting = "a boolean, \"whatever\", or \"consistent\"")]
 pub enum IndentSequencesSetting {
     Bool(bool),
@@ -1335,7 +1335,7 @@ pub enum QuoteType {
     Consistent,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(untagged, expecting = "a boolean or \"only-when-needed\"")]
 pub enum QuotedStringsRequired {
     Bool(bool),
