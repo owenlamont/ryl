@@ -13,6 +13,7 @@ use crate::config::{SourceKind, YamlLintConfig};
 use crate::decoder;
 use crate::directives::{Directives, PerLineRuleApply};
 use crate::format::FormatCache;
+use crate::lint::{self, LintProblem};
 use crate::markdown_embed::{
     EmbeddedRegion, MarkdownSources, RegionKind, extract_regions,
     markdown_region_problems,
@@ -50,8 +51,8 @@ pub fn suppressed_rules() -> &'static [&'static str] {
     &SUPPRESSED
 }
 
-/// Every rule with a safe `--fix`, in application order; extend together with `Passes::lint`
-/// and the layout planner when adding a safe fixer. The LSP drives per-rule
+/// Every rule with a safe `--fix`, in application order; extend together with `Passes::lint`,
+/// `Passes::scalar_fixes` and the layout planner. The LSP drives per-rule
 /// "Fix all `<rule>`" actions off this list.
 pub const SAFE_FIX_RULE_IDS: [&str; 17] = [
     new_lines::ID,
@@ -80,6 +81,9 @@ pub const UNSAFE_FIX_RULE_IDS: [&str; 3] =
 
 #[derive(Debug, Clone, Default)]
 pub struct FixStats {
+    pub before: Vec<Result<Vec<LintProblem>, String>>,
+    pub after: Vec<Result<Vec<LintProblem>, String>>,
+    pub leading_notices: Vec<u8>,
     pub changed_files: usize,
     /// Per-file skip notices and format errors, in input order.
     pub notices: Vec<u8>,
@@ -116,7 +120,53 @@ impl Rewrite {
         parsed: &mut ParsedInput,
     ) -> String {
         match self {
-            Self::Fix => apply_safe_fixes_filtered(input, cfg, path, base_dir, skip),
+            Self::Fix => {
+                let source = TextVersion::new(input);
+                if let Some(facts) = parsed.facts.take() {
+                    source.analysis().seed_facts(facts);
+                }
+                if let Some(tokens) = parsed.tokens.take() {
+                    source.analysis().seed_tokens(tokens);
+                }
+                let mut candidates = Vec::new();
+                let before = parsed.diagnostics.as_ref().map(|_| {
+                    lint::lint_analysis_with_repair_help(
+                        source.analysis(),
+                        path,
+                        cfg,
+                        base_dir,
+                        Some(&mut candidates),
+                    )
+                });
+                let (output, latest) = fix_version(
+                    input,
+                    source,
+                    (cfg, path, base_dir),
+                    skip,
+                    before.as_ref().map(|_| candidates),
+                );
+                let text = output.to_string();
+                let after = before.as_ref().map(|before| {
+                    if text == input {
+                        return before.clone();
+                    }
+                    if crate::directives::disables_file(&text) {
+                        return Vec::new();
+                    }
+                    latest.unwrap_or_else(|| {
+                        lint::lint_analysis_with_repair_help(
+                            output.analysis(),
+                            path,
+                            cfg,
+                            base_dir,
+                            None,
+                        )
+                    })
+                });
+                parsed.diagnostics = before.zip(after);
+                parsed.output = Some(output);
+                text
+            }
             Self::Format => cache
                 .format_with_facts(input, cfg, path, skip, parsed)
                 .0
@@ -126,37 +176,32 @@ impl Rewrite {
 }
 
 pub(crate) struct ParsedInput {
+    pub(crate) diagnostics: Option<(Vec<LintProblem>, Vec<LintProblem>)>,
+    pub(crate) output: Option<TextVersion<'static>>,
     pub(crate) facts: Option<ParsedFacts>,
     pub(crate) tokens: Option<crate::text_version::lexical::Tokens>,
     pub(crate) prefetched: bool,
-    pub(crate) strict_error: Option<crate::lint::LintProblem>,
+    pub(crate) strict_error: Option<LintProblem>,
 }
 
 pub(crate) fn rewrite_parse_gate(
     content: &str,
     rewrite: Rewrite,
-) -> Result<ParsedInput, crate::lint::LintProblem> {
-    if rewrite == Rewrite::Fix {
-        let (relaxed_error, strict_error) = crate::lint::parse_errors(content);
-        if let Some(problem) = relaxed_error {
-            return Err(problem);
-        }
-        return Ok(ParsedInput {
-            facts: None,
-            tokens: None,
-            prefetched: false,
-            strict_error,
-        });
-    }
-    let (facts, tokens, prefetched) = ParsedFacts::parse_for_format(content);
-    if let Some(problem) =
-        crate::lint::parse_error_from_result(content, facts.error.as_ref())
+) -> Result<ParsedInput, LintProblem> {
+    let (facts, tokens, prefetched) = if rewrite == Rewrite::Fix {
+        let (facts, tokens) = ParsedFacts::parse_observed(content, 0);
+        (facts, tokens, false)
+    } else {
+        ParsedFacts::parse_for_format(content)
+    };
+    if let Some(problem) = lint::parse_error_from_result(content, facts.error.as_ref())
     {
         return Err(problem);
     }
-    let strict_error =
-        crate::lint::parse_error_from_result(content, facts.strict_error());
+    let strict_error = lint::parse_error_from_result(content, facts.strict_error());
     Ok(ParsedInput {
+        diagnostics: None,
+        output: None,
         facts: Some(facts),
         tokens,
         prefetched,
@@ -179,12 +224,8 @@ fn symlink_notice(path: &Path, flag: &str) -> Option<String> {
 
 /// Render the stderr notice for a skipped input or unfixed rule.
 #[must_use]
-pub fn skip_notice(
-    path: &Path,
-    problem: &crate::lint::LintProblem,
-    flag: &str,
-) -> String {
-    if problem.level == crate::lint::Severity::Warning && problem.rule.is_none() {
+pub fn skip_notice(path: &Path, problem: &LintProblem, flag: &str) -> String {
+    if problem.level == lint::Severity::Warning && problem.rule.is_none() {
         return format!(
             "{}:{}:{} {}\n",
             crate::cli_support::sanitize_control(&path.display().to_string()),
@@ -233,16 +274,50 @@ pub fn rewrite_str(
     base_dir: &Path,
     kind: SourceKind,
     rewrite: Rewrite,
-) -> (Option<String>, Vec<crate::lint::LintProblem>) {
+) -> (Option<String>, Vec<LintProblem>) {
+    let output = rewrite_checked(content, cfg, path, base_dir, kind, rewrite, false);
+    (output.rewritten, output.skipped)
+}
+
+#[derive(Default)]
+struct RewriteOutcome {
+    rewritten: Option<String>,
+    skipped: Vec<LintProblem>,
+    before: Vec<LintProblem>,
+    after: Vec<LintProblem>,
+}
+
+fn rewrite_checked(
+    content: &str,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+    kind: SourceKind,
+    rewrite: Rewrite,
+    checked: bool,
+) -> RewriteOutcome {
     match kind {
         SourceKind::Yaml if crate::directives::disables_file(content) => {
-            (None, Vec::new())
+            RewriteOutcome::default()
         }
         SourceKind::Yaml => {
             let mut events = match rewrite_parse_gate(content, rewrite) {
                 Ok(events) => events,
-                Err(problem) => return (None, vec![problem]),
+                Err(problem) => {
+                    let before = if checked {
+                        lint::lint_str_with_repair_help(content, path, cfg, base_dir)
+                    } else {
+                        Vec::new()
+                    };
+                    return RewriteOutcome {
+                        after: before.clone(),
+                        before,
+                        skipped: vec![problem],
+                        ..RewriteOutcome::default()
+                    };
+                }
             };
+            events.diagnostics = checked.then(Default::default);
             let mut cache = FormatCache::default();
             let fixed = rewrite.apply(
                 content,
@@ -252,28 +327,60 @@ pub fn rewrite_str(
                 &mut cache,
                 &mut events,
             );
-            let mut skipped =
-                unfixed_notices(&fixed, cfg, path, base_dir, rewrite, &mut cache);
+            let mut skipped = events.output.as_ref().map_or_else(
+                || unfixed_notices(&fixed, cfg, path, base_dir, rewrite, &mut cache),
+                |output| unfixed_with_analysis(output.analysis(), cfg, path, base_dir),
+            );
             if let Some(problem) = rewrite_parse_notice(content, &fixed, &events) {
                 if fixed == content {
                     skipped.clear();
                 }
                 skipped.push(problem);
             }
-            ((fixed != content).then_some(fixed), skipped)
+            let (before, after) = events.diagnostics.unwrap_or_default();
+            RewriteOutcome {
+                rewritten: (fixed != content).then_some(fixed),
+                skipped,
+                before,
+                after,
+            }
         }
         SourceKind::Markdown => {
-            let mut cache = FormatCache::default();
-            let (fixed, refusals) = fix_markdown_cached(
-                content, path, cfg, base_dir, rewrite, true, &mut cache,
+            let before = if checked {
+                crate::markdown_embed::lint_markdown_str(content, path, cfg, base_dir)
+            } else {
+                Vec::new()
+            };
+            let (rewritten, refusals) = fix_markdown_cached(
+                content,
+                path,
+                cfg,
+                base_dir,
+                rewrite,
+                true,
+                &mut FormatCache::default(),
             );
-            (
-                fixed,
-                refusals
+            let after = if checked {
+                rewritten.as_ref().map_or_else(
+                    || before.clone(),
+                    |text| {
+                        crate::markdown_embed::lint_markdown_str(
+                            text, path, cfg, base_dir,
+                        )
+                    },
+                )
+            } else {
+                Vec::new()
+            };
+            RewriteOutcome {
+                rewritten,
+                skipped: refusals
                     .into_iter()
                     .map(|refusal| refusal.problem)
                     .collect(),
-            )
+                before,
+                after,
+            }
         }
     }
 }
@@ -286,22 +393,52 @@ pub fn rewrite_files(
     notice: Notice<'_>,
 ) -> FixStats {
     let mut stats = FixStats::default();
-    for batch in hard_link_batches(files) {
+    let batches = hard_link_batches(files);
+    let aliases = rewrite == Rewrite::Fix
+        && (batches.len() > 1 || files.iter().any(|file| is_symlink(&file.0)));
+    let original = aliases.then(|| check_files(files, notice));
+    let notice: Notice<'_> = if aliases { &|_, _| None } else { notice };
+    for batch in batches {
         let _ = read_in_order(
             &files[batch.clone()],
             notice,
+            ReadOptions {
+                follow_symlinks: false,
+                notice_first: rewrite == Rewrite::Format,
+            },
             |decoded, (path, base_dir, cfg, kind)| {
-                let (rewritten, skipped) =
-                    rewrite_str(decoded.content(), cfg, path, base_dir, *kind, rewrite);
-                if let Some(rewritten) = &rewritten {
+                let output = rewrite_checked(
+                    decoded.content(),
+                    cfg,
+                    path,
+                    base_dir,
+                    *kind,
+                    rewrite,
+                    rewrite == Rewrite::Fix,
+                );
+                if let Some(rewritten) = &output.rewritten {
                     decoded.write(path, rewritten)?;
                 }
-                Ok((rewritten.is_some(), skipped))
+                Ok(output)
             },
-            |offset, (result, stderr)| {
+            |offset, (mut result, stderr)| {
                 let index = batch.start + offset;
                 let notice_start = stats.notices.len();
                 let path = &files[index].0;
+                if rewrite == Rewrite::Fix {
+                    stats.before.push(
+                        result
+                            .as_mut()
+                            .map(|output| std::mem::take(&mut output.before))
+                            .map_err(|error| error.clone()),
+                    );
+                    stats.after.push(
+                        result
+                            .as_mut()
+                            .map(|output| std::mem::take(&mut output.after))
+                            .map_err(|error| error.clone()),
+                    );
+                }
                 if let Some(notice) = symlink_notice(path, rewrite.flag()) {
                     stats.notices.extend_from_slice(notice.as_bytes());
                     stats
@@ -310,10 +447,15 @@ pub fn rewrite_files(
                     stats.skipped.push(index);
                     return Ok(());
                 }
-                stats.notices.extend(stderr);
+                if rewrite == Rewrite::Fix && !aliases {
+                    stats.leading_notices.extend(stderr);
+                } else {
+                    stats.notices.extend(stderr);
+                }
                 match result {
-                    Ok((changed, skipped)) => {
-                        stats.changed_files += usize::from(changed);
+                    Ok(output) => {
+                        let skipped = output.skipped;
+                        stats.changed_files += usize::from(output.rewritten.is_some());
                         if !skipped.is_empty() {
                             stats.skipped.push(index);
                         }
@@ -340,7 +482,60 @@ pub fn rewrite_files(
             },
         );
     }
+    if let Some((before, notices)) = original {
+        stats.before = before;
+        stats.leading_notices = notices;
+        stats.after = check_files(files, &|_, _| None).0;
+        for (index, error) in &stats.errors {
+            stats.before[*index] = Err(error.clone());
+            stats.after[*index] = Err(error.clone());
+        }
+    }
     stats
+}
+
+fn check_files(
+    files: &[LintFile],
+    notice: Notice<'_>,
+) -> (Vec<Result<Vec<LintProblem>, String>>, Vec<u8>) {
+    let mut outcomes = Vec::new();
+    let mut notices = Vec::new();
+    let _ = read_in_order(
+        files,
+        notice,
+        ReadOptions {
+            follow_symlinks: true,
+            notice_first: false,
+        },
+        |decoded, (path, base_dir, cfg, kind)| {
+            Ok(match kind {
+                SourceKind::Yaml => lint::lint_str_with_repair_help(
+                    decoded.content(),
+                    path,
+                    cfg,
+                    base_dir,
+                ),
+                SourceKind::Markdown => crate::markdown_embed::lint_markdown_str(
+                    decoded.content(),
+                    path,
+                    cfg,
+                    base_dir,
+                ),
+            })
+        },
+        |_, (outcome, stderr)| {
+            outcomes.push(outcome);
+            notices.extend(stderr);
+            Ok(())
+        },
+    );
+    (outcomes, notices)
+}
+
+#[derive(Clone, Copy)]
+struct ReadOptions {
+    follow_symlinks: bool,
+    notice_first: bool,
 }
 
 /// Input ranges in which no two paths name the same file, so the later path of a hard link
@@ -367,11 +562,11 @@ fn hard_link_batches(files: &[LintFile]) -> Vec<std::ops::Range<usize>> {
 /// A file's leading stderr notice, derived from its decoded content.
 pub type Notice<'a> = &'a (dyn Fn(&str, &LintFile) -> Option<String> + Sync);
 
-/// Never reads a symlink; hands each result and its stderr, led by its [`Notice`], to `emit`
-/// in input order, for ordered replay.
+/// Read and replay each result and its stderr in input order.
 fn read_in_order<T: Send>(
     files: &[LintFile],
     notice: Notice<'_>,
+    options: ReadOptions,
     compute: impl Fn(decoder::DecodedFile, &LintFile) -> Result<T, String> + Sync,
     mut emit: impl FnMut(usize, (Result<T, String>, Vec<u8>)) -> Result<(), String>,
 ) -> Result<(), String> {
@@ -380,13 +575,18 @@ fn read_in_order<T: Send>(
         |file| {
             let file_type =
                 std::fs::symlink_metadata(&file.0).map(|meta| meta.file_type());
-            if file_type.as_ref().is_ok_and(std::fs::FileType::is_symlink) {
+            if !options.follow_symlinks
+                && file_type.as_ref().is_ok_and(std::fs::FileType::is_symlink)
+            {
                 return (None, Err(format!("skipped symlink {}", file.0.display())));
             }
             match decoder::read_file_lossless(&file.0) {
                 Ok(decoded) => (
                     file_type
-                        .is_ok_and(|kind| kind.is_file())
+                        .is_ok_and(|kind| {
+                            kind.is_file()
+                                || options.follow_symlinks && kind.is_symlink()
+                        })
                         .then(|| notice(decoded.content(), file))
                         .flatten(),
                     compute(decoded, file),
@@ -396,7 +596,10 @@ fn read_in_order<T: Send>(
         },
         |index, ((notice, result), stderr)| {
             let stderr = match notice {
-                Some(notice) => [notice.into_bytes(), stderr].concat(),
+                Some(notice) if options.notice_first => {
+                    [notice.into_bytes(), stderr].concat()
+                }
+                Some(notice) => [stderr, notice.into_bytes()].concat(),
                 None => stderr,
             };
             emit(index, (result, stderr))
@@ -409,8 +612,8 @@ fn read_in_order<T: Send>(
 pub struct DiffOutcome {
     pub changed: bool,
     pub diff: Option<String>,
-    pub skipped: Vec<crate::lint::LintProblem>,
-    pub problems: Vec<crate::lint::LintProblem>,
+    pub skipped: Vec<LintProblem>,
+    pub problems: Vec<LintProblem>,
 }
 
 /// Aggregated `--diff` results across all linted files.
@@ -568,12 +771,12 @@ pub fn diff_outcome(
 
 /// The one finding a file `ryl format` would change gets, at the first change in `diff`
 /// (the start, without one), as ruff reports an unformatted file.
-fn would_reformat(diff: Option<&str>) -> crate::lint::LintProblem {
+fn would_reformat(diff: Option<&str>) -> LintProblem {
     let (line, column) = diff.map_or((1, 1), first_change);
-    crate::lint::LintProblem {
+    LintProblem {
         line,
         column,
-        level: crate::lint::Severity::Error,
+        level: lint::Severity::Error,
         message: "File would be reformatted".to_string(),
         rule: Some("unformatted"),
         hidden_unsafe_fix: false,
@@ -650,18 +853,22 @@ fn diff_and_skips(
                     ..DiffOutcome::default()
                 };
             }
-            let mut skipped = unfixed_notices(
-                if rewrite == Rewrite::Format {
-                    content
-                } else {
-                    &fixed
-                },
-                cfg,
-                path,
-                base_dir,
-                rewrite,
-                cache,
-            );
+            let mut skipped = if let Some(output) = &events.output {
+                unfixed_with_analysis(output.analysis(), cfg, path, base_dir)
+            } else {
+                unfixed_notices(
+                    if rewrite == Rewrite::Format {
+                        content
+                    } else {
+                        &fixed
+                    },
+                    cfg,
+                    path,
+                    base_dir,
+                    rewrite,
+                    cache,
+                )
+            };
             if let Some(problem) = rewrite_parse_notice(content, &fixed, &events) {
                 if fixed == content {
                     skipped.clear();
@@ -696,13 +903,14 @@ fn markdown_diff(
     // `--diff` never writes, so skips point at the original content's lines.
     let mut skips = |markdown| {
         markdown_region_problems(markdown, cfg, |region| {
-            let strict = crate::lint::strict_parse_error(&region.content);
+            let strict = lint::strict_parse_error(&region.content);
             region_skips(
                 &region.content,
                 strict,
                 (cfg, path, base_dir),
                 rewrite,
                 cache,
+                None,
             )
         })
     };
@@ -714,7 +922,7 @@ fn markdown_diff(
     };
     skipped.retain(|problem| {
         !refusals.iter().any(|refusal| {
-            refusal.problem.level == crate::lint::Severity::Warning
+            refusal.problem.level == lint::Severity::Warning
                 && refusal.problem.line == problem.line
                 && refusal.problem.column == problem.column
                 && problem.rule.is_none()
@@ -749,18 +957,30 @@ fn unfixed_notices(
     base_dir: &Path,
     rewrite: Rewrite,
     cache: &mut FormatCache,
-) -> Vec<crate::lint::LintProblem> {
+) -> Vec<LintProblem> {
     if rewrite == Rewrite::Format {
         return crate::format::unfixed(content, cfg, cache);
     }
+    let source = TextVersion::new(content);
+    unfixed_with_analysis(source.analysis(), cfg, path, base_dir)
+}
+
+fn unfixed_with_analysis(
+    input: Analysis<'_>,
+    cfg: &YamlLintConfig,
+    path: &Path,
+    base_dir: &Path,
+) -> Vec<LintProblem> {
     let mut notices = Vec::new();
     if let Some(line) =
-        crate::rules::block_scalar_chomping::ambiguous_blank_body_line(content)
+        crate::rules::block_scalar_chomping::ambiguous_blank_body_line_with_analysis(
+            input,
+        )
     {
-        notices.push(crate::lint::LintProblem {
+        notices.push(LintProblem {
             line,
             column: 1,
-            level: crate::lint::Severity::Error,
+            level: lint::Severity::Error,
             message: "cannot fix this file safely: block scalar value may change"
                 .to_string(),
             rule: None,
@@ -769,17 +989,24 @@ fn unfixed_notices(
     }
     if rule_enabled(key_ordering::ID, cfg, path, base_dir) {
         let rule = key_ordering::Config::resolve(cfg, path);
+        if key_ordering::check_with_analysis(input, &rule).is_empty() {
+            return notices;
+        }
         notices.extend(
-            key_ordering::unfixed(content, &rule, &cfg.per_line_applies(path))
-                .into_iter()
-                .map(|violation| crate::lint::LintProblem {
-                    line: violation.line,
-                    column: violation.column,
-                    level: crate::lint::Severity::Error,
-                    message: violation.message,
-                    rule: Some(key_ordering::ID),
-                    hidden_unsafe_fix: false,
-                }),
+            key_ordering::unfixed_with_analysis(
+                input,
+                &rule,
+                &cfg.per_line_applies(path),
+            )
+            .into_iter()
+            .map(|violation| LintProblem {
+                line: violation.line,
+                column: violation.column,
+                level: lint::Severity::Error,
+                message: violation.message,
+                rule: Some(key_ordering::ID),
+                hidden_unsafe_fix: false,
+            }),
         );
     }
     notices
@@ -789,13 +1016,19 @@ fn unfixed_notices(
 /// mappings.
 fn region_skips(
     region: &str,
-    strict: Option<crate::lint::LintProblem>,
+    strict: Option<LintProblem>,
     (cfg, path, base_dir): (&YamlLintConfig, &Path, &Path),
     rewrite: Rewrite,
     cache: &mut FormatCache,
-) -> Vec<crate::lint::LintProblem> {
+    output: Option<&TextVersion<'_>>,
+) -> Vec<LintProblem> {
     strict.map_or_else(
-        || unfixed_notices(region, cfg, path, base_dir, rewrite, cache),
+        || {
+            output.filter(|output| &***output == region).map_or_else(
+                || unfixed_notices(region, cfg, path, base_dir, rewrite, cache),
+                |output| unfixed_with_analysis(output.analysis(), cfg, path, base_dir),
+            )
+        },
         |problem| vec![problem],
     )
 }
@@ -804,10 +1037,14 @@ fn rewrite_parse_notice(
     original: &str,
     fixed: &str,
     parsed: &ParsedInput,
-) -> Option<crate::lint::LintProblem> {
-    parsed.strict_error.clone().map(|mut problem| {
-        if original != fixed {
-            problem.level = crate::lint::Severity::Warning;
+) -> Option<LintProblem> {
+    repair_notice(parsed.strict_error.clone(), original != fixed)
+}
+
+fn repair_notice(strict: Option<LintProblem>, changed: bool) -> Option<LintProblem> {
+    strict.map(|mut problem| {
+        if changed {
+            problem.level = lint::Severity::Warning;
             problem.message =
                 "input was YAML the spec rejects; repaired it".to_string();
         }
@@ -942,7 +1179,7 @@ fn ends_in_bare_cr(original: &str, fixed: &str) -> bool {
 }
 
 #[must_use]
-fn bare_cr_diff_skip(rewrite: Rewrite) -> crate::lint::LintProblem {
+fn bare_cr_diff_skip(rewrite: Rewrite) -> LintProblem {
     diff_skip(&format!(
         "content ends in a bare carriage return, which has no applicable text diff; use {}",
         rewrite.flag(),
@@ -951,11 +1188,11 @@ fn bare_cr_diff_skip(rewrite: Rewrite) -> crate::lint::LintProblem {
 
 /// A 1:1 skip problem for an input that cannot produce an applicable `--diff`.
 #[must_use]
-fn diff_skip(message: &str) -> crate::lint::LintProblem {
-    crate::lint::LintProblem {
+fn diff_skip(message: &str) -> LintProblem {
+    LintProblem {
         line: 1,
         column: 1,
-        level: crate::lint::Severity::Error,
+        level: lint::Severity::Error,
         message: message.to_string(),
         rule: None,
         hidden_unsafe_fix: false,
@@ -965,7 +1202,7 @@ fn diff_skip(message: &str) -> crate::lint::LintProblem {
 /// The `--diff` skip for a non-UTF-8 (or BOM) input, whose decoded-text diff cannot apply
 /// back to the original bytes as `--fix`'s re-encode does. Shared by file and stdin paths.
 #[must_use]
-pub fn non_utf8_diff_skip() -> crate::lint::LintProblem {
+pub fn non_utf8_diff_skip() -> LintProblem {
     diff_skip("non-UTF-8 or BOM content has no applicable text diff; use --fix")
 }
 
@@ -1024,6 +1261,10 @@ pub fn diff_files<'a>(
     read_in_order(
         files,
         notice,
+        ReadOptions {
+            follow_symlinks: false,
+            notice_first: true,
+        },
         |decoded, (path, base_dir, cfg, kind)| {
             Ok(decoded_diff_outcome(
                 &decoded, cfg, path, base_dir, *kind, rewrite,
@@ -1082,7 +1323,7 @@ pub fn fix_markdown_str(
 }
 
 struct MarkdownRefusal {
-    problem: crate::lint::LintProblem,
+    problem: LintProblem,
     blocks_preview: bool,
 }
 
@@ -1096,10 +1337,10 @@ fn markdown_refusal(
         RegionKind::FencedBlock => "fenced YAML block",
     };
     MarkdownRefusal {
-        problem: crate::lint::LintProblem {
+        problem: LintProblem {
             line: region.line_offset + 1,
             column: region.col_offset + 1,
-            level: crate::lint::Severity::Error,
+            level: lint::Severity::Error,
             message: format!("{kind} {reason}"),
             rule: None,
             hidden_unsafe_fix: false,
@@ -1248,22 +1489,24 @@ fn rewrite_regions(
             if let Some((_, _, line_delta)) =
                 written.as_ref().filter(|_| refusal_lines_in_output)
             {
-                for problem in notices
-                    .iter_mut()
-                    .chain(refusals.iter_mut().map(|refusal| &mut refusal.problem))
-                {
-                    problem.line = problem.line.checked_add_signed(*line_delta).expect(
-                        "rewritten region shifts a later refusal within the document",
-                    );
-                }
+                shift_notices(&mut notices, &mut refusals, *line_delta);
             }
             let mode = (rewrite, refusal_lines_in_output);
             if let Some((host, shown, strict)) =
                 notice_source(markdown, region, &parsed, written.as_ref(), mode)
             {
-                let context = (cfg, path, base_dir);
-                let skips =
-                    region_skips(&shown.content, strict, context, rewrite, cache);
+                let output = parsed
+                    .as_ref()
+                    .ok()
+                    .and_then(|parsed| parsed.output.as_ref());
+                let skips = region_skips(
+                    &shown.content,
+                    strict,
+                    (cfg, path, base_dir),
+                    rewrite,
+                    cache,
+                    output,
+                );
                 notices
                     .splice(0..0, crate::markdown_embed::in_host(host, shown, skips));
             }
@@ -1309,23 +1552,35 @@ fn rewrite_regions(
     )
 }
 
+fn shift_notices(
+    notices: &mut [LintProblem],
+    refusals: &mut [MarkdownRefusal],
+    line_delta: isize,
+) {
+    for problem in notices
+        .iter_mut()
+        .chain(refusals.iter_mut().map(|refusal| &mut refusal.problem))
+    {
+        problem.line = problem
+            .line
+            .checked_add_signed(line_delta)
+            .expect("rewritten region shifts a later refusal within the document");
+    }
+}
+
 /// The host and region `region`'s notices are read from, with the strict parse error that
 /// replaces them; `None` where a preview reports a repaired region through its repair
 /// notice alone.
 fn notice_source<'a>(
     markdown: &'a str,
     region: &'a EmbeddedRegion,
-    parsed: &Result<ParsedInput, crate::lint::LintProblem>,
+    parsed: &Result<ParsedInput, LintProblem>,
     written: Option<&'a (String, EmbeddedRegion, isize)>,
     (rewrite, in_output): (Rewrite, bool),
-) -> Option<(
-    &'a str,
-    &'a EmbeddedRegion,
-    Option<crate::lint::LintProblem>,
-)> {
+) -> Option<(&'a str, &'a EmbeddedRegion, Option<LintProblem>)> {
     let input_strict = || {
         parsed.as_ref().map_or_else(
-            |_| crate::lint::strict_parse_error(&region.content),
+            |_| lint::strict_parse_error(&region.content),
             |parsed| parsed.strict_error.clone(),
         )
     };
@@ -1335,7 +1590,7 @@ fn notice_source<'a>(
             candidate.as_str(),
             updated,
             (rewrite == Rewrite::Fix)
-                .then(|| crate::lint::strict_parse_error(&updated.content))
+                .then(|| lint::strict_parse_error(&updated.content))
                 .flatten(),
         )),
         Some(_) => input_strict().is_none().then_some((markdown, region, None)),
@@ -1461,14 +1716,65 @@ pub fn apply_safe_fixes_filtered(
     base_dir: &Path,
     skip: &[&str],
 ) -> String {
+    fix_version(
+        input,
+        TextVersion::new(input),
+        (cfg, path, base_dir),
+        skip,
+        None,
+    )
+    .0
+    .into_text()
+}
+
+fn fix_version<'a>(
+    input: &'a str,
+    source: TextVersion<'a>,
+    (cfg, path, base_dir): (&YamlLintConfig, &Path, &Path),
+    skip: &[&str],
+    initial: Option<Vec<&'static str>>,
+) -> (TextVersion<'static>, Option<Vec<LintProblem>>) {
     let passes = Passes::lint(cfg, path, base_dir, skip);
-    let mut tracking = PassTracking {
-        edited: &mut Vec::new(),
-        reindented: None,
-        strict_input: None,
-        unprobed: false,
+    let mut initial = initial.map(|rules| (source.analysis().epoch(), rules));
+    let mut latest = None;
+    let mut candidates = |input: Analysis<'_>| {
+        let mut rules = Vec::new();
+        if let Some((epoch, supplied)) = initial.take()
+            && std::rc::Rc::ptr_eq(&epoch, &input.epoch())
+        {
+            rules = supplied;
+        } else {
+            let problems =
+                lint::lint_with_analysis(input, path, cfg, base_dir, Some(&mut rules))
+                    .unwrap_or_else(|(problem, _)| vec![problem]);
+            latest = Some((input.epoch(), problems));
+        }
+        rules.retain(|rule| {
+            !skip.contains(rule)
+                && rule_enabled(rule, cfg, path, base_dir)
+                && SAFE_FIX_RULE_IDS
+                    .iter()
+                    .chain(&UNSAFE_FIX_RULE_IDS)
+                    .any(|id| id == rule)
+        });
+        rules
     };
-    rewrite(input, TextVersion::new(input), &passes, &mut tracking).into_text()
+    let output = rewrite(
+        input,
+        source,
+        &passes,
+        &mut PassTracking {
+            edited: &mut Vec::new(),
+            reindented: None,
+            strict_input: None,
+            unprobed: false,
+            candidates: Some(&mut candidates),
+        },
+    );
+    let problems = latest
+        .filter(|(epoch, _)| std::rc::Rc::ptr_eq(epoch, &output.analysis().epoch()))
+        .map(|(_, problems)| problems);
+    (output, problems)
 }
 
 /// The text `apply_safe_fixes` runs its fixers on: `input` where it is strictly valid,
@@ -1482,11 +1788,8 @@ pub fn safe_fix_start(
     base_dir: &Path,
 ) -> Option<String> {
     let source = TextVersion::new(input);
-    if crate::lint::parse_error_from_result(
-        input,
-        source.analysis().parsed().strict_error(),
-    )
-    .is_none()
+    if lint::parse_error_from_result(input, source.analysis().parsed().strict_error())
+        .is_none()
     {
         return Some(input.to_owned());
     }
@@ -1497,7 +1800,7 @@ pub fn safe_fix_start(
 /// `input` (whose analysis is `source`) rewritten by `passes`.
 pub(crate) fn rewrite<'a>(
     input: &'a str,
-    mut source: TextVersion<'a>,
+    source: TextVersion<'a>,
     passes: &Passes,
     tracking: &mut PassTracking<'_>,
 ) -> TextVersion<'static> {
@@ -1505,84 +1808,76 @@ pub(crate) fn rewrite<'a>(
     if crate::directives::disables_file(input) {
         return TextVersion::new(input.to_string());
     }
+    let Some(source) = fix_start(source, passes, tracking) else {
+        return TextVersion::new(input.to_string());
+    };
+    let mut current = source;
+    for _ in 0..FIX_PIPELINE_MAX_PASSES {
+        let candidates = tracking
+            .candidates
+            .as_mut()
+            .map_or_else(Vec::new, |check| check(current.analysis()));
+        let epoch = current.analysis().epoch();
+        tracking.unprobed = true;
+        let (mut output, ambiguous) =
+            if passes.layout_needed(current.analysis(), &candidates) {
+                match crate::format::layout::format(&mut current, passes, tracking) {
+                    Ok(output) => (output, false),
+                    Err(Fallback::Ambiguous) => (current, true),
+                    Err(reason) => {
+                        crate::format::layout::stats::Recording::fallback(reason);
+                        return TextVersion::new(input.to_string());
+                    }
+                }
+            } else {
+                let ambiguous = ambiguous(current.analysis());
+                (current.into_owned(), ambiguous)
+            };
+        let applicable = |input: Analysis<'_>, rule| {
+            !std::rc::Rc::ptr_eq(&epoch, &input.epoch())
+                || passes.preserve_events
+                || candidates.contains(&rule)
+        };
+        let mut changed = false;
+        for (rule, enabled, fix) in passes.scalar_fixes() {
+            if enabled
+                && (!ambiguous || rule == key_ordering::ID)
+                && applicable(output.analysis(), rule)
+            {
+                changed |=
+                    fix_rule(&mut output, rule, passes, tracking.edited, |input| {
+                        fix(input, passes)
+                    });
+            }
+        }
+        current = output;
+        if !changed {
+            break;
+        }
+    }
+    current.into_owned()
+}
+
+fn fix_start<'a>(
+    mut source: TextVersion<'a>,
+    passes: &Passes<'_>,
+    tracking: &mut PassTracking<'_>,
+) -> Option<TextVersion<'a>> {
     let strict = tracking.strict_input.unwrap_or_else(|| {
-        crate::lint::parse_error_from_result(
-            input,
+        lint::parse_error_from_result(
+            source.analysis().text(),
             source.analysis().parsed().strict_error(),
         )
         .is_none()
     });
     if strict {
         source.mark_strict_valid();
+        Some(source)
     } else {
-        let Some(repaired) = repair(source.analysis(), passes) else {
-            return TextVersion::new(input.to_string());
-        };
+        let repaired = repair(source.analysis(), passes)?;
         tracking.edited.push(indentation::ID);
-        source = repaired;
+        Some(repaired)
     }
-    let mut current = source;
-    for _ in 0..FIX_PIPELINE_MAX_PASSES {
-        tracking.unprobed = true;
-        let (mut output, ambiguous) =
-            match crate::format::layout::format(&mut current, passes, tracking) {
-                Ok(output) => (output, false),
-                Err(Fallback::Ambiguous) => (current, true),
-                Err(reason) => {
-                    crate::format::layout::stats::Recording::fallback(reason);
-                    return TextVersion::new(input.to_string());
-                }
-            };
-        let truthy = !ambiguous
-            && fix_rule(
-                &mut output,
-                truthy::ID,
-                passes.truthy.as_ref(),
-                passes,
-                tracking.edited,
-                truthy::fix,
-            );
-        let octal = !ambiguous
-            && fix_rule(
-                &mut output,
-                octal_values::ID,
-                passes.octal_values.as_ref(),
-                passes,
-                tracking.edited,
-                octal_values::fix,
-            );
-        let schema = !ambiguous
-            && fix_rule(
-                &mut output,
-                schema_dependent_values::ID,
-                passes.schema_dependent_values.as_ref(),
-                passes,
-                tracking.edited,
-                schema_dependent_values::fix,
-            );
-        let ordered = fix_rule(
-            &mut output,
-            key_ordering::ID,
-            passes.key_ordering.as_ref(),
-            passes,
-            tracking.edited,
-            |text, cfg| key_ordering::fix(text, cfg, &passes.per_line),
-        );
-        let declared = !ambiguous
-            && fix_rule(
-                &mut output,
-                yaml_directive::ID,
-                passes.yaml_directive.as_ref(),
-                passes,
-                tracking.edited,
-                |text, cfg| yaml_directive::fix(text, cfg, &passes.per_line),
-            );
-        current = output;
-        if !(truthy || octal || schema || ordered || declared) {
-            break;
-        }
-    }
-    current.into_owned()
 }
 
 pub(crate) fn ambiguous(input: Analysis<'_>) -> bool {
@@ -1590,17 +1885,13 @@ pub(crate) fn ambiguous(input: Analysis<'_>) -> bool {
         .is_some()
 }
 
-fn fix_rule<C>(
+fn fix_rule(
     content: &mut TextVersion<'_>,
     rule: &'static str,
-    cfg: Option<&C>,
     passes: &Passes,
     edited: &mut Vec<&'static str>,
-    mut fix: impl FnMut(&str, &C) -> Option<String>,
+    mut fix: impl FnMut(Analysis<'_>) -> Option<String>,
 ) -> bool {
-    let Some(cfg) = cfg else {
-        return false;
-    };
     let guarded = passes
         .per_line
         .iter()
@@ -1613,7 +1904,7 @@ fn fix_rule<C>(
     let mut changed = false;
     for _ in 0..RULE_FIX_MAX_ITERATIONS {
         let text = content.analysis().text();
-        let Some(mut next) = fix(text, cfg) else {
+        let Some(mut next) = fix(content.analysis()) else {
             break;
         };
         if guarded {
@@ -1685,7 +1976,48 @@ pub(crate) struct Passes<'a> {
     pub(crate) per_line: Vec<PerLineRuleApply<'a>>,
 }
 
+type ScalarFix = fn(Analysis<'_>, &Passes<'_>) -> Option<String>;
+
 impl<'a> Passes<'a> {
+    fn scalar_fixes(&self) -> [(&'static str, bool, ScalarFix); 5] {
+        macro_rules! entry {
+            ($rule:ident, |$passes:ident| $cfg:expr $(, $lines:expr)?) => {
+                ($rule::ID, self.$rule.is_some(), |input, $passes| {
+                    $rule::fix_with_analysis(input, $cfg $(, $lines)?)
+                })
+            };
+        }
+        [
+            entry!(truthy, |p| p.truthy.as_ref()?),
+            entry!(octal_values, |p| p.octal_values.as_ref()?),
+            entry!(schema_dependent_values, |p| p
+                .schema_dependent_values
+                .as_ref()?),
+            entry!(key_ordering, |p| p.key_ordering.as_ref()?, &p.per_line),
+            entry!(yaml_directive, |p| p.yaml_directive?, &p.per_line),
+        ]
+    }
+
+    fn layout_needed(&self, input: Analysis<'_>, candidates: &[&str]) -> bool {
+        self.preserve_events
+            || input.text().contains('\u{feff}')
+            || input.parsed().has_block_scalars()
+            || self.comments_indentation.is_some()
+                && input
+                    .event_values()
+                    .any(|event| matches!(event, Event::Comment(..)))
+            || self.quoted_strings.as_ref().is_some_and(|cfg| {
+                input.parsed().scalars().any(|(style, span)| {
+                    span.start.line() != span.end.line()
+                        || style != ryl_yaml_parser::ScalarStyle::Plain
+                            && !cfg.fixes_require_diagnostics()
+                })
+            })
+            || candidates
+                .iter()
+                .any(|rule| !self.scalar_fixes().iter().any(|(id, _, _)| id == rule))
+    }
+
     /// The safe fixes `cfg` enables for `path`.
     fn lint(
         cfg: &'a YamlLintConfig,
@@ -1820,11 +2152,14 @@ impl ReindentEvidence {
     }
 }
 
+type CandidateCheck<'a> = &'a mut dyn FnMut(Analysis<'_>) -> Vec<&'static str>;
+
 pub(crate) struct PassTracking<'a> {
     pub edited: &'a mut Vec<&'static str>,
     pub reindented: Option<&'a mut ReindentCache>,
     pub strict_input: Option<bool>,
     pub unprobed: bool,
+    pub candidates: Option<CandidateCheck<'a>>,
 }
 
 /// `input` re-indented to the repair target, where that alone makes it strictly valid
@@ -1854,11 +2189,8 @@ pub(crate) fn repair(
     let mut version = TextVersion::observed(repaired);
     let output = version.analysis();
     let valid = output.parsed().valid
-        && crate::lint::parse_error_from_result(
-            output.text(),
-            output.parsed().strict_error(),
-        )
-        .is_none()
+        && lint::parse_error_from_result(output.text(), output.parsed().strict_error())
+            .is_none()
         && representation_matches(input, output);
     valid.then(|| {
         version.mark_strict_valid();
@@ -1897,7 +2229,7 @@ fn separate_flow_keys(
             .expect("string input has byte offsets");
         let text = spaced.to_mut();
         text.insert(at + 1, ' ');
-        error = crate::lint::scan(text, true).err().filter(flow_key);
+        error = lint::scan(text, true).err().filter(flow_key);
     }
     Some(spaced)
 }

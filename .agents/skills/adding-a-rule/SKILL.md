@@ -24,7 +24,7 @@ rather than shipping silently. Work this checklist (the `property-tests` and
 2. **Register** in `src/rules/mod.rs`: `pub mod <rule>;` plus the `ID` in `ALL_RULE_IDS`
    — and in `RYL_ONLY_RULE_IDS` when yamllint has no equivalent (that reserves it to
    TOML config; see the YAML-vs-TOML note in `AGENTS.md`).
-3. **Dispatch**: one `lint_rule!(...)` call in `src/lint.rs`, in the right
+3. **Dispatch**: one entry in a `lint_rules!(...)` table in `src/lint.rs`, in the right
    reported-order slot of the matching batch fn (`collect_layout_diagnostics` /
    `collect_value_diagnostics` /
    `collect_block_diagnostics`). Pick the arm matching the rule's shape (config or not,
@@ -37,8 +37,11 @@ rather than shipping silently. Work this checklist (the `property-tests` and
    `ryl.{toml,yaml}.schema.json` (see the `testing-traps` dev skill) and run `prek`.
    A safe `--fix` also needs: `FixRuleName` and `FixableRuleSelector` variants, the
    `FixRule` name map and both selector conversions in `src/config.rs`, the rule in
-   `fix.rs`'s `SAFE_FIX_RULE_IDS`, a `Passes` field with its rewrite-loop step (and the
-   `Passes` literal in `format.rs`), and `SUPPRESSED` when the rule shapes a whole file.
+   `fix.rs`'s `SAFE_FIX_RULE_IDS`, a `Passes` field (and the `Passes` literal in
+   `format.rs`), and `SUPPRESSED` when the rule shapes a whole file. Scalar fixes join
+   `Passes::scalar_fixes`; layout fixes join the layout planner. Candidate detection
+   shares the lint dispatcher; `Passes::layout_needed` retains any non-diagnostic
+   rewrite triggers.
    An unsafe fix needs the same config variants, `UNSAFE_FIX_RULE_IDS` instead of
    `SAFE_FIX_RULE_IDS`, `UnsafeFixRule`, a `Passes` field gated on
    `applies_unsafe_fix`, and a `hidden_unsafe_fix` on its `Violation` (the `unsafe_fix`

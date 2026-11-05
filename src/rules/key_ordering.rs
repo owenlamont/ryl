@@ -19,6 +19,7 @@ use crate::rules::support::key_path::{self, Selector, Step};
 use crate::rules::support::line_syntax::split_lines_inclusive;
 use crate::rules::support::mapping_key_walker::Walker;
 use crate::rules::support::mapping_layout::{Entry, Layout, Mapping, byte_at};
+use crate::text_version::{Analysis, TextVersion};
 use crate::yaml_dom::{Scalar, YamlOwned};
 
 pub const ID: &str = "key-ordering";
@@ -194,16 +195,10 @@ pub struct Violation {
 
 #[must_use]
 pub fn check(buffer: &str, cfg: &Config) -> Vec<Violation> {
-    check_with_analysis(
-        crate::text_version::TextVersion::new(buffer).analysis(),
-        cfg,
-    )
+    check_with_analysis(TextVersion::new(buffer).analysis(), cfg)
 }
 
-pub(crate) fn check_with_analysis(
-    input: crate::text_version::Analysis<'_>,
-    cfg: &Config,
-) -> Vec<Violation> {
+pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Violation> {
     let mut receiver = KeyOrderingReceiver::new(cfg);
     for (event, span) in input.event_iter() {
         receiver.on_event(event, span);
@@ -360,8 +355,17 @@ pub fn fix(
     cfg: &Config,
     per_line: &[PerLineRuleApply<'_>],
 ) -> Option<String> {
-    let layout = Layout::parse(buffer)?;
-    let directives = Directives::parse_with_per_line(buffer, per_line);
+    fix_with_analysis(TextVersion::new(buffer).analysis(), cfg, per_line)
+}
+
+pub(crate) fn fix_with_analysis(
+    input: Analysis<'_>,
+    cfg: &Config,
+    per_line: &[PerLineRuleApply<'_>],
+) -> Option<String> {
+    let buffer = input.text();
+    let layout = Layout::with_analysis(input)?;
+    let directives = Directives::parse_per_line_with_analysis(input, per_line);
     let sorts: Vec<(usize, Vec<usize>)> = plans(&layout, cfg, &directives)
         .into_iter()
         .filter_map(|plan| Some((plan.mapping, plan.order.ok()?)))
@@ -386,10 +390,18 @@ pub fn unfixed(
     cfg: &Config,
     per_line: &[PerLineRuleApply<'_>],
 ) -> Vec<Violation> {
-    let Some(layout) = Layout::parse(buffer) else {
+    unfixed_with_analysis(TextVersion::new(buffer).analysis(), cfg, per_line)
+}
+
+pub(crate) fn unfixed_with_analysis(
+    input: Analysis<'_>,
+    cfg: &Config,
+    per_line: &[PerLineRuleApply<'_>],
+) -> Vec<Violation> {
+    let Some(layout) = Layout::with_analysis(input) else {
         return Vec::new();
     };
-    let directives = Directives::parse_with_per_line(buffer, per_line);
+    let directives = Directives::parse_per_line_with_analysis(input, per_line);
     plans(&layout, cfg, &directives)
         .into_iter()
         .map(|plan| Violation {

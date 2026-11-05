@@ -275,10 +275,17 @@ pub(crate) fn check_with_analysis(
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let replacements = walk(
+    fix_with_analysis(
         crate::text_version::TextVersion::new(buffer).analysis(),
         cfg,
     )
-    .replacements;
+}
+
+pub(crate) fn fix_with_analysis(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &Config,
+) -> Option<String> {
+    let buffer = input.text();
+    let replacements = walk(input, cfg).replacements;
     (!replacements.is_empty()).then(|| apply_replacements(buffer, replacements))
 }

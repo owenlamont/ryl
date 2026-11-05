@@ -256,6 +256,7 @@ pub fn format_str(
         path,
         skip,
         &mut PassTracking {
+            candidates: None,
             edited: &mut Vec::new(),
             reindented: None,
             strict_input: Some(parsed.strict_error.is_none()),
@@ -431,6 +432,7 @@ impl FormatCache {
                 path,
                 skip,
                 &mut PassTracking {
+                    candidates: None,
                     edited: &mut edited,
                     reindented: Some(&mut self.reindented),
                     strict_input,

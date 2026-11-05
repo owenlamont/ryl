@@ -218,6 +218,10 @@ impl Config {
         }
     }
 
+    pub(crate) fn fixes_require_diagnostics(&self) -> bool {
+        self.required == RequiredMode::Always
+    }
+
     #[must_use]
     pub fn has_extra_required(&self) -> bool {
         !self.extra_required.is_empty()

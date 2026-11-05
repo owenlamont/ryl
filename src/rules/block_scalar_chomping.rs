@@ -53,6 +53,9 @@ pub(crate) struct Header {
 }
 
 pub(crate) fn headers_with_analysis(input: Analysis<'_>) -> Vec<Header> {
+    if !input.parsed().has_block_scalars() {
+        return Vec::new();
+    }
     let mut scanner = Headers::new(input);
     for (span, token_type) in input.tokens().iter(input.text()) {
         scanner.push(span, &token_type);
@@ -109,10 +112,6 @@ impl<'a> Headers<'a> {
         }
         self.previous_end = marker_byte_offset(span.end).get();
     }
-}
-
-pub(crate) fn ambiguous_blank_body_line(buffer: &str) -> Option<usize> {
-    ambiguous_blank_body_line_with_analysis(TextVersion::new(buffer).analysis())
 }
 
 pub(crate) fn ambiguous_blank_body_line_with_analysis(

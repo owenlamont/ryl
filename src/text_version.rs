@@ -422,6 +422,12 @@ pub(crate) struct ParsedFacts {
 }
 
 impl ParsedFacts {
+    pub(crate) fn has_block_scalars(&self) -> bool {
+        self.scalars.iter().any(|(style, _)| {
+            matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+        })
+    }
+
     pub(crate) fn scalar_contains(&self, at: usize) -> bool {
         use crate::rules::support::span_utils::marker_byte_offset;
         let after = self.scalars.partition_point(|&(_, event)| {

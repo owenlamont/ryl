@@ -14,7 +14,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 mod cache;
 mod deprecation;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -1617,36 +1617,39 @@ fn lint_and_exit(
     let sinks = open_targets(targets)?;
 
     let no_warnings = args.lint.compatibility.no_warnings;
-    let before_fix = args
+    let mut before_fix = args
         .lint
         .fix
         .fix
         .then(|| apply_fixes_reporting_skips(files, no_warnings));
 
+    let after = before_fix
+        .as_mut()
+        .map(|stats| std::mem::take(&mut stats.after));
     let mut stream = RecordStream::start(targets, sinks, file_paths(files))?;
     let mut summary = LintSummary::default();
     let mut fixed = 0;
     let emit = |idx: usize, (outcome, stderr): (LintOutcome, Vec<u8>)| {
         let (path, ..) = &files[idx];
         let outcome = match &before_fix {
-            Some((before, errors)) => {
-                fixed += before[idx]
+            Some(stats) => {
+                fixed += fix_rule_counts(&stats.before[idx], no_warnings)
                     .iter()
                     .zip(fix_rule_counts(&outcome, no_warnings))
                     .map(|(before, after)| before.saturating_sub(after))
                     .sum::<usize>();
-                match errors.get(&idx) {
-                    Some(error) => Err(error.clone()),
-                    None => outcome,
-                }
+                outcome
             }
             None => outcome,
         };
         stream.replay_stderr(&stderr);
         stream.push(&summary.record(path, outcome, no_warnings));
     };
-    if before_fix.is_some() {
-        lint_files(files, true, emit);
+    if let Some(after) = after {
+        let mut emit = emit;
+        for (index, outcome) in after.into_iter().enumerate() {
+            emit(index, (outcome, Vec::new()));
+        }
     } else {
         lint_files_cached(files, &args.source.cache_settings(), no_warnings, emit)?;
     }
@@ -1682,7 +1685,7 @@ fn lint_and_exit(
         }
         if before_fix
             .as_ref()
-            .is_none_or(|(_, errors)| errors.is_empty())
+            .is_none_or(|stats| stats.errors.is_empty())
         {
             summary_to_exit(&summary, args.lint.compatibility.strict(config_strict))
         } else {
@@ -1691,21 +1694,16 @@ fn lint_and_exit(
     })
 }
 
-/// Apply safe fixes in place and report skips, returning pre-fix rule counts and
-/// file errors for the shared report records.
-///
-fn apply_fixes_reporting_skips(files: &[LintFile], no_warnings: bool) -> FixBaseline {
-    let mut before = Vec::with_capacity(files.len());
-    lint_files(files, no_warnings, |_, (outcome, stderr)| {
-        let _ = std::io::stderr().write_all(&stderr);
-        before.push(fix_rule_counts(&outcome, no_warnings));
+fn apply_fixes_reporting_skips(
+    files: &[LintFile],
+    no_warnings: bool,
+) -> ryl::fix::FixStats {
+    let stats = rewrite_files(files, Rewrite::Fix, &|content, (path, _, cfg, kind)| {
+        deprecation::notice(content, path, cfg, *kind, no_warnings)
     });
-    let fix_stats = rewrite_files(files, Rewrite::Fix, &|_, _| None);
-    let _ = std::io::stderr().write_all(&fix_stats.notices);
-    for (index, _) in &fix_stats.errors {
-        before[*index] = [0; ALL_RULE_IDS.len()];
-    }
-    (before, fix_stats.errors.into_iter().collect())
+    let _ = std::io::stderr().write_all(&stats.leading_notices);
+    let _ = std::io::stderr().write_all(&stats.notices);
+    stats
 }
 
 fn summary_to_exit(summary: &LintSummary, strict: bool) -> ExitCode {
@@ -2317,23 +2315,6 @@ fn emit_notices(notices: &[String], no_warnings: bool) {
     }
 }
 
-/// Lint `files` in parallel, handing each outcome to `emit` in input order.
-fn lint_files(
-    files: &[LintFile],
-    no_warnings: bool,
-    mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>)),
-) {
-    let Ok(()) = ryl::cli_support::try_for_each_ordered(
-        files,
-        |file| lint_path(file, no_warnings),
-        |idx, ((outcome, notice), mut stderr)| {
-            stderr.extend(notice.unwrap_or_default().bytes());
-            emit(idx, (outcome, stderr));
-            Ok::<(), std::convert::Infallible>(())
-        },
-    );
-}
-
 fn lint_path(file: &LintFile, no_warnings: bool) -> (LintOutcome, Option<String>) {
     lint_decoded(file, ryl::decoder::read_file(&file.0), no_warnings)
 }
@@ -2548,9 +2529,6 @@ impl LintSummary {
 }
 
 type FixRuleCounts = [usize; ALL_RULE_IDS.len()];
-
-/// Each file's pre-fix counts, and the files `--fix` failed to write.
-type FixBaseline = (Vec<FixRuleCounts>, HashMap<usize, String>);
 
 /// A file's reported problems per rule with a safe or unsafe fix, so a fix that adds
 /// another rule's problem cannot cancel one it cleared.

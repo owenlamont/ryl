@@ -135,16 +135,22 @@ pub fn fix(
     cfg: &Config,
     per_line: &[PerLineRuleApply<'_>],
 ) -> Option<String> {
+    fix_with_analysis(TextVersion::new(buffer).analysis(), *cfg, per_line)
+}
+
+pub(crate) fn fix_with_analysis(
+    input: Analysis<'_>,
+    cfg: Config,
+    per_line: &[PerLineRuleApply<'_>],
+) -> Option<String> {
     if cfg.present && !cfg.targets_1_2 {
         return None;
     }
-    let source = TextVersion::new(buffer);
-    let input = source.analysis();
-    let migrated = migrate(input, *cfg, per_line);
+    let migrated = migrate(input, cfg, per_line);
     if cfg.present {
-        migrated.or_else(|| stamp(input, *cfg))
+        migrated.or_else(|| stamp(input, cfg))
     } else {
-        migrated.or_else(|| remove(input, *cfg, per_line))
+        migrated.or_else(|| remove(input, cfg, per_line))
     }
 }
 

@@ -1485,7 +1485,7 @@ fn lf_only_stream_uses_one_plan() {
     assert_eq!(output, "");
     assert_eq!(statistics["fallback"], Value::Null, "{statistics}");
     assert_eq!(statistics["planning_invocations"], 1, "{statistics}");
-    assert_eq!(statistics["line_table_builds"], 1, "{statistics}");
+    assert_eq!(statistics["line_table_builds"], 0, "{statistics}");
     assert_eq!(statistics["emissions"], 1, "{statistics}");
 }
 

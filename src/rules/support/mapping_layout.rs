@@ -2,8 +2,7 @@
 //! touching their text.
 
 use ryl_yaml_parser::{
-    Event, Parser, Placement, ScalarStyle, Scanner, Span, SpannedEventReceiver,
-    StrInput, StructureStyle, TokenType,
+    Event, Placement, ScalarStyle, Scanner, Span, StrInput, StructureStyle, TokenType,
 };
 
 use crate::directives::directive_scope;
@@ -64,9 +63,20 @@ type End = Option<(usize, usize, bool)>;
 const BALANCED: &str = "the parser closes every collection it opens";
 
 impl<'a> Layout<'a> {
-    pub(crate) fn parse(buffer: &'a str) -> Option<Self> {
-        let mut events = Events(Vec::new());
-        Parser::new_from_str(buffer).load(&mut events, true).ok()?;
+    pub(crate) fn with_analysis(
+        input: crate::text_version::Analysis<'a>,
+    ) -> Option<Self> {
+        if !input.parsed().valid {
+            return None;
+        }
+        let buffer = input.text();
+        let events: Vec<_> = input
+            .event_iter()
+            .filter(|(event, _)| {
+                event.is_node()
+                    || matches!(event, Event::SequenceEnd | Event::MappingEnd)
+            })
+            .collect();
         let mut layout = Self {
             lines: split_lines_preserve_endings(buffer)
                 .map(|(_, content, ending)| (content, ending))
@@ -75,7 +85,7 @@ impl<'a> Layout<'a> {
             directives: Vec::new(),
             own_line_ytt_directives: Vec::new(),
         };
-        let mut iter = events.0.into_iter().peekable();
+        let mut iter = events.into_iter().peekable();
         while iter.peek().is_some() {
             layout.node(&mut iter, &[], false);
         }
@@ -302,16 +312,6 @@ fn layout_block(lines: &[(&str, &str)], mapping: &mut Mapping) {
         if index > 0 {
             let gap = mapping.entries[index - 1].end + 1..mapping.entries[index].start;
             mapping.loose_comment |= lines[gap].iter().any(|(line, _)| !is_blank(line));
-        }
-    }
-}
-
-struct Events<'a>(Vec<(Event<'a>, Span)>);
-
-impl<'a> SpannedEventReceiver<'a> for Events<'a> {
-    fn on_event(&mut self, event: Event<'a>, span: Span) {
-        if event.is_node() || matches!(event, Event::SequenceEnd | Event::MappingEnd) {
-            self.0.push((event, span));
         }
     }
 }

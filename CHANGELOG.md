@@ -81,6 +81,9 @@ summarize user-visible changes from the tagged commits and published release rec
 - `ryl check` sorts each file's diagnostics by line, column, then rule ID, as yamllint
   and ruff do, rather than grouping them by rule. Files stay in input order.
   ([#905](https://github.com/owenlamont/ryl/issues/905))
+- `ryl check --fix` parses each file once and skips fixers with nothing to fix. With
+  nothing to fix it now costs about what `ryl check` does, where it took four to eight
+  times as long; files that need fixes take about a third less work.
 
 ### Fixed
 

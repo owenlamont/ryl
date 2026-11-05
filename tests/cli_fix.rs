@@ -1271,3 +1271,34 @@ fn fix_summary_counts_fixes_that_introduce_another_rules_problem() {
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), "a: { x: 1 }\n");
 }
+
+#[test]
+fn hard_links_emit_each_legacy_directive_notice_once() {
+    let dir = tempdir().unwrap();
+    let first = dir.path().join("a.yaml");
+    let second = dir.path().join("b.yaml");
+    fs::write(dir.path().join(".ryl.toml"), "[lint]\n").unwrap();
+    fs::write(&first, "# yamllint enable\na: 1").unwrap();
+    fs::hard_link(&first, &second).unwrap();
+
+    let (code, _, stderr) = run(ryl(dir.path())
+        .args([
+            "check",
+            "--fix",
+            "--no-cache",
+            "--enable",
+            "new-line-at-end-of-file",
+        ])
+        .arg(&first)
+        .arg(&second));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(
+        stderr.matches("directive aliases are deprecated").count(),
+        2,
+        "{stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(&second).unwrap(),
+        "# yamllint enable\na: 1\n"
+    );
+}

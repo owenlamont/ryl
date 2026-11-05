@@ -63,7 +63,18 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: &Config) -> Vec<Viol
 
 #[must_use]
 pub fn fix(buffer: &str, cfg: &Config) -> Option<String> {
-    let replacements = walk(TextVersion::new(buffer).analysis(), cfg).1;
+    fix_with_analysis(
+        crate::text_version::TextVersion::new(buffer).analysis(),
+        cfg,
+    )
+}
+
+pub(crate) fn fix_with_analysis(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &Config,
+) -> Option<String> {
+    let buffer = input.text();
+    let replacements = walk(input, cfg).1;
     (!replacements.is_empty()).then(|| apply_replacements(buffer, replacements))
 }
 
