@@ -206,10 +206,34 @@ becomes a standalone comment.
 
 ## Default profile
 
-With no `[format]` table, `ryl format` uses the defaults in the reference above. It preserves
+With no `[format]` table, `ryl format` writes the profile below. It preserves
 existing document start markers, can remove redundant quotes or switch required
 double quotes to single, and can indent flush sequences. Migration writes
 `quote-style = "preserve"` when `quoted-strings` is disabled in the source preset.
+
+| Default | Why |
+| :--- | :--- |
+| `quote-style = "single"` | yamlfix's default; see [Quote style](#quote-style) for when it applies |
+| `keep-quotes = false` | Removes unnecessary quotes; retaining them is opt-in |
+| `line-ending = "lf"` | The default of prettier |
+| `document-start = "preserve"` | prettier keeps a file's markers as written |
+| `document-end = "preserve"` | No formatter adds `...`; prettier keeps it |
+| `prose-wrap = "preserve"` | Prose keeps its line breaks, as under prettier's `proseWrap: "preserve"` |
+| `brace-spacing = false` | yamlfix also leaves braces unpadded; prettier pads them |
+| `comment-spacing = 2` | The default of ruff and yamlfix |
+| `comment-starting-space = "add"` | Adds a space after `#` |
+| `max-blank-lines = 2` | Keeps short gaps between content |
+| `sequence-style = "preserve"` | Restyling a collection is opt-in |
+| `mapping-style = "preserve"` | Restyling a collection is opt-in |
+| `sequence-expand = "preserve"` | Rewrapping a flow collection is opt-in |
+| `mapping-expand = "preserve"` | Rewrapping a flow collection is opt-in |
+| `property-order = "preserve"` | Writers split: prettier and the spec's examples put the tag first, eemeli's `yaml` and libfyaml the anchor |
+| `indent-sequences = true` | prettier also indents them |
+| `dash-on-own-line = false` | prettier writes `- name: web` |
+| `preview = false` | Preview styles are opt-in, as in ruff |
+| `line-length = 80` | The default of prettier |
+| `indent-width = 2` | The default of prettier and yamlfix |
+| Fixed layout above | Every formatter probed agrees |
 
 ## Long lines
 
