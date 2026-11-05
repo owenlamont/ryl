@@ -6,7 +6,7 @@ fn error_on_non_bool_block_mapping_option() {
         "rules:\n  empty-values:\n    forbid-in-block-mappings: 1\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.empty-values"), "{err}");
 }
 
@@ -16,7 +16,7 @@ fn error_on_unknown_option() {
         "rules:\n  empty-values:\n    unsupported: true\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.empty-values"), "{err}");
 }
 

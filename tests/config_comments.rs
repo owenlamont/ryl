@@ -5,7 +5,7 @@ fn rejects_unknown_option() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  comments:\n    unexpected: true\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.comments"), "{err}");
 }
 
@@ -15,7 +15,7 @@ fn rejects_non_bool_require_starting_space() {
         "rules:\n  comments:\n    require-starting-space: 1\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.comments"), "{err}");
 }
 
@@ -24,7 +24,7 @@ fn rejects_non_bool_ignore_shebangs() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  comments:\n    ignore-shebangs: []\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.comments"), "{err}");
 }
 
@@ -34,7 +34,7 @@ fn rejects_non_integer_min_spaces() {
         "rules:\n  comments:\n    min-spaces-from-content: true\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.comments"), "{err}");
 }
 
@@ -62,7 +62,7 @@ fn max_spaces_rejected_in_yaml_config() {
         "rules:\n  comments:\n    max-spaces-from-content: 2\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.comments"), "{err}");
 }
 

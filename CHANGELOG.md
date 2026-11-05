@@ -87,6 +87,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- Config errors name the rule and offending option, including accepted values for
+  invalid options, and retain TOML line and column locations.
 - Omitted mapping keys (`: value`) no longer trigger false indentation errors or
   prevent `ryl format` from formatting the surrounding document, including when
   their values have anchors or tags.

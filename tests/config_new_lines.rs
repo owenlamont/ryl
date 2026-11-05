@@ -14,7 +14,7 @@ fn discover_with_yaml(yaml: &str) -> Result<(), String> {
 #[test]
 fn unknown_option_errors() {
     let err = discover_with_yaml("rules:\n  new-lines:\n    foo: bar\n").unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.new-lines"), "{err}");
 }
 
@@ -22,7 +22,7 @@ fn unknown_option_errors() {
 fn invalid_type_value_errors() {
     let err =
         discover_with_yaml("rules:\n  new-lines:\n    type: invalid\n").unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.new-lines"), "{err}");
 }
 
@@ -30,7 +30,7 @@ fn invalid_type_value_errors() {
 fn invalid_type_kind_errors_on_non_string() {
     let err =
         discover_with_yaml("rules:\n  new-lines:\n    type: [unix]\n").unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.new-lines"), "{err}");
 }
 

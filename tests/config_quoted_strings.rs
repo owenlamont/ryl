@@ -7,7 +7,7 @@ fn error_when_quote_type_invalid() {
         "rules:\n  quoted-strings:\n    quote-type: bad\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
@@ -24,7 +24,7 @@ fn error_when_quote_type_not_string() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  quoted-strings:\n    quote-type: 1\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
@@ -33,7 +33,7 @@ fn error_when_required_invalid() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  quoted-strings:\n    required: 3\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
@@ -52,7 +52,7 @@ fn error_when_extra_required_not_sequence() {
         "rules:\n  quoted-strings:\n    extra-required: foo\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
@@ -62,7 +62,7 @@ fn error_when_extra_required_contains_non_string() {
         "rules:\n  quoted-strings:\n    extra-required: [1]\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
@@ -72,7 +72,7 @@ fn error_when_extra_allowed_contains_non_string() {
         "rules:\n  quoted-strings:\n    extra-allowed: [true]\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
@@ -82,7 +82,7 @@ fn error_when_allow_quoted_quotes_not_bool() {
         "rules:\n  quoted-strings:\n    allow-quoted-quotes: 1\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
@@ -92,7 +92,7 @@ fn error_when_allow_double_quotes_for_escaping_is_in_yaml_config() {
         "rules:\n  quoted-strings:\n    allow-double-quotes-for-escaping: true\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
@@ -101,7 +101,7 @@ fn error_when_check_keys_not_bool() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  quoted-strings:\n    check-keys: 2\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
@@ -169,7 +169,7 @@ fn error_when_rule_ignore_contains_non_string_pattern() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  quoted-strings:\n    ignore: [1]\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 
@@ -179,7 +179,7 @@ fn error_when_unknown_quoted_strings_option() {
         "rules:\n  quoted-strings:\n    unknown: value\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.quoted-strings"), "{err}");
 }
 

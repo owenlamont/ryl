@@ -1,11 +1,133 @@
 use crate::yaml_dom::{MappingOwned, ScalarOwned, YamlOwned};
-use serde::Serialize;
+use serde::de::{DeserializeSeed, MapAccess, Visitor, value::MapAccessDeserializer};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt;
+use std::marker::PhantomData;
 
 use super::{
     LintTable, MarkdownTable, NormalizedConfig, NormalizedFixConfig,
-    NormalizedMarkdown, NormalizedPerLineIgnore, PerLineIgnore, RuleSelector,
-    RulesTable, StringOrVec, TomlConfig, UnsafeFixConfig, YamlConfig,
+    NormalizedMarkdown, NormalizedPerLineIgnore, PerLineIgnore, RuleEntry, RuleOptions,
+    RuleSelector, RuleSwitch, RulesTable, StringOrVec, TomlConfig, UnsafeFixConfig,
+    YamlConfig,
 };
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for RuleEntry<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct EntryVisitor<T>(PhantomData<T>);
+
+        impl<'de, T: Deserialize<'de>> Visitor<'de> for EntryVisitor<T> {
+            type Value = RuleEntry<T>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str(
+                    "a boolean, \"enable\", \"disable\", or a rule options table",
+                )
+            }
+
+            fn visit_bool<E: serde::de::Error>(
+                self,
+                value: bool,
+            ) -> Result<Self::Value, E> {
+                Ok(RuleEntry::Bool(value))
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                value: &str,
+            ) -> Result<Self::Value, E> {
+                RuleSwitch::deserialize(serde::de::value::StrDeserializer::new(value))
+                    .map(RuleEntry::Switch)
+            }
+
+            fn visit_map<M: MapAccess<'de>>(
+                self,
+                map: M,
+            ) -> Result<Self::Value, M::Error> {
+                let mut common = CommonOptions {
+                    map,
+                    level: None,
+                    ignore: None,
+                    ignore_from_file: None,
+                };
+                let specific = T::deserialize(MapAccessDeserializer::new(&mut common))?;
+                Ok(RuleEntry::Options(RuleOptions {
+                    level: common.level,
+                    ignore: common.ignore,
+                    ignore_from_file: common.ignore_from_file,
+                    specific,
+                }))
+            }
+        }
+
+        deserializer.deserialize_any(EntryVisitor(PhantomData))
+    }
+}
+
+struct CommonOptions<M> {
+    map: M,
+    level: Option<super::RuleLevel>,
+    ignore: Option<StringOrVec>,
+    ignore_from_file: Option<StringOrVec>,
+}
+
+impl<'de, M: MapAccess<'de>> MapAccess<'de> for CommonOptions<M> {
+    type Error = M::Error;
+
+    fn next_key_seed<K: DeserializeSeed<'de>>(
+        &mut self,
+        seed: K,
+    ) -> Result<Option<K::Value>, Self::Error> {
+        let mut seed = seed;
+        while let Some(key) = self.map.next_key_seed(OptionKeySeed(seed))? {
+            match key {
+                OptionKey::Specific(specific) => return Ok(Some(specific)),
+                OptionKey::Common(key, next_seed) => {
+                    seed = next_seed;
+                    match key.as_str() {
+                        "level" => self.level = self.map.next_value()?,
+                        "ignore" => self.ignore = self.map.next_value()?,
+                        _ => self.ignore_from_file = self.map.next_value()?,
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn next_value_seed<V: DeserializeSeed<'de>>(
+        &mut self,
+        seed: V,
+    ) -> Result<V::Value, Self::Error> {
+        self.map.next_value_seed(seed)
+    }
+}
+
+struct OptionKeySeed<K>(K);
+
+enum OptionKey<K, V> {
+    Common(String, K),
+    Specific(V),
+}
+
+impl<'de, K: DeserializeSeed<'de>> DeserializeSeed<'de> for OptionKeySeed<K> {
+    type Value = OptionKey<K, K::Value>;
+
+    fn deserialize<D: Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
+        let key = String::deserialize(deserializer)?;
+        match key.as_str() {
+            "level" | "ignore" | "ignore-from-file" => {
+                Ok(OptionKey::Common(key, self.0))
+            }
+            _ => self
+                .0
+                .deserialize(serde::de::value::StringDeserializer::new(key))
+                .map(OptionKey::Specific),
+        }
+    }
+}
 
 pub(crate) fn string_or_vec_items(value: &StringOrVec) -> Vec<String> {
     match value {

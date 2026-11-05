@@ -5,7 +5,7 @@ use ryl::rules::commas::Config;
 fn rejects_unknown_option() {
     let err = YamlLintConfig::from_yaml_str("rules:\n  commas:\n    unexpected: 1\n")
         .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.commas"), "{err}");
 }
 
@@ -14,7 +14,7 @@ fn rejects_non_integer_max_spaces_before() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  commas:\n    max-spaces-before: []\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.commas"), "{err}");
 }
 
@@ -24,7 +24,7 @@ fn rejects_non_integer_min_spaces_after() {
         "rules:\n  commas:\n    min-spaces-after: true\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.commas"), "{err}");
 }
 
@@ -33,7 +33,7 @@ fn rejects_non_integer_max_spaces_after() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  commas:\n    max-spaces-after: []\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.commas"), "{err}");
 }
 

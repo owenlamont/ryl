@@ -5,7 +5,7 @@ fn rejects_unknown_option() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  line-length:\n    unexpected: true\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.line-length"), "{err}");
 }
 
@@ -13,7 +13,7 @@ fn rejects_unknown_option() {
 fn rejects_non_integer_max() {
     let err = YamlLintConfig::from_yaml_str("rules:\n  line-length:\n    max: []\n")
         .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.line-length"), "{err}");
 }
 
@@ -23,7 +23,7 @@ fn rejects_non_boolean_allow_words() {
         "rules:\n  line-length:\n    allow-non-breakable-words: []\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.line-length"), "{err}");
 }
 
@@ -33,7 +33,7 @@ fn rejects_non_boolean_allow_inline() {
         "rules:\n  line-length:\n    allow-non-breakable-inline-mappings: 1\n",
     )
     .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.line-length"), "{err}");
 }
 

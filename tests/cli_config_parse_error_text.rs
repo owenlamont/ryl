@@ -44,8 +44,43 @@ fn pyproject_syntax_error_counts_columns_in_chars() {
 fn yaml_config_type_error_keeps_key_path_on_one_line() {
     assert_eq!(
         config_error("bad.yaml", "rules:\n  indentation:\n    spaces: x\n"),
-        "failed to parse config data: data did not match any variant of untagged \
-         enum RuleEntry in `rules.indentation`"
+        "invalid config: an integer or \"consistent\" in `rules.indentation.spaces`"
+    );
+}
+
+#[test]
+fn yaml_unknown_rule_option_names_rule_and_option() {
+    assert_eq!(
+        config_error("bad.yaml", "rules: {truthy: {future-option: true}}\n"),
+        "invalid config: unknown field `future-option`, expected `allowed-values` \
+         or `check-keys` in `rules.truthy`"
+    );
+}
+
+#[test]
+fn toml_unknown_rule_option_names_rule_and_option() {
+    assert_eq!(
+        config_error("bad.toml", "[lint.rules.truthy]\nfuture-option = true\n"),
+        "invalid config: TOML parse error at line 2, column 1: unknown field \
+         `future-option`, expected `allowed-values` or `check-keys` in `lint.rules.truthy`"
+    );
+}
+
+#[test]
+fn yaml_invalid_rule_option_value_names_option_and_expected_type() {
+    assert_eq!(
+        config_error("bad.yaml", "rules: {truthy: {check-keys: maybe}}\n"),
+        "invalid config: invalid type: string \"maybe\", expected a boolean \
+         in `rules.truthy.check-keys`"
+    );
+}
+
+#[test]
+fn toml_invalid_rule_option_value_names_option_and_expected_type() {
+    assert_eq!(
+        config_error("bad.toml", "[lint.rules.truthy]\ncheck-keys = \"maybe\"\n"),
+        "invalid config: TOML parse error at line 2, column 14: invalid type: \
+         string \"maybe\", expected a boolean in `lint.rules.truthy.check-keys`"
     );
 }
 

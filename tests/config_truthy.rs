@@ -7,7 +7,7 @@ fn error_when_allowed_values_not_sequence() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  truthy:\n    allowed-values: foo\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.truthy"), "{err}");
 }
 
@@ -16,7 +16,7 @@ fn error_when_allowed_values_has_invalid_entry() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  truthy:\n    allowed-values: [foo]\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.truthy"), "{err}");
 }
 
@@ -25,7 +25,7 @@ fn error_when_allowed_values_contains_non_string() {
     let err =
         YamlLintConfig::from_yaml_str("rules:\n  truthy:\n    allowed-values: [1]\n")
             .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.truthy"), "{err}");
 }
 
@@ -33,7 +33,7 @@ fn error_when_allowed_values_contains_non_string() {
 fn error_when_check_keys_not_bool() {
     let err = YamlLintConfig::from_yaml_str("rules:\n  truthy:\n    check-keys: 1\n")
         .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.truthy"), "{err}");
 }
 
@@ -41,7 +41,7 @@ fn error_when_check_keys_not_bool() {
 fn error_on_unknown_truthy_option() {
     let err = YamlLintConfig::from_yaml_str("rules:\n  truthy:\n    unknown: true\n")
         .unwrap_err();
-    assert!(err.contains("failed to parse config data:"), "{err}");
+    assert!(err.contains("invalid config:"), "{err}");
     assert!(err.contains("rules.truthy"), "{err}");
 }
 
