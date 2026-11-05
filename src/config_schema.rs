@@ -107,7 +107,10 @@ pub struct LintTable {
 /// The `[format]` table: `ryl format`'s targets.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields, default, rename_all = "kebab-case")]
-#[schemars(extend("not" = json!({"required": ["prose-wrap", "fold-long-lines"]})))]
+#[schemars(extend("not" = json!({
+    "properties": {"prose-wrap": true, "fold-long-lines": true},
+    "required": ["prose-wrap", "fold-long-lines"]
+})))]
 #[expect(
     clippy::struct_excessive_bools,
     reason = "each bool is an independent `[format]` key"

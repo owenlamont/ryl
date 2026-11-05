@@ -5,6 +5,11 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Fixed
+
+- The TOML config schema compiles under Ajv strict mode again, so SchemaStore can
+  take the 0.29.0 schema (`prose-wrap` and `fold-long-lines` exclusivity).
+
 ## v0.29.0
 
 ### Added
