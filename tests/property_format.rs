@@ -614,63 +614,50 @@ fn check_pass(pass: &FormatPass, input: &str) -> Result<String, String> {
         .map_err(|violation| format!("pass '{}' on {input:?}: {violation}", pass.name))
 }
 
-#[derive(serde::Deserialize)]
-struct FormatReplay {
-    input: String,
-    config: String,
-}
-
 #[test]
-fn omitted_mapping_keys_property_replay_agrees_with_lint() {
-    let fixture: FormatReplay = serde_json::from_str(include_str!(
-        "fixtures/collection_geometry/omitted-key-format-consistency.json"
-    ))
-    .unwrap();
-    let cfg = YamlLintConfig::from_toml_str(&fixture.config).unwrap();
+fn omitted_mapping_key_formats_without_indentation_errors() {
+    let input = ":  a\n";
+    let cfg =
+        YamlLintConfig::from_toml_str("[lint.rules]\nindentation='enable'\n").unwrap();
     let (formatted, refusals) = ryl::fix::rewrite_str(
-        &fixture.input,
+        input,
         &cfg,
         synthetic_path(),
         synthetic_base_dir(),
         ryl::config::SourceKind::Yaml,
         ryl::fix::Rewrite::Format,
     );
-    let output = formatted.expect("the original CRLF input needs formatting");
+    let output = formatted.expect("the extra space after the colon needs formatting");
     assert!(refusals.is_empty(), "{refusals:?}");
     assert!(ryl::format::conflicts(&cfg).is_empty());
     let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
     assert!(problems.is_empty(), "{problems:?}");
     check_invariants(
         &|text| ryl::format::format_str(text, &cfg, synthetic_path(), &[]),
-        &fixture.input,
+        input,
     )
     .unwrap();
 }
 
 #[test]
-fn anchored_omitted_key_style_conversion_property_replay_converges() {
-    let fixture: FormatReplay = serde_json::from_str(include_str!(
-        "fixtures/collection_geometry/anchored-omitted-key-style-conversion.json"
-    ))
-    .unwrap();
-    let cfg = YamlLintConfig::from_toml_str(&fixture.config).unwrap();
-    let output = ryl::format::format_str(&fixture.input, &cfg, synthetic_path(), &[]);
-    assert_ne!(output, fixture.input);
+fn anchored_sequence_after_omitted_key_converts_to_block() {
+    let input = ": &a [b]\n";
+    let cfg =
+        YamlLintConfig::from_toml_str("[format]\nsequence-style='block'\n").unwrap();
+    let output = ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+    assert_ne!(output, input);
     check_invariants(
         &|text| ryl::format::format_str(text, &cfg, synthetic_path(), &[]),
-        &fixture.input,
+        input,
     )
     .unwrap();
 }
 
 #[test]
-fn explicit_key_flow_overflow_property_replay_keeps_the_guarantee() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "fixtures/collection_geometry/explicit-key-yaml.txt"
-    ))
-    .unwrap();
-    let input = fixture["input"].as_str().unwrap();
-    let settings = fixture["config"].as_str().unwrap();
+fn explicit_key_nested_flow_overflow_converges_in_one_pass() {
+    let input = "? a\n: [[b]]\n";
+    let settings =
+        "line-length=5\n[format]\nsequence-style='flow'\nindent-sequences=false\n";
     let cfg = YamlLintConfig::from_toml_str(settings).unwrap();
     check_invariants(
         &|text| ryl::format::format_str(text, &cfg, synthetic_path(), &[]),
