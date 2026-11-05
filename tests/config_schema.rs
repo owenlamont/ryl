@@ -537,6 +537,45 @@ fn schemastore_toml_schema_uses_readable_rule_wrapper_names() {
     assert_readable_rule_wrapper_defs(&schema);
 }
 
+fn required_keys_missing_from_sibling_properties(node: &Value) -> Vec<String> {
+    match node {
+        Value::Object(map) => {
+            let properties = map.get("properties").and_then(Value::as_object);
+            let required = map.get("required").and_then(Value::as_array);
+            let missing = required
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|key| {
+                    properties.is_none_or(|properties| !properties.contains_key(*key))
+                });
+            missing
+                .map(str::to_string)
+                .chain(
+                    map.values()
+                        .flat_map(required_keys_missing_from_sibling_properties),
+                )
+                .collect()
+        }
+        Value::Array(values) => values
+            .iter()
+            .flat_map(required_keys_missing_from_sibling_properties)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+#[test]
+fn schemastore_toml_schema_defines_every_required_property_for_ajv_strict_mode() {
+    let schema = printed_schemastore_toml_schema();
+    assert_eq!(
+        required_keys_missing_from_sibling_properties(&schema),
+        Vec::<String>::new(),
+        "SchemaStore compiles with Ajv strictRequired, which rejects a `required` key \
+         its own subschema does not define"
+    );
+}
+
 #[test]
 fn schemastore_toml_schema_validates_repo_fixtures() {
     let schema = printed_schemastore_toml_schema();

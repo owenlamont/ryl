@@ -165,6 +165,10 @@
       "additionalProperties": false,
       "description": "The `[format]` table: `ryl format`'s targets.",
       "not": {
+        "properties": {
+          "fold-long-lines": true,
+          "prose-wrap": true
+        },
         "required": [
           "prose-wrap",
           "fold-long-lines"
