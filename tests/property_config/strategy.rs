@@ -16,7 +16,7 @@ use proptest::prelude::*;
 /// valid in both formats.
 #[derive(Debug, Clone)]
 pub enum OptVal {
-    Bool(bool),
+    Bool(bool, usize),
     Int(i64),
     Str(&'static str),
     List(Vec<&'static str>),
@@ -104,7 +104,9 @@ pub enum OptValKind {
 impl OptValKind {
     fn arb(self) -> BoxedStrategy<OptVal> {
         match self {
-            Self::Bool => any::<bool>().prop_map(OptVal::Bool).boxed(),
+            Self::Bool => (any::<bool>(), 0..9usize)
+                .prop_map(|(value, spelling)| OptVal::Bool(value, spelling))
+                .boxed(),
             Self::Int => prop::sample::select(INTS).prop_map(OptVal::Int).boxed(),
             Self::RegexList => {
                 prop::collection::vec(prop::sample::select(REGEX_POOL), 0..3)
@@ -294,7 +296,18 @@ fn dedup_rules(rules: Vec<RuleCfg>) -> Vec<RuleCfg> {
 
 fn render_optval_yaml(value: &OptVal) -> String {
     match value {
-        OptVal::Bool(b) => b.to_string(),
+        OptVal::Bool(value, spelling) => {
+            let spellings = if *value {
+                [
+                    "true", "True", "TRUE", "yes", "Yes", "YES", "on", "On", "ON",
+                ]
+            } else {
+                [
+                    "false", "False", "FALSE", "no", "No", "NO", "off", "Off", "OFF",
+                ]
+            };
+            spellings[*spelling].to_string()
+        }
         OptVal::Int(i) => i.to_string(),
         OptVal::Str(s) => format!("\"{s}\""),
         OptVal::List(items) => {
@@ -305,9 +318,10 @@ fn render_optval_yaml(value: &OptVal) -> String {
 }
 
 fn render_optval_toml(value: &OptVal) -> String {
-    // Same shapes as YAML for these pools; booleans/ints/strings/arrays render
-    // identically in TOML scalar syntax.
-    render_optval_yaml(value)
+    match value {
+        OptVal::Bool(value, _) => value.to_string(),
+        _ => render_optval_yaml(value),
+    }
 }
 
 pub fn render_yaml(model: &ConfigModel) -> String {

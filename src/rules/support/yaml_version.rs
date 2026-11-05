@@ -131,6 +131,10 @@ pub(crate) fn has_source_timestamp_shape(value: &str) -> bool {
     SOURCE_TIMESTAMP_SHAPE.is_match(value)
 }
 
+pub(crate) fn is_yaml_1_1_timestamp(value: &str) -> bool {
+    value.as_bytes().get(4) == Some(&b'-') && YAML_1_1_NUMERIC.is_match(value)
+}
+
 impl Value {
     const fn tag(&self) -> &'static str {
         match self {
@@ -293,7 +297,7 @@ fn core_value(text: &str) -> Option<Value> {
 /// `text`'s value under `PyYAML`'s YAML 1.1 resolver, which ruamel.yaml's 1.1 mode shares,
 /// with a YAML 1.2 core spelling of it: `None` where `PyYAML` reads a string, a timestamp
 /// or a type 1.2 lacks (`=`), or fails to load it (`0b_`).
-fn yaml_1_1_value(text: &str) -> Option<(Value, String)> {
+pub(crate) fn yaml_1_1_value(text: &str) -> Option<(Value, String)> {
     let negative = text.starts_with('-');
     let digits = text.trim_start_matches(['-', '+']).replace('_', "");
     if let Some(value) = yaml_1_1_bool(text) {

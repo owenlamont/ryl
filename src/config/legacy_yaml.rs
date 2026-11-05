@@ -1,11 +1,46 @@
 //! yamllint-compatible YAML config: parsing, `extends` resolution and the built-in
 //! presets. The migrator loads its sources only through [`load`].
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use super::{Env, YamlLintConfig, is_toml_path};
 use crate::config_schema::parse_yaml_config;
-use crate::yaml_dom::YamlOwned;
+use crate::rules::support::yaml_version::{
+    Value, is_yaml_1_1_timestamp, yaml_1_1_value,
+};
+use crate::yaml_dom::{Scalar, YamlOwned, is_core_schema_null, load_owned_documents};
+
+fn resolve_plain(value: Cow<'_, str>) -> Option<Scalar<'_>> {
+    if is_core_schema_null(&value) {
+        return Some(Scalar::Null);
+    }
+    if is_yaml_1_1_timestamp(&value) {
+        return None;
+    }
+    // yamllint's quoted-strings module adds `0o` integers to PyYAML's resolver globally.
+    let explicit_octal = value
+        .strip_prefix(['-', '+'])
+        .unwrap_or(&value)
+        .strip_prefix("0o")
+        .is_some_and(|digits| {
+            digits
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'7' | b'_'))
+                && digits.bytes().any(|byte| byte.is_ascii_digit())
+        });
+    let spelling = if explicit_octal {
+        Cow::Owned(value.replacen("0o", "0", 1))
+    } else {
+        Cow::Borrowed(value.as_ref())
+    };
+    match yaml_1_1_value(&spelling).map(|(value, _)| value) {
+        Some(Value::Bool(boolean)) => Some(Scalar::Boolean(boolean)),
+        Some(Value::Int(integer)) => i64::try_from(integer).ok().map(Scalar::Integer),
+        Some(Value::Float(float)) => Some(Scalar::FloatingPoint(float)),
+        None => Some(Scalar::String(value)),
+    }
+}
 
 /// Bounds `extends` recursion: a cyclic `extends` would otherwise overflow the stack.
 const MAX_EXTENDS_DEPTH: usize = 32;
@@ -50,7 +85,7 @@ fn parse_at_depth(
                 .to_string(),
         );
     }
-    let docs = YamlOwned::load_from_str(s)
+    let docs = load_owned_documents(s, Some(resolve_plain))
         .map_err(|e| format!("failed to parse config data: {e}"))?;
     // An empty document stream yields no docs; treat it as a non-mapping so it reports
     // "invalid config: not a mapping" (matching yamllint) instead of panicking on

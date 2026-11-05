@@ -28,7 +28,7 @@ impl YamlOwned {
     pub fn load_from_str(
         source: &str,
     ) -> Result<Vec<Self>, ryl_yaml_parser::ScanError> {
-        load_owned_documents(source)
+        load_owned_documents(source, None)
     }
 
     #[must_use]

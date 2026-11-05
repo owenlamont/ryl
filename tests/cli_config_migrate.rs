@@ -8,6 +8,63 @@ use crate::common;
 use common::cli::run;
 
 #[test]
+fn migrate_configs_resolves_yaml11_scalars_before_writing_toml() {
+    let td = tempdir().unwrap();
+    fs::write(
+        td.path().join("base.yaml"),
+        "rules:\n  truthy:\n    check-keys: no\n",
+    )
+    .unwrap();
+    fs::write(
+        td.path().join(".yamllint"),
+        "\
+extends: base.yaml
+rules:
+  line-length:
+    max: 017
+    allow-non-breakable-words: YES
+  indentation:
+    spaces: 1_0
+  colons:
+    max-spaces-after: 1:20
+  comments:
+    min-spaces-from-content: 0b11
+  braces:
+    max-spaces-inside: 0o17
+  quoted-strings:
+    required: false
+    extra-required: [1e3]
+",
+    )
+    .unwrap();
+    let (code, out, err) = run(common::cli::ryl(td.path())
+        .args(["--migrate-configs", "--migrate-write", "--migrate-root"])
+        .arg(td.path()));
+    assert_eq!(code, 0, "{out}\n{err}");
+    let text = fs::read_to_string(td.path().join(".ryl.toml")).unwrap();
+    let config: toml::Value = toml::from_str(&text).unwrap();
+    let rules = &config["lint"]["rules"];
+    assert_eq!(rules["truthy"]["check-keys"].as_bool(), Some(false));
+    assert_eq!(
+        rules["line-length"]["allow-non-breakable-words"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        rules["quoted-strings"]["extra-required"][0].as_str(),
+        Some("1e3")
+    );
+    for (rule, option, expected) in [
+        ("line-length", "max", 15),
+        ("indentation", "spaces", 10),
+        ("colons", "max-spaces-after", 80),
+        ("comments", "min-spaces-from-content", 3),
+        ("braces", "max-spaces-inside", 15),
+    ] {
+        assert_eq!(rules[rule][option].as_integer(), Some(expected), "{text}");
+    }
+}
+
+#[test]
 fn migrating_multiple_targets_to_stdout_labels_separate_configurations() {
     let dir = tempdir().unwrap();
     for name in ["first", "second"] {

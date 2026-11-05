@@ -90,6 +90,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- Yamllint YAML configs now resolve booleans and numbers with upstream's YAML 1.1
+  semantics, including `yes`/`no`, legacy octal and sexagesimal integers, during
+  linting and config migration.
 - Config errors name the rule, offending option and invalid value, including accepted
   values for option unions, and retain TOML line and column locations.
 - Omitted mapping keys (`: value`) no longer trigger false indentation errors or
