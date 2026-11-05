@@ -704,7 +704,17 @@ pub(crate) fn reference_terminal_block_value(
 }
 
 pub fn annotations(content: &str) -> Option<Annotations> {
-    let recorder = record(content, false, true, BTreeMap::new())?;
+    let mut recorder = record(content, false, true, BTreeMap::new())?;
+    let lines = yaml_lines(content);
+    for (comment, &line) in recorder.comments.iter_mut().zip(&recorder.comment_lines) {
+        if lines[line - 1]
+            .trim_start_matches('\u{feff}')
+            .strip_prefix("---")
+            .is_some_and(|tail| tail.trim_start_matches([' ', '\t']).starts_with('#'))
+        {
+            comment.inline = false;
+        }
+    }
     let mut anchor_names = Vec::new();
     let mut alias_names = Vec::new();
     for token in Scanner::new(StrInput::new(content)) {

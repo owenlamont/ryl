@@ -3,8 +3,8 @@ use std::path::{Component, Path, PathBuf};
 use serde_json::{Map, Value};
 
 use crate::config_schema::{
-    CollectionStyleTarget, ExpandTarget, FormatTable, LineEndingTarget, MarkerTarget,
-    PropertyOrderTarget, ProseWrap, QuoteStyleTarget,
+    CollectionStyleTarget, DocumentStartTarget, ExpandTarget, FormatTable,
+    LineEndingTarget, MarkerTarget, PropertyOrderTarget, ProseWrap, QuoteStyleTarget,
 };
 
 use super::options::{Converted, Options, strings};
@@ -57,13 +57,6 @@ pub(super) fn convert(
     };
     options.text("line_ending", "")?;
     let include_start = options.boolean("include_document_start", false)?;
-    if !include_start {
-        options.warn(
-            "include_document_start",
-            &Value::Bool(false),
-            "document-start removal is not available; existing markers are preserved",
-        );
-    }
     let max_blank_lines = blank_limit(&mut options)?;
     let (sequence_style, indent_sequences) =
         collection_policy(&mut options, requested_indent, indent_value)?;
@@ -89,9 +82,9 @@ pub(super) fn convert(
         keep_quotes: true,
         line_ending,
         document_start: if include_start {
-            MarkerTarget::Add
+            DocumentStartTarget::Add
         } else {
-            MarkerTarget::Preserve
+            DocumentStartTarget::Remove
         },
         prose_wrap: Some(prose_wrap),
         max_blank_lines,

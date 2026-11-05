@@ -2896,3 +2896,45 @@ fn annotations_count_delayed_property_only_empty_values_before_comments() {
         );
     }
 }
+
+#[test]
+fn document_start_removal_preserves_the_stream_and_comments() {
+    let pass = named_pass("format/remove-document-start");
+    for input in [
+        "--- # comment\na: 1\n---\nb: 2\n",
+        "--- |\n  text\n",
+        "--- !tag &a value\n",
+        "---\n---\na: 1\n",
+        "%TAG !e! tag:example.com,2026:\n---\n!e!v value\n",
+    ] {
+        check_invariants(&pass.format, input).unwrap();
+    }
+    assert!(check_invariants(&|_| "a: 1\n".into(), "---\n---\na: 1\n").is_err());
+    assert!(check_annotations("--- # comment\na: 1\n", "a: 1 # comment\n").is_err());
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        failure_persistence: crate::property::failure_persistence!("property_format"),
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn optional_document_start_removal_keeps_invariants(
+        input in properties::arb_document_start_removal(),
+    ) {
+        let decoded = ryl::decoder::decode_bytes_lossless(input.as_bytes()).unwrap();
+        for name in ["format/remove-document-start", "fix/remove-document-start"] {
+            check_invariants(&named_pass(name).format, decoded.content()).map_err(TestCaseError::fail)?;
+        }
+    }
+}
+
+#[test]
+fn removed_document_marker_does_not_hide_leading_blank_lines() {
+    let pass = named_pass("format/remove-document-start");
+    assert_eq!(
+        check_invariants(&pass.format, "---\n\na: 1\n").unwrap(),
+        "a: 1\n",
+    );
+}

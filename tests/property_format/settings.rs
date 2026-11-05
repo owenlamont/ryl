@@ -11,7 +11,7 @@ pub fn arb_format_config() -> impl Strategy<Value = String> {
             prop_oneof![1u16..=100, 1u16..=u16::MAX],
             prop::sample::select(vec!["single", "double", "preserve"]),
             prop::sample::select(vec!["lf", "cr-lf", "native", "auto"]),
-            any::<bool>(),
+            prop::sample::select(vec!["add", "preserve", "remove"]),
             any::<bool>(),
             prop::sample::select(vec!["fold-long-lines = false", "fold-long-lines = true", "prose-wrap = 'preserve'", "prose-wrap = 'always'", "prose-wrap = 'never'"]),
         ),
@@ -59,7 +59,7 @@ pub fn arb_format_config() -> impl Strategy<Value = String> {
                      indent-sequences = {sequences}\ndash-on-own-line = {dash}\n\
                      sequence-expand = '{sequence_expand}'\nmapping-expand = '{mapping_expand}'\n\
                      property-order = '{property_order}'\n",
-                    marker(start),
+                    start,
                     marker(end),
                     marker(comment),
                 )

@@ -448,3 +448,35 @@ pub fn arb_whitespace_block_scalar() -> impl Strategy<Value = String> {
     });
     prop_oneof![3 => ordinary, 1 => movable_blank]
 }
+
+pub fn arb_document_start_removal() -> impl Strategy<Value = String> {
+    (
+        prop::sample::select(vec![
+            "---\nvalue\n",
+            "---\n\nvalue\n",
+            "--- |\n  value\n",
+            "--- !tag value\n",
+            "--- &a [value, *a]\n",
+            "--- # comment\na: value\n",
+            "---\na: value\n---\nb: 2\n",
+            "---\n---\na: value\n",
+            "%YAML 1.2\n---\na: value\n",
+            "...\n---\na: value\n",
+        ]),
+        "[a-zé]{1,8}",
+        any::<bool>(),
+        any::<bool>(),
+    )
+        .prop_map(|(shape, value, bom, crlf)| {
+            let input = format!(
+                "{}{}",
+                if bom { "\u{feff}" } else { "" },
+                shape.replace("value", &value)
+            );
+            if crlf {
+                input.replace('\n', "\r\n")
+            } else {
+                input
+            }
+        })
+}

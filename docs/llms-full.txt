@@ -1673,7 +1673,7 @@ ignore comments unchanged unless you opt into [comment conversion](#suppression-
 | Source-specific flow wrapping, bracket padding, or trailing commas | Uses supported ryl layout settings; warns about differences |
 | yamlfmt YAML merge keys | Retains the source without importing formatter settings; expand merged settings manually and rerun |
 | yamlfmt scalar spellings requiring unsupported resolution | Retains the source without importing formatter settings; quote string values, use plain decimal numbers, or configure ryl manually |
-| Removing document-start markers | Preserves existing markers; warns |
+| Removing document-start markers | Removes the first optional marker; retains required boundaries |
 | yamlfix null spelling and per-style prose behavior | Preserves null spellings and uses split-only line folding; warns |
 | Dimensions outside ryl's supported range | Uses a supported fallback and warns |
 
@@ -1797,7 +1797,7 @@ line-length = 100
 
 [tool.ryl.format]
 fold-long-lines = true
-document-start = "preserve"
+document-start = "remove"
 max-blank-lines = 1
 comment-spacing = 1
 ```
@@ -1811,7 +1811,7 @@ comment-spacing = 1
 | `whitelines` (0) | `[format] max-blank-lines` (default 2), see [blank lines](#blank-lines) |
 | `comments_whitelines` (1) | none, see [blank lines](#blank-lines) |
 | `section_whitelines` (0) | none, see [blank lines](#blank-lines) |
-| `explicit_start` (true) | `[format] document-start = "add"`; `false` maps to `"preserve"` |
+| `explicit_start` (true) | `[format] document-start = "add"`; `false` maps to `"remove"` |
 | `indent_mapping` (2) | top-level `indent-width` |
 | `indent_sequence` (4), `indent_offset` (2) | top-level `indent-width` with `[format] indent-sequences` selects indented or flush sequences; independent sequence width and offset have no exact equivalent |
 | `line_length` (80) | top-level `line-length` with `[format] fold-long-lines = true` |
@@ -1843,8 +1843,9 @@ sets the gap exactly, so `comment-spacing = 1` also shrinks a wider gap.
 ### Removing `---`
 
 yamlfix's `explicit_start = false` removes document start markers, which merges
-the documents of a multi-document stream. ryl never removes `---`;
-`document-start = "preserve"` leaves markers as written.
+the documents of a multi-document stream. Imported `document-start = "remove"`
+removes only the first optional marker; directives, empty documents and stream
+separators keep required markers.
 
 ### Forcing quotes
 
@@ -1943,7 +1944,8 @@ formatter:
 | `formatter.pad_line_comments: 1` | `[format] comment-spacing = 1` |
 | `formatter.line_ending: lf` | `[format] line-ending = "lf"` (default) |
 | `formatter.line_ending: crlf` | `[format] line-ending = "cr-lf"` |
-| `formatter.include_document_start: false` | `[format] document-start = "preserve"`; see [markers](#document-markers) |
+| `formatter.include_document_start: false` (default) | `[format] document-start = "remove"`; see [markers](#document-markers) |
+| `formatter.include_document_start: true` | `[format] document-start = "add"` |
 | `formatter.max_line_length: 0` | `[format] fold-long-lines = false` (default) |
 | `formatter.max_line_length: 40` | Approximately: top-level `line-length = 40` and `[format] fold-long-lines = true` |
 
@@ -1954,9 +1956,9 @@ At 40 columns, yamlfmt wraps plain scalars differently and wraps flow sequences 
 ### Document markers
 
 yamlfmt removes `---` and `...` from a single document in the tested default
-profile. ryl preserves existing markers: removing one can change a multi-document
-stream or discard an explicit boundary. `document-start = "add"` adds missing
-`---` if the project requires it.
+profile. Imported `document-start = "remove"` removes the first optional `---`;
+directives, empty documents and separators keep required markers. Existing `...`
+markers remain. `document-start = "add"` adds missing `---` if required.
 
 ### Layout and values
 
@@ -2415,7 +2417,7 @@ No single setting converts block collections to flow with one entry per line:
 | `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
 | `keep-quotes` | `false` | `true`, `false` | Keep existing optional quotes while `quote-style` selects their character; plain strings stay plain. |
 | `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"`, `"auto"` | Line endings, including the final newline; `"native"` is the platform's, and `"auto"` keeps the ending most of the file's lines use (`"lf"` on a tie or a file without line breaks). |
-| `document-start` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
+| `document-start` | `"preserve"` | `"add"`, `"preserve"`, `"remove"` | Add missing `---` markers, preserve markers, or remove the first optional marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `prose-wrap` | `"preserve"` | `"preserve"`, `"always"`, `"never"` | Preferred for new configs: preserve breaks, join and wrap paragraphs, or join without wrapping. See [Long lines](#long-lines). |
 | `fold-long-lines` | `false` | `true`, `false` | Legacy split-only folding at single spaces; cannot be combined with `prose-wrap`, even when false. |
@@ -2468,6 +2470,18 @@ the marker is left unfixed if appending it would change the reference value.
 
 A document that a tab indents, or that re-indenting would parse differently, is left as
 it is and named on stderr.
+
+### Removing an optional document marker
+
+```toml
+[format]
+document-start = "remove"
+```
+
+`---\na: 1\n---\nb: 2\n` becomes `a: 1\n---\nb: 2\n`. Only the first
+optional marker is removed. Directives, empty documents and separators keep
+required markers. `--- |` becomes `|` on the same line; a marker-line comment
+becomes a standalone comment.
 
 ## Default profile
 
@@ -2832,7 +2846,7 @@ says so.
 | [`commas`](https://ryl-docs.pages.dev/rules/commas/) | `min-spaces-after` is above 1, or `max-spaces-after` is 0 |
 | [`comments`](https://ryl-docs.pages.dev/rules/comments/) | `min-spaces-from-content` is above `[format] comment-spacing`, or `max-spaces-from-content` is below it (`-1`, the default, is unlimited); or `ignore-shebangs = false` while `require-starting-space = true` under `[format] comment-starting-space = "add"`, since a shebang keeps its `#!` |
 | [`comments-indentation`](https://ryl-docs.pages.dev/rules/comments-indentation/) | Never |
-| [`document-start`](https://ryl-docs.pages.dev/rules/document-start/) | `present = false` with `[format] document-start = "add"` |
+| [`document-start`](https://ryl-docs.pages.dev/rules/document-start/) | `present = false` with `[format] document-start = "add"`, or `present = true` with `"remove"` |
 | [`document-end`](https://ryl-docs.pages.dev/rules/document-end/) | `present = false` with `[format] document-end = "add"` |
 | [`empty-lines`](https://ryl-docs.pages.dev/rules/empty-lines/) | `max` is below `[format] max-blank-lines` |
 | [`new-line-at-end-of-file`](https://ryl-docs.pages.dev/rules/new-line-at-end-of-file/) | Never |
@@ -5811,8 +5825,9 @@ file or a later document, stays before the `---`. A line-1 `#!` shebang or
 cloud-init `#cloud-config` header stays first, with the `---` inserted after it,
 since the interpreter or cloud-init reads it from byte 0.
 
-The `present: false` case (removing existing `---` markers) is never auto-fixed
-because removal can collide with multi-document boundaries.
+With `present: false`, `--fix` removes the first document's optional marker.
+Content or a comment on the marker line moves to column one. Directives, empty
+documents and stream separators retain their markers and remain reported.
 
 Disable with:
 
@@ -5822,7 +5837,8 @@ fixable = ["ALL"]
 unfixable = ["document-start"]
 ```
 
-`ryl format` adds `---` the same way only when `[format] document-start` is `"add"`, and then conflicts with `present = false`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
+`ryl format` shares the marker fixes through `[format] document-start = "add"`
+or `"remove"`; see [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules).
 
 ## Related rules
 

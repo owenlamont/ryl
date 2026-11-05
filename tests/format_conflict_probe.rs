@@ -14,6 +14,12 @@ const QUOTED: &str = "quote-type = 'single'\nrequired = 'only-when-needed'\n\
 /// `[format]` prelude, rule, agreeing options, then the option line that must conflict.
 const CONFLICTING: &[(&str, &str, &str, &str)] = &[
     (
+        "[format]\ndocument-start = 'remove'\n",
+        "document-start",
+        "present = false\n",
+        "present = true",
+    ),
+    (
         "[format]\nmapping-style = 'flow'\n",
         "braces",
         "",

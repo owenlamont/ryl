@@ -148,6 +148,8 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
         .chain([
             toml_pass("fix/ladder-toml", TOML_LADDER, fix),
             toml_pass("format/default", "[format]\n", format),
+            toml_pass("format/remove-document-start", "[format]\ndocument-start = 'remove'\n", format),
+            toml_pass("fix/remove-document-start", &TOML_LADDER.replace("document-start = 'enable'", "document-start = { present = false }"), fix),
             toml_pass(
                 "format/keep-quotes-single",
                 "[format]\nkeep-quotes = true\n",

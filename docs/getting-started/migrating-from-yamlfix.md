@@ -43,7 +43,7 @@ line-length = 100
 
 [tool.ryl.format]
 fold-long-lines = true
-document-start = "preserve"
+document-start = "remove"
 max-blank-lines = 1
 comment-spacing = 1
 ```
@@ -57,7 +57,7 @@ comment-spacing = 1
 | `whitelines` (0) | `[format] max-blank-lines` (default 2), see [blank lines](#blank-lines) |
 | `comments_whitelines` (1) | none, see [blank lines](#blank-lines) |
 | `section_whitelines` (0) | none, see [blank lines](#blank-lines) |
-| `explicit_start` (true) | `[format] document-start = "add"`; `false` maps to `"preserve"` |
+| `explicit_start` (true) | `[format] document-start = "add"`; `false` maps to `"remove"` |
 | `indent_mapping` (2) | top-level `indent-width` |
 | `indent_sequence` (4), `indent_offset` (2) | top-level `indent-width` with `[format] indent-sequences` selects indented or flush sequences; independent sequence width and offset have no exact equivalent |
 | `line_length` (80) | top-level `line-length` with `[format] fold-long-lines = true` |
@@ -89,8 +89,9 @@ sets the gap exactly, so `comment-spacing = 1` also shrinks a wider gap.
 ### Removing `---`
 
 yamlfix's `explicit_start = false` removes document start markers, which merges
-the documents of a multi-document stream. ryl never removes `---`;
-`document-start = "preserve"` leaves markers as written.
+the documents of a multi-document stream. Imported `document-start = "remove"`
+removes only the first optional marker; directives, empty documents and stream
+separators keep required markers.
 
 ### Forcing quotes
 

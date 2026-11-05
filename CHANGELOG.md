@@ -9,6 +9,9 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Added
 
+- `[format] document-start = "remove"` removes the first optional `---`, as does
+  `document-start` lint fixing with `present = false`. yamlfmt and yamlfix imports
+  map their marker-removal settings to the shared safe removal policy.
 - Import static Prettier, yamlfmt, dprint pretty_yaml and yamlfix configs with
   `--migrate-configs`, including representable defaults. Use `--migrate-from`
   when multiple source formatters apply; the error lists accepted flag values.

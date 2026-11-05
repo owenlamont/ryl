@@ -3,8 +3,8 @@ use std::path::Path;
 
 use ryl::config::YamlLintConfig;
 use ryl::config_schema::{
-    ExpandTarget, LineEndingTarget, MarkerTarget, PropertyOrderTarget, ProseWrap,
-    QuoteStyleTarget,
+    DocumentStartTarget, ExpandTarget, LineEndingTarget, MarkerTarget,
+    PropertyOrderTarget, ProseWrap, QuoteStyleTarget,
 };
 use ryl::migrate::{
     MigrateOptions, MigrateResult, MigrationSource, OutputMode, SourceCleanup,
@@ -710,7 +710,7 @@ fn effective_source_defaults_are_written_as_native_format_targets() {
             true,
             Some(ProseWrap::Preserve),
             None,
-            MarkerTarget::Preserve,
+            DocumentStartTarget::Preserve,
             1,
             1,
             PropertyOrderTarget::TagFirst,
@@ -725,7 +725,7 @@ fn effective_source_defaults_are_written_as_native_format_targets() {
             true,
             Some(ProseWrap::Never),
             None,
-            MarkerTarget::Preserve,
+            DocumentStartTarget::Remove,
             1,
             0,
             PropertyOrderTarget::AnchorFirst,
@@ -740,7 +740,7 @@ fn effective_source_defaults_are_written_as_native_format_targets() {
             true,
             Some(ProseWrap::Preserve),
             None,
-            MarkerTarget::Preserve,
+            DocumentStartTarget::Preserve,
             1,
             1,
             PropertyOrderTarget::Preserve,
@@ -755,7 +755,7 @@ fn effective_source_defaults_are_written_as_native_format_targets() {
             false,
             None,
             Some(true),
-            MarkerTarget::Add,
+            DocumentStartTarget::Add,
             2,
             0,
             PropertyOrderTarget::AnchorFirst,
@@ -1248,7 +1248,7 @@ fn explicit_yamlfmt_policies_map_with_specific_gap_warnings() {
     assert_eq!(ryl::format::line_length(&config), 100);
     assert_eq!(format.line_ending, LineEndingTarget::CrLf);
     assert_eq!(format.quote_style, QuoteStyleTarget::Single);
-    assert_eq!(format.document_start, MarkerTarget::Add);
+    assert_eq!(format.document_start, DocumentStartTarget::Add);
     assert_eq!(format.prose_wrap, Some(ProseWrap::Preserve));
     assert_eq!(
         format.sequence_style,
@@ -1333,7 +1333,7 @@ fn yamlfix_preservation_and_sequence_styles_use_bare_toml_fields() {
         assert_eq!(ryl::format::line_length(&config), 100);
         assert_eq!(format.quote_style, QuoteStyleTarget::Preserve);
         assert!(format.keep_quotes);
-        assert_eq!(format.document_start, MarkerTarget::Preserve);
+        assert_eq!(format.document_start, DocumentStartTarget::Remove);
         assert_eq!(format.comment_starting_space, MarkerTarget::Preserve);
         assert_eq!(format.comment_spacing.get(), 3);
         assert_eq!(format.max_blank_lines, 2);
@@ -3158,5 +3158,46 @@ fn yaml_specific_overrides_and_doublestar_exclusions_validate_imported_values() 
         let result = migrate_configs(&options(dir.path(), Some(tool)));
         assert!(result.unwrap_err().contains(error));
         assert!(!dir.path().join(".ryl.toml").exists());
+    }
+}
+
+#[test]
+fn marker_removal_imports_without_an_option_warning() {
+    for (tool, filename, body, option) in [
+        (
+            MigrationSource::Yamlfmt,
+            ".yamlfmt",
+            "{}",
+            "include_document_start",
+        ),
+        (
+            MigrationSource::Yamlfmt,
+            ".yamlfmt",
+            "formatter: {include_document_start: false}\n",
+            "include_document_start",
+        ),
+        (
+            MigrationSource::Yamlfix,
+            ".yamlfix.toml",
+            "explicit_start = false\n",
+            "explicit_start",
+        ),
+    ] {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join(filename);
+        fs::write(&source, body).unwrap();
+        let result = migrate_configs(&options(&source, Some(tool))).unwrap();
+        assert_eq!(
+            converted(&result).format().targets().document_start,
+            DocumentStartTarget::Remove
+        );
+        assert!(
+            !result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains(option)),
+            "{:?}",
+            result.warnings
+        );
     }
 }

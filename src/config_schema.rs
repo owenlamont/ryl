@@ -119,8 +119,8 @@ pub struct FormatTable {
     pub keep_quotes: bool,
     /// Line ending; `native` is the platform's, `auto` the one most of the file uses.
     pub line_ending: LineEndingTarget,
-    /// Whether to add a missing `---` document start marker.
-    pub document_start: MarkerTarget,
+    /// Whether to add, preserve or remove an optional first `---` marker.
+    pub document_start: DocumentStartTarget,
     /// Whether to add a missing `...` document end marker.
     pub document_end: MarkerTarget,
     /// Whether to split plain, quoted and `>` scalar lines longer than `line-length` at spaces.
@@ -163,7 +163,7 @@ impl Default for FormatTable {
             quote_style: QuoteStyleTarget::Single,
             keep_quotes: false,
             line_ending: LineEndingTarget::Lf,
-            document_start: MarkerTarget::Preserve,
+            document_start: DocumentStartTarget::Preserve,
             document_end: MarkerTarget::Preserve,
             fold_long_lines: None,
             prose_wrap: None,
@@ -260,6 +260,14 @@ impl UnsafeFixRule {
 pub enum MarkerTarget {
     Add,
     Preserve,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum DocumentStartTarget {
+    Add,
+    Preserve,
+    Remove,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]

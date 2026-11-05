@@ -4,8 +4,8 @@ use std::path::Path;
 
 use crate::config::YamlLintConfig;
 use crate::config_schema::{
-    CollectionStyleTarget, ExpandTarget, FormatTable, LineEndingTarget, MarkerTarget,
-    PropertyOrderTarget, ProseWrap, QuoteStyleTarget,
+    CollectionStyleTarget, DocumentStartTarget, ExpandTarget, FormatTable,
+    LineEndingTarget, MarkerTarget, PropertyOrderTarget, ProseWrap, QuoteStyleTarget,
 };
 use crate::fix::{
     NewlinePolicy, ParsedInput, PassTracking, Passes, ReindentCache, rewrite_parse_gate,
@@ -120,9 +120,11 @@ impl Passes<'static> {
                 },
             ),
             trailing_spaces: on(trailing_spaces::ID),
-            document_start: (table.document_start == MarkerTarget::Add
+            document_start: (table.document_start != DocumentStartTarget::Preserve
                 && on(document_start::ID))
-            .then_some(document_start::Config::new(true)),
+            .then_some(document_start::Config::new(
+                table.document_start == DocumentStartTarget::Add,
+            )),
             document_end: (table.document_end == MarkerTarget::Add
                 && on(document_end::ID))
             .then_some(document_end::Config::new(true)),
@@ -733,7 +735,9 @@ fn target(rule: &str, cfg: &YamlLintConfig) -> Option<String> {
         indentation::ID => Some("indent-sequences"),
         quoted_strings::ID if table.quote_style == QuoteStyleTarget::Preserve => None,
         quoted_strings::ID if table.keep_quotes => Some("keep-quotes"),
-        document_start::ID if table.document_start == MarkerTarget::Preserve => None,
+        document_start::ID if table.document_start == DocumentStartTarget::Preserve => {
+            None
+        }
         document_end::ID if table.document_end == MarkerTarget::Preserve => None,
         line_length::ID => return None,
         braces::ID if table.mapping_style == CollectionStyleTarget::Flow => {

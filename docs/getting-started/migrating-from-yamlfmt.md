@@ -59,7 +59,8 @@ formatter:
 | `formatter.pad_line_comments: 1` | `[format] comment-spacing = 1` |
 | `formatter.line_ending: lf` | `[format] line-ending = "lf"` (default) |
 | `formatter.line_ending: crlf` | `[format] line-ending = "cr-lf"` |
-| `formatter.include_document_start: false` | `[format] document-start = "preserve"`; see [markers](#document-markers) |
+| `formatter.include_document_start: false` (default) | `[format] document-start = "remove"`; see [markers](#document-markers) |
+| `formatter.include_document_start: true` | `[format] document-start = "add"` |
 | `formatter.max_line_length: 0` | `[format] fold-long-lines = false` (default) |
 | `formatter.max_line_length: 40` | Approximately: top-level `line-length = 40` and `[format] fold-long-lines = true` |
 
@@ -70,9 +71,9 @@ At 40 columns, yamlfmt wraps plain scalars differently and wraps flow sequences 
 ### Document markers
 
 yamlfmt removes `---` and `...` from a single document in the tested default
-profile. ryl preserves existing markers: removing one can change a multi-document
-stream or discard an explicit boundary. `document-start = "add"` adds missing
-`---` if the project requires it.
+profile. Imported `document-start = "remove"` removes the first optional `---`;
+directives, empty documents and separators keep required markers. Existing `...`
+markers remain. `document-start = "add"` adds missing `---` if required.
 
 ### Layout and values
 

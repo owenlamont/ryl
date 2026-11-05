@@ -2,7 +2,9 @@ use super::representation::{
     BLOCK_HEADER, first_content_line, scalar_tokens, yaml_lines,
 };
 use ryl::config::YamlLintConfig;
-use ryl::config_schema::{LineEndingTarget, MarkerTarget, QuoteStyleTarget};
+use ryl::config_schema::{
+    DocumentStartTarget, LineEndingTarget, MarkerTarget, QuoteStyleTarget,
+};
 use ryl_yaml_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 use similar::{DiffTag, TextDiff};
 
@@ -839,7 +841,7 @@ pub fn agreeing_lint(config: &str) -> String {
          required = {required}\nallow-double-quotes-for-escaping = true\n\
          allow-quoted-quotes = true\n\
          [lint.rules.new-lines]\ntype = '{ending}'\n",
-        enabled(table.document_start == MarkerTarget::Add),
+        enabled(table.document_start == DocumentStartTarget::Add),
         enabled(table.document_end == MarkerTarget::Add),
         table.dash_on_own_line,
         table.indent_sequences,

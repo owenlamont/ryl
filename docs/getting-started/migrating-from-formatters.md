@@ -140,7 +140,7 @@ ignore comments unchanged unless you opt into [comment conversion](#suppression-
 | Source-specific flow wrapping, bracket padding, or trailing commas | Uses supported ryl layout settings; warns about differences |
 | yamlfmt YAML merge keys | Retains the source without importing formatter settings; expand merged settings manually and rerun |
 | yamlfmt scalar spellings requiring unsupported resolution | Retains the source without importing formatter settings; quote string values, use plain decimal numbers, or configure ryl manually |
-| Removing document-start markers | Preserves existing markers; warns |
+| Removing document-start markers | Removes the first optional marker; retains required boundaries |
 | yamlfix null spelling and per-style prose behavior | Preserves null spellings and uses split-only line folding; warns |
 | Dimensions outside ryl's supported range | Uses a supported fallback and warns |
 

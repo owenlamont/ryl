@@ -138,7 +138,7 @@ No single setting converts block collections to flow with one entry per line:
 | `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
 | `keep-quotes` | `false` | `true`, `false` | Keep existing optional quotes while `quote-style` selects their character; plain strings stay plain. |
 | `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"`, `"auto"` | Line endings, including the final newline; `"native"` is the platform's, and `"auto"` keeps the ending most of the file's lines use (`"lf"` on a tie or a file without line breaks). |
-| `document-start` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `---` document start marker. |
+| `document-start` | `"preserve"` | `"add"`, `"preserve"`, `"remove"` | Add missing `---` markers, preserve markers, or remove the first optional marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `prose-wrap` | `"preserve"` | `"preserve"`, `"always"`, `"never"` | Preferred for new configs: preserve breaks, join and wrap paragraphs, or join without wrapping. See [Long lines](#long-lines). |
 | `fold-long-lines` | `false` | `true`, `false` | Legacy split-only folding at single spaces; cannot be combined with `prose-wrap`, even when false. |
@@ -191,6 +191,18 @@ the marker is left unfixed if appending it would change the reference value.
 
 A document that a tab indents, or that re-indenting would parse differently, is left as
 it is and named on stderr.
+
+### Removing an optional document marker
+
+```toml
+[format]
+document-start = "remove"
+```
+
+`---\na: 1\n---\nb: 2\n` becomes `a: 1\n---\nb: 2\n`. Only the first
+optional marker is removed. Directives, empty documents and separators keep
+required markers. `--- |` becomes `|` on the same line; a marker-line comment
+becomes a standalone comment.
 
 ## Default profile
 
@@ -555,7 +567,7 @@ says so.
 | [`commas`](rules/commas.md) | `min-spaces-after` is above 1, or `max-spaces-after` is 0 |
 | [`comments`](rules/comments.md) | `min-spaces-from-content` is above `[format] comment-spacing`, or `max-spaces-from-content` is below it (`-1`, the default, is unlimited); or `ignore-shebangs = false` while `require-starting-space = true` under `[format] comment-starting-space = "add"`, since a shebang keeps its `#!` |
 | [`comments-indentation`](rules/comments-indentation.md) | Never |
-| [`document-start`](rules/document-start.md) | `present = false` with `[format] document-start = "add"` |
+| [`document-start`](rules/document-start.md) | `present = false` with `[format] document-start = "add"`, or `present = true` with `"remove"` |
 | [`document-end`](rules/document-end.md) | `present = false` with `[format] document-end = "add"` |
 | [`empty-lines`](rules/empty-lines.md) | `max` is below `[format] max-blank-lines` |
 | [`new-line-at-end-of-file`](rules/new-line-at-end-of-file.md) | Never |
