@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tempfile::tempdir;
 
@@ -84,7 +84,8 @@ fn existing_project_candidates_are_preserved() {
         ".yamllint.yml",
     ] {
         let dir = tempdir().unwrap();
-        let path = dir.path().join(name);
+        let native_name: PathBuf = name.split('/').collect();
+        let path = dir.path().join(&native_name);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         let content = if name == "pyproject.toml" {
             "[tool.ryl]\n"
@@ -95,7 +96,10 @@ fn existing_project_candidates_are_preserved() {
         let (code, _, stderr) =
             run(ryl(dir.path()).current_dir(dir.path()).arg("init"));
         assert_eq!(code, 2, "{name}: {stderr}");
-        assert!(stderr.contains(name), "{stderr}");
+        assert!(
+            stderr.contains(&native_name.display().to_string()),
+            "{stderr}"
+        );
         assert!(stderr.contains("configuration already exists"), "{stderr}");
         if name.starts_with(".yamllint") {
             assert!(
