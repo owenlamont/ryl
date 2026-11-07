@@ -1005,6 +1005,8 @@ pub struct TomlAnchorsOptions {
     pub forbid_ambiguous_anchor_alias_names: Option<bool>,
     #[serde(rename = "forbid-anchors-and-aliases")]
     pub forbid_anchors_and_aliases: Option<bool>,
+    #[serde(rename = "forbid-aliases")]
+    pub forbid_aliases: Option<bool>,
 }
 
 /// TOML-only `comments-indentation` options. yamllint's rule has none, so the YAML

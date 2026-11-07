@@ -44,7 +44,7 @@ fn presets_write_loadable_configs_that_lint() {
                 "octal-values",
             ),
             Preset::Cloudformation => (
-                "Value: !Ref Bucket\n",
+                "Value: !Ref Bucket\nUnused: &bucket data\n",
                 "---\nValue: &bucket data\nAlias: *bucket\n",
                 "anchors",
             ),

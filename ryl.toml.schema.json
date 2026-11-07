@@ -1796,6 +1796,12 @@
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
+        "forbid-aliases": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "forbid-ambiguous-anchor-alias-names": {
           "type": [
             "boolean",

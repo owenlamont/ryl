@@ -219,9 +219,8 @@ Sources:
 
 ## `cloudformation`
 
-Use for CloudFormation and SAM templates. The anchor setting rejects both anchors
-and aliases, broader than AWS’s alias-only restriction. Merge keys and removed
-standard tags are also rejected; custom intrinsic tags remain unrestricted.
+Use for CloudFormation and SAM templates. Aliases, merge keys and removed standard
+tags are rejected; unreferenced anchors and custom intrinsic tags are allowed.
 
 ```toml
 # CloudFormation and SAM templates
@@ -265,8 +264,8 @@ level = "warning"
 level = "warning"
 
 [lint.rules.anchors]
-# Reject aliases (also bans anchors): https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-formats.html
-forbid-anchors-and-aliases = true
+# AWS rejects aliases: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-formats.html
+forbid-aliases = true
 
 [lint.rules.merge-keys]
 # AWS template restrictions: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-formats.html

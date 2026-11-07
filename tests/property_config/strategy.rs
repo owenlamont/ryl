@@ -157,6 +157,7 @@ const CATALOG: &[(&str, &[(&str, OptValKind)])] = &[
             ("forbid-unused-anchors", OptValKind::Bool),
             ("forbid-ambiguous-anchor-alias-names", OptValKind::Bool),
             ("forbid-anchors-and-aliases", OptValKind::Bool),
+            ("forbid-aliases", OptValKind::Bool),
         ],
     ),
     ("document-start", &[("present", OptValKind::Bool)]),

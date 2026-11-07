@@ -6,7 +6,7 @@ use proptest::prelude::*;
 use ryl::lint::lint_str;
 
 use harness::{
-    anchors_forbidden_config, check_spans_in_bounds, collect_spans,
+    anchors_forbidden_configs, check_spans_in_bounds, collect_spans,
     comments_indentation_open_config, hyphens_dash_on_own_line_config,
     indentation_consistent_config, trigger_all_config,
 };
@@ -17,13 +17,15 @@ fn forbidden_anchors_config_flags_a_generated_valid_pair() {
     use ryl::rules::anchors::{Config, check};
     let content = "a: [&anchor value, *anchor]\n";
     assert!(check(content, &Config::resolve(trigger_all_config())).is_empty());
-    let forbidden = check(content, &Config::resolve(anchors_forbidden_config()));
-    assert_eq!(forbidden.len(), 2);
-    assert!(
-        forbidden
-            .iter()
-            .all(|hit| hit.message.contains("forbidden"))
-    );
+    for (config, expected) in anchors_forbidden_configs().iter().zip([2, 1]) {
+        let forbidden = check(content, &Config::resolve(config));
+        assert_eq!(forbidden.len(), expected);
+        assert!(
+            forbidden
+                .iter()
+                .all(|hit| hit.message.contains("forbidden"))
+        );
+    }
 }
 
 fn lint(content: &str) -> Vec<ryl::lint::LintProblem> {
