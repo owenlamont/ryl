@@ -59,10 +59,10 @@ const OUTPUT_INFALLIBLE: &str =
     "writing diagnostics to an in-memory buffer cannot fail";
 
 const NO_RULES_ENABLED_ERROR: &str = "error: configuration enables no rules, so nothing would be linted; enable at \
-     least one rule, copy a preset from https://ryl-docs.pages.dev/config-presets/, or pass '--enable ALL'";
+     least one rule, run 'ryl init' to write a starter config, or pass '--enable ALL'";
 
 const NO_CONFIG_ERROR: &str = "error: no configuration found and ryl enables no rules by default; create a \
-     config that enables rules, copy a preset from https://ryl-docs.pages.dev/config-presets/, or pass '--enable ALL'";
+     config that enables rules, run 'ryl init' to write a starter config, or pass '--enable ALL'";
 
 fn no_rules_error(config_found: bool) -> String {
     if config_found {
@@ -376,8 +376,6 @@ enum CliFormat {
         .args(["migrate_configs", "migrate_user_config"])
         .multiple(true))
 )]
-// `check` and (with `lsp`) `server` are subcommands; bare `ryl <paths>` still lints via the
-// flattened top-level lint args, so those are mutually exclusive with any subcommand.
 #[command(args_conflicts_with_subcommands = true)]
 // These are independent toggles, not state better modeled as an enum.
 #[allow(clippy::struct_excessive_bools)]
@@ -433,7 +431,7 @@ struct Cli {
 }
 
 /// Subcommands; none (bare `ryl <paths>`) lints, like `check`. A bare subcommand token
-/// (`check`/`format`/`server`) resolves to the subcommand, so lint a path of that name with
+/// (`check`/`format`/`init`/`server`) resolves to the subcommand, so lint a path of that name with
 /// `ryl check <name>`.
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
@@ -441,6 +439,12 @@ enum Commands {
     Check(LintArgs),
     /// Format YAML inputs in place
     Format(FormatArgs),
+    /// Write a starter .ryl.toml in the current directory
+    Init {
+        /// Starter ruleset to write
+        #[arg(long, value_enum, default_value = "default", value_name = "NAME")]
+        preset: ryl::config::init::Preset,
+    },
     /// Run the language server (LSP) over stdio for editor integration
     #[cfg(feature = "lsp")]
     Server,
@@ -1432,6 +1436,21 @@ fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
             return run_lint(args, sub);
         }
         Some(Commands::Format(args)) => return run_format(args),
+        Some(Commands::Init { preset }) => {
+            let dir = std::env::current_dir().map_err(|error| {
+                format!(
+                    "error: cannot resolve current directory for .ryl.toml: {error}"
+                )
+            })?;
+            if let Some(ancestor) = ryl::config::init::write_config(&dir, *preset)? {
+                eprintln!(
+                    "note: .ryl.toml takes over for this subtree from {} with no inheritance",
+                    sanitize_control(&ancestor.display().to_string())
+                );
+            }
+            println!("Created .ryl.toml");
+            return Ok(ExitCode::SUCCESS);
+        }
         None => {}
     }
 

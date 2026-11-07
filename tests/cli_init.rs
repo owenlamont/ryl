@@ -1,0 +1,253 @@
+use std::fs;
+use std::path::Path;
+
+use tempfile::tempdir;
+
+use crate::common::cli::{run, ryl};
+use ryl::config::YamlLintConfig;
+
+const PRESETS: [(&str, &str); 2] = [
+    (
+        "default",
+        include_str!("../src/config/init/presets/default.toml"),
+    ),
+    (
+        "relaxed",
+        include_str!("../src/config/init/presets/relaxed.toml"),
+    ),
+];
+
+#[test]
+fn presets_write_loadable_configs_that_lint() {
+    for (name, embedded) in PRESETS {
+        let dir = tempdir().unwrap();
+        let (code, stdout, stderr) = run(ryl(dir.path())
+            .current_dir(dir.path())
+            .args(["init", "--preset", name]));
+        assert_eq!(code, 0, "{stderr}");
+        assert_eq!(stdout, "Created .ryl.toml\n");
+        assert!(stderr.is_empty(), "{stderr}");
+        let text = fs::read_to_string(dir.path().join(".ryl.toml")).unwrap();
+        assert_eq!(
+            text,
+            format!(
+                "# {name} preset, written by ryl {}\n\n{embedded}",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+        assert!(
+            YamlLintConfig::from_toml_str(&text)
+                .unwrap()
+                .enables_any_rule()
+        );
+        fs::write(dir.path().join("sample.yaml"), "---\nkey: value\n").unwrap();
+        let (code, _, stderr) = run(ryl(dir.path())
+            .current_dir(dir.path())
+            .args(["check", "sample.yaml"]));
+        assert_eq!(code, 0, "{stderr}");
+        fs::write(dir.path().join("sample.yaml"), "---\nkey: value  \n").unwrap();
+        let (code, _, stderr) = run(ryl(dir.path())
+            .current_dir(dir.path())
+            .args(["check", "sample.yaml"]));
+        assert_eq!(code, 1, "{stderr}");
+        assert!(stderr.contains("trailing-spaces"), "{stderr}");
+    }
+}
+
+#[test]
+fn omitted_preset_is_default_and_unrelated_pyproject_is_allowed() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join("pyproject.toml"),
+        "[project]\nname = 'demo'\n",
+    )
+    .unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(dir.path()).arg("init"));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        fs::read_to_string(dir.path().join(".ryl.toml"))
+            .unwrap()
+            .ends_with(PRESETS[0].1)
+    );
+}
+
+#[test]
+fn existing_project_candidates_are_preserved() {
+    for name in [
+        ".ryl.toml",
+        "ryl.toml",
+        ".config/.ryl.toml",
+        ".config/ryl.toml",
+        "pyproject.toml",
+        ".yamllint",
+        ".yamllint.yaml",
+        ".yamllint.yml",
+    ] {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let content = if name == "pyproject.toml" {
+            "[tool.ryl]\n"
+        } else {
+            "original\n"
+        };
+        fs::write(&path, content).unwrap();
+        let (code, _, stderr) =
+            run(ryl(dir.path()).current_dir(dir.path()).arg("init"));
+        assert_eq!(code, 2, "{name}: {stderr}");
+        assert!(stderr.contains(name), "{stderr}");
+        assert!(stderr.contains("configuration already exists"), "{stderr}");
+        if name.starts_with(".yamllint") {
+            assert!(
+                stderr.contains("--migrate-configs")
+                    && stderr.contains("--migrate-write"),
+                "{stderr}"
+            );
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), content);
+        if name != ".ryl.toml" {
+            assert!(!dir.path().join(".ryl.toml").exists());
+        }
+    }
+}
+
+#[test]
+fn target_directory_is_refused() {
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join(".ryl.toml")).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(dir.path()).arg("init"));
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains(".ryl.toml"), "{stderr}");
+    assert!(dir.path().join(".ryl.toml").is_dir());
+}
+
+#[test]
+fn ancestor_config_is_superseded_without_inheritance() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        "[lint.rules.document-end]\npresent = true\n",
+    )
+    .unwrap();
+    let child = dir.path().join("child");
+    fs::create_dir(&child).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(&child).arg("init"));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stderr.contains("takes over for this subtree")
+            && stderr.contains("no inheritance"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(&dir.path().join(".ryl.toml").display().to_string()),
+        "{stderr}"
+    );
+    fs::write(child.join("sample.yaml"), "---\nkey: value\n").unwrap();
+    let (code, _, stderr) = run(ryl(dir.path())
+        .current_dir(&child)
+        .args(["check", "sample.yaml"]));
+    assert_eq!(code, 0, "{stderr}");
+}
+
+#[test]
+fn unsupported_presets_and_options_are_rejected() {
+    let dir = tempdir().unwrap();
+    for args in [
+        vec!["--preset", "unknown"],
+        vec!["--preset", "empty"],
+        vec!["--force"],
+        vec!["--output", "elsewhere.toml"],
+    ] {
+        let (code, _, stderr) = run(ryl(dir.path())
+            .current_dir(dir.path())
+            .arg("init")
+            .args(&args));
+        assert_eq!(code, 2, "{stderr}");
+        assert!(stderr.contains(args[0]), "{stderr}");
+        assert!(!dir.path().join(".ryl.toml").exists());
+    }
+}
+
+#[test]
+fn presets_match_effective_builtin_yaml_configs() {
+    for (name, embedded) in PRESETS {
+        let toml = YamlLintConfig::from_toml_str(embedded).unwrap();
+        let yaml = YamlLintConfig::from_yaml_str(&format!("extends: {name}")).unwrap();
+        assert_eq!(toml.to_toml_string(), yaml.to_toml_string(), "{name}");
+    }
+}
+
+#[test]
+fn unreadable_or_malformed_pyproject_is_reported() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("pyproject.toml");
+    fs::create_dir(&path).unwrap();
+    assert_init_io_failure(dir.path(), "pyproject.toml");
+    fs::remove_dir(&path).unwrap();
+    fs::write(&path, "[invalid").unwrap();
+    assert_init_io_failure(dir.path(), "pyproject.toml");
+}
+
+fn assert_init_io_failure(dir: &Path, name: &str) {
+    let (code, _, stderr) = run(ryl(dir).current_dir(dir).arg("init"));
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains(name), "{stderr}");
+    assert!(!dir.join(".ryl.toml").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn dangling_target_symlink_is_preserved() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join(".ryl.toml");
+    std::os::unix::fs::symlink("missing.toml", &path).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(dir.path()).arg("init"));
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains(".ryl.toml"), "{stderr}");
+    assert_eq!(fs::read_link(&path).unwrap(), Path::new("missing.toml"));
+    assert!(!dir.path().join("missing.toml").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn inaccessible_candidate_and_unwritable_directory_are_reported() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempdir().unwrap();
+    let config_dir = dir.path().join(".config");
+    fs::create_dir(&config_dir).unwrap();
+    fs::set_permissions(&config_dir, fs::Permissions::from_mode(0o000)).unwrap();
+    assert_init_io_failure(dir.path(), ".config");
+    fs::set_permissions(&config_dir, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o500)).unwrap();
+    assert_init_io_failure(dir.path(), ".ryl.toml");
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn deleted_working_directory_is_reported() {
+    let dir = tempdir().unwrap();
+    let child = dir.path().join("vanished");
+    fs::create_dir(&child).unwrap();
+    let (code, _, stderr) =
+        run(std::process::Command::new("sh").current_dir(&child).args([
+            "-c",
+            "rmdir \"$PWD\"; exec \"$1\" init",
+            "sh",
+            env!("CARGO_BIN_EXE_ryl"),
+        ]));
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains(".ryl.toml"), "{stderr}");
+}
+
+#[test]
+fn ancestor_config_read_failure_is_reported() {
+    let dir = tempdir().unwrap();
+    fs::create_dir(dir.path().join("pyproject.toml")).unwrap();
+    let child = dir.path().join("child");
+    fs::create_dir(&child).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(&child).arg("init"));
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stderr.contains("pyproject.toml"), "{stderr}");
+    assert!(!child.join(".ryl.toml").exists());
+}

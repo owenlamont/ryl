@@ -232,6 +232,10 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 
 ## CLI Behavior
 
+`ryl init [--preset default|relaxed]` exclusively creates `.ryl.toml` in the current
+directory. Existing local project configs are refused; ancestor configs are allowed
+with a no-inheritance note. Success exits `0`; refusals and I/O failures exit `2`.
+
 `ryl check <inputs>` lints files, directories or `-` for stdin. Bare `ryl <inputs>`
 still lints but is deprecated and warns. `check` exits `0` with no errors, `1` for
 errors or invalid YAML, and `2` for usage/config errors or `--strict` warnings.

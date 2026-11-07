@@ -1,0 +1,51 @@
+[files]
+yaml = [
+    "*.yaml",
+    "*.yml",
+    ".yamllint",
+]
+
+[lint.rules]
+anchors = "enable"
+comments = "disable"
+comments-indentation = "disable"
+document-end = "disable"
+document-start = "disable"
+empty-values = "disable"
+float-values = "disable"
+key-duplicates = "enable"
+key-ordering = "disable"
+new-line-at-end-of-file = "enable"
+new-lines = "enable"
+octal-values = "disable"
+quoted-strings = "disable"
+trailing-spaces = "enable"
+truthy = "disable"
+
+[lint.rules.braces]
+level = "warning"
+max-spaces-inside = 1
+
+[lint.rules.brackets]
+level = "warning"
+max-spaces-inside = 1
+
+[lint.rules.colons]
+level = "warning"
+
+[lint.rules.commas]
+level = "warning"
+
+[lint.rules.empty-lines]
+level = "warning"
+
+[lint.rules.hyphens]
+level = "warning"
+
+[lint.rules.indentation]
+level = "warning"
+indent-sequences = "consistent"
+
+[lint.rules.line-length]
+level = "warning"
+allow-non-breakable-inline-mappings = true

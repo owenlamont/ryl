@@ -683,3 +683,32 @@ fn formatter_page_key_values_load() {
         "docs/formatter.md lists values the loader rejects: {rejected:?}"
     );
 }
+
+#[test]
+fn documented_presets_match_embedded_toml() {
+    let page = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/config-presets.md");
+    if !page.is_file() {
+        return;
+    }
+    let text = fs::read_to_string(page).unwrap();
+    for (name, embedded) in [
+        (
+            "default",
+            include_str!("../src/config/init/presets/default.toml"),
+        ),
+        (
+            "relaxed",
+            include_str!("../src/config/init/presets/relaxed.toml"),
+        ),
+    ] {
+        let heading = format!("## `{name}`");
+        let section = text.split_once(&heading).expect("preset heading").1;
+        let section = section.split("\n## ").next().unwrap();
+        let blocks: Vec<_> = extract_blocks(section)
+            .into_iter()
+            .filter(|block| block.lang == "toml")
+            .collect();
+        assert_eq!(blocks.len(), 1, "{name} must have one TOML fence");
+        assert_eq!(blocks[0].content, embedded, "{name} preset drifted");
+    }
+}

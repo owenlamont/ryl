@@ -48,6 +48,7 @@ mod cli_format_subcommand;
 mod cli_global_cfg_relaxed;
 mod cli_hyphens_rule;
 mod cli_indentation_rule;
+mod cli_init;
 mod cli_invalid_project_config;
 mod cli_key_duplicates_rule;
 mod cli_key_ordering_orders;
