@@ -691,16 +691,9 @@ fn documented_presets_match_embedded_toml() {
         return;
     }
     let text = fs::read_to_string(page).unwrap();
-    for (name, embedded) in [
-        (
-            "default",
-            include_str!("../src/config/init/presets/default.toml"),
-        ),
-        (
-            "relaxed",
-            include_str!("../src/config/init/presets/relaxed.toml"),
-        ),
-    ] {
+    for preset in <ryl::config::init::Preset as clap::ValueEnum>::value_variants() {
+        let name = preset.name();
+        let embedded = preset.toml();
         let heading = format!("## `{name}`");
         let section = text.split_once(&heading).expect("preset heading").1;
         let section = section.split("\n## ").next().unwrap();

@@ -14,6 +14,10 @@ Coming from yamllint? See the [migration guide](https://ryl-docs.pages.dev/getti
 
 ## Quick start
 
+Available presets: `default`, `relaxed`, `ansible`, `cloudformation` (including SAM),
+`home-assistant`, `kubernetes` (including Kustomize), `github-actions`, `compose`,
+`helm`, and `gitlab-ci`. See [Configuration presets](https://ryl-docs.pages.dev/config-presets/).
+
 ryl enables no rules by default, so it needs a configuration or `--enable` that
 turns rules on. `--enable ALL` runs every rule for a one-off run, and
 `--enable <RULES>` runs just the named rules; for a project,
@@ -26,7 +30,7 @@ prints a warning to stderr (silenced by `--no-warnings`) and a later release wil
 remove it, so prefer `ryl check`.
 
 ```bash
-# Create a starter .ryl.toml (default or --preset relaxed)
+# Create a starter .ryl.toml (or use --preset kubernetes)
 uvx ryl init
 
 # Using uv (Python)

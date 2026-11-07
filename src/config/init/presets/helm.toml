@@ -1,0 +1,52 @@
+# Helm values.yaml and Chart.yaml files
+[files]
+# Helm chart conventions: https://helm.sh/docs/chart_best_practices/conventions/
+yaml = ["values.yaml", "Chart.yaml"]
+
+[lint.rules]
+# Accommodate chart examples: https://github.com/prometheus-community/helm-charts/blob/main/charts/prometheus/values.yaml
+comments-indentation = "disable"
+# Upstream examples omit initial markers: https://github.com/prometheus-community/helm-charts/blob/main/charts/prometheus/Chart.yaml
+document-start = "disable"
+anchors = "enable"
+braces = "enable"
+brackets = "enable"
+colons = "enable"
+commas = "enable"
+document-end = "disable"
+empty-lines = "enable"
+empty-values = "disable"
+float-values = "disable"
+hyphens = "enable"
+key-duplicates = "enable"
+key-ordering = "disable"
+# Accommodate chart examples: https://github.com/prometheus-community/helm-charts/blob/main/charts/prometheus/values.yaml
+line-length = "disable"
+new-line-at-end-of-file = "enable"
+new-lines = "enable"
+octal-values = "disable"
+trailing-spaces = "enable"
+
+[lint.rules.comments]
+level = "warning"
+
+[lint.rules.truthy]
+level = "warning"
+
+[lint.rules.indentation]
+# Helm chart conventions: https://helm.sh/docs/chart_best_practices/conventions/
+spaces = 2
+# Accommodate chart examples: https://github.com/prometheus-community/helm-charts/blob/main/charts/prometheus/values.yaml
+indent-sequences = "whatever"
+
+[format]
+# Quote string values: https://helm.sh/docs/chart_best_practices/values/
+keep-quotes = true
+
+[lint.rules.quoted-strings]
+# Quote string values: https://helm.sh/docs/chart_best_practices/values/
+quote-type = "any"
+# Quote string values: https://helm.sh/docs/chart_best_practices/values/
+required = true
+# Quote string values: https://helm.sh/docs/chart_best_practices/values/
+check-keys = false

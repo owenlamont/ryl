@@ -78,6 +78,11 @@ cases exit `2`, both stricter than yamllint:
   disabling everything; reports `main::NO_RULES_ENABLED_ERROR`. yamllint silently
   lints nothing.
 
+`ryl init --preset NAME` writes a standalone TOML config: `default`, `relaxed`,
+`ansible`, `cloudformation` (including SAM), `home-assistant`, `kubernetes`
+(including Kustomize), `github-actions`, `compose`, `helm` (values.yaml and
+Chart.yaml only), or `gitlab-ci`. Ecosystem presets are not YAML `extends:` names.
+
 Both via `YamlLintConfig::enables_any_rule`; `main::no_rules_error(config_found)` picks
 the message. The `default`/`relaxed`/`empty` presets stay available via `extends:`
 (deprecated YAML only); both errors suggest `ryl init` to write a TOML preset or
