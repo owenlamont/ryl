@@ -44,6 +44,7 @@ pub struct Config {
     forbid_unused_anchors: bool,
     forbid_ambiguous_anchor_alias_names: bool,
     forbid_anchors_and_aliases: bool,
+    forbid_aliases: bool,
 }
 
 impl Config {
@@ -75,6 +76,7 @@ impl Config {
                 "forbid-anchors-and-aliases",
                 false,
             ),
+            forbid_aliases: cfg.rule_option_bool(ID, "forbid-aliases", false),
         }
     }
 
@@ -90,6 +92,7 @@ impl Config {
             forbid_unused_anchors,
             forbid_ambiguous_anchor_alias_names: false,
             forbid_anchors_and_aliases: false,
+            forbid_aliases: false,
         }
     }
 
@@ -160,7 +163,7 @@ pub(crate) fn check_with_analysis(input: Analysis<'_>, cfg: Config) -> Vec<Viola
                 let end = marker_byte_offset(span.end).get();
                 let name = &buffer[start + 1..end];
                 let (line, column) = columns.at(start);
-                if cfg.forbid_anchors_and_aliases {
+                if cfg.forbid_anchors_and_aliases || cfg.forbid_aliases {
                     violations.push(Violation {
                         line,
                         column,

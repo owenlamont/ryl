@@ -4,7 +4,11 @@ use ryl::rules::anchors;
 #[test]
 fn anchors_forbid_all_is_opt_in_and_requires_a_boolean() {
     let content = "defaults: &defaults {retries: 3}\njob: *defaults\n";
-    for option in ["", "forbid-anchors-and-aliases = false\n"] {
+    for option in [
+        "",
+        "forbid-anchors-and-aliases = false\n",
+        "forbid-aliases = false\n",
+    ] {
         let config =
             YamlLintConfig::from_toml_str(&format!("[lint.rules.anchors]\n{option}"))
                 .unwrap();
@@ -15,6 +19,29 @@ fn anchors_forbid_all_is_opt_in_and_requires_a_boolean() {
     )
     .unwrap_err();
     assert!(error.contains("lint.rules.anchors"), "{error}");
+}
+
+#[test]
+fn anchors_forbid_aliases_requires_a_boolean() {
+    let error = YamlLintConfig::from_toml_str(
+        "[lint.rules.anchors]\nforbid-aliases = 'true'\n",
+    )
+    .unwrap_err();
+    assert!(error.contains("lint.rules.anchors"), "{error}");
+}
+
+#[test]
+fn anchors_yaml_config_rejects_forbid_aliases_option() {
+    let error = discover_config(
+        &[],
+        &Overrides {
+            config_file: None,
+            config_data: Some("rules:\n  anchors:\n    forbid-aliases: true\n".into()),
+        },
+    )
+    .unwrap_err();
+    assert!(error.contains("rules.anchors"), "{error}");
+    assert!(error.contains("invalid config:"), "{error}");
 }
 
 #[test]

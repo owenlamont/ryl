@@ -54,6 +54,7 @@ const SAMPLE_DOCS: &[&str] = &[
     "name: value\nok_key: 'x'\n",
     "list: [1,2 ,3]\n",
     "flag: yes\n",
+    "base: &base {key: value}\ncopy: *base\nmerged:\n  <<: *base\n",
 ];
 
 fn lint_with(yaml_config: &str) -> Option<YamlLintConfig> {

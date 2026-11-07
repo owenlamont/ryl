@@ -17,6 +17,74 @@ fn forbidden_cfg(options: &str) -> Config {
     Config::resolve(&config)
 }
 
+fn aliases_forbidden_cfg(options: &str) -> Config {
+    let config = ryl::config::YamlLintConfig::from_toml_str(&format!(
+        "[lint.rules.anchors]\nforbid-aliases = true\n{options}"
+    ))
+    .unwrap();
+    Config::resolve(&config)
+}
+
+#[test]
+fn forbid_aliases_reports_alias_tokens() {
+    assert_eq!(
+        anchors::check("café: &é value\n*é : [*é]\n", &aliases_forbidden_cfg("")),
+        vec![
+            violation(2, 1, "found forbidden alias \"é\""),
+            violation(2, 7, "found forbidden alias \"é\""),
+        ]
+    );
+}
+
+#[test]
+fn forbid_aliases_allows_unreferenced_anchors() {
+    assert!(
+        anchors::check("unused: &unused value\n", &aliases_forbidden_cfg(""))
+            .is_empty()
+    );
+}
+
+#[test]
+fn forbid_aliases_reports_merge_key_alias() {
+    assert_eq!(
+        anchors::check(
+            "base: &base {key: value}\nmerged:\n  <<: *base\n",
+            &aliases_forbidden_cfg("")
+        ),
+        vec![violation(3, 7, "found forbidden alias \"base\"")]
+    );
+}
+
+#[test]
+fn forbid_aliases_and_forbid_all_report_each_forbidden_token_once() {
+    let content = "base: &base value\ncopy: *base\n";
+    assert_eq!(
+        anchors::check(
+            content,
+            &aliases_forbidden_cfg("forbid-anchors-and-aliases = true\n")
+        ),
+        anchors::check(content, &forbidden_cfg(""))
+    );
+}
+
+#[test]
+fn forbid_aliases_preserves_other_anchor_checks() {
+    assert_eq!(
+        anchors::check(
+            "unused: &unused value\ncopy: *missing:\n",
+            &aliases_forbidden_cfg(
+                "forbid-unused-anchors = true\nforbid-ambiguous-anchor-alias-names = true\n"
+            )
+        ),
+        vec![
+            violation(2, 7, "found forbidden alias \"missing:\""),
+            violation(2, 7, "found undeclared alias \"missing:\""),
+            violation(2, 7, "found ambiguous alias name \"missing:\""),
+            violation(1, 9, "found unused anchor \"unused\""),
+        ]
+    );
+}
+
 #[test]
 fn forbid_all_preserves_every_other_option_combination() {
     let content = "- *missing\n- &same one\n- &same two\n- &unused: value\n- *other:\n";

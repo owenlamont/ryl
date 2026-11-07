@@ -39,8 +39,8 @@ level = "warning"
 level = "warning"
 
 [lint.rules.anchors]
-# Reject aliases (also bans anchors): https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-formats.html
-forbid-anchors-and-aliases = true
+# AWS rejects aliases: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-formats.html
+forbid-aliases = true
 
 [lint.rules.merge-keys]
 # AWS template restrictions: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-formats.html

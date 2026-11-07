@@ -345,6 +345,9 @@ The TOML-only [`anchors: forbid-anchors-and-aliases`](../rules/anchors.md)
 option prohibits every anchor and alias, including aliases in merge keys. The
 option operates independently of the other anchor checks, so several conditions
 can produce diagnostics at the same token; yamllint has no equivalent policy option.
+The TOML-only [`anchors: forbid-aliases`](../rules/anchors.md) option prohibits
+aliases, including merge-key uses, while allowing anchors. Enabling both bans
+produces only one forbidden-alias diagnostic per alias.
 
 ### De-duplicated inputs
 

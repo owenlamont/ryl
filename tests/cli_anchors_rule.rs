@@ -7,6 +7,37 @@ use crate::common;
 use common::cli::run;
 
 #[test]
+fn forbid_aliases_reports_aliases_once_with_both_bans_enabled() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("aliases.yaml");
+    fs::write(
+        &file,
+        "base: &base {key: value}\ncopy: *base\nmerged:\n  <<: *base\n",
+    )
+    .unwrap();
+    for forbid_all in [false, true] {
+        let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .args(["check", "-d"])
+            .arg(format!("lint.rules.anchors = {{forbid-aliases = true, forbid-anchors-and-aliases = {forbid_all}}}"))
+            .arg(&file));
+        assert_eq!(code, 1, "stdout={stdout} stderr={stderr}");
+        let output = format!("{stdout}{stderr}");
+        assert_eq!(
+            output.matches("found forbidden alias \"base\"").count(),
+            2,
+            "{output}"
+        );
+        assert_eq!(
+            output.matches("found forbidden anchor").count(),
+            usize::from(forbid_all),
+            "{output}"
+        );
+        assert!(output.contains("2:7"), "{output}");
+        assert!(output.contains("4:7"), "{output}");
+    }
+}
+
+#[test]
 fn forbidden_and_undeclared_alias_options_both_report_the_same_alias() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("alias.yaml");

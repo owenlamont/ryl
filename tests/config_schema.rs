@@ -661,30 +661,32 @@ fn generated_yaml_schema_rejects_toml_only_quoted_strings_option() {
 }
 
 #[test]
-fn forbid_anchors_and_aliases_is_boolean_and_toml_only() {
+fn anchors_ban_options_are_boolean_and_toml_only() {
     let toml = validator_for(&schema_value()).unwrap();
     let yaml = validator_for(&yaml_schema_value()).unwrap();
-    for value in [json!(true), json!(false)] {
-        let instance = json!({"rules": {"anchors": {
-            "forbid-anchors-and-aliases": value
-        }}});
-        assert!(toml.is_valid(&instance));
-        assert!(!yaml.is_valid(&instance));
+    for option in ["forbid-anchors-and-aliases", "forbid-aliases"] {
+        for value in [json!(true), json!(false)] {
+            let instance = json!({"rules": {"anchors": {
+                option: value
+            }}});
+            assert!(toml.is_valid(&instance));
+            assert!(!yaml.is_valid(&instance));
+        }
+        assert!(!toml.is_valid(&json!({"rules": {"anchors": {
+            option: "true"
+        }}})));
+        let config = parse_toml_config_str(
+            &format!("[lint.rules.anchors]\n{option} = true\n"),
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        let serialized = toml_config_to_value(&config);
+        assert_eq!(
+            serialized["lint"]["rules"]["anchors"][option],
+            toml::Value::Boolean(true)
+        );
     }
-    assert!(!toml.is_valid(&json!({"rules": {"anchors": {
-        "forbid-anchors-and-aliases": "true"
-    }}})));
-    let config = parse_toml_config_str(
-        "[lint.rules.anchors]\nforbid-anchors-and-aliases = true\n",
-        false,
-    )
-    .unwrap()
-    .unwrap();
-    let serialized = toml_config_to_value(&config);
-    assert_eq!(
-        serialized["lint"]["rules"]["anchors"]["forbid-anchors-and-aliases"],
-        toml::Value::Boolean(true)
-    );
 }
 
 #[test]

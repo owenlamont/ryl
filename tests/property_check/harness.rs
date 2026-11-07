@@ -122,19 +122,21 @@ forbid-duplicated-merge-keys = true
 ";
 
 #[must_use]
-pub fn anchors_forbidden_config() -> &'static YamlLintConfig {
-    static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
-        YamlLintConfig::from_toml_str(
-            "[lint.rules.anchors]\n\
-             forbid-anchors-and-aliases = true\n\
+pub fn anchors_forbidden_configs() -> &'static [YamlLintConfig; 2] {
+    static CONFIGS: LazyLock<[YamlLintConfig; 2]> = LazyLock::new(|| {
+        ["forbid-anchors-and-aliases", "forbid-aliases"].map(|option| {
+            YamlLintConfig::from_toml_str(&format!(
+                "[lint.rules.anchors]\n\
+             {option} = true\n\
              forbid-undeclared-aliases = true\n\
              forbid-duplicated-anchors = true\n\
              forbid-unused-anchors = true\n\
              forbid-ambiguous-anchor-alias-names = true\n",
-        )
-        .expect("property-check forbidden anchors config must parse")
+            ))
+            .expect("property-check forbidden anchors config must parse")
+        })
     });
-    &CONFIG
+    &CONFIGS
 }
 
 #[must_use]
@@ -212,12 +214,9 @@ macro_rules! collect_standard {
 pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_standard!(spans, cfg, content, ryl::rules::anchors);
-    collect_standard!(
-        spans,
-        anchors_forbidden_config(),
-        content,
-        ryl::rules::anchors
-    );
+    for config in anchors_forbidden_configs() {
+        collect_standard!(spans, config, content, ryl::rules::anchors);
+    }
     collect_standard!(spans, cfg, content, ryl::rules::braces);
     collect_standard!(spans, cfg, content, ryl::rules::brackets);
     collect_standard!(spans, cfg, content, ryl::rules::colons);
