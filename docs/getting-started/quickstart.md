@@ -18,7 +18,10 @@ ryl check .
 ```
 
 `ryl init` writes the `default` preset to `.ryl.toml`; use `ryl init --preset relaxed`
-for fewer checks. Existing project configs in the current directory are refused.
+for fewer checks. Ecosystem presets are `ansible`, `cloudformation` (including SAM),
+`home-assistant`, `kubernetes` (including Kustomize), `github-actions`, `compose`,
+`helm`, and `gitlab-ci`, for example `ryl init --preset github-actions`.
+Existing project configs in the current directory are refused.
 See [Configuration presets](../config-presets.md).
 
 Once configured, point ryl at a file or directory:
@@ -241,7 +244,7 @@ every pass (`[files]`, `exclude`/`exclude-from-file`, `[markdown]`, `locale`,
 `[output]`, `line-length`, `indent-width`, `target-version`) sit at the top level; linter settings sit under `[lint]`
 (`strict`, `[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
 `[[lint.per-line-ignores]]`); `[format]` holds the [formatter's](../formatter.md)
-settings. Run `ryl init` (or `ryl init --preset relaxed`) and customise
+settings. Run `ryl init` (or choose `--preset` for your ecosystem) and customise
 the generated [preset](../config-presets.md):
 
 ```toml

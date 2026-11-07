@@ -1,0 +1,55 @@
+# Ansible playbooks and roles
+[files]
+yaml = [
+    "*.yaml",
+    "*.yml",
+    ".yamllint",
+]
+
+[lint.rules]
+# ansible-lint compatibility: https://github.com/ansible/ansible-lint/blob/main/src/ansiblelint/data/.yamllint
+document-start = "disable"
+# ansible-lint compatibility: https://github.com/ansible/ansible-lint/blob/main/src/ansiblelint/data/.yamllint
+comments-indentation = "disable"
+anchors = "enable"
+brackets = "enable"
+colons = "enable"
+commas = "enable"
+document-end = "disable"
+empty-lines = "enable"
+empty-values = "disable"
+float-values = "disable"
+hyphens = "enable"
+indentation = "enable"
+key-duplicates = "enable"
+key-ordering = "disable"
+new-line-at-end-of-file = "enable"
+new-lines = "enable"
+quoted-strings = "disable"
+trailing-spaces = "enable"
+
+[lint.rules.truthy]
+level = "warning"
+
+[lint.rules.comments]
+level = "warning"
+# ansible-lint compatibility: https://github.com/ansible/ansible-lint/blob/main/src/ansiblelint/data/.yamllint
+min-spaces-from-content = 1
+
+[lint.rules.line-length]
+# ansible-lint compatibility: https://github.com/ansible/ansible-lint/blob/main/src/ansiblelint/data/.yamllint
+max = 160
+
+[lint.rules.braces]
+# ansible-lint compatibility: https://github.com/ansible/ansible-lint/blob/main/src/ansiblelint/data/.yamllint
+max-spaces-inside = 1
+
+[lint.rules.octal-values]
+# ansible-lint compatibility: https://github.com/ansible/ansible-lint/blob/main/src/ansiblelint/data/.yamllint
+level = "error"
+
+[format]
+# ansible-lint compatibility: https://github.com/ansible/ansible-lint/blob/main/src/ansiblelint/data/.yamllint
+comment-spacing = 1
+# ansible-lint compatibility: https://github.com/ansible/ansible-lint/blob/main/src/ansiblelint/data/.yamllint
+brace-spacing = true

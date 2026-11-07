@@ -9,22 +9,58 @@ use super::{
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
 pub enum Preset {
+    /// General YAML linting
     Default,
+    /// Permissive YAML style
     Relaxed,
+    /// Ansible playbooks and roles
+    Ansible,
+    /// `CloudFormation` and SAM templates
+    Cloudformation,
+    /// Home Assistant configurations and blueprints
+    HomeAssistant,
+    /// Kubernetes and Kustomize manifests
+    Kubernetes,
+    /// GitHub Actions workflows
+    GithubActions,
+    /// Docker Compose files
+    Compose,
+    /// Helm values.yaml and Chart.yaml (excludes templates)
+    Helm,
+    /// GitLab CI pipelines
+    GitlabCi,
 }
 
 impl Preset {
-    fn name(self) -> &'static str {
+    #[must_use]
+    pub fn name(self) -> &'static str {
         match self {
             Self::Default => "default",
             Self::Relaxed => "relaxed",
+            Self::Ansible => "ansible",
+            Self::Cloudformation => "cloudformation",
+            Self::HomeAssistant => "home-assistant",
+            Self::Kubernetes => "kubernetes",
+            Self::GithubActions => "github-actions",
+            Self::Compose => "compose",
+            Self::Helm => "helm",
+            Self::GitlabCi => "gitlab-ci",
         }
     }
 
-    fn toml(self) -> &'static str {
+    #[must_use]
+    pub fn toml(self) -> &'static str {
         match self {
             Self::Default => include_str!("init/presets/default.toml"),
             Self::Relaxed => include_str!("init/presets/relaxed.toml"),
+            Self::Ansible => include_str!("init/presets/ansible.toml"),
+            Self::Cloudformation => include_str!("init/presets/cloudformation.toml"),
+            Self::HomeAssistant => include_str!("init/presets/home-assistant.toml"),
+            Self::Kubernetes => include_str!("init/presets/kubernetes.toml"),
+            Self::GithubActions => include_str!("init/presets/github-actions.toml"),
+            Self::Compose => include_str!("init/presets/compose.toml"),
+            Self::Helm => include_str!("init/presets/helm.toml"),
+            Self::GitlabCi => include_str!("init/presets/gitlab-ci.toml"),
         }
     }
 }

@@ -232,8 +232,11 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
 
 ## CLI Behavior
 
-`ryl init [--preset default|relaxed]` exclusively creates `.ryl.toml` in the current
-directory. Existing local project configs are refused; ancestor configs are allowed
+`ryl init [--preset NAME]` exclusively creates `.ryl.toml` in the current directory.
+Presets: `default`, `relaxed`, `ansible`, `cloudformation` (SAM too),
+`home-assistant`, `kubernetes` (Kustomize too), `github-actions`, `compose`,
+`helm` (values.yaml and Chart.yaml only), `gitlab-ci`.
+Existing local project configs are refused; ancestor configs are allowed
 with a no-inheritance note. Success exits `0`; refusals and I/O failures exit `2`.
 
 `ryl check <inputs>` lints files, directories or `-` for stdin. Bare `ryl <inputs>`

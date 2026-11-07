@@ -1,25 +1,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use clap::ValueEnum;
 use tempfile::tempdir;
 
 use crate::common::cli::{run, ryl};
-use ryl::config::YamlLintConfig;
-
-const PRESETS: [(&str, &str); 2] = [
-    (
-        "default",
-        include_str!("../src/config/init/presets/default.toml"),
-    ),
-    (
-        "relaxed",
-        include_str!("../src/config/init/presets/relaxed.toml"),
-    ),
-];
+use ryl::config::{YamlLintConfig, init::Preset};
 
 #[test]
 fn presets_write_loadable_configs_that_lint() {
-    for (name, embedded) in PRESETS {
+    for preset in Preset::value_variants() {
+        let name = preset.name();
+        let embedded = preset.toml();
         let dir = tempdir().unwrap();
         let (code, stdout, stderr) = run(ryl(dir.path())
             .current_dir(dir.path())
@@ -40,17 +32,87 @@ fn presets_write_loadable_configs_that_lint() {
                 .unwrap()
                 .enables_any_rule()
         );
-        fs::write(dir.path().join("sample.yaml"), "---\nkey: value\n").unwrap();
+        let (valid, invalid, rule) = match preset {
+            Preset::Default | Preset::Relaxed => (
+                "---\nkey: value\n",
+                "---\nkey: value  \n",
+                "trailing-spaces",
+            ),
+            Preset::Ansible => (
+                "- name: Configure server\n  hosts: all\n",
+                "---\nmode: 0644\n",
+                "octal-values",
+            ),
+            Preset::Cloudformation => (
+                "Value: !Ref Bucket\n",
+                "---\nValue: &bucket data\nAlias: *bucket\n",
+                "anchors",
+            ),
+            Preset::HomeAssistant => (
+                "password: !secret api_password\nplatform: state\nmessage: \"Hello {{ user }}\"\n",
+                "---\nmessage: Hello {{ user }}\n",
+                "quoted-strings",
+            ),
+            Preset::Kubernetes => (
+                "kind: List\nitems:\n- apiVersion: v1\n",
+                "---\nvalue: .inf\n",
+                "float-values",
+            ),
+            Preset::GithubActions => (
+                "on: push\n",
+                "---\nbase: &base {}\njob:\n  <<: *base\n",
+                "merge-keys",
+            ),
+            Preset::Compose => (
+                "services: !reset {}\n",
+                "---\nservices: !unknown {}\n",
+                "tags",
+            ),
+            Preset::Helm => (
+                "name: 'demo'\nversion: \"1.0\"\n",
+                "---\nname: demo\n",
+                "quoted-strings",
+            ),
+            Preset::GitlabCi => (
+                "job: !reference [template, script]\n",
+                "---\njob: !unknown []\n",
+                "tags",
+            ),
+        };
+        fs::write(dir.path().join("values.yaml"), valid).unwrap();
         let (code, _, stderr) = run(ryl(dir.path())
             .current_dir(dir.path())
-            .args(["check", "sample.yaml"]));
-        assert_eq!(code, 0, "{stderr}");
-        fs::write(dir.path().join("sample.yaml"), "---\nkey: value  \n").unwrap();
+            .args(["check", "values.yaml"]));
+        assert_eq!(code, 0, "{name}: {stderr}");
+        assert!(stderr.is_empty(), "{name}: {stderr}");
+        if !matches!(preset, Preset::Default | Preset::Relaxed) {
+            let default = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/config/init/presets/default.toml");
+            let (code, _, stderr) = run(ryl(dir.path())
+                .current_dir(dir.path())
+                .args(["check", "--strict", "-c"])
+                .arg(default)
+                .arg("values.yaml"));
+            assert!(matches!(code, 1 | 2), "{name}: {stderr}");
+            assert!(stderr.contains("document-start"), "{name}: {stderr}");
+        }
+        fs::write(dir.path().join("values.yaml"), invalid).unwrap();
         let (code, _, stderr) = run(ryl(dir.path())
             .current_dir(dir.path())
-            .args(["check", "sample.yaml"]));
+            .args(["check", "values.yaml"]));
         assert_eq!(code, 1, "{stderr}");
-        assert!(stderr.contains("trailing-spaces"), "{stderr}");
+        assert!(stderr.contains(rule), "{name}: {stderr}");
+        if !matches!(preset, Preset::Default | Preset::Relaxed) {
+            let default = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/config/init/presets/default.toml");
+            let (code, _, stderr) = run(ryl(dir.path())
+                .current_dir(dir.path())
+                .args(["check", "-c"])
+                .arg(default)
+                .arg("values.yaml"));
+            assert_eq!(code, 0, "{name}: {stderr}");
+            assert!(stderr.is_empty(), "{name}: {stderr}");
+        }
     }
 }
 
@@ -67,7 +129,7 @@ fn omitted_preset_is_default_and_unrelated_pyproject_is_allowed() {
     assert!(
         fs::read_to_string(dir.path().join(".ryl.toml"))
             .unwrap()
-            .ends_with(PRESETS[0].1)
+            .ends_with(Preset::Default.toml())
     );
 }
 
@@ -174,7 +236,9 @@ fn unsupported_presets_and_options_are_rejected() {
 
 #[test]
 fn presets_match_effective_builtin_yaml_configs() {
-    for (name, embedded) in PRESETS {
+    for preset in [Preset::Default, Preset::Relaxed] {
+        let name = preset.name();
+        let embedded = preset.toml();
         let toml = YamlLintConfig::from_toml_str(embedded).unwrap();
         let yaml = YamlLintConfig::from_yaml_str(&format!("extends: {name}")).unwrap();
         assert_eq!(toml.to_toml_string(), yaml.to_toml_string(), "{name}");

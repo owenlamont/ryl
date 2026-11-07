@@ -1,0 +1,75 @@
+# Home Assistant configurations and blueprints
+[files]
+yaml = [
+    "*.yaml",
+    "*.yml",
+    ".yamllint",
+]
+
+[lint.rules]
+# Upstream examples omit initial markers: https://github.com/home-assistant/core/blob/dev/homeassistant/components/automation/blueprints/motion_light.yaml
+document-start = "disable"
+anchors = "enable"
+brackets = "enable"
+colons = "enable"
+commas = "enable"
+document-end = "disable"
+empty-lines = "enable"
+empty-values = "disable"
+float-values = "disable"
+hyphens = "enable"
+key-duplicates = "enable"
+key-ordering = "disable"
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+line-length = "disable"
+new-line-at-end-of-file = "enable"
+new-lines = "enable"
+octal-values = "disable"
+trailing-spaces = "enable"
+
+[lint.rules.comments-indentation]
+level = "warning"
+
+[lint.rules.truthy]
+level = "warning"
+
+[lint.rules.indentation]
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+spaces = 2
+
+[lint.rules.comments]
+level = "warning"
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+min-spaces-from-content = 1
+
+[lint.rules.braces]
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+forbid = "non-empty"
+
+[lint.rules.quoted-strings]
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+quote-type = "double"
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+required = false
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+allow-quoted-quotes = false
+# Template strings require quotes: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+extra-required = ['\{\{|\{%']
+# Apply string guidance to values: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+check-keys = false
+
+[lint.rules.tags]
+# Registered configuration tags: https://github.com/home-assistant-libs/annotatedyaml/blob/main/src/annotatedyaml/loader.py
+allowed-tags = ["!include", "!include_dir_list", "!include_dir_named", "!include_dir_merge_list", "!include_dir_merge_named", "!secret", "!env_var", "!input"]
+
+[format]
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+comment-spacing = 1
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+quote-style = "double"
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+keep-quotes = true
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+mapping-style = "block"
+# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
+sequence-style = "block"
