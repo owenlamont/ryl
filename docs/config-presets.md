@@ -2,6 +2,21 @@
 
 ## Applying a preset
 
+Create a starter config in the current directory:
+
+```bash
+ryl init                   # default preset
+ryl init --preset relaxed
+```
+
+`ryl init` writes `.ryl.toml` with the selected preset and the ryl version in a
+header comment. Edit the generated TOML to customise the rules. The command refuses
+an existing project config in the current directory, including yamllint configs;
+use `ryl --migrate-configs` to preview migration and add `--migrate-write` to apply it.
+An unrelated `pyproject.toml` is allowed. An ancestor config is allowed too: ryl
+prints a note that the new config takes over for the subtree without inheritance.
+Success exits `0`; refusals and I/O failures exit `2`. There is no overwrite flag.
+
 ryl's TOML config (recommended) is the single, explicit source of a file's
 rules: it has no `preset` or `extends` key, inherits nothing, and merges
 nothing, so what it enables is the file's whole ruleset, with no default-on
@@ -20,9 +35,8 @@ Presets are starting points for that config, not something ryl inherits behind
 the scenes:
 
 - **TOML config (recommended):** there is no `preset` or `extends` key. The
-  tables below *are* the presets, so copy the one you want into your
-  `.ryl.toml` (or `ryl.toml`) and customise from there. That copy is then your
-  one explicit config.
+  tables below *are* the presets written by `ryl init`. The generated file
+  is your one explicit config.
 - **YAML config (deprecated):** a YAML config may `extends:` a
   built-in preset (`default`, `relaxed`, `empty`) or another config file, and
   ryl merges the inherited settings in (with overrides under `rules:`). This

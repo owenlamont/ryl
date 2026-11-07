@@ -26,6 +26,9 @@ prints a warning to stderr (silenced by `--no-warnings`) and a later release wil
 remove it, so prefer `ryl check`.
 
 ```bash
+# Create a starter .ryl.toml (default or --preset relaxed)
+uvx ryl init
+
 # Using uv (Python)
 uvx ryl check --enable ALL .
 

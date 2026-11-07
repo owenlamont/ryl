@@ -16,7 +16,7 @@
 
 ## Configuration
 
-- [Presets](https://ryl-docs.pages.dev/config-presets/): ryl's TOML config (recommended) is the single, explicit source of a file's rules: it has no `preset` or `extends` key, inherits nothing, and merges nothing, so what it enables is the file's whole ruleset, with no default-on rules.
+- [Presets](https://ryl-docs.pages.dev/config-presets/): Create a starter config in the current directory:
 - [Inline directives](https://ryl-docs.pages.dev/directives/): Sometimes a single line legitimately breaks a rule and changing the file is the wrong fix. ryl supports inline comment directives that switch rules off for part of a file. The preferred spelling uses `ryl`:
 - [Per-line ignores](https://ryl-docs.pages.dev/per-line-ignores/): Inline directives switch rules off at a specific spot in a file. `per-line-ignores` suppresses lint findings and safe `check --fix` edits on every line matching a pattern, across all files, without editing them. It is the tool for recurring exceptions &mdash; tool-directive comments and machine-managed markers that legitimately break a rule everywhere they appear.
 - [File ignores](https://ryl-docs.pages.dev/file-ignores/): Per-line ignores suppress rules on lines matching a pattern. This page covers the coarser layer: skipping whole files, or switching off chosen rules for a path.

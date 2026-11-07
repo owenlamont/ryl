@@ -10,7 +10,18 @@ release will remove it, so adopt `ryl check` now.
 
 ## Run a lint
 
-Point ryl at a file or directory:
+Create a config, then lint a file or directory:
+
+```bash
+ryl init
+ryl check .
+```
+
+`ryl init` writes the `default` preset to `.ryl.toml`; use `ryl init --preset relaxed`
+for fewer checks. Existing project configs in the current directory are refused.
+See [Configuration presets](../config-presets.md).
+
+Once configured, point ryl at a file or directory:
 
 ```bash
 # Lint a single file
@@ -37,8 +48,7 @@ or pass a TOML config inline with `-d`:
 ryl check -d 'lint.rules = { key-duplicates = "enable", truthy = "enable" }' .
 ```
 
-For a fuller ruleset, copy the `default` or `relaxed` preset from [Configuration
-presets](../config-presets.md) into a `.ryl.toml` (see [Configure for your
+For a persistent ruleset, use `ryl init` (see [Configure for your
 project](#configure-for-your-project) below).
 
 ### Rule and file selection flags
@@ -116,11 +126,11 @@ cases exit `2` rather than silently linting nothing:
 
 - **No configuration found** anywhere (no `-c`/`-d`, no `YAMLLINT_CONFIG_FILE`, no
   discovered `.ryl.toml`/`.yamllint`) and no `--enable`. Create a config that enables rules,
-  copy a [preset](../config-presets.md), or pass `--enable ALL`.
+  run `ryl init`, or pass `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
   `[lint.rules]`/`[tool.ryl]`, or one disabling everything), or a selection emptied
   by `--disable`. Enable at
-  least one rule, copy a [preset](../config-presets.md), or pass `--enable ALL`.
+  least one rule, run `ryl init`, or pass `--enable ALL`.
 
 ## Apply auto-fixes
 
@@ -231,9 +241,8 @@ every pass (`[files]`, `exclude`/`exclude-from-file`, `[markdown]`, `locale`,
 `[output]`, `line-length`, `indent-width`, `target-version`) sit at the top level; linter settings sit under `[lint]`
 (`strict`, `[lint.rules]`, `fixable`/`unfixable`, `[lint.per-file-ignores]`,
 `[[lint.per-line-ignores]]`); `[format]` holds the [formatter's](../formatter.md)
-settings. Copy the
-preset you want from [Configuration presets](../config-presets.md) and customise
-from there:
+settings. Run `ryl init` (or `ryl init --preset relaxed`) and customise
+the generated [preset](../config-presets.md):
 
 ```toml
 [files]

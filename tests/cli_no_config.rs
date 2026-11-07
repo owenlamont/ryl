@@ -1,11 +1,3 @@
-//! No configuration found is a loud error.
-//!
-//! ryl has no default-on rules, so a run that resolves no configuration at all
-//! enables nothing and must exit 2 with a message that names the `extends: default`
-//! escape hatch, rather than silently linting with a preset (yamllint's behaviour)
-//! or silently passing. This is distinct from the "configuration enables no rules"
-//! error, which fires when a config *is* present but turns everything off.
-
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -39,7 +31,7 @@ fn no_config_found_is_rejected_with_escape_hatch() {
     );
     assert!(
         err.contains("no configuration found")
-            && err.contains("config-presets")
+            && err.contains("ryl init")
             && err.contains("--enable ALL"),
         "expected the no-config error naming both escape hatches: {err}"
     );

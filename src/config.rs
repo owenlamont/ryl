@@ -24,6 +24,7 @@ use crate::config_schema::{
 use crate::decoder;
 use crate::format::FormatSettings;
 
+pub mod init;
 pub(crate) mod legacy_yaml;
 mod resolved;
 
