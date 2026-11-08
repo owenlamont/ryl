@@ -2354,6 +2354,13 @@ Distinct URI aliases count separately toward both limits. Regex matching
 uses a 100,000-step backtracking limit and 1 MiB compiled-pattern and DFA-cache limits. The draft
 comes from `$schema`, defaulting to 2020-12.
 
+At load time, schemas with expanded weight above 1,000,000 are refused as
+`schema too complex` (exit 2). The weight counts subschemas, declarations and
+resolved references. Recursion without instance descent or with overlapping recursive
+branches is also refused; distinct literal properties and disjoint object/array
+paths are accepted. Repeated recursive tuple items are conservatively refused.
+The screen prevents reference expansion from exhausting validation resources.
+
 Projection is bounded to 1,000,000 nodes, 16 MiB of scalar and pointer storage, and
 128 levels. A file reports at most 100 validation diagnostics plus a truncation note.
 Users with no schema associations do no schema loading or projection. `ryl format`

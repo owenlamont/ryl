@@ -1108,3 +1108,107 @@ fn a_bare_relative_config_path_anchors_schemas_at_the_working_directory() {
     assert_eq!(result.0, 1, "{result:?}");
     assert!(format!("{}{}", result.1, result.2).contains("schema"));
 }
+
+fn reference_dag(levels: usize) -> Value {
+    let mut definitions = serde_json::Map::new();
+    definitions.insert("s0".to_owned(), json!({"type":"integer"}));
+    for level in 1..=levels {
+        let reference = json!({"$ref":format!("#/$defs/s{}", level - 1)});
+        definitions.insert(format!("s{level}"), json!({"allOf":[reference,reference]}));
+    }
+    json!({"$defs":definitions,"$ref":format!("#/$defs/s{levels}")})
+}
+
+#[test]
+fn expanded_reference_dag_is_refused_before_validation() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    fs::write(
+        dir.path().join("schema.json"),
+        reference_dag(24).to_string(),
+    )
+    .unwrap();
+    failure(
+        dir.path(),
+        "schema 'schema.json': schema too complex: expanded weight 201326511 exceeds 1000000",
+    );
+}
+
+#[test]
+fn recursive_cycles_and_overlapping_branches_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    for (schema, reason) in [
+        (
+            json!({"anyOf":[{"$ref":"#"},{"$ref":"#"}]}),
+            "non-descending cycle",
+        ),
+        (
+            json!({"anyOf":[{"items":{"$ref":"#"}},{"items":{"$ref":"#"}}]}),
+            "overlapping recursive branches",
+        ),
+        (
+            json!({"items":[{"$ref":"#"},{"$ref":"#"}],"$schema":"http://json-schema.org/draft-07/schema#"}),
+            "overlapping recursive branches",
+        ),
+        (
+            json!({"oneOf":[{"type":"object","items":{"$ref":"#"}},{"type":"array","items":{"$ref":"#"}}]}),
+            "overlapping recursive branches",
+        ),
+    ] {
+        fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
+        failure(dir.path(), &format!("schema too complex: {reason} at #"));
+    }
+}
+
+#[test]
+fn recursive_properties_and_disjoint_applicability_are_accepted() {
+    for schema in [
+        json!({"properties":{"left":{"$ref":"#"},"right":{"$ref":"#"}}}),
+        json!({"oneOf":[{"type":"object","additionalProperties":{"$ref":"#"}},{"type":"array","items":{"$ref":"#"}}]}),
+        json!({"items":{"$ref":"#"}}),
+    ] {
+        assert!(findings(&schema, "{}\n").is_empty());
+    }
+}
+
+#[test]
+fn schema_screen_handles_boolean_children_and_property_dependencies() {
+    for schema in [
+        json!({"dependencies":{"a":["b"]},"properties":{"a":true},"items":false}),
+        json!({"$schema":"http://json-schema.org/draft-07/schema#","contentSchema":5}),
+    ] {
+        assert!(findings(&schema, "{}\n").is_empty());
+    }
+}
+
+#[test]
+fn schema_screen_reports_unresolved_and_malformed_subschemas() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    for schema in [
+        json!({"$ref":"#/missing"}),
+        json!({"items":5}),
+        json!({"$schema":"http://json-schema.org/draft-07/schema#","contentSchema":{"$id":"http://[invalid"}}),
+    ] {
+        fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
+        failure(dir.path(), "schema 'schema.json':");
+    }
+}
+
+#[test]
+fn recursive_properties_overlap_other_object_applicators_and_converging_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    for schema in [
+        json!({"additionalProperties":{"$ref":"#"},"properties":{"x":{"$ref":"#"}}}),
+        json!({"properties":{"x":{"$ref":"#"}},"unevaluatedProperties":{"$ref":"#"}}),
+        json!({"$defs":{"n":{"items":{"$ref":"#"}}},"allOf":[{"allOf":[{"$ref":"#/$defs/n"},{"$ref":"#/$defs/n"}]}]}),
+    ] {
+        fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
+        failure(
+            dir.path(),
+            "schema too complex: overlapping recursive branches",
+        );
+    }
+}

@@ -61,7 +61,12 @@ multiple_crate_versions`).
 Root and referenced files use the same canonical-path confinement and bounded reader:
 16 MiB total, 1,024 resources, no remote retrieval or UNC paths. Distinct URI aliases
 count separately toward both limits. Regex uses the
-bounded fancy-regex engine. Projection charges source nodes, alias and merge expansion,
+bounded fancy-regex engine. Before compilation, expanded schema weight is capped at
+1,000,000, counting declarations and resolved references with stack back-edges worth one.
+Recursive components must descend through the instance and cannot have overlapping
+recursive branches; distinct literal properties and disjoint object/array descent pass,
+while repeated recursive tuple items are refused. Refusals use the config-error path.
+Projection charges source nodes, alias and merge expansion,
 scalar bytes and pointer storage before growing unbounded state. Limits are 1,000,000 nodes,
 16 MiB and depth 128; output caps at 100 findings plus a truncation note.
 Schema content digests live in resolved-config Debug only when associations exist;

@@ -172,6 +172,10 @@ pub(crate) fn prepare(
                 .add(uri.as_str(), schema.clone())
                 .and_then(jsonschema::RegistryBuilder::prepare)
                 .map_err(|error| error.to_string())?;
+            super::complexity::check(
+                &registry,
+                jsonschema::uri::from_str(uri.as_str()).expect("schema root URI"),
+            )?;
             let validator = jsonschema::options()
                 .with_base_uri(uri.as_str())
                 .with_registry(&registry)

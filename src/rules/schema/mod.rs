@@ -1,6 +1,7 @@
 //! Local JSON Schema validation; no safe fix can infer the intended data.
 //! Sources: JSON Schema 2020-12; YAML 1.2.2 core schema.
 
+mod complexity;
 mod diagnostics;
 mod loading;
 mod projection;

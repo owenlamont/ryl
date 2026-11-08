@@ -149,3 +149,34 @@ fn projection_oracle_and_span_checks_have_deterministic_witnesses() {
     check_versioned_projection(false, 42, "int");
     check_versioned_projection(true, 42, "float");
 }
+
+fn check_recursive_branches(names: Vec<String>) {
+    let dir = tempfile::tempdir().unwrap();
+    let properties = names
+        .into_iter()
+        .map(|name| (name, json!({"$ref":"#"})))
+        .collect::<serde_json::Map<_, _>>();
+    let ctx =
+        crate::cli_schema_rule::config(dir.path(), &json!({"properties":properties}));
+    assert!(
+        ryl::rules::schema::check("{}\n", &ctx.config, Path::new("in.yaml")).is_empty()
+    );
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 64,
+        failure_persistence: crate::property::failure_persistence!("property_schema"),
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn distinct_recursive_properties_are_accepted(names in prop::collection::vec("[a-z/~]{1,8}", 1..8)) {
+        check_recursive_branches(names);
+    }
+}
+
+#[test]
+fn escaped_recursive_properties_have_a_deterministic_witness() {
+    check_recursive_branches(vec!["a/b".to_owned(), "~".to_owned()]);
+}
