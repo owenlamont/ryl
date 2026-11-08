@@ -1,6 +1,7 @@
 //! Local JSON Schema validation; no safe fix can infer the intended data.
 //! Sources: JSON Schema 2020-12; YAML 1.2.2 core schema.
 
+mod diagnostics;
 mod loading;
 mod projection;
 
@@ -28,6 +29,8 @@ pub(crate) struct Prepared {
 pub(crate) struct Association {
     pub(crate) files: Vec<PathGlob>,
     validator: Arc<Validator>,
+    registry: Arc<jsonschema::Registry<'static>>,
+    root_uri: jsonschema::Uri<String>,
 }
 
 impl Association {
@@ -104,6 +107,7 @@ pub(crate) fn check_with_analysis(
                 diagnostics.push(Violation::at(projected.root, TRUNCATION.to_owned()));
                 return diagnostics;
             }
+            let error = diagnostics::best_match(&error, association, &projected.value);
             let pointer = error.instance_path().to_string();
             let span = match error.kind() {
                 ValidationErrorKind::AdditionalProperties { unexpected } => unexpected
@@ -122,9 +126,9 @@ pub(crate) fn check_with_analysis(
                 ValidationErrorKind::RegexEngineFailure { .. }
                     | ValidationErrorKind::BacktrackLimitExceeded { .. }
             ) {
-                format!("cannot validate: {error}")
+                format!("cannot validate: {}", error.masked())
             } else {
-                error.to_string()
+                error.masked().to_string()
             };
             diagnostics.push(Violation::at(span, message));
         }

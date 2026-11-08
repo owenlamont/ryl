@@ -111,6 +111,166 @@ fn wide_integers_floats_core_tags_and_explicit_yaml11_resolve() {
 }
 
 #[test]
+fn explicit_yaml11_tags_require_matching_lexical_values() {
+    for scalar in [
+        "!!int true",
+        "!!bool 1",
+        "!!float true",
+        "!!int 1.5",
+        "!!bool nope",
+        "!!int nope",
+        "!!float nope",
+        "!!int 2001-01-01",
+    ] {
+        let hits = findings(&json!(true), &format!("%YAML 1.1\n---\n{scalar}\n"));
+        assert_eq!(hits.len(), 1, "{scalar}: {hits:?}");
+        assert_eq!(
+            hits[0].message, "cannot validate: invalid scalar tag",
+            "{scalar}"
+        );
+    }
+    for (scalar, value) in [
+        ("!!bool yes", json!(true)),
+        ("!!int 011", json!(9)),
+        ("!!float 011", json!(9)),
+        ("!!float 1.5", json!(1.5)),
+    ] {
+        assert!(
+            findings(
+                &json!({"const":value}),
+                &format!("%YAML 1.1\n---\n{scalar}\n")
+            )
+            .is_empty(),
+            "{scalar}"
+        );
+    }
+}
+
+#[test]
+fn yaml11_merge_keys_expand_only_in_mapping_key_context() {
+    let schema = json!({"const":{"job":{"image":"rust"}}});
+    for version in ["", "%YAML 1.1\n---\n"] {
+        assert!(
+            findings(&schema, &format!("{version}job: {{<<: {{image: rust}}}}\n"))
+                .is_empty()
+        );
+    }
+    assert_eq!(
+        findings(&json!(true), "%YAML 1.1\n---\n<<\n")[0].message,
+        "cannot validate: unsupported YAML 1.1 scalar"
+    );
+}
+
+#[test]
+fn alternative_errors_follow_best_match_depth_count_and_ties() {
+    for keyword in ["oneOf", "anyOf"] {
+        let schema = json!({keyword:[
+            {"type":"object", "required":["runner", "steps"]},
+            {"type":"object", "required":["uses"]}
+        ]});
+        assert_eq!(
+            findings(&schema, "{}\n")[0].message,
+            "\"uses\" is a required property"
+        );
+        let schema = json!({keyword:[
+            {"properties":{"a":{"type":"string"}}},
+            {"type":"array"}
+        ]});
+        let hits = findings(&schema, "a: 1\n");
+        assert_eq!(hits[0].message, "value is not of type \"string\"");
+        assert_eq!((hits[0].line, hits[0].column), (1, 4));
+        let schema = json!({keyword:[{"required":["a"]},{"required":["b"]}]});
+        let hits = findings(&schema, "{secret: do-not-print}\n");
+        assert_eq!(
+            hits[0].message,
+            format!(
+                "value is not valid under any of the schemas listed in the '{keyword}' keyword"
+            )
+        );
+    }
+    let hits = findings(
+        &json!({"oneOf":[
+            {"anyOf":[{"type":"array"},{"properties":{"a":{"required":["nested"]}}}]},
+            {"type":"string"}
+        ]}),
+        "a: {}\n",
+    );
+    assert_eq!(hits[0].message, "\"nested\" is a required property");
+    assert_eq!((hits[0].line, hits[0].column), (1, 4));
+    let hits = findings(
+        &json!({"anyOf":[
+            {"allOf":[{"properties":{"a":{"type":"string"}}},{"required":["parent"]}]},
+            {"required":["x","y","z"]}
+        ]}),
+        "a: 1\n",
+    );
+    assert_eq!(hits[0].message, "\"parent\" is a required property");
+}
+
+#[test]
+fn alternative_relevance_checks_types_and_breaks_error_ties_by_instance_path() {
+    for (kind, yaml) in [
+        ("null", "null"),
+        ("boolean", "true"),
+        ("object", "{}"),
+        ("array", "[]"),
+        ("number", "1.5"),
+        ("string", "secret"),
+        ("integer", "1"),
+        ("integer", "18446744073709551615"),
+        ("integer", "1.0"),
+    ] {
+        let hits = findings(
+            &json!({"anyOf":[{"type":kind,"const":"expected"},false]}),
+            yaml,
+        );
+        assert_eq!(
+            hits[0].message, "\"expected\" was expected",
+            "{kind}: {hits:?}"
+        );
+    }
+    for (schema, yaml) in [
+        (
+            json!({"type":["integer","boolean"],"const":"expected"}),
+            "true",
+        ),
+        (json!({"type":"integer","const":"expected"}), "1.5"),
+        (json!({"type":"integer","const":"expected"}), "text"),
+        (
+            json!({"$schema":"http://json-schema.org/draft-04/schema#","type":"integer","enum":[42]}),
+            "1.0",
+        ),
+    ] {
+        let draft = schema
+            .get("$schema")
+            .cloned()
+            .unwrap_or(json!("https://json-schema.org/draft/2020-12/schema"));
+        assert_eq!(
+            findings(&json!({"$schema":draft,"anyOf":[schema,{"not":{}}]}), yaml).len(),
+            1
+        );
+    }
+    let hits = findings(
+        &json!({"anyOf":[
+            {"allOf":[{"properties":{"z":{"type":"string"}}},{"properties":{"a":{"type":"string"}}}]},
+            {"type":"array"}
+        ]}),
+        "z: 1\na: 2\n",
+    );
+    assert_eq!((hits[0].line, hits[0].column), (2, 4));
+    let hits = findings(
+        &json!({"anyOf":[{"items":{"type":"string"}},{"type":"object"}]}),
+        "[ok, ok, 2, ok, ok, ok, ok, ok, ok, ok, 10]\n",
+    );
+    assert_eq!((hits[0].line, hits[0].column), (1, 10));
+    let hits = findings(
+        &json!({"anyOf":[{"required":["first","second"]},{"required":["a","b","c"]}]}),
+        "{}\n",
+    );
+    assert_eq!(hits[0].message, "\"first\" is a required property");
+}
+
+#[test]
 fn merge_expansion_obeys_explicit_and_sequence_precedence() {
     let schema = json!({"properties":{"job":{"type":"object","properties":{"script":{"const":"test"},"image":{"const":"rust"}},"required":["script","image"],"additionalProperties":false}}});
     for yaml in [
@@ -398,7 +558,7 @@ fn referenced_schema_edits_invalidate_cache_after_an_unmatched_file() {
 }
 
 #[test]
-fn vendored_real_schemas_accept_representative_documents() {
+fn minimal_schemas_exercise_recursive_draft2020_and_sibling_references() {
     let dir = tempfile::tempdir().unwrap();
     for name in [
         "github-workflow",
@@ -413,15 +573,24 @@ fn vendored_real_schemas_accept_representative_documents() {
         )
         .unwrap();
     }
-    for (schema, yaml) in [
+    for (schema, yaml, invalid, expected) in [
         (
             "github-workflow",
             "on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n",
+            "jobs:\n  test:\n    steps:\n      - run: echo ok\n",
+            "\"runs-on\" is a required property",
         ),
-        ("compose-spec", "services:\n  web:\n    image: nginx\n"),
+        (
+            "compose-spec",
+            "services:\n  web:\n    image: nginx\n",
+            "services: {web: {extra: true}}\n",
+            "Unevaluated properties",
+        ),
         (
             "pre-commit-config",
             "repos:\n  - repo: local\n    hooks:\n      - id: test\n        name: test\n        entry: echo\n        language: system\n",
+            "repos: [{hooks: [{}]}]\n",
+            "\"id\" is a required property",
         ),
     ] {
         fs::write(
@@ -444,6 +613,25 @@ fn vendored_real_schemas_accept_representative_documents() {
             &ctx.base_dir,
         );
         assert!(hits.is_empty(), "{schema}: {hits:?}");
+        let hits = lint_str(
+            invalid,
+            &dir.path().join("in.yaml"),
+            &ctx.config,
+            &ctx.base_dir,
+        );
+        assert_eq!(hits.len(), 1, "{schema}: {hits:?}");
+        assert!(hits[0].message.contains(expected), "{schema}: {hits:?}");
+        if schema == "github-workflow" {
+            assert_eq!((hits[0].line, hits[0].column), (3, 5));
+            let hits = lint_str(
+                "jobs: {test: {runs-on: linux, steps: [{steps: [{run: 1}]}]}}\n",
+                &dir.path().join("in.yaml"),
+                &ctx.config,
+                &ctx.base_dir,
+            );
+            assert_eq!(hits.len(), 1);
+            assert!(hits[0].message.contains("is not of type"), "{hits:?}");
+        }
     }
 }
 

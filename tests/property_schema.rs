@@ -87,6 +87,28 @@ fn check_spans(source: &str) {
     crate::property::check_harness::check_spans_in_bounds(source, &spans).unwrap();
 }
 
+fn check_versioned_projection(yaml11: bool, value: u16, tag: &str) {
+    let version = if yaml11 { "%YAML 1.1\n---\n" } else { "" };
+    let yaml = format!("{version}job: {{<<: {{value: !!{tag} {value}}}}}\n");
+    let hits = crate::cli_schema_rule::findings(
+        &json!({"const":{"job":{"value":value}}}),
+        &yaml,
+    );
+    assert!(hits.is_empty(), "{yaml}: {hits:?}");
+    let hits = crate::cli_schema_rule::findings(
+        &json!({"anyOf":[{"properties":{"job":{"properties":{"value":{"type":"string"}}}}}, {"type":"array"}]}),
+        &yaml,
+    );
+    assert_eq!(hits.len(), 1, "{yaml}: {hits:?}");
+    assert_eq!(hits[0].message, "value is not of type \"string\"");
+    assert_eq!(hits[0].line, if yaml11 { 3 } else { 1 });
+    let hits = crate::cli_schema_rule::findings(
+        &json!(true),
+        &format!("{version}!!{tag} true\n"),
+    );
+    assert_eq!(hits[0].message, "cannot validate: invalid scalar tag");
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 256,
@@ -105,8 +127,25 @@ proptest! {
     }
 }
 
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 128,
+        failure_persistence: crate::property::failure_persistence!("property_schema"),
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn versioned_merges_tags_and_alternative_diagnostics(
+        yaml11 in any::<bool>(), value in any::<u16>(), tag in prop_oneof![Just("int"), Just("float")],
+    ) {
+        check_versioned_projection(yaml11, value, tag);
+    }
+}
+
 #[test]
 fn projection_oracle_and_span_checks_have_deterministic_witnesses() {
     check_overlap("flag: true\nnumber: 1.5\nlist: [null, 2, 'text']\n");
     check_spans("emoji: 😀\n'a/b~c': [1, 2]\n");
+    check_versioned_projection(false, 42, "int");
+    check_versioned_projection(true, 42, "float");
 }

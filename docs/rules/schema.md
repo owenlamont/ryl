@@ -53,6 +53,8 @@ does not load lint schemas.
 
 - Plain scalars resolve under YAML 1.2 core; explicit `%YAML 1.1` uses the existing
   version-aware resolver. Unsupported 1.1 values, including timestamps, are refused.
+- Explicit core tags must match the scalar's type and spelling; invalid tagged
+  values produce `cannot validate` findings.
 - Integers in the combined i64/u64 range and finite floats are supported.
 - Aliases expand within the projection budget. Findings blame the alias use site.
 - Merge keys expand before validation; explicit keys override inherited keys, and
@@ -62,6 +64,9 @@ does not load lint schemas.
 - Every document in a stream is validated independently; an empty document is null.
 - Unexpected properties blame the key. Missing properties blame the containing
   mapping's start. Other findings use the instance value's source location.
+- `oneOf` and `anyOf` findings select the most relevant branch error using
+  [Python jsonschema's `best_match` heuristic](https://github.com/python-jsonschema/jsonschema/blob/main/jsonschema/exceptions.py).
+  Equally ranked branches retain the summary. Messages mask instance values.
 
 Editor diagnostics use the same engine. Schema-file edits take effect when the
 configuration reloads; schema-file watching, hover and completion are separate work.

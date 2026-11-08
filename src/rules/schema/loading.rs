@@ -167,8 +167,14 @@ pub(crate) fn prepare(
             let uri = Url::from_file_path(&root)
                 .expect("a schema root joined to a canonical base is absolute");
             let schema = reader.read(&root).map_err(|error| error.to_string())?;
+            let registry = jsonschema::Registry::new()
+                .retriever(reader.clone())
+                .add(uri.as_str(), schema.clone())
+                .and_then(jsonschema::RegistryBuilder::prepare)
+                .map_err(|error| error.to_string())?;
             let validator = jsonschema::options()
                 .with_base_uri(uri.as_str())
+                .with_registry(&registry)
                 .with_retriever(reader.clone())
                 .with_pattern_options(
                     jsonschema::PatternOptions::fancy_regex()
@@ -192,6 +198,9 @@ pub(crate) fn prepare(
             Ok(Association {
                 files,
                 validator: Arc::new(validator),
+                registry: Arc::new(registry),
+                root_uri: jsonschema::uri::from_str(uri.as_str())
+                    .expect("schema root URL is a valid URI"),
             })
         };
         associations

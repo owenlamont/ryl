@@ -119,11 +119,23 @@ fn scalar(
     let implicit = suffix.is_none() && style == ScalarStyle::Plain;
     if yaml11 && (implicit || matches!(suffix, Some("int" | "float" | "bool"))) {
         if let Some(value) = yaml_version::value(&raw, true, suffix, true) {
+            if !matches!(
+                (suffix, &value),
+                (None, _)
+                    | (Some("bool"), yaml_version::Value::Bool(_))
+                    | (Some("int" | "float"), yaml_version::Value::Int(_))
+                    | (Some("float"), yaml_version::Value::Float(_))
+            ) {
+                return Err(refuse("invalid scalar tag", span));
+            }
             return match value {
                 yaml_version::Value::Bool(value) => Ok(Value::Bool(value)),
                 yaml_version::Value::Int(value) => integer(&value, span),
                 yaml_version::Value::Float(value) => float(value.0, span),
             };
+        }
+        if !implicit {
+            return Err(refuse("invalid scalar tag", span));
         }
         if !is_core_schema_null(&raw)
             && yaml_version::resolves_to_nonstring_in_yaml_1_1(&raw)
@@ -163,6 +175,7 @@ impl Builder<'_> {
         &mut self,
         events: &mut Peekable<impl Iterator<Item = (Event<'a>, Span)>>,
         depth: usize,
+        merge_key: bool,
     ) -> Result<Node, Refusal> {
         let (event, span) = events
             .next()
@@ -204,7 +217,11 @@ impl Builder<'_> {
                 anchor = id;
                 self.budget.charge(0, raw.len(), span)?;
                 node.bytes = raw.len();
-                node.value = scalar(raw, style, tag.as_deref(), self.yaml11, span)?;
+                node.value = if merge_key {
+                    Value::String(raw.into_owned())
+                } else {
+                    scalar(raw, style, tag.as_deref(), self.yaml11, span)?
+                };
             }
             Event::SequenceStart(_, id, tag) | Event::MappingStart(_, id, tag) => {
                 anchor = id;
@@ -219,7 +236,7 @@ impl Builder<'_> {
                 } else {
                     let mut values = Vec::new();
                     while !matches!(events.peek(), Some((Event::SequenceEnd, _))) {
-                        let child = self.node(events, depth + 1)?;
+                        let child = self.node(events, depth + 1, false)?;
                         node.attach(
                             &child,
                             &format!("/{}", values.len()),
@@ -255,11 +272,11 @@ impl Builder<'_> {
             let merge = matches!(events.peek(), Some((Event::Scalar(raw, style, _, tag), _))
                 if raw == "<<" && (*style == ScalarStyle::Plain && tag.is_none()
                     || tag.as_deref().and_then(core_schema_suffix).as_deref() == Some("merge")));
-            let key = self.node(events, depth + 1)?;
+            let key = self.node(events, depth + 1, merge)?;
             let Value::String(name) = key.value else {
                 return Err(refuse("non-string or complex mapping key", key.span));
             };
-            let child = self.node(events, depth + 1)?;
+            let child = self.node(events, depth + 1, false)?;
             if merge {
                 if merge_seen {
                     return Err(refuse("duplicate mapping key", key.span));
@@ -425,7 +442,7 @@ pub(super) fn document<'a>(
                 ),
                 budget,
             };
-            let node = builder.node(events, 0)?;
+            let node = builder.node(events, 0, false)?;
             return Ok(Some(Projection {
                 value: node.value,
                 nodes: node.nodes,
