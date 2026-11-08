@@ -90,6 +90,11 @@ fn children(value: &Value, draft: Draft) -> Vec<(String, &Value, Kind)> {
     let Some(object) = value.as_object() else {
         return children;
     };
+    if matches!(draft, Draft::Draft4 | Draft::Draft6 | Draft::Draft7)
+        && object.contains_key("$ref")
+    {
+        return children;
+    }
     for (key, value) in object {
         let kind = match key.as_str() {
             "$defs" | "definitions" => Kind::Storage,
@@ -159,48 +164,71 @@ fn children(value: &Value, draft: Draft) -> Vec<(String, &Value, Kind)> {
     children
 }
 
+#[derive(Debug, thiserror::Error)]
+enum BuildError {
+    #[error("cannot resolve schema during complexity screening: {0}")]
+    Resolution(#[from] jsonschema::ReferencingError),
+    #[error("{0}")]
+    Complexity(String),
+}
+
 impl Graph {
-    fn build(registry: &Registry<'_>, uri: Uri<String>) -> Result<Self, String> {
-        let root = registry
-            .resolver(uri)
-            .lookup("#")
-            .expect("the prepared registry contains the schema root");
-        let (value, resolver, draft) = root.into_inner();
-        let resolver = resolver
-            .in_subresource(draft.create_resource_ref(value))
-            .expect("the prepared registry resolved the root identifier");
+    fn build(registry: &Registry<'_>, uri: Uri<String>) -> Result<Self, BuildError> {
+        let root = registry.resolver(uri).lookup("#").and_then(|root| {
+            let (value, resolver, draft) = root.into_inner();
+            resolver
+                .in_subresource(draft.create_resource_ref(value))
+                .map(|resolver| {
+                    (
+                        (value, resolver, draft, "#".to_owned()),
+                        None::<(usize, Kind)>,
+                        false,
+                    )
+                })
+        });
         let mut graph = Self::default();
         let mut indices = HashMap::new();
-        let mut pending = vec![(value, resolver, draft, "#".to_owned())];
-        indices.insert(std::ptr::from_ref(value), 0);
-        graph.edges.push(Vec::new());
-        graph.locations.push("#".to_owned());
+        let mut pending = vec![root];
         let mut dynamic = Dynamic::default();
-        while let Some((value, resolver, draft, location)) = pending.pop() {
-            let source = indices[&std::ptr::from_ref(value)];
-            let (root, scope, root_draft) = resolver
-                .lookup("#")
-                .expect("prepared resource root resolves")
-                .into_inner();
+        while let Some(target) = pending.pop() {
+            let ((value, resolver, draft, location), origin, referenced) = target?;
+            if referenced {
+                pending.push(resolver.lookup("#").map(|root| {
+                    let (value, resolver, draft) = root.into_inner();
+                    let location = resolver.base_uri().to_string();
+                    ((value, resolver, draft, location), None, false)
+                }));
+            }
             let next = indices.len();
-            if let std::collections::hash_map::Entry::Vacant(entry) =
-                indices.entry(std::ptr::from_ref(root))
-            {
-                entry.insert(next);
+            let source = *indices.entry(std::ptr::from_ref(value)).or_insert(next);
+            if source == next {
                 graph.edges.push(Vec::new());
-                let root_location = resolver.base_uri().to_string();
-                graph.locations.push(root_location.clone());
-                pending.push((root, scope, root_draft, root_location));
+                graph.locations.push(location.clone());
+            }
+            if let Some((parent, kind)) = origin {
+                graph.edges[parent].push(Edge {
+                    target: source,
+                    kind,
+                });
+            }
+            if source != next {
+                continue;
             }
             dynamic.record(value, draft, source);
-            let mut targets = Vec::new();
             for (suffix, child, kind) in children(value, draft) {
                 let draft = draft.detect(child);
-                let scope = resolver
-                    .in_subresource(draft.create_resource_ref(child))
-                    .expect("prepared subschema identifier resolves");
                 let child_location = format!("{location}{suffix}");
-                targets.push((child, scope, draft, child_location, kind));
+                pending.push(
+                    resolver
+                        .in_subresource(draft.create_resource_ref(child))
+                        .map(|scope| {
+                            (
+                                (child, scope, draft, child_location),
+                                Some((source, kind)),
+                                false,
+                            )
+                        }),
+                );
             }
             for keyword in ["$ref", "$dynamicRef", "$recursiveRef"] {
                 if !draft.is_known_keyword(keyword)
@@ -213,30 +241,27 @@ impl Graph {
                 };
                 let (resource, fragment) =
                     reference.rsplit_once('#').unwrap_or((reference, ""));
-                let base = registry
+                let target = registry
                     .resolve_uri(&resolver.base_uri().borrow(), resource)
-                    .map_err(|e| e.to_string())?;
-                let target_resource = registry
-                    .resolver(base.as_ref().clone())
-                    .lookup(&format!("#{fragment}"))
-                    .map_err(|e| e.to_string())?;
-                let (child, scope, draft) = target_resource.into_inner();
-                let kind = dynamic.reference(source, keyword, fragment, child);
-                targets.push((child, scope, draft, reference.to_owned(), kind));
-            }
-            for (child, scope, draft, location, kind) in targets {
-                let next = indices.len();
-                let target =
-                    *indices.entry(std::ptr::from_ref(child)).or_insert_with(|| {
-                        graph.edges.push(Vec::new());
-                        graph.locations.push(location.clone());
-                        pending.push((child, scope, draft, location));
-                        next
+                    .and_then(|base| {
+                        registry
+                            .resolver(base.as_ref().clone())
+                            .lookup(&format!("#{fragment}"))
                     });
-                graph.edges[source].push(Edge { target, kind });
+                pending.push(target.map(|resolved| {
+                    let (child, scope, draft) = resolved.into_inner();
+                    let kind = dynamic.reference(source, keyword, fragment, child);
+                    (
+                        (child, scope, draft, reference.to_owned()),
+                        Some((source, kind)),
+                        true,
+                    )
+                }));
             }
         }
-        graph.connect_dynamic(&dynamic, &indices)?;
+        graph
+            .connect_dynamic(&dynamic, &indices)
+            .map_err(BuildError::Complexity)?;
         Ok(graph)
     }
 
@@ -433,7 +458,7 @@ impl Graph {
 }
 
 pub(super) fn check(registry: &Registry<'_>, uri: Uri<String>) -> Result<(), String> {
-    let graph = Graph::build(registry, uri)?;
+    let graph = Graph::build(registry, uri).map_err(|e| e.to_string())?;
     let weight = graph.weight();
     if weight > MAX_WEIGHT {
         return Err(format!(

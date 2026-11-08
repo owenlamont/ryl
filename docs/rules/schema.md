@@ -49,6 +49,8 @@ At load time, schemas with expanded weight above 1,000,000 are refused as
 resolved references. Recursion without instance descent or with overlapping recursive
 branches is also refused; distinct literal properties and disjoint object/array
 paths are accepted. Repeated recursive tuple items are conservatively refused.
+Drafts 04, 06 and 07 ignore keywords beside `$ref` during validation and complexity
+screening. Unreferenced definitions are conservatively screened in newer drafts.
 Dynamic references include all matching anchors as possible targets; this conservative
 screen can refuse schemas whose runtime scopes would select fewer targets. Only
 applicators and references active in the schema draft contribute to the screen.

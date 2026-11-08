@@ -1383,3 +1383,90 @@ fn dynamic_candidate_edges_are_bounded_before_expansion() {
         "schema too complex: dynamic reference edges exceed 1000000",
     );
 }
+
+#[test]
+fn identifiers_below_referenced_unknown_definitions_do_not_require_registered_roots() {
+    let hits = findings(
+        &json!({"$schema":"http://json-schema.org/draft-07/schema#","$ref":"#/$defs/entry","$defs":{"entry":{"properties":{"x":{"$id":"valid","type":"string"}}}}}),
+        "x: 1\n",
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].message, "value is not of type \"string\"");
+}
+
+#[test]
+fn fragment_targets_with_identifiers_keep_the_resolved_scope() {
+    for definitions in ["definitions", "$defs"] {
+        for identifier in [json!({}), json!({"$id":"child"})] {
+            let mut child = identifier;
+            child["type"] = json!("object");
+            let schema = json!({"$schema":"http://json-schema.org/draft-07/schema#","$ref":format!("#/{definitions}/entry"),definitions:{"entry":child}});
+            assert!(findings(&schema, "{}\n").is_empty());
+        }
+    }
+}
+
+#[test]
+fn draft04_reference_sibling_cycles_are_ignored() {
+    crate::property_schema::check_legacy_reference_siblings("04", "id", "child");
+}
+
+#[test]
+fn draft06_reference_sibling_cycles_are_ignored() {
+    crate::property_schema::check_legacy_reference_siblings("06", "$id", "child");
+}
+
+#[test]
+fn draft07_reference_sibling_cycles_are_ignored() {
+    crate::property_schema::check_legacy_reference_siblings("07", "$id", "child");
+}
+
+#[test]
+fn malformed_identifiers_below_referenced_unknown_definitions_are_config_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    fs::write(
+        dir.path().join("schema.json"),
+        json!({"$schema":"http://json-schema.org/draft-07/schema#","$ref":"#/$defs/entry","$defs":{"entry":{"properties":{"x":{"$id":"http://[invalid"}}}}}).to_string(),
+    ).unwrap();
+    failure(dir.path(), "Invalid URI reference");
+}
+
+#[test]
+fn draft2020_reference_sibling_cycles_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    fs::write(
+        dir.path().join("schema.json"),
+        json!({"$ref":"#/$defs/entry","allOf":[{"$ref":"#"}],"$defs":{"entry":true}})
+            .to_string(),
+    )
+    .unwrap();
+    failure(dir.path(), "schema too complex: non-descending cycle at #");
+}
+
+#[test]
+fn dynamic_scope_includes_embedded_roots_entered_through_fragments() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    for (name, schema) in [
+        (
+            "schema.json",
+            json!({"$ref":"inner.json#/$defs/root/$defs/entry","$defs":{"base":{"$ref":"base.json"}}}),
+        ),
+        (
+            "inner.json",
+            json!({"$defs":{"root":{"$id":"embedded","$dynamicAnchor":"node","allOf":[{"$ref":"#/$defs/entry"},{"$ref":"#/$defs/entry"}],"$defs":{"entry":{"properties":{"x":{"$dynamicRef":"base.json#node"}}}}}}}),
+        ),
+        (
+            "base.json",
+            json!({"$dynamicAnchor":"node","required":["absent"]}),
+        ),
+    ] {
+        fs::write(dir.path().join(name), schema.to_string()).unwrap();
+    }
+    failure(
+        dir.path(),
+        "schema too complex: overlapping recursive branches",
+    );
+}

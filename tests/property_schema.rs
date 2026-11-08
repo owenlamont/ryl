@@ -232,3 +232,30 @@ proptest! {
 fn collection_tags_and_property_name_locations_have_a_deterministic_witness() {
     check_collection_tags_and_property_names(42, "A/~B");
 }
+
+pub(crate) fn check_legacy_reference_siblings(draft: &str, id: &str, identifier: &str) {
+    let schema = json!({
+        "$schema":format!("http://json-schema.org/draft-{draft}/schema#"),
+        "$ref":"#/definitions/entry", "allOf":[{"$ref":"#"}],
+        "definitions":{"entry":{"properties":{"x":{id:identifier,"type":"string"}}}}
+    });
+    let hits = crate::cli_schema_rule::findings(&schema, "x: 1\n");
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].message, "value is not of type \"string\"");
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 64,
+        failure_persistence: crate::property::failure_persistence!("property_schema"),
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn legacy_reference_siblings_and_child_identifiers_match_validation(
+        draft in prop_oneof![Just(("04", "id")), Just(("06", "$id")), Just(("07", "$id"))],
+        identifier in "[a-z]{1,12}",
+    ) {
+        check_legacy_reference_siblings(draft.0, draft.1, &identifier);
+    }
+}
