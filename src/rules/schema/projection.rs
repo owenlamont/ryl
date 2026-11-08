@@ -8,7 +8,7 @@ use serde_json::{Map, Number, Value};
 use crate::rules::support::yaml_version;
 use crate::yaml_dom::{
     Scalar, core_schema_int, core_schema_suffix, is_core_schema_null,
-    parse_core_schema_int,
+    parse_core_schema_fp, parse_core_schema_int,
 };
 
 const MAX_NODES: usize = 1_000_000;
@@ -62,6 +62,7 @@ struct Node {
     size: usize,
     bytes: usize,
     depth: usize,
+    merge_key: bool,
 }
 
 pub(super) struct Projection {
@@ -116,15 +117,34 @@ fn scalar(
     if suffix == Some("str") {
         return Ok(Value::String(raw.into_owned()));
     }
+    if yaml11 && suffix == Some("float") {
+        let number = raw.replace('_', "");
+        let decimal = format!("{number}.0");
+        let value = yaml_version::value(&decimal, true, None, true)
+            .or_else(|| yaml_version::value(&number, true, None, true));
+        return if let Some(yaml_version::Value::Float(value)) = value {
+            float(value.0, span)
+        } else {
+            parse_core_schema_fp(&number)
+                .ok_or_else(|| refuse("invalid scalar tag", span))
+                .and_then(|value| float(value, span))
+        };
+    }
+    if yaml11 && suffix == Some("bool") {
+        match raw.as_ref() {
+            "y" | "Y" => return Ok(Value::Bool(true)),
+            "n" | "N" => return Ok(Value::Bool(false)),
+            _ => {}
+        }
+    }
     let implicit = suffix.is_none() && style == ScalarStyle::Plain;
-    if yaml11 && (implicit || matches!(suffix, Some("int" | "float" | "bool"))) {
+    if yaml11 && (implicit || matches!(suffix, Some("int" | "bool"))) {
         if let Some(value) = yaml_version::value(&raw, true, suffix, true) {
             if !matches!(
                 (suffix, &value),
                 (None, _)
                     | (Some("bool"), yaml_version::Value::Bool(_))
-                    | (Some("int" | "float"), yaml_version::Value::Int(_))
-                    | (Some("float"), yaml_version::Value::Float(_))
+                    | (Some("int"), yaml_version::Value::Int(_))
             ) {
                 return Err(refuse("invalid scalar tag", span));
             }
@@ -175,7 +195,7 @@ impl Builder<'_> {
         &mut self,
         events: &mut Peekable<impl Iterator<Item = (Event<'a>, Span)>>,
         depth: usize,
-        merge_key: bool,
+        key_context: bool,
     ) -> Result<Node, Refusal> {
         let (event, span) = events
             .next()
@@ -209,6 +229,7 @@ impl Builder<'_> {
             size: 1,
             bytes: 0,
             depth: 0,
+            merge_key: false,
         };
         let anchor;
         let mapping = matches!(event, Event::MappingStart(..));
@@ -217,7 +238,11 @@ impl Builder<'_> {
                 anchor = id;
                 self.budget.charge(0, raw.len(), span)?;
                 node.bytes = raw.len();
-                node.value = if merge_key {
+                node.merge_key = raw == "<<"
+                    && (style == ScalarStyle::Plain && tag.is_none()
+                        || tag.as_deref().and_then(core_schema_suffix).as_deref()
+                            == Some("merge"));
+                node.value = if node.merge_key && key_context {
                     Value::String(raw.into_owned())
                 } else {
                     scalar(raw, style, tag.as_deref(), self.yaml11, span)?
@@ -270,15 +295,12 @@ impl Builder<'_> {
         let mut merged = Map::new();
         let mut merge_seen = false;
         while !matches!(events.peek(), Some((Event::MappingEnd, _))) {
-            let merge = matches!(events.peek(), Some((Event::Scalar(raw, style, _, tag), _))
-                if raw == "<<" && (*style == ScalarStyle::Plain && tag.is_none()
-                    || tag.as_deref().and_then(core_schema_suffix).as_deref() == Some("merge")));
-            let key = self.node(events, depth + 1, merge)?;
+            let key = self.node(events, depth + 1, true)?;
             let Value::String(name) = key.value else {
                 return Err(refuse("non-string or complex mapping key", key.span));
             };
             let child = self.node(events, depth + 1, false)?;
-            if merge {
+            if key.merge_key {
                 if merge_seen {
                     return Err(refuse("duplicate mapping key", key.span));
                 }
@@ -413,6 +435,7 @@ impl Node {
             span: nodes.get("").copied().unwrap_or(self.span),
             nodes,
             keys,
+            merge_key: false,
         })
     }
 }

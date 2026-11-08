@@ -132,7 +132,7 @@ fn explicit_yaml11_tags_require_matching_lexical_values() {
     for (scalar, value) in [
         ("!!bool yes", json!(true)),
         ("!!int 011", json!(9)),
-        ("!!float 011", json!(9)),
+        ("!!float 011", json!(11.0)),
         ("!!float 1.5", json!(1.5)),
     ] {
         assert!(
@@ -1614,5 +1614,82 @@ fn non_unicode_schema_base_is_a_config_error() {
     assert!(
         error.contains("schema path cannot be represented as a file URI"),
         "{error}"
+    );
+}
+
+#[test]
+fn recursive_ref_fragments_follow_the_validators_resource_root() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    fs::write(
+        dir.path().join("schema.json"),
+        json!({
+            "$schema":"https://json-schema.org/draft/2019-09/schema",
+            "$defs":{"leaf":true},
+            "allOf":[
+                {"properties":{"x":{"$recursiveRef":"#/$defs/leaf"}}},
+                {"properties":{"x":{"$recursiveRef":"#/$defs/leaf"}}}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    failure(
+        dir.path(),
+        "schema too complex: overlapping recursive branches",
+    );
+}
+
+#[test]
+fn converging_reference_chains_retain_first_descent_masks() {
+    let schema = json!({
+        "$defs":{"a":{"$ref":"#/$defs/b"},"b":{"items":{"$ref":"#"}}},
+        "allOf":[{"$ref":"#/$defs/a"},{"$ref":"#/$defs/b"}]
+    });
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
+    failure(
+        dir.path(),
+        "schema too complex: overlapping recursive branches",
+    );
+}
+
+#[test]
+fn explicit_yaml11_float_leading_zero_is_decimal() {
+    for (yaml, expected) in [
+        ("!!float 012", json!(12.0)),
+        ("!!float 1:20", json!(80.0)),
+        ("!!float 1_2.5", json!(12.5)),
+        ("!!float 1e3", json!(1000.0)),
+        ("!!int 012", json!(10)),
+        ("!!bool y", json!(true)),
+        ("!!bool N", json!(false)),
+    ] {
+        assert!(
+            findings(
+                &json!({"const":expected}),
+                &format!("%YAML 1.1\n---\n{yaml}\n")
+            )
+            .is_empty(),
+            "{yaml}"
+        );
+    }
+    for yaml in ["!!float yes", "!!int 1.5", "!!bool 012"] {
+        assert_eq!(
+            findings(&json!(true), &format!("%YAML 1.1\n---\n{yaml}\n"))[0].message,
+            "cannot validate: invalid scalar tag"
+        );
+    }
+}
+
+#[test]
+fn aliased_merge_keys_expand_their_mapping() {
+    assert!(
+        findings(
+            &json!({"const":{"a":1,"x":{"b":2}}}),
+            "&m !!merge <<: {a: 1}\nx:\n  *m : {b: 2}\n"
+        )
+        .is_empty()
     );
 }

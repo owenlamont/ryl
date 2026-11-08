@@ -89,7 +89,14 @@ fn check_spans(source: &str) {
 
 fn check_versioned_projection(yaml11: bool, value: u16, tag: &str) {
     let version = if yaml11 { "%YAML 1.1\n---\n" } else { "" };
-    let yaml = format!("{version}job: {{<<: {{value: !!{tag} {value}}}}}\n");
+    let spelling = if tag == "float" {
+        format!("0{value}")
+    } else {
+        value.to_string()
+    };
+    let yaml = format!(
+        "{version}&m !!merge <<: {{}}\njob: {{*m : {{value: !!{tag} {spelling}}}}}\n"
+    );
     let hits = crate::cli_schema_rule::findings(
         &json!({"const":{"job":{"value":value}}}),
         &yaml,
@@ -101,7 +108,7 @@ fn check_versioned_projection(yaml11: bool, value: u16, tag: &str) {
     );
     assert_eq!(hits.len(), 1, "{yaml}: {hits:?}");
     assert_eq!(hits[0].message, "value is not of type \"string\"");
-    assert_eq!(hits[0].line, if yaml11 { 3 } else { 1 });
+    assert_eq!(hits[0].line, if yaml11 { 4 } else { 2 });
     let hits = crate::cli_schema_rule::findings(
         &json!(true),
         &format!("{version}!!{tag} true\n"),
@@ -157,6 +164,10 @@ fn check_recursive_branches(names: Vec<String>, mode: u8) {
             json!({"$recursiveRef":"#"}),
             json!({"$schema":"https://json-schema.org/draft/2019-09/schema", "$recursiveAnchor":true}),
         ),
+        2 => (
+            json!({"$recursiveRef":"#/$defs/leaf"}),
+            json!({"$schema":"https://json-schema.org/draft/2019-09/schema", "$defs":{"leaf":true}}),
+        ),
         _ => (
             json!({"$dynamicRef":"#node"}),
             json!({"$dynamicAnchor":"node"}),
@@ -173,6 +184,22 @@ fn check_recursive_branches(names: Vec<String>, mode: u8) {
     assert!(
         ryl::rules::schema::check("{}\n", &ctx.config, Path::new("in.yaml")).is_empty()
     );
+    schema["allOf"] = json!([
+        {"properties":{"x":reference}}, {"properties":{"x":reference}}
+    ]);
+    std::fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
+    let error = ryl::config::discover_config(
+        &[],
+        &ryl::config::Overrides {
+            config_file: Some(dir.path().join(".ryl.toml")),
+            config_data: None,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("overlapping recursive branches"),
+        "{error}"
+    );
 }
 
 proptest! {
@@ -183,14 +210,14 @@ proptest! {
     })]
 
     #[test]
-    fn distinct_recursive_properties_are_accepted(names in prop::collection::vec("[a-z/~]{1,8}", 1..8), mode in 0_u8..3) {
+    fn distinct_recursive_properties_are_accepted(names in prop::collection::vec("[a-z/~]{1,8}", 1..8), mode in 0_u8..4) {
         check_recursive_branches(names, mode);
     }
 }
 
 #[test]
 fn escaped_recursive_properties_have_a_deterministic_witness() {
-    for mode in 0..3 {
+    for mode in 0..4 {
         check_recursive_branches(vec!["a/b".to_owned(), "~".to_owned()], mode);
     }
 }

@@ -241,13 +241,15 @@ impl Graph {
                 };
                 let (resource, fragment) =
                     reference.rsplit_once('#').unwrap_or((reference, ""));
-                let target = registry
-                    .resolve_uri(&resolver.base_uri().borrow(), resource)
-                    .and_then(|base| {
-                        registry
-                            .resolver(base.as_ref().clone())
-                            .lookup(&format!("#{fragment}"))
-                    });
+                let target = if keyword == "$recursiveRef" {
+                    resolver.lookup_recursive_ref()
+                } else {
+                    let base = registry
+                        .resolve_uri(&resolver.base_uri().borrow(), resource)?;
+                    registry
+                        .resolver(base.as_ref().clone())
+                        .lookup(&format!("#{fragment}"))
+                };
                 pending.push(target.map(|resolved| {
                     let (child, scope, draft) = resolved.into_inner();
                     let kind = dynamic.reference(source, keyword, fragment, child);
@@ -357,22 +359,12 @@ impl Graph {
         components
     }
 
-    fn first_descent(&self, edge: &Edge, components: &[usize]) -> u8 {
-        let mut kinds = 0;
-        let mut pending = vec![edge];
-        let mut seen = std::collections::HashSet::new();
-        while let Some(edge) = pending.pop() {
-            match edge.kind {
-                Kind::Array => kinds |= ARRAY_DESCENT,
-                Kind::Object | Kind::Property => kinds |= OBJECT_DESCENT,
-                _ if seen.insert(edge.target) => {
-                    let children = self.internal(edge.target, components);
-                    pending.extend(children);
-                }
-                _ => {}
-            }
+    fn first_descent(edge: &Edge, masks: &[u8]) -> u8 {
+        match edge.kind {
+            Kind::Array => ARRAY_DESCENT,
+            Kind::Object | Kind::Property => OBJECT_DESCENT,
+            _ => masks[edge.target],
         }
-        kinds
     }
 
     fn internal(&self, node: usize, components: &[usize]) -> Vec<&Edge> {
@@ -385,16 +377,14 @@ impl Graph {
             .collect()
     }
 
-    fn overlaps(&self, node: usize, components: &[usize]) -> bool {
+    fn overlaps(&self, node: usize, components: &[usize], masks: &[u8]) -> bool {
         let mut properties = false;
         let edges = self.internal(node, components);
         // A dynamic reference selects one target, so its possible descents form a union.
         let mut kinds = edges
             .iter()
             .filter(|edge| edge.kind == Kind::Alternative)
-            .fold(0, |kinds, edge| {
-                kinds | self.first_descent(edge, components)
-            });
+            .fold(0, |kinds, edge| kinds | Self::first_descent(edge, masks));
         for edge in edges
             .into_iter()
             .filter(|edge| edge.kind != Kind::Alternative)
@@ -406,7 +396,7 @@ impl Graph {
                 properties = true;
                 continue;
             }
-            let descent = self.first_descent(edge, components);
+            let descent = Self::first_descent(edge, masks);
             if descent & kinds != 0 || (descent & OBJECT_DESCENT != 0 && properties) {
                 return true;
             }
@@ -431,7 +421,9 @@ impl Graph {
             .enumerate()
             .filter_map(|(n, &count)| (count == 0).then_some(n))
             .collect::<VecDeque<_>>();
+        let mut order = Vec::with_capacity(self.edges.len());
         while let Some(node) = ready.pop_front() {
+            order.push(node);
             for edge in self.edges[node]
                 .iter()
                 .filter(|e| matches!(e.kind, Kind::Same | Kind::Alternative))
@@ -445,8 +437,15 @@ impl Graph {
         if let Some(node) = incoming.iter().position(|&count| count != 0) {
             return Err(format!("non-descending cycle at {}", self.locations[node]));
         }
+        let mut masks = vec![0; self.edges.len()];
+        for node in order.into_iter().rev() {
+            masks[node] = self
+                .internal(node, &components)
+                .into_iter()
+                .fold(0, |kinds, edge| kinds | Self::first_descent(edge, &masks));
+        }
         for node in 0..self.edges.len() {
-            if self.overlaps(node, &components) {
+            if self.overlaps(node, &components, &masks) {
                 return Err(format!(
                     "overlapping recursive branches at {}",
                     self.locations[node]

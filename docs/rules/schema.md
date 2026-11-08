@@ -53,7 +53,8 @@ branches is also refused; distinct literal properties and disjoint object/array
 paths are accepted. Repeated recursive tuple items are conservatively refused.
 Drafts 04, 06 and 07 ignore keywords beside `$ref` during validation and complexity
 screening. Unreferenced definitions are conservatively screened in newer drafts.
-Dynamic references include all matching anchors as possible targets; this conservative
+Draft 2019-09 `$recursiveRef` follows the validator's resource-root lookup even
+when the reference contains a fragment. Dynamic references include all matching anchors as possible targets; this conservative
 screen can refuse schemas whose runtime scopes would select fewer targets. Only
 applicators and references active in the schema draft contribute to the screen.
 More than 1,000,000 possible dynamic-reference edges are refused before expansion.
@@ -67,12 +68,14 @@ does not load lint schemas.
 
 - Plain scalars resolve under YAML 1.2 core; explicit `%YAML 1.1` uses the existing
   version-aware resolver. Unsupported 1.1 values, including timestamps, are refused.
+- Explicit YAML 1.1 float tags parse decimal or sexagesimal values rather than
+  implicitly resolving integers (`!!float 012` is 12.0; `!!int 012` is 10).
 - Explicit core tags must match the scalar's type and spelling; invalid tagged
   values produce `cannot validate` findings. The non-specific `!` tag resolves
   sequences and mappings as ordinary collections.
 - Integers in the combined i64/u64 range and finite floats are supported.
 - Aliases expand within the projection budget. Findings blame the alias use site.
-- Merge keys expand before validation; explicit keys override inherited keys, and
+- Merge keys, including aliased merge keys, expand before validation; explicit keys override inherited keys, and
   earlier mappings in merge sequences win. Malformed merges are refused.
 - Duplicate decoded keys, non-string or complex keys and custom tags produce
   `cannot validate` findings (exit 1), rather than misleading type errors.
