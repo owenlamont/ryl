@@ -2347,6 +2347,8 @@ regex patterns, remote references and confinement failures are config errors (ex
 Both the root schema and referenced files must stay within the config base directory,
 including after resolving symlinks. Absolute root paths and UNC references are refused.
 Only local `file:` references are retrieved; network opt-in is not supported yet.
+Schema paths may contain spaces, brackets and other filename characters; `$ref`
+URIs must percent-encode characters outside the URI path syntax.
 
 Schema contents and local references contribute to the lint cache key. Schemas and
 references share a 16 MiB byte limit and a 1,024-resource limit per root schema.
@@ -2386,7 +2388,8 @@ does not load lint schemas.
   `cannot validate` findings (exit 1), rather than misleading type errors.
 - Every document in a stream is validated independently; an empty document is null.
 - Unexpected properties and invalid property names blame the key. Missing properties
-  blame the containing mapping's start. Other findings use the instance value's source location.
+  blame the containing mapping's start. Additional and unevaluated items blame the
+  first offending item. Other findings use the instance value's source location.
 - `oneOf` and `anyOf` findings select the most relevant branch error using
   [Python jsonschema's `best_match` heuristic](https://github.com/python-jsonschema/jsonschema/blob/main/jsonschema/exceptions.py).
   Equally ranked branches retain the summary. Messages mask instance values.

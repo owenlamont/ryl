@@ -104,7 +104,7 @@ fn scalar(
     span: Span,
 ) -> Result<Value, Refusal> {
     let suffix = tag.and_then(core_schema_suffix);
-    if tag.is_some_and(|tag| tag.suffix() == "!") {
+    if tag.is_some_and(|tag| tag.handle().is_empty() && tag.suffix() == "!") {
         return Ok(Value::String(raw.into_owned()));
     }
     if let Some(tag) = tag
@@ -227,7 +227,7 @@ impl Builder<'_> {
                 anchor = id;
                 let expected = if mapping { "map" } else { "seq" };
                 if let Some(tag) = tag
-                    && tag.suffix() != "!"
+                    && !(tag.handle().is_empty() && tag.suffix() == "!")
                     && core_schema_suffix(&tag).as_deref() != Some(expected)
                 {
                     return Err(refuse(&format!("tag {}", tag.original()), span));

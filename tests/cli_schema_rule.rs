@@ -1470,3 +1470,149 @@ fn dynamic_scope_includes_embedded_roots_entered_through_fragments() {
         "schema too complex: overlapping recursive branches",
     );
 }
+
+#[test]
+fn referenced_boolean_alternatives_report_validation_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("false.json"), "false").unwrap();
+    for keyword in ["anyOf", "oneOf"] {
+        for reference in ["false.json", "#/$defs/no"] {
+            let ctx = config(
+                dir.path(),
+                &json!({"$defs":{"no":false},keyword:[{"$ref":reference},{"type":"string"}]}),
+            );
+            let hits = lint_str(
+                "{}\n",
+                &dir.path().join("in.yaml"),
+                &ctx.config,
+                &ctx.base_dir,
+            );
+            assert_eq!(hits.len(), 1);
+            assert!(hits[0].message.contains(keyword), "{hits:?}");
+        }
+    }
+}
+
+#[test]
+fn encoded_custom_tag_suffixes_are_refused_on_every_node_kind() {
+    for node in ["123", "[123]", "{a: 123}"] {
+        let hits = findings(
+            &json!(true),
+            &format!("%TAG !e! tag:example.com,2020:\n---\nx: !e!%21 {node}\n"),
+        );
+        assert_eq!(hits.len(), 1, "{node}: {hits:?}");
+        assert!(
+            hits[0].message.starts_with("cannot validate: tag"),
+            "{hits:?}"
+        );
+        assert_eq!(hits[0].line, 3);
+    }
+}
+
+#[test]
+fn bracketed_schema_paths_resolve_relative_references_and_enforce_confinement() {
+    let dir = tempfile::tempdir().unwrap();
+    let schemas = dir.path().join("schemas[1]");
+    fs::create_dir(&schemas).unwrap();
+    #[cfg(unix)]
+    let schema_name = "schema[1]^| #%.json";
+    #[cfg(not(unix))]
+    let schema_name = "schema[1] #%.json";
+    fs::write(schemas.join(schema_name), r#"{"$ref":"child%5B1%5D.json"}"#).unwrap();
+    fs::write(schemas.join("child[1].json"), r#"{"type":"string"}"#).unwrap();
+    fs::write(
+        dir.path().join(".ryl.toml"),
+        format!("[[lint.rules.schema.schemas]]\npath = 'schemas[1]/{schema_name}'\n"),
+    )
+    .unwrap();
+    let overrides = Overrides {
+        config_file: Some(dir.path().join(".ryl.toml")),
+        config_data: None,
+    };
+    let ctx = discover_config(&[], &overrides).unwrap();
+    let hits = lint_str(
+        "{}\n",
+        &dir.path().join("in.yaml"),
+        &ctx.config,
+        &ctx.base_dir,
+    );
+    assert_eq!(hits[0].message, "value is not of type \"string\"");
+    let outside_dir = tempfile::tempdir().unwrap();
+    let outside = outside_dir.path().join("outside.json");
+    fs::write(&outside, "true").unwrap();
+    let uri = url::Url::from_file_path(&outside).unwrap();
+    fs::write(
+        schemas.join(schema_name),
+        json!({"$ref":uri.as_str()}).to_string(),
+    )
+    .unwrap();
+    let error = discover_config(&[], &overrides).unwrap_err();
+    assert!(error.contains("escapes config base directory"), "{error}");
+}
+
+#[test]
+fn unevaluated_properties_blame_the_offending_escaped_key() {
+    let hits = findings(
+        &json!({"properties":{"ok":true},"unevaluatedProperties":false}),
+        "ok: 1\na/b~c: 2\n",
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].line, hits[0].column), (2, 1));
+}
+
+#[test]
+fn additional_items_blame_the_first_extra_item() {
+    let hits = findings(
+        &json!({"$schema":"http://json-schema.org/draft-07/schema#","items":[true],"additionalItems":false}),
+        "- 1\n- 2\n",
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].line, hits[0].column), (2, 3));
+}
+
+#[test]
+fn unevaluated_items_skip_evaluated_duplicates_and_contains_matches() {
+    let hits = findings(
+        &json!({"prefixItems":[true],"contains":{"const":0},"unevaluatedItems":false}),
+        "- 1\n- 0\n- 1\n- 0\n- 2\n",
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].line, hits[0].column), (3, 3));
+}
+
+#[test]
+fn unevaluated_item_locations_support_the_projection_depth_limit() {
+    let item = format!("{}{}", "[".repeat(128), "]".repeat(128));
+    let hits = findings(&json!({"unevaluatedItems":false}), &format!("- {item}\n"));
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].line, hits[0].column), (1, 3));
+}
+
+#[cfg(windows)]
+#[test]
+fn non_unicode_schema_base_is_a_config_error() {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join(OsString::from_wide(&[0xd800]));
+    fs::create_dir(&base).unwrap();
+    fs::write(base.join("schema.json"), "true").unwrap();
+    fs::write(
+        base.join(".ryl.toml"),
+        "[[lint.rules.schema.schemas]]\npath = 'schema.json'\n",
+    )
+    .unwrap();
+    let error = discover_config(
+        &[],
+        &Overrides {
+            config_file: Some(base.join(".ryl.toml")),
+            config_data: None,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("schema path cannot be represented as a file URI"),
+        "{error}"
+    );
+}

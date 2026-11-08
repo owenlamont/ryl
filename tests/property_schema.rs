@@ -206,6 +206,16 @@ fn check_collection_tags_and_property_names(value: u16, key: &str) {
     ] {
         assert!(crate::cli_schema_rule::findings(&schema, &yaml).is_empty());
     }
+    for node in [
+        value.to_string(),
+        format!("[{value}]"),
+        format!("{{{quoted_key}: {value}}}"),
+    ] {
+        let yaml = format!("%TAG !e! tag:example.com,2020:\n---\n!e!%21 {node}\n");
+        let hits = crate::cli_schema_rule::findings(&json!(true), &yaml);
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].message.starts_with("cannot validate: tag"));
+    }
     let yaml = format!("good: 0\n{quoted_key}: {value}\n");
     let hits = crate::cli_schema_rule::findings(
         &json!({"propertyNames":{"const":"good"}}),
@@ -213,6 +223,18 @@ fn check_collection_tags_and_property_names(value: u16, key: &str) {
     );
     assert_eq!(hits.len(), 1);
     assert_eq!((hits[0].line, hits[0].column), (2, 1));
+    let hits = crate::cli_schema_rule::findings(
+        &json!({"properties":{"good":true},"unevaluatedProperties":false}),
+        &yaml,
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].line, hits[0].column), (2, 1));
+    let hits = crate::cli_schema_rule::findings(
+        &json!({"prefixItems":[true],"contains":{"type":"null"},"unevaluatedItems":false}),
+        &format!("- {value}\n- {value}\n- null\n- 2\n"),
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].line, hits[0].column), (2, 3));
 }
 
 proptest! {
@@ -257,5 +279,26 @@ proptest! {
         identifier in "[a-z]{1,12}",
     ) {
         check_legacy_reference_siblings(draft.0, draft.1, &identifier);
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 64,
+        failure_persistence: crate::property::failure_persistence!("property_schema"),
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn boolean_resources_in_alternatives_have_stable_diagnostics(
+        name in "[a-z]{1,8}", keyword in prop_oneof![Just("anyOf"), Just("oneOf")],
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(format!("{name}[1].json")), "false").unwrap();
+        let schema = json!({keyword:[{"$ref":format!("{name}%5B1%5D.json")},{"type":"string"}]});
+        let ctx = crate::cli_schema_rule::config(dir.path(), &schema);
+        let hits = ryl::rules::schema::check("{}\n", &ctx.config, Path::new("in.yaml"));
+        prop_assert_eq!(hits.len(), 1);
+        prop_assert!(hits[0].message.contains(keyword));
     }
 }

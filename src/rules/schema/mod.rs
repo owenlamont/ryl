@@ -111,14 +111,28 @@ pub(crate) fn check_with_analysis(
             let error = diagnostics::best_match(&error, association, &projected.value);
             let pointer = error.instance_path().to_string();
             let span = match error.kind() {
-                ValidationErrorKind::AdditionalProperties { unexpected } => unexpected
-                    .first()
-                    .and_then(|key| {
-                        projected
-                            .keys
-                            .get(&projection::child_pointer(&pointer, key))
+                ValidationErrorKind::AdditionalProperties { unexpected }
+                | ValidationErrorKind::UnevaluatedProperties { unexpected } => {
+                    unexpected
+                        .first()
+                        .and_then(|key| {
+                            projected
+                                .keys
+                                .get(&projection::child_pointer(&pointer, key))
+                        })
+                        .copied()
+                }
+                ValidationErrorKind::AdditionalItems { limit } => {
+                    Some(projected.span(&format!("{pointer}/{limit}")))
+                }
+                ValidationErrorKind::UnevaluatedItems { unexpected } => projected
+                    .value
+                    .pointer(&pointer)
+                    .and_then(serde_json::Value::as_array)
+                    .and_then(|items| {
+                        diagnostics::unevaluated_item_index(items, unexpected)
                     })
-                    .copied(),
+                    .map(|index| projected.span(&format!("{pointer}/{index}"))),
                 ValidationErrorKind::PropertyNames { error } => projected
                     .keys
                     .get(&projection::child_pointer(

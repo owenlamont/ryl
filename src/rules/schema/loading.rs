@@ -123,6 +123,38 @@ impl Retrieve for LocalRetriever {
     }
 }
 
+fn root_location(base: &Path, path: &str) -> Result<(PathBuf, Uri<String>), String> {
+    if !Path::new(path).components().all(|part| {
+        matches!(
+            part,
+            Component::Normal(_) | Component::CurDir | Component::ParentDir
+        )
+    }) || path.starts_with('\\')
+    {
+        return Err(
+            "schema root path must be relative to config base directory".to_owned()
+        );
+    }
+    let root = base.join(path);
+    #[cfg(unix)]
+    let uri = Url::from_file_path(&root).expect("schema path is absolute");
+    #[cfg(not(unix))]
+    let uri = Url::from_file_path(&root)
+        .map_err(|()| "schema path cannot be represented as a file URI")?;
+    // WHATWG file paths leave these characters unescaped, unlike RFC 3986 URI paths.
+    let uri = uri
+        .as_str()
+        .replace('[', "%5B")
+        .replace(']', "%5D")
+        .replace('^', "%5E")
+        .replace('|', "%7C");
+    Ok((
+        root,
+        jsonschema::uri::from_str(&uri)
+            .expect("percent-encoded file URL is an RFC 3986 URI"),
+    ))
+}
+
 pub(crate) fn prepare(
     cfg: &YamlLintConfig,
     base: &Path,
@@ -151,31 +183,14 @@ pub(crate) fn prepare(
             .and_then(YamlOwned::as_str)
             .expect("typed schema path");
         let build = || -> Result<Association, String> {
-            if !Path::new(path).components().all(|part| {
-                matches!(
-                    part,
-                    Component::Normal(_) | Component::CurDir | Component::ParentDir
-                )
-            }) || path.starts_with('\\')
-            {
-                return Err(
-                    "schema root path must be relative to config base directory"
-                        .to_owned(),
-                );
-            }
-            let root = reader.base.join(path);
-            let uri = Url::from_file_path(&root)
-                .expect("a schema root joined to a canonical base is absolute");
+            let (root, uri) = root_location(&reader.base, path)?;
             let schema = reader.read(&root).map_err(|error| error.to_string())?;
             let registry = jsonschema::Registry::new()
                 .retriever(reader.clone())
                 .add(uri.as_str(), schema.clone())
                 .and_then(jsonschema::RegistryBuilder::prepare)
                 .map_err(|error| error.to_string())?;
-            super::complexity::check(
-                &registry,
-                jsonschema::uri::from_str(uri.as_str()).expect("schema root URI"),
-            )?;
+            super::complexity::check(&registry, uri.clone())?;
             let validator = jsonschema::options()
                 .with_base_uri(uri.as_str())
                 .with_registry(&registry)
@@ -203,8 +218,7 @@ pub(crate) fn prepare(
                 files,
                 validator: Arc::new(validator),
                 registry: Arc::new(registry),
-                root_uri: jsonschema::uri::from_str(uri.as_str())
-                    .expect("schema root URL is a valid URI"),
+                root_uri: uri,
             })
         };
         associations

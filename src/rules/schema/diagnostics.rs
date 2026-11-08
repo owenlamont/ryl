@@ -10,44 +10,66 @@ use super::Association;
 
 type Relevance = (Reverse<usize>, bool, bool);
 
+pub(super) fn unevaluated_item_index(
+    items: &[Value],
+    unexpected: &[String],
+) -> Option<usize> {
+    // Matching from the end skips identical values in evaluated prefixes.
+    unexpected.iter().rev().try_fold(items.len(), |end, value| {
+        items[..end].iter().rposition(|item| {
+            let serialized = item.to_string();
+            serialized == *value
+        })
+    })
+}
+
 fn relevance(error: &ValidationError<'_>, association: &Association) -> Relevance {
     let location = error
         .absolute_keyword_location()
         .expect("schema has a base URI");
-    let (parent, _) = location
-        .as_str()
-        .rsplit_once('/')
-        .expect("keyword has a parent");
+    let location = location.as_str();
+    let parent = if matches!(error.kind(), ValidationErrorKind::FalseSchema) {
+        location
+    } else {
+        location
+            .split_once('#')
+            .and_then(|(_, fragment)| fragment.rsplit_once('/'))
+            .map_or(location, |(_, keyword)| {
+                &location[..location.len() - keyword.len() - 1]
+            })
+    };
     let resolved = association
         .registry
         .resolver(association.root_uri.clone())
         .lookup(parent)
-        .expect("compiled error location resolves in the prepared registry");
-    let (schema, _, draft) = resolved.into_inner();
-    let matches = |kind: &Value| {
-        let instance = error.instance();
-        let kind = kind
-            .as_str()
-            .expect("schema type is a string")
-            .parse::<JsonType>()
-            .expect("schema type was validated at compilation");
-        if kind == JsonType::Integer {
-            instance.is_i64()
-                || instance.is_u64()
-                || (draft != jsonschema::Draft::Draft4
-                    && instance
-                        .as_f64()
-                        .is_some_and(|number| number.fract() == 0.0))
-        } else {
-            JsonType::from(instance.as_ref()) == kind
-        }
-    };
-    let matches_type = schema.get("type").is_some_and(|kind| {
-        if let Value::Array(kinds) = kind {
-            kinds.iter().any(matches)
-        } else {
-            matches(kind)
-        }
+        .ok();
+    let matches_type = resolved.is_some_and(|resolved| {
+        let (schema, _, draft) = resolved.into_inner();
+        let matches = |kind: &Value| {
+            let instance = error.instance();
+            let kind = kind
+                .as_str()
+                .expect("schema type is a string")
+                .parse::<JsonType>()
+                .expect("schema type was validated at compilation");
+            if kind == JsonType::Integer {
+                instance.is_i64()
+                    || instance.is_u64()
+                    || (draft != jsonschema::Draft::Draft4
+                        && instance
+                            .as_f64()
+                            .is_some_and(|number| number.fract() == 0.0))
+            } else {
+                JsonType::from(instance.as_ref()) == kind
+            }
+        };
+        schema.get("type").is_some_and(|kind| {
+            if let Value::Array(kinds) = kind {
+                kinds.iter().any(matches)
+            } else {
+                matches(kind)
+            }
+        })
     });
     (
         Reverse(
