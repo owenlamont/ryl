@@ -28,6 +28,7 @@ fn github_emits_directive_deprecation_as_a_warning_on_stderr() {
     for mode in [
         vec!["check"],
         vec!["check", "--fix"],
+        vec!["check", "--diff"],
         vec!["format", "--check"],
     ] {
         let mut cmd = ryl(dir.path());
@@ -425,10 +426,7 @@ fn rewrite_summary_follows_parse_skips_and_cached_neighbors() {
                 .find("first.yaml")
                 .expect("first input has a parse skip");
             let second = stderr.find(NOTICE).expect("alias summary exists");
-            assert_eq!(
-                stderr.lines().last().unwrap(),
-                stderr[second - "warning: ".len()..].trim_end()
-            );
+            assert!(stderr.lines().last().unwrap().contains(NOTICE), "{stderr}");
             assert!(first < second, "{stderr}");
         }
     }

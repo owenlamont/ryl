@@ -838,10 +838,13 @@ fn resolve_targets(
     config_output: Option<&OutputTable>,
 ) -> Result<Vec<OutputTarget>, String> {
     let cli_targets = resolve_cli_targets(matches, args)?;
-    if !cli_targets.is_empty() {
-        return Ok(cli_targets);
-    }
-    Ok(config_or_default_targets(config_output))
+    let targets = if cli_targets.is_empty() {
+        config_or_default_targets(config_output)
+    } else {
+        cli_targets
+    };
+    deprecation::set_github_output(github_target(&targets));
+    Ok(targets)
 }
 
 fn config_or_default_targets(config_output: Option<&OutputTable>) -> Vec<OutputTarget> {
@@ -1014,11 +1017,6 @@ impl<'a> RecordStream<'a> {
         sinks: Vec<OutputSink>,
         paths: impl IntoIterator<Item = &'p Path>,
     ) -> Result<Self, String> {
-        deprecation::set_github_output(
-            targets
-                .iter()
-                .any(|target| target.format == OutputFormat::Github),
-        );
         let project_root = report_project_root();
         let mut writers: Vec<_> = sinks
             .into_iter()
@@ -1701,7 +1699,7 @@ fn lint_and_exit(
                 OutputFormat::Standard | OutputFormat::Colored
             )
         });
-        let github = targets.iter().any(|target| target.format == OutputFormat::Github);
+        let github = github_target(targets);
         if summary.hidden_unsafe_fixes > 0 && (human || github || before_fix.is_some()) {
             let versions = files
                 .iter()
@@ -2176,7 +2174,14 @@ fn format_targets(
         (Preview::Check, None) => config_or_default_targets(config_output),
     };
     validate_targets(&targets, preview == Preview::Diff)?;
+    deprecation::set_github_output(github_target(&targets));
     Ok(targets)
+}
+
+fn github_target(targets: &[OutputTarget]) -> bool {
+    targets
+        .iter()
+        .any(|target| target.format == OutputFormat::Github)
 }
 
 fn warn_format_conflicts<'a>(
