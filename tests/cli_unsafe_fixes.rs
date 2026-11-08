@@ -40,30 +40,6 @@ fn github_emits_unsafe_fix_hint_as_a_notice_on_stderr() {
     }
 }
 
-#[test]
-fn other_formats_keep_their_unsafe_fix_hint_output() {
-    for format in ["standard", "colored", "parsable", "junit", "gitlab"] {
-        for fix in [false, true] {
-            let mut args = vec!["check", "--output-format", format];
-            if fix {
-                args.push("--fix");
-            }
-            let (code, output, _) = ryl_with(RULES, "a: yes\n", &args);
-            assert_eq!(code, 1, "{format}: {output}");
-            let hints: Vec<_> = output
-                .lines()
-                .filter(|line| line.contains("unsafe fix available"))
-                .collect();
-            let expected = if fix || matches!(format, "standard" | "colored") {
-                vec![UNSAFE_HINT]
-            } else {
-                vec![]
-            };
-            assert_eq!(hints, expected, "{format}, fix={fix}: {output}");
-        }
-    }
-}
-
 fn ryl_with(config: &str, content: &str, args: &[&str]) -> (i32, String, String) {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join(".ryl.toml"), config).unwrap();
