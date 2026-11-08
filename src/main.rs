@@ -838,10 +838,13 @@ fn resolve_targets(
     config_output: Option<&OutputTable>,
 ) -> Result<Vec<OutputTarget>, String> {
     let cli_targets = resolve_cli_targets(matches, args)?;
-    if !cli_targets.is_empty() {
-        return Ok(cli_targets);
-    }
-    Ok(config_or_default_targets(config_output))
+    let targets = if cli_targets.is_empty() {
+        config_or_default_targets(config_output)
+    } else {
+        cli_targets
+    };
+    deprecation::set_github_output(github_target(&targets));
+    Ok(targets)
 }
 
 fn config_or_default_targets(config_output: Option<&OutputTable>) -> Vec<OutputTarget> {
@@ -1696,7 +1699,8 @@ fn lint_and_exit(
                 OutputFormat::Standard | OutputFormat::Colored
             )
         });
-        if summary.hidden_unsafe_fixes > 0 && (human || before_fix.is_some()) {
+        let github = github_target(targets);
+        if summary.hidden_unsafe_fixes > 0 && (human || github || before_fix.is_some()) {
             let versions = files
                 .iter()
                 .map(|(_, _, cfg, _)| match cfg.source_version() {
@@ -1707,7 +1711,7 @@ fn lint_and_exit(
                 .into_iter()
                 .collect::<Vec<_>>()
                 .join("/");
-            eprintln!(
+            let message = format!(
                 "{} unsafe {} available with `--fix --unsafe-fixes` (source-version: {}; set source-version to change).",
                 summary.hidden_unsafe_fixes,
                 if summary.hidden_unsafe_fixes == 1 {
@@ -1717,6 +1721,11 @@ fn lint_and_exit(
                 },
                 versions
             );
+            if github {
+                eprintln!("::notice::{}", github_escape(&message, false));
+            } else {
+                eprintln!("{message}");
+            }
         }
         if before_fix
             .as_ref()
@@ -2165,7 +2174,14 @@ fn format_targets(
         (Preview::Check, None) => config_or_default_targets(config_output),
     };
     validate_targets(&targets, preview == Preview::Diff)?;
+    deprecation::set_github_output(github_target(&targets));
     Ok(targets)
+}
+
+fn github_target(targets: &[OutputTarget]) -> bool {
+    targets
+        .iter()
+        .any(|target| target.format == OutputFormat::Github)
 }
 
 fn warn_format_conflicts<'a>(

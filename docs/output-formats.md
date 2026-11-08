@@ -16,6 +16,11 @@ for editors, CI, and Git forges.
 | `junit` | JUnit XML test report | stdout |
 | `gitlab` | GitLab Code Quality JSON report | stdout |
 
+The `github` format also emits the unsafe-fix hint as `::notice::` and the
+deprecated `# yamllint` directive summary as `::warning::`, on stderr. The directive
+summary counts affected files and has no file or line location. `--no-warnings`
+suppresses the directive summary; `--no-unsafe-fixes` suppresses the unsafe-fix hint.
+
 The exit code is the same for every format: `0` when clean, `1` when any error-level
 diagnostic is found, and `2` for a usage or config error, a failed `check --fix`
 write, or `--strict` with only warnings.

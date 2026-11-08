@@ -1,11 +1,16 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use ryl::cli_support::LintFile;
+use ryl::cli_support::{LintFile, github_escape};
 use ryl::config::{SourceKind, YamlLintConfig};
 use ryl::directives::{legacy_directive_lines, starts_with_jinja_header};
 use ryl::{MarkdownSources, extract_regions};
 
 static FILES: AtomicUsize = AtomicUsize::new(0);
+static GITHUB_OUTPUT: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_github_output(enabled: bool) {
+    GITHUB_OUTPUT.store(enabled, Ordering::Relaxed);
+}
 
 pub(crate) fn record(
     content: &str,
@@ -60,10 +65,15 @@ pub(crate) fn record_bytes(
 pub(crate) fn emit_summary() {
     let count = FILES.load(Ordering::Relaxed);
     if count > 0 {
-        eprintln!(
-            "warning: yamllint directive aliases are deprecated in {count} {}; use `ryl --migrate-directives` to convert",
+        let message = format!(
+            "yamllint directive aliases are deprecated in {count} {}; use `ryl --migrate-directives` to convert",
             if count == 1 { "file" } else { "files" }
         );
+        if GITHUB_OUTPUT.load(Ordering::Relaxed) {
+            eprintln!("::warning::{}", github_escape(&message, false));
+        } else {
+            eprintln!("warning: {message}");
+        }
     }
 }
 
