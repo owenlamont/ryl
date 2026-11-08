@@ -698,7 +698,7 @@ impl YamlLintConfig {
     /// config stays self-contained after it moves to ryl's config dir (the original
     /// relative path would otherwise dangle). Call only after `finalize`.
     pub fn inline_resolved_ignore_from_file(&mut self) {
-        self.resolved = self.resolved.clone();
+        self.resolved.reset_rule_facts();
         self.ignore_from_files.clear();
     }
 
@@ -822,7 +822,7 @@ impl YamlLintConfig {
     /// content with no real path (e.g. stdin without `--stdin-filename`), so the ignore
     /// patterns cannot accidentally match the synthetic label.
     pub fn disable_path_based_rule_ignores(&mut self) {
-        self.resolved = self.resolved.clone();
+        self.resolved.reset_rule_facts();
         self.per_file_ignore_matchers.clear();
         self.key_orders.clear();
         if let Some(prepared) = &mut self.resolved.schema {
@@ -961,7 +961,7 @@ impl YamlLintConfig {
     /// Enable markdown linting with default globs when none are configured. Backs the
     /// `--markdown` flag. A no-op when `[files].markdown` already lists globs.
     pub fn enable_default_markdown(&mut self, base_dir: &Path) {
-        self.resolved = self.resolved.clone();
+        self.resolved.reset_rule_facts();
         if self.markdown_file_patterns.is_empty() {
             self.markdown_file_patterns = DEFAULT_MARKDOWN_FILE_PATTERNS
                 .iter()
@@ -1012,7 +1012,7 @@ impl YamlLintConfig {
 
     /// Backs `--enable`: run exactly `selected`, keeping the options of any already enabled.
     pub fn restrict_rules(&mut self, selected: &[&str]) {
-        self.resolved = self.resolved.clone();
+        self.resolved.reset_rule_facts();
         self.rules
             .retain(|name, _| selected.contains(&name.as_str()));
         self.rule_names
@@ -1033,7 +1033,7 @@ impl YamlLintConfig {
     }
 
     pub fn disable_rules(&mut self, disabled: &[&str]) {
-        self.resolved = self.resolved.clone();
+        self.resolved.reset_rule_facts();
         self.rules
             .retain(|name, _| !disabled.contains(&name.as_str()));
         self.rule_names
@@ -1043,7 +1043,7 @@ impl YamlLintConfig {
     /// # Errors
     /// Returns an error for an invalid exclusion glob.
     pub fn replace_exclude(&mut self, patterns: &[String]) -> Result<(), String> {
-        self.resolved = self.resolved.clone();
+        self.resolved.reset_rule_facts();
         let (matcher, _) = build_ignore_matcher(
             patterns,
             &[],
@@ -1139,7 +1139,7 @@ impl YamlLintConfig {
 
     /// Override `unsafe-fixes`, as `--unsafe-fixes` and `--no-unsafe-fixes` do.
     pub fn set_unsafe_fixes(&mut self, enabled: bool) {
-        self.resolved = self.resolved.clone();
+        self.resolved.reset_rule_facts();
         self.unsafe_fix.unsafe_fixes = Some(enabled);
     }
 

@@ -31,6 +31,13 @@ impl Resolved {
     pub(super) fn has_path_ignores(&self, derive: impl FnOnce() -> bool) -> bool {
         *self.has_path_ignores.get_or_init(derive)
     }
+
+    pub(super) fn reset_rule_facts(&mut self) {
+        *self = Self {
+            schema: self.schema.take(),
+            ..Self::default()
+        };
+    }
 }
 
 impl Default for Resolved {
