@@ -49,7 +49,10 @@ At load time, schemas with expanded weight above 1,000,000 are refused as
 resolved references. Recursion without instance descent or with overlapping recursive
 branches is also refused; distinct literal properties and disjoint object/array
 paths are accepted. Repeated recursive tuple items are conservatively refused.
-The screen prevents reference expansion from exhausting validation resources.
+Dynamic references include all matching anchors as possible targets; this conservative
+screen can refuse schemas whose runtime scopes would select fewer targets. Only
+applicators and references active in the schema draft contribute to the screen.
+More than 1,000,000 possible dynamic-reference edges are refused before expansion.
 
 Projection is bounded to 1,000,000 nodes, 16 MiB of scalar and pointer storage, and
 128 levels. A file reports at most 100 validation diagnostics plus a truncation note.
@@ -61,7 +64,8 @@ does not load lint schemas.
 - Plain scalars resolve under YAML 1.2 core; explicit `%YAML 1.1` uses the existing
   version-aware resolver. Unsupported 1.1 values, including timestamps, are refused.
 - Explicit core tags must match the scalar's type and spelling; invalid tagged
-  values produce `cannot validate` findings.
+  values produce `cannot validate` findings. The non-specific `!` tag resolves
+  sequences and mappings as ordinary collections.
 - Integers in the combined i64/u64 range and finite floats are supported.
 - Aliases expand within the projection budget. Findings blame the alias use site.
 - Merge keys expand before validation; explicit keys override inherited keys, and
@@ -69,8 +73,8 @@ does not load lint schemas.
 - Duplicate decoded keys, non-string or complex keys and custom tags produce
   `cannot validate` findings (exit 1), rather than misleading type errors.
 - Every document in a stream is validated independently; an empty document is null.
-- Unexpected properties blame the key. Missing properties blame the containing
-  mapping's start. Other findings use the instance value's source location.
+- Unexpected properties and invalid property names blame the key. Missing properties
+  blame the containing mapping's start. Other findings use the instance value's source location.
 - `oneOf` and `anyOf` findings select the most relevant branch error using
   [Python jsonschema's `best_match` heuristic](https://github.com/python-jsonschema/jsonschema/blob/main/jsonschema/exceptions.py).
   Equally ranked branches retain the summary. Messages mask instance values.

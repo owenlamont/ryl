@@ -1,7 +1,10 @@
 use std::collections::{HashMap, VecDeque};
 
-use jsonschema::{Registry, Uri};
+use jsonschema::{Draft, Registry, Uri};
 use serde_json::Value;
+
+const ARRAY_DESCENT: u8 = 1;
+const OBJECT_DESCENT: u8 = 2;
 
 const MAX_WEIGHT: u64 = 1_000_000;
 
@@ -9,6 +12,7 @@ const MAX_WEIGHT: u64 = 1_000_000;
 enum Kind {
     Storage,
     Same,
+    Alternative,
     Property,
     Object,
     Array,
@@ -25,7 +29,63 @@ struct Graph {
     locations: Vec<String>,
 }
 
-fn children(value: &Value) -> Vec<(String, &Value, Kind)> {
+#[derive(Default)]
+struct Dynamic {
+    recursive: Vec<usize>,
+    anchors: HashMap<String, Vec<usize>>,
+    references: Vec<(usize, &'static str, String, *const Value)>,
+}
+
+impl Dynamic {
+    fn reference(
+        &mut self,
+        source: usize,
+        keyword: &'static str,
+        fragment: &str,
+        child: &Value,
+    ) -> Kind {
+        let anchor = child.get("$dynamicAnchor").and_then(Value::as_str);
+        if keyword != "$ref"
+            || (anchor.is_some() && !fragment.is_empty() && !fragment.starts_with('/'))
+        {
+            self.references.push((
+                source,
+                keyword,
+                anchor.unwrap_or("").to_owned(),
+                std::ptr::from_ref(child),
+            ));
+        }
+        if keyword == "$ref" {
+            Kind::Same
+        } else {
+            Kind::Alternative
+        }
+    }
+
+    fn candidates(&self, keyword: &str, anchor: &str) -> &[usize] {
+        if keyword == "$recursiveRef" {
+            &self.recursive
+        } else {
+            self.anchors.get(anchor).map_or(&[], Vec::as_slice)
+        }
+    }
+
+    fn record(&mut self, value: &Value, draft: Draft, source: usize) {
+        if value.get("$recursiveAnchor") == Some(&Value::Bool(true)) {
+            self.recursive.push(source);
+        }
+        if draft.is_known_keyword("$dynamicAnchor")
+            && let Some(anchor) = value.get("$dynamicAnchor").and_then(Value::as_str)
+        {
+            self.anchors
+                .entry(anchor.to_owned())
+                .or_default()
+                .push(source);
+        }
+    }
+}
+
+fn children(value: &Value, draft: Draft) -> Vec<(String, &Value, Kind)> {
     let mut children = Vec::new();
     let Some(object) = value.as_object() else {
         return children;
@@ -91,6 +151,11 @@ fn children(value: &Value) -> Vec<(String, &Value, Kind)> {
             _ => {}
         }
     }
+    let active = draft
+        .subresources_of(value)
+        .map(std::ptr::from_ref)
+        .collect::<std::collections::HashSet<_>>();
+    children.retain(|(_, child, _)| active.contains(&std::ptr::from_ref(*child)));
     children
 }
 
@@ -110,34 +175,54 @@ impl Graph {
         indices.insert(std::ptr::from_ref(value), 0);
         graph.edges.push(Vec::new());
         graph.locations.push("#".to_owned());
+        let mut dynamic = Dynamic::default();
         while let Some((value, resolver, draft, location)) = pending.pop() {
             let source = indices[&std::ptr::from_ref(value)];
+            let (root, scope, root_draft) = resolver
+                .lookup("#")
+                .expect("prepared resource root resolves")
+                .into_inner();
+            let next = indices.len();
+            if let std::collections::hash_map::Entry::Vacant(entry) =
+                indices.entry(std::ptr::from_ref(root))
+            {
+                entry.insert(next);
+                graph.edges.push(Vec::new());
+                let root_location = resolver.base_uri().to_string();
+                graph.locations.push(root_location.clone());
+                pending.push((root, scope, root_draft, root_location));
+            }
+            dynamic.record(value, draft, source);
             let mut targets = Vec::new();
-            for (suffix, child, kind) in children(value) {
+            for (suffix, child, kind) in children(value, draft) {
+                let draft = draft.detect(child);
                 let scope = resolver
                     .in_subresource(draft.create_resource_ref(child))
-                    .map_err(|e| e.to_string())?;
-                targets.push((
-                    child,
-                    scope,
-                    draft,
-                    format!("{location}{suffix}"),
-                    kind,
-                ));
+                    .expect("prepared subschema identifier resolves");
+                let child_location = format!("{location}{suffix}");
+                targets.push((child, scope, draft, child_location, kind));
             }
             for keyword in ["$ref", "$dynamicRef", "$recursiveRef"] {
-                if let Some(reference) = value.get(keyword).and_then(Value::as_str) {
-                    let target_resource =
-                        resolver.lookup(reference).map_err(|e| e.to_string())?;
-                    let (child, scope, draft) = target_resource.into_inner();
-                    targets.push((
-                        child,
-                        scope,
-                        draft,
-                        reference.to_owned(),
-                        Kind::Same,
-                    ));
+                if !draft.is_known_keyword(keyword)
+                    || (keyword == "$recursiveRef" && draft != Draft::Draft201909)
+                {
+                    continue;
                 }
+                let Some(reference) = value.get(keyword).and_then(Value::as_str) else {
+                    continue;
+                };
+                let (resource, fragment) =
+                    reference.rsplit_once('#').unwrap_or((reference, ""));
+                let base = registry
+                    .resolve_uri(&resolver.base_uri().borrow(), resource)
+                    .map_err(|e| e.to_string())?;
+                let target_resource = registry
+                    .resolver(base.as_ref().clone())
+                    .lookup(&format!("#{fragment}"))
+                    .map_err(|e| e.to_string())?;
+                let (child, scope, draft) = target_resource.into_inner();
+                let kind = dynamic.reference(source, keyword, fragment, child);
+                targets.push((child, scope, draft, reference.to_owned(), kind));
             }
             for (child, scope, draft, location, kind) in targets {
                 let next = indices.len();
@@ -151,7 +236,39 @@ impl Graph {
                 graph.edges[source].push(Edge { target, kind });
             }
         }
+        graph.connect_dynamic(&dynamic, &indices)?;
         Ok(graph)
+    }
+
+    fn connect_dynamic(
+        &mut self,
+        dynamic: &Dynamic,
+        indices: &HashMap<*const Value, usize>,
+    ) -> Result<(), String> {
+        let edges = dynamic.references.iter().fold(
+            0_usize,
+            |total, (_, keyword, anchor, _)| {
+                total.saturating_add(dynamic.candidates(keyword, anchor).len())
+            },
+        );
+        if edges > usize::try_from(MAX_WEIGHT).expect("weight limit fits usize") {
+            return Err(format!(
+                "schema too complex: dynamic reference edges exceed {MAX_WEIGHT}"
+            ));
+        }
+        for (source, keyword, anchor, static_target) in &dynamic.references {
+            let kind = if *keyword == "$ref" {
+                Kind::Same
+            } else {
+                Kind::Alternative
+            };
+            for &target in dynamic.candidates(keyword, anchor) {
+                if target != indices[static_target] {
+                    self.edges[*source].push(Edge { target, kind });
+                }
+            }
+        }
+        Ok(())
     }
 
     fn weight(&self) -> u64 {
@@ -221,8 +338,8 @@ impl Graph {
         let mut seen = std::collections::HashSet::new();
         while let Some(edge) = pending.pop() {
             match edge.kind {
-                Kind::Array => kinds |= 1,
-                Kind::Object | Kind::Property => kinds |= 2,
+                Kind::Array => kinds |= ARRAY_DESCENT,
+                Kind::Object | Kind::Property => kinds |= OBJECT_DESCENT,
                 _ if seen.insert(edge.target) => {
                     let children = self.internal(edge.target, components);
                     pending.extend(children);
@@ -245,17 +362,27 @@ impl Graph {
 
     fn overlaps(&self, node: usize, components: &[usize]) -> bool {
         let mut properties = false;
-        let mut kinds = 0;
-        for edge in self.internal(node, components) {
+        let edges = self.internal(node, components);
+        // A dynamic reference selects one target, so its possible descents form a union.
+        let mut kinds = edges
+            .iter()
+            .filter(|edge| edge.kind == Kind::Alternative)
+            .fold(0, |kinds, edge| {
+                kinds | self.first_descent(edge, components)
+            });
+        for edge in edges
+            .into_iter()
+            .filter(|edge| edge.kind != Kind::Alternative)
+        {
             if edge.kind == Kind::Property {
-                if kinds & 2 != 0 {
+                if kinds & OBJECT_DESCENT != 0 {
                     return true;
                 }
                 properties = true;
                 continue;
             }
             let descent = self.first_descent(edge, components);
-            if descent & kinds != 0 || (descent & 2 != 0 && properties) {
+            if descent & kinds != 0 || (descent & OBJECT_DESCENT != 0 && properties) {
                 return true;
             }
             kinds |= descent;
@@ -267,7 +394,10 @@ impl Graph {
         let components = self.components();
         let mut incoming = vec![0; self.edges.len()];
         for edges in &self.edges {
-            for edge in edges.iter().filter(|e| e.kind == Kind::Same) {
+            for edge in edges
+                .iter()
+                .filter(|e| matches!(e.kind, Kind::Same | Kind::Alternative))
+            {
                 incoming[edge.target] += 1;
             }
         }
@@ -277,7 +407,10 @@ impl Graph {
             .filter_map(|(n, &count)| (count == 0).then_some(n))
             .collect::<VecDeque<_>>();
         while let Some(node) = ready.pop_front() {
-            for edge in self.edges[node].iter().filter(|e| e.kind == Kind::Same) {
+            for edge in self.edges[node]
+                .iter()
+                .filter(|e| matches!(e.kind, Kind::Same | Kind::Alternative))
+            {
                 incoming[edge.target] -= 1;
                 if incoming[edge.target] == 0 {
                     ready.push_back(edge.target);

@@ -150,14 +150,26 @@ fn projection_oracle_and_span_checks_have_deterministic_witnesses() {
     check_versioned_projection(true, 42, "float");
 }
 
-fn check_recursive_branches(names: Vec<String>) {
+fn check_recursive_branches(names: Vec<String>, mode: u8) {
+    let (reference, metadata) = match mode {
+        0 => (json!({"$ref":"#"}), json!({})),
+        1 => (
+            json!({"$recursiveRef":"#"}),
+            json!({"$schema":"https://json-schema.org/draft/2019-09/schema", "$recursiveAnchor":true}),
+        ),
+        _ => (
+            json!({"$dynamicRef":"#node"}),
+            json!({"$dynamicAnchor":"node"}),
+        ),
+    };
     let dir = tempfile::tempdir().unwrap();
     let properties = names
         .into_iter()
-        .map(|name| (name, json!({"$ref":"#"})))
+        .map(|name| (name, reference.clone()))
         .collect::<serde_json::Map<_, _>>();
-    let ctx =
-        crate::cli_schema_rule::config(dir.path(), &json!({"properties":properties}));
+    let mut schema = metadata;
+    schema["properties"] = json!(properties);
+    let ctx = crate::cli_schema_rule::config(dir.path(), &schema);
     assert!(
         ryl::rules::schema::check("{}\n", &ctx.config, Path::new("in.yaml")).is_empty()
     );
@@ -171,12 +183,52 @@ proptest! {
     })]
 
     #[test]
-    fn distinct_recursive_properties_are_accepted(names in prop::collection::vec("[a-z/~]{1,8}", 1..8)) {
-        check_recursive_branches(names);
+    fn distinct_recursive_properties_are_accepted(names in prop::collection::vec("[a-z/~]{1,8}", 1..8), mode in 0_u8..3) {
+        check_recursive_branches(names, mode);
     }
 }
 
 #[test]
 fn escaped_recursive_properties_have_a_deterministic_witness() {
-    check_recursive_branches(vec!["a/b".to_owned(), "~".to_owned()]);
+    for mode in 0..3 {
+        check_recursive_branches(vec!["a/b".to_owned(), "~".to_owned()], mode);
+    }
+}
+
+fn check_collection_tags_and_property_names(value: u16, key: &str) {
+    let quoted_key = serde_json::to_string(key).unwrap();
+    for (schema, yaml) in [
+        (json!({"const":[value]}), format!("! [{value}]\n")),
+        (
+            json!({"const":{key:value}}),
+            format!("! {{{quoted_key}: {value}}}\n"),
+        ),
+    ] {
+        assert!(crate::cli_schema_rule::findings(&schema, &yaml).is_empty());
+    }
+    let yaml = format!("good: 0\n{quoted_key}: {value}\n");
+    let hits = crate::cli_schema_rule::findings(
+        &json!({"propertyNames":{"const":"good"}}),
+        &yaml,
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].line, hits[0].column), (2, 1));
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 64,
+        failure_persistence: crate::property::failure_persistence!("property_schema"),
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn collection_tags_and_property_name_locations(value in any::<u16>(), key in "[A-Z/~]{1,8}") {
+        check_collection_tags_and_property_names(value, &key);
+    }
+}
+
+#[test]
+fn collection_tags_and_property_name_locations_have_a_deterministic_witness() {
+    check_collection_tags_and_property_names(42, "A/~B");
 }

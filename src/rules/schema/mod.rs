@@ -119,6 +119,16 @@ pub(crate) fn check_with_analysis(
                             .get(&projection::child_pointer(&pointer, key))
                     })
                     .copied(),
+                ValidationErrorKind::PropertyNames { error } => projected
+                    .keys
+                    .get(&projection::child_pointer(
+                        &pointer,
+                        error
+                            .instance()
+                            .as_str()
+                            .expect("property name is a string"),
+                    ))
+                    .copied(),
                 _ => None,
             }
             .unwrap_or_else(|| projected.span(&pointer));

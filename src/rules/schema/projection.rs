@@ -227,6 +227,7 @@ impl Builder<'_> {
                 anchor = id;
                 let expected = if mapping { "map" } else { "seq" };
                 if let Some(tag) = tag
+                    && tag.suffix() != "!"
                     && core_schema_suffix(&tag).as_deref() != Some(expected)
                 {
                     return Err(refuse(&format!("tag {}", tag.original()), span));

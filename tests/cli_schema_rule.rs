@@ -1188,8 +1188,8 @@ fn schema_screen_reports_unresolved_and_malformed_subschemas() {
     config(dir.path(), &json!(true));
     for schema in [
         json!({"$ref":"#/missing"}),
+        json!({"$dynamicRef":"http://[invalid"}),
         json!({"items":5}),
-        json!({"$schema":"http://json-schema.org/draft-07/schema#","contentSchema":{"$id":"http://[invalid"}}),
     ] {
         fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
         failure(dir.path(), "schema 'schema.json':");
@@ -1211,4 +1211,175 @@ fn recursive_properties_overlap_other_object_applicators_and_converging_paths() 
             "schema too complex: overlapping recursive branches",
         );
     }
+}
+
+#[test]
+fn nonspecific_collection_tags_project_as_ordinary_collections() {
+    for (schema, yaml) in [
+        (json!({"const":[1,2]}), "! [1, 2]\n"),
+        (json!({"const":{"a":1}}), "! {a: 1}\n"),
+    ] {
+        assert!(findings(&schema, yaml).is_empty());
+    }
+}
+
+#[test]
+fn property_names_blame_the_offending_nested_escaped_key() {
+    for (schema, yaml, line, column) in [
+        (
+            json!({"propertyNames":{"pattern":"^[a-z]+$"}}),
+            "good: 1\nBAD: 2\n",
+            2,
+            1,
+        ),
+        (
+            json!({"properties":{"nested":{"propertyNames":{"pattern":"^[a-z]+$"}}}}),
+            "nested:\n  good: 1\n  a/~BAD: 2\n",
+            3,
+            3,
+        ),
+    ] {
+        let hits = findings(&schema, yaml);
+        assert_eq!(hits.len(), 1);
+        assert_eq!((hits[0].line, hits[0].column), (line, column));
+    }
+}
+
+#[test]
+fn dynamic_scope_recursion_is_screened_across_resources() {
+    for (draft, anchor, reference) in [
+        ("2019-09", "$recursiveAnchor", json!({"$recursiveRef":"#"})),
+        ("2020-12", "$dynamicAnchor", json!({"$dynamicRef":"#node"})),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        config(dir.path(), &json!(true));
+        let anchor_value = if draft == "2019-09" {
+            json!(true)
+        } else {
+            json!("node")
+        };
+        let mut outer = json!({"$schema":format!("https://json-schema.org/draft/{draft}/schema"),"allOf":[{"$ref":"inner.json"},{"$ref":"inner.json"}]});
+        outer[anchor] = anchor_value.clone();
+        let mut inner = json!({"$schema":format!("https://json-schema.org/draft/{draft}/schema"),"properties":{"x":reference},"required":["absent"]});
+        inner[anchor] = anchor_value;
+        fs::write(dir.path().join("schema.json"), outer.to_string()).unwrap();
+        fs::write(dir.path().join("inner.json"), inner.to_string()).unwrap();
+        failure(
+            dir.path(),
+            "schema too complex: overlapping recursive branches",
+        );
+        outer["allOf"].as_array_mut().unwrap().pop();
+        fs::write(dir.path().join("schema.json"), outer.to_string()).unwrap();
+        let ctx = discover_config(
+            &[],
+            &Overrides {
+                config_file: Some(dir.path().join(".ryl.toml")),
+                config_data: None,
+            },
+        );
+        assert!(ctx.is_ok(), "{ctx:?}");
+    }
+}
+
+#[test]
+fn inactive_draft_references_and_applicators_are_ignored() {
+    for schema in [
+        json!({"$schema":"http://json-schema.org/draft-07/schema#","$dynamicRef":"#missing","$recursiveRef":"#missing","prefixItems":[{"$ref":"#missing"}],"dependentSchemas":{"a":{"$ref":"#missing"}},"unevaluatedProperties":{"$ref":"#missing"},"contentSchema":{"$id":"http://[invalid"},"type":"object"}),
+        json!({"$schema":"https://json-schema.org/draft/2020-12/schema","$recursiveRef":"#missing","type":"object"}),
+    ] {
+        assert!(findings(&schema, "{}\n").is_empty());
+    }
+}
+
+#[test]
+fn dynamic_reference_alternatives_overlap_active_siblings() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    fs::write(
+        dir.path().join("schema.json"),
+        json!({
+            "$dynamicAnchor":"node", "properties":{"x":{
+                "$dynamicRef":"#node", "properties":{"x":{"$ref":"#"}}
+            }}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    failure(
+        dir.path(),
+        "schema too complex: overlapping recursive branches",
+    );
+}
+
+#[test]
+fn dynamic_scope_includes_roots_entered_through_fragments() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    for (name, schema) in [
+        (
+            "schema.json",
+            json!({"$ref":"inner.json#/$defs/entry", "$defs":{"base":{"$ref":"base.json"}}}),
+        ),
+        (
+            "inner.json",
+            json!({"$dynamicAnchor":"node", "allOf":[{"$ref":"#/$defs/entry"},{"$ref":"#/$defs/entry"}], "$defs":{"entry":{"properties":{"x":{"$dynamicRef":"base.json#node"}}}}}),
+        ),
+        (
+            "base.json",
+            json!({"$dynamicAnchor":"node", "required":["absent"]}),
+        ),
+    ] {
+        fs::write(dir.path().join(name), schema.to_string()).unwrap();
+    }
+    failure(
+        dir.path(),
+        "schema too complex: overlapping recursive branches",
+    );
+}
+
+#[test]
+fn static_dynamic_anchor_targets_are_screened_before_scope_rebinding() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    for (name, schema) in [
+        (
+            "schema.json",
+            json!({"$dynamicAnchor":"node", "$defs":{"base":{"$ref":"base.json#node"}}, "properties":{"x":{"$dynamicRef":"base.json#node"}}}),
+        ),
+        (
+            "base.json",
+            json!({"$dynamicAnchor":"node", "allOf":[{"properties":{"x":{"$dynamicRef":"#node"}}},{"properties":{"x":{"$dynamicRef":"#node"}}}]}),
+        ),
+    ] {
+        fs::write(dir.path().join(name), schema.to_string()).unwrap();
+    }
+    failure(
+        dir.path(),
+        "schema too complex: overlapping recursive branches",
+    );
+}
+
+#[test]
+fn dynamic_candidate_edges_are_bounded_before_expansion() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    let definitions = (0..1000)
+        .map(|index| {
+            (
+                format!("n{index}"),
+                json!({"$id":format!("n{index}"),"$dynamicAnchor":"node"}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    let references = vec![json!({"$dynamicRef":"#node"}); 1000];
+    fs::write(
+        dir.path().join("schema.json"),
+        json!({"$dynamicAnchor":"node","$defs":definitions,"allOf":references})
+            .to_string(),
+    )
+    .unwrap();
+    failure(
+        dir.path(),
+        "schema too complex: dynamic reference edges exceed 1000000",
+    );
 }
