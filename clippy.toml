@@ -1,13 +1,11 @@
-# lsp-types pins bitflags 1.x and pulldown-cmark uses 2.x; no published lsp-types avoids
-# 1.x, so this duplicate is unavoidable under the `lsp` feature. synstructure 0.13 pins
-# syn 2.x and reaches the graph only through the `jsonschema` dev-dependency
-# (jsonschema -> reqwest -> url -> idna -> icu_* -> zerovec -> yoke-derive), while the
-# build graph is on syn 3.x. Whitelisting only these keeps multiple_crate_versions
-# active for every other dependency.
+# lsp-types pins bitflags 1.x and fluent-uri 0.1, jsonschema's fraction pins num-bigint
+# 0.4, and synstructure pins syn 2 while other dependencies use newer versions.
 allowed-duplicate-crates = [
     "bitflags",
     # postcard's optional embedded-io 0.4 and 0.6 dependencies are never enabled.
     "embedded-io",
+    "fluent-uri",
+    "num-bigint",
     "syn",
     # postcard's cobs is on thiserror 2.x and dirs-next reaches 1.x only on Redox.
     "thiserror",

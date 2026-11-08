@@ -851,6 +851,20 @@
       ],
       "description": "Common rule entry shape used by TOML config."
     },
+    "RuleEntryForSchemaOptions": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/RuleSwitch"
+        },
+        {
+          "$ref": "#/$defs/RuleOptionsForSchemaOptions"
+        }
+      ],
+      "description": "Common rule entry shape used by TOML config."
+    },
     "RuleEntryForTagsOptions": {
       "anyOf": [
         {
@@ -1734,6 +1748,52 @@
       },
       "type": "object"
     },
+    "RuleOptionsForSchemaOptions": {
+      "additionalProperties": false,
+      "description": "Common rule fields plus rule-specific options.",
+      "properties": {
+        "ignore": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore-from-file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StringOrVec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schemas": {
+          "items": {
+            "$ref": "#/$defs/SchemaAssociation"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "RuleOptionsForTagsOptions": {
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
@@ -2262,6 +2322,7 @@
         "quoted-strings",
         "schema-dependent-values",
         "tags",
+        "schema",
         "trailing-spaces",
         "truthy",
         "unicode-line-breaks",
@@ -2520,6 +2581,16 @@
             }
           ]
         },
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleEntryForSchemaOptions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "schema-dependent-values": {
           "anyOf": [
             {
@@ -2581,6 +2652,25 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "SchemaAssociation": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
       "type": "object"
     },
     "SourceVersion": {

@@ -9,8 +9,8 @@ use crate::rules::{
     comments_indentation, document_end, document_start, empty_lines, empty_values,
     float_values, hyphens, indentation, key_duplicates, key_ordering, line_length,
     merge_keys, new_line_at_end_of_file, new_lines, octal_values, quoted_strings,
-    schema_dependent_values, tags, trailing_spaces, truthy, unicode_line_breaks,
-    yaml_directive,
+    schema, schema_dependent_values, tags, trailing_spaces, truthy,
+    unicode_line_breaks, yaml_directive,
 };
 use crate::text_version::{Analysis, ParsedFacts, TextVersion};
 
@@ -100,6 +100,11 @@ macro_rules! emit_problems {
 }
 
 macro_rules! lint_rule {
+    ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, schema) => {
+        lint_rule!(@gated $d, $cfg, $path, $base, $m,
+            $m::check_with_analysis($input, $cfg, $path),
+            |hit: $m::Violation| hit.message);
+    };
     ($d:ident, $cfg:expr, $input:expr, $path:expr, $base:expr, $m:ident, analysis, value) => {
         lint_rule!(@gated $d, $cfg, $path, $base, $m,
             $m::check_with_analysis($input, *$cfg.resolved($m::ID, $m::Config::resolve)),
@@ -209,6 +214,7 @@ fn collect_value_diagnostics(
         input => comments, analysis;
         input => anchors, analysis, value;
         input => tags, analysis;
+        input => schema, analysis, schema;
         input => octal_values, analysis, unsafe_fix;
         input => float_values, analysis;
         input => empty_values, analysis, value;

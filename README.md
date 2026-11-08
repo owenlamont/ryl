@@ -88,7 +88,7 @@ In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-a
 - [Protect formatting](docs/directives.md#formatter-only-suppression) with own-line
   `# ryl format-ignore` for the next node, or `format-disable` / `format-enable`
   for a region. Lint checks and `ryl check --fix` remain active.
-- ryl includes 29 rules, including `tags`, `merge-keys`,
+- ryl includes 30 rules, including `schema`, `tags`, `merge-keys`,
   `block-scalar-chomping`, `unicode-line-breaks`, `yaml-directive` and
   `schema-dependent-values`. The rule reference
   and per-rule pages are at <https://ryl-docs.pages.dev/rules/>.

@@ -103,6 +103,17 @@ fn key_orders_config() -> &'static YamlLintConfig {
     &CONFIG.1
 }
 
+fn schema_config() -> &'static YamlLintConfig {
+    static CONFIG: LazyLock<(tempfile::TempDir, YamlLintConfig)> =
+        LazyLock::new(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let ctx =
+                crate::cli_schema_rule::config(dir.path(), &serde_json::json!(false));
+            (dir, ctx.config)
+        });
+    &CONFIG.1
+}
+
 #[must_use]
 pub fn tags_config() -> &'static YamlLintConfig {
     static CONFIG: LazyLock<YamlLintConfig> = LazyLock::new(|| {
@@ -270,6 +281,14 @@ pub fn collect_spans(content: &str, cfg: &YamlLintConfig) -> Vec<Span> {
     collect_standard!(spans, cfg, content, ryl::rules::quoted_strings);
     collect_standard!(spans, cfg, content, ryl::rules::schema_dependent_values);
     collect_standard!(spans, tags_config(), content, ryl::rules::tags);
+    for hit in ryl::rules::schema::check(content, schema_config(), Path::new("in.yaml"))
+    {
+        spans.push(Span {
+            rule: "schema",
+            line: hit.line,
+            column: hit.column,
+        });
+    }
     collect_standard!(spans, cfg, content, ryl::rules::truthy);
 
     if let Some(violation) = new_line_at_end_of_file::check(content) {

@@ -161,6 +161,10 @@ forbid-unsafe-tags = true
 forbid-removed-types = true
 allowed-tags = ["!env", "!include"]
 
+[lint.rules.schema]
+level = "warning"
+schemas = []
+
 [lint.rules.trailing-spaces]
 level = "warning"
 

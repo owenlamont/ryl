@@ -245,7 +245,7 @@ output. The complete list:
 
 ### Rules with no yamllint equivalent
 
-`block-scalar-chomping`, `merge-keys`, `schema-dependent-values`, `tags`,
+`block-scalar-chomping`, `merge-keys`, `schema`, `schema-dependent-values`, `tags`,
 `unicode-line-breaks` and `yaml-directive` are ryl's own rules. They are configurable only in TOML; a YAML config that names one is rejected.
 
 ### No implicit default configuration
@@ -860,3 +860,10 @@ changes to run alongside it.
 When `.yamllint` and `.ryl.toml` are in the same directory, ryl uses TOML and
 ignores `.yamllint`. `--migrate-configs` skips `.yamllint` when a `.ryl.toml`
 already exists.
+
+## Migrating local check-jsonschema checks
+
+Use the TOML-only [`schema`](../rules/schema.md) rule to associate local JSON Schemas
+with file globs. The first matching association wins. Download schemas and their
+references into the config directory first: URL fetching, catalogs and in-file
+schema declarations are not supported. Normal ryl directives suppress findings.

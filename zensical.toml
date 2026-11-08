@@ -25,6 +25,7 @@ nav = [
     { "Migrating from Prettier" = "getting-started/migrating-from-prettier.md" },
   ]},
   { "Rules" = "rules.md" },
+  { "JSON Schema validation" = "rules/schema.md" },
   { "Formatter" = "formatter.md" },
   { "Configuration" = [
     { "Presets" = "config-presets.md" },

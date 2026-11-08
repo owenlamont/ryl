@@ -1,0 +1,284 @@
+{
+  "$id": "pre-commit-config.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "hook_definition": {
+      "properties": {
+        "additional_dependencies": {
+          "description": "A list of additional_dependencies of the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "alias": {
+          "description": "An additional identifier of the current hook for `pre-commit run <hookid>`\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "type": "string"
+        },
+        "always_run": {
+          "description": "Run the current hook when no files matched\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "type": "boolean"
+        },
+        "args": {
+          "description": "List of additional parameters to pass to the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "entry": {
+          "description": "A command of the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "type": "string"
+        },
+        "exclude": {
+          "description": "A pattern to exclude files from `files` to run on of the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "type": "string"
+        },
+        "exclude_types": {
+          "$ref": "pre-commit-hooks.json#/definitions/file_types",
+          "description": "A list of file types to exclude of the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks"
+        },
+        "files": {
+          "description": "A pattern to include files to run on of the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "type": "string"
+        },
+        "id": {
+          "description": "An identifier of the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "type": "string"
+        },
+        "language": {
+          "$ref": "pre-commit-hooks.json#/definitions/language",
+          "description": "A language the current hook is written in\nhttps://pre-commit.com/#pre-commit-configyaml---hooks"
+        },
+        "language_version": {
+          "description": "A language version of the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "type": "string"
+        },
+        "log_file": {
+          "description": "A log file of the current hook",
+          "type": "string"
+        },
+        "name": {
+          "description": "A name of the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "type": "string"
+        },
+        "pass_filenames": {
+          "default": true,
+          "description": "Whether to pass filenames to the current hook or not\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "type": "boolean"
+        },
+        "stages": {
+          "$ref": "pre-commit-hooks.json#/definitions/stages",
+          "description": "A stage of the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks"
+        },
+        "types": {
+          "$ref": "pre-commit-hooks.json#/definitions/file_types",
+          "description": "A list of file types to run on combined via logical `and` of the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks"
+        },
+        "types_or": {
+          "$ref": "pre-commit-hooks.json#/definitions/file_types",
+          "description": "A list of file types to run on combined via logical `or` of the current hook\nhttps://pre-commit.com/#pre-commit-configyaml---hooks"
+        },
+        "verbose": {
+          "description": "Display an output of the current hook even it passes\nhttps://pre-commit.com/#pre-commit-configyaml---hooks",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "local_repo": {
+      "properties": {
+        "hooks": {
+          "items": {
+            "$ref": "#/definitions/hook_definition",
+            "properties": {
+              "entry": {},
+              "id": {},
+              "language": {},
+              "name": {}
+            },
+            "required": [
+              "id",
+              "name",
+              "entry",
+              "language"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "repo": {
+          "default": "local",
+          "description": "A list of local hooks\nhttps://pre-commit.com/#2-add-a-pre-commit-configuration",
+          "enum": [
+            "local"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "meta_repo": {
+      "properties": {
+        "hooks": {
+          "items": {
+            "properties": {
+              "id": {
+                "enum": [
+                  "check-hooks-apply",
+                  "check-useless-excludes",
+                  "identity"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "repo": {
+          "default": "meta",
+          "enum": [
+            "meta"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "uri_repo": {
+      "properties": {
+        "hooks": {
+          "description": "A list of hook mappings\nhttps://pre-commit.com/#pre-commit-configyaml---hooks.",
+          "items": {
+            "$ref": "#/definitions/hook_definition",
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "repo": {
+          "description": "A repository url\nhttps://pre-commit.com/#2-add-a-pre-commit-configuration",
+          "pattern": "^(?!(?:meta|local)$).*$",
+          "type": "string"
+        },
+        "rev": {
+          "description": "A revision or tag to clone at\nhttps://pre-commit.com/#2-add-a-pre-commit-configuration",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "properties": {
+    "ci": {
+      "description": "pre-commit.ci specific settings\nhttps://pre-commit.ci/#configuration",
+      "properties": {
+        "autofix_commit_msg": {
+          "default": "[pre-commit.ci] auto fixes from pre-commit.com hooks\n\nfor more information, see https://pre-commit.ci",
+          "description": "A commit message for pull request autofixes\nhttps://pre-commit.ci/#configuration",
+          "type": "string"
+        },
+        "autofix_prs": {
+          "default": true,
+          "description": "Whether to autofix pull requests\nhttps://pre-commit.ci/#configuration",
+          "type": "boolean"
+        },
+        "autoupdate_branch": {
+          "default": "",
+          "description": "A branch to send pull request's autoupdate to\nhttps://pre-commit.ci/#configuration",
+          "type": "string"
+        },
+        "autoupdate_commit_msg": {
+          "default": "[pre-commit.ci] pre-commit autoupdate",
+          "description": "A commit message for autoupdate pull requests\nhttps://pre-commit.ci/#configuration",
+          "type": "string"
+        },
+        "autoupdate_schedule": {
+          "default": "weekly",
+          "description": "An autoupdate frequency\nhttps://pre-commit.ci/#configuration",
+          "enum": [
+            "weekly",
+            "monthly",
+            "quarterly"
+          ],
+          "type": "string"
+        },
+        "skip": {
+          "description": "List of skipped hook's ids\nhttps://pre-commit.ci/#configuration",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "submodules": {
+          "default": false,
+          "description": "Whether to recursively check out submodules\nhttps://pre-commit.ci/#configuration",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "default_install_hook_types": {
+      "default": [
+        "pre-commit"
+      ],
+      "description": "A list of hook types which will be used by default when running `pre-commit install`\nhttps://pre-commit.com/#pre-commit-configyaml---top-level",
+      "type": "array"
+    },
+    "default_language_version": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Mappings for the default language versions of the current project\nhttps://pre-commit.com/#pre-commit-configyaml---top-level",
+      "type": "object"
+    },
+    "default_stages": {
+      "$ref": "pre-commit-hooks.json#/definitions/stages",
+      "description": "The default stages of the current project\nhttps://pre-commit.com/#pre-commit-configyaml---top-level"
+    },
+    "exclude": {
+      "default": "^$",
+      "description": "A file exclude pattern of the current project\nhttps://pre-commit.com/#pre-commit-configyaml---top-level",
+      "type": "string"
+    },
+    "fail_fast": {
+      "default": false,
+      "description": "Whether stop running hooks after a first failure\nhttps://pre-commit.com/#pre-commit-configyaml---top-level",
+      "type": "boolean"
+    },
+    "files": {
+      "default": "",
+      "description": "A file include pattern of the current project\nhttps://pre-commit.com/#pre-commit-configyaml---top-level",
+      "type": "string"
+    },
+    "minimum_pre_commit_version": {
+      "default": "0",
+      "description": "A minimum version of pre-commit\nhttps://pre-commit.com/#pre-commit-configyaml---top-level",
+      "type": "string"
+    },
+    "repos": {
+      "description": "Repository mappings of the current project\nhttps://pre-commit.com/#pre-commit-configyaml---top-level",
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/meta_repo"
+          },
+          {
+            "$ref": "#/definitions/local_repo"
+          },
+          {
+            "$ref": "#/definitions/uri_repo"
+          }
+        ]
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "repos"
+  ],
+  "title": "JSON schema for .pre-commit-config.yaml",
+  "type": "object"
+}

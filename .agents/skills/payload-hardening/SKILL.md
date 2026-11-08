@@ -54,3 +54,16 @@ interrupted writes, cross-file non-atomicity). Converge on real bugs, document t
 as known limitations, and ship; do not re-introduce atomic temp+rename via a runtime
 `tempfile` dep (tried on #285, reverted: 0600-perms regression + `clippy::cargo
 multiple_crate_versions`).
+
+## Local JSON Schema validation
+
+`rules::schema` prepares validators during config finalization, before cache lookup.
+Root and referenced files use the same canonical-path confinement and bounded reader:
+16 MiB total, 1,024 resources, no remote retrieval or UNC paths. Distinct URI aliases
+count separately toward both limits. Regex uses the
+bounded fancy-regex engine. Projection charges source nodes, alias and merge expansion,
+scalar bytes and pointer storage before growing unbounded state. Limits are 1,000,000 nodes,
+16 MiB and depth 128; output caps at 100 findings plus a truncation note.
+Schema content digests live in resolved-config Debug only when associations exist;
+keep the schema-free Debug unchanged. `cli_schema_rule` guards the boundaries and cache
+invalidation after an unmatched file; `property_schema` exercises projection and spans.

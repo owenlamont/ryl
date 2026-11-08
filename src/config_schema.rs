@@ -853,6 +853,8 @@ pub enum RuleSelector {
     SchemaDependentValues,
     #[serde(rename = "tags")]
     Tags,
+    #[serde(rename = "schema")]
+    Schema,
     #[serde(rename = "trailing-spaces")]
     TrailingSpaces,
     #[serde(rename = "truthy")]
@@ -893,6 +895,7 @@ impl RuleSelector {
             Self::QuotedStrings => "quoted-strings",
             Self::SchemaDependentValues => "schema-dependent-values",
             Self::Tags => "tags",
+            Self::Schema => "schema",
             Self::TrailingSpaces => "trailing-spaces",
             Self::Truthy => "truthy",
             Self::UnicodeLineBreaks => "unicode-line-breaks",
@@ -968,6 +971,7 @@ pub struct RulesTable<
     #[serde(rename = "schema-dependent-values")]
     pub schema_dependent_values: Option<RuleEntry<SchemaDependentValuesOptions>>,
     pub tags: Option<RuleEntry<TagsOptions>>,
+    pub schema: Option<RuleEntry<SchemaOptions>>,
     #[serde(rename = "trailing-spaces")]
     pub trailing_spaces: Option<RuleEntry<NoOptions>>,
     pub truthy: Option<RuleEntry<TruthyOptions>>,
@@ -1254,6 +1258,20 @@ pub struct TagsOptions {
     pub forbid_removed_types: Option<bool>,
     #[serde(rename = "allowed-tags")]
     pub allowed_tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SchemaOptions {
+    pub schemas: Option<Vec<SchemaAssociation>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SchemaAssociation {
+    pub path: String,
+    #[serde(default)]
+    pub files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]

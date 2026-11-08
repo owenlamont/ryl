@@ -1,0 +1,2689 @@
+{
+  "$defs": {
+    "blkio_limit": {
+      "additionalProperties": false,
+      "description": "Block IO limit for a specific device.",
+      "properties": {
+        "path": {
+          "description": "Path to the device (e.g., '/dev/sda').",
+          "type": "string"
+        },
+        "rate": {
+          "description": "Rate limit in bytes per second or IO operations per second.",
+          "type": [
+            "integer",
+            "string"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "blkio_weight": {
+      "additionalProperties": false,
+      "description": "Block IO weight for a specific device.",
+      "properties": {
+        "path": {
+          "description": "Path to the device (e.g., '/dev/sda').",
+          "type": "string"
+        },
+        "weight": {
+          "description": "Relative weight for the device, between 10 and 1000.",
+          "type": [
+            "integer",
+            "string"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "command": {
+      "description": "Command to run in the container, which can be specified as a string (shell form) or array (exec form).",
+      "oneOf": [
+        {
+          "description": "No command specified, use the container's default command.",
+          "type": "null"
+        },
+        {
+          "description": "Command as a string, which will be executed in a shell (e.g., '/bin/sh -c').",
+          "type": "string"
+        },
+        {
+          "description": "Command as an array of strings, which will be executed directly without a shell.",
+          "items": {
+            "description": "Part of the command (executable or argument).",
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "config": {
+      "additionalProperties": false,
+      "description": "Config configuration for the Compose application.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "content": {
+          "description": "Inline content of the config.",
+          "type": "string"
+        },
+        "environment": {
+          "description": "Name of an environment variable from which to get the config value.",
+          "type": "string"
+        },
+        "external": {
+          "description": "Specifies that this config already exists and was created outside of Compose.",
+          "properties": {
+            "name": {
+              "deprecated": true,
+              "description": "Specifies the name of the external config. Deprecated: use the 'name' property instead.",
+              "type": "string"
+            }
+          },
+          "type": [
+            "boolean",
+            "string",
+            "object"
+          ]
+        },
+        "file": {
+          "description": "Path to a file containing the config value.",
+          "type": "string"
+        },
+        "labels": {
+          "$ref": "#/$defs/list_or_dict",
+          "description": "Add metadata to the config using labels."
+        },
+        "name": {
+          "description": "Custom name for this config.",
+          "type": "string"
+        },
+        "template_driver": {
+          "description": "Driver to use for templating the config's value.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "container_spec": {
+      "description": "Attributes of a container specification shared by anything that runs a container: services, jobs, and run-to-completion init containers (pre_start hooks).",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "annotations": {
+          "$ref": "#/$defs/list_or_dict"
+        },
+        "blkio_config": {
+          "additionalProperties": false,
+          "description": "Block IO configuration for the service.",
+          "properties": {
+            "device_read_bps": {
+              "description": "Limit read rate (bytes per second) from a device.",
+              "items": {
+                "$ref": "#/$defs/blkio_limit"
+              },
+              "type": "array"
+            },
+            "device_read_iops": {
+              "description": "Limit read rate (IO per second) from a device.",
+              "items": {
+                "$ref": "#/$defs/blkio_limit"
+              },
+              "type": "array"
+            },
+            "device_write_bps": {
+              "description": "Limit write rate (bytes per second) to a device.",
+              "items": {
+                "$ref": "#/$defs/blkio_limit"
+              },
+              "type": "array"
+            },
+            "device_write_iops": {
+              "description": "Limit write rate (IO per second) to a device.",
+              "items": {
+                "$ref": "#/$defs/blkio_limit"
+              },
+              "type": "array"
+            },
+            "weight": {
+              "description": "Block IO weight (relative weight) for the service, between 10 and 1000.",
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "weight_device": {
+              "description": "Block IO weight (relative weight) for specific devices.",
+              "items": {
+                "$ref": "#/$defs/blkio_weight"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "cap_add": {
+          "description": "Add Linux capabilities. For example, 'CAP_SYS_ADMIN', 'SYS_ADMIN', or 'NET_ADMIN'.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "cap_drop": {
+          "description": "Drop Linux capabilities. For example, 'CAP_SYS_ADMIN', 'SYS_ADMIN', or 'NET_ADMIN'.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "cgroup": {
+          "description": "Specify the cgroup namespace to join. Use 'host' to use the host's cgroup namespace, or 'private' to use a private cgroup namespace.",
+          "enum": [
+            "host",
+            "private"
+          ],
+          "type": "string"
+        },
+        "cgroup_parent": {
+          "description": "Specify an optional parent cgroup for the container.",
+          "type": "string"
+        },
+        "command": {
+          "$ref": "#/$defs/command",
+          "description": "Override the default command declared by the container image, for example 'CMD' in Dockerfile."
+        },
+        "configs": {
+          "$ref": "#/$defs/service_config_or_secret",
+          "description": "Grant access to Configs on a per-service basis."
+        },
+        "cpu_count": {
+          "description": "Number of usable CPUs.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "minimum": 0,
+              "type": "integer"
+            }
+          ]
+        },
+        "cpu_percent": {
+          "description": "Percentage of CPU resources to use.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          ]
+        },
+        "cpu_period": {
+          "description": "Limit the CPU CFS (Completely Fair Scheduler) period.",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "cpu_quota": {
+          "description": "Limit the CPU CFS (Completely Fair Scheduler) quota.",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "cpu_rt_period": {
+          "description": "Limit the CPU real-time period in microseconds or a duration.",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "cpu_rt_runtime": {
+          "description": "Limit the CPU real-time runtime in microseconds or a duration.",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "cpu_shares": {
+          "description": "CPU shares (relative weight) for the container.",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "cpus": {
+          "description": "Number of CPUs to use. A floating-point value is supported to request partial CPUs.",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "cpuset": {
+          "description": "CPUs in which to allow execution (0-3, 0,1).",
+          "type": "string"
+        },
+        "credential_spec": {
+          "additionalProperties": false,
+          "description": "Configure the credential spec for managed service account.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "config": {
+              "description": "The name of the credential spec Config to use.",
+              "type": "string"
+            },
+            "file": {
+              "description": "Path to a credential spec file.",
+              "type": "string"
+            },
+            "registry": {
+              "description": "Path to a credential spec in the Windows registry.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "device_cgroup_rules": {
+          "$ref": "#/$defs/list_of_strings",
+          "description": "Add rules to the cgroup allowed devices list."
+        },
+        "devices": {
+          "description": "List of device mappings for the container.",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "permissions": {
+                    "description": "Cgroup permissions for the device (rwm).",
+                    "type": "string"
+                  },
+                  "source": {
+                    "description": "Path on the host to the device.",
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "Path in the container where the device will be mapped.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "source"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "dns": {
+          "$ref": "#/$defs/string_or_list",
+          "description": "Custom DNS servers to set for the service container."
+        },
+        "dns_opt": {
+          "description": "Custom DNS options to be passed to the container's DNS resolver.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "dns_search": {
+          "$ref": "#/$defs/string_or_list",
+          "description": "Custom DNS search domains to set on the service container."
+        },
+        "domainname": {
+          "description": "Custom domain name to use for the service container.",
+          "type": "string"
+        },
+        "entrypoint": {
+          "$ref": "#/$defs/command",
+          "description": "Override the default entrypoint declared by the container image, for example 'ENTRYPOINT' in Dockerfile."
+        },
+        "env_file": {
+          "$ref": "#/$defs/env_file",
+          "description": "Add environment variables from a file or multiple files. Can be a single file path or a list of file paths."
+        },
+        "environment": {
+          "$ref": "#/$defs/list_or_dict",
+          "description": "Add environment variables. You can use either an array or a list of KEY=VAL pairs."
+        },
+        "extra_hosts": {
+          "$ref": "#/$defs/extra_hosts",
+          "description": "Add hostname mappings to the container network interface configuration."
+        },
+        "gpus": {
+          "$ref": "#/$defs/gpus",
+          "description": "Define GPU devices to use. Can be set to 'all' to use all GPUs, or a list of specific GPU devices."
+        },
+        "group_add": {
+          "description": "Add additional groups which user inside the container should be member of.",
+          "items": {
+            "type": [
+              "string",
+              "number"
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "hostname": {
+          "description": "Define a custom hostname for the service container.",
+          "type": "string"
+        },
+        "image": {
+          "description": "Specify the image to start the container from. Can be a repository/tag, a digest, or a local image ID.",
+          "type": "string"
+        },
+        "init": {
+          "description": "Run as an init process inside the container that forwards signals and reaps processes.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "ipc": {
+          "description": "IPC sharing mode for the service container. Use 'host' to share the host's IPC namespace, 'service:[service_name]' to share with another service, or 'shareable' to allow other services to share this service's IPC namespace.",
+          "type": "string"
+        },
+        "isolation": {
+          "description": "Container isolation technology to use. Supported values are platform-specific.",
+          "type": "string"
+        },
+        "label_file": {
+          "$ref": "#/$defs/label_file",
+          "description": "Add metadata to containers using files containing Docker labels."
+        },
+        "labels": {
+          "$ref": "#/$defs/list_or_dict",
+          "description": "Add metadata to containers using Docker labels. You can use either an array or a list."
+        },
+        "logging": {
+          "additionalProperties": false,
+          "description": "Logging configuration for the service.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "driver": {
+              "description": "Logging driver to use, such as 'json-file', 'syslog', 'journald', etc.",
+              "type": "string"
+            },
+            "options": {
+              "description": "Options for the logging driver.",
+              "patternProperties": {
+                "^.+$": {
+                  "type": [
+                    "string",
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "mac_address": {
+          "description": "Container MAC address to set.",
+          "type": "string"
+        },
+        "mem_limit": {
+          "description": "Memory limit for the container. A string value can use suffix like '2g' for 2 gigabytes.",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "mem_reservation": {
+          "description": "Memory reservation for the container.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "mem_swappiness": {
+          "description": "Container memory swappiness as percentage (0 to 100).",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "memswap_limit": {
+          "description": "Amount of memory the container is allowed to swap to disk. Set to -1 to enable unlimited swap.",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "models": {
+          "description": "AI Models to use, referencing entries under the top-level models key.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/list_of_strings"
+            },
+            {
+              "patternProperties": {
+                "^[a-zA-Z0-9._-]+$": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "patternProperties": {
+                        "^x-": {}
+                      },
+                      "properties": {
+                        "endpoint_var": {
+                          "description": "Environment variable set to AI model endpoint.",
+                          "type": "string"
+                        },
+                        "model_var": {
+                          "description": "Environment variable set to AI model name.",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "network_mode": {
+          "description": "Network mode. Values can be 'bridge', 'host', 'none', 'service:[service name]', or 'container:[container name]'.",
+          "type": "string"
+        },
+        "networks": {
+          "description": "Networks to join, referencing entries under the top-level networks key. Can be a list of network names or a mapping of network name to network configuration.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/list_of_strings"
+            },
+            {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-zA-Z0-9._-]+$": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "patternProperties": {
+                        "^x-": {}
+                      },
+                      "properties": {
+                        "aliases": {
+                          "$ref": "#/$defs/list_of_strings",
+                          "description": "Alternative hostnames for this service on the network."
+                        },
+                        "driver_opts": {
+                          "description": "Driver options for this network.",
+                          "patternProperties": {
+                            "^.+$": {
+                              "type": [
+                                "string",
+                                "number"
+                              ]
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "gw_priority": {
+                          "description": "Specify the gateway priority for the network connection.",
+                          "type": "number"
+                        },
+                        "interface_name": {
+                          "description": "Interface network name used to connect to network",
+                          "type": "string"
+                        },
+                        "ipv4_address": {
+                          "description": "Specify a static IPv4 address for this service on this network.",
+                          "type": "string"
+                        },
+                        "ipv6_address": {
+                          "description": "Specify a static IPv6 address for this service on this network.",
+                          "type": "string"
+                        },
+                        "link_local_ips": {
+                          "$ref": "#/$defs/list_of_strings",
+                          "description": "List of link-local IPs."
+                        },
+                        "mac_address": {
+                          "description": "Specify a MAC address for this service on this network.",
+                          "type": "string"
+                        },
+                        "priority": {
+                          "description": "Specify the priority for the network connection.",
+                          "type": "number"
+                        },
+                        "use_service_name_alias": {
+                          "description": "Register the service name as an alias on this network. Defaults to true.",
+                          "type": [
+                            "boolean",
+                            "string"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "oom_kill_disable": {
+          "description": "Disable OOM Killer for the container.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "oom_score_adj": {
+          "description": "Tune host's OOM preferences for the container (accepts -1000 to 1000).",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "maximum": 1000,
+              "minimum": -1000,
+              "type": "integer"
+            }
+          ]
+        },
+        "pid": {
+          "description": "PID mode for container.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pids_limit": {
+          "description": "Tune a container's PIDs limit. Set to -1 for unlimited PIDs.",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "platform": {
+          "description": "Target platform to run on, e.g., 'linux/amd64', 'linux/arm64', or 'windows/amd64'.",
+          "type": "string"
+        },
+        "privileged": {
+          "description": "Give extended privileges to the service container.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "pull_policy": {
+          "description": "Policy for pulling images. Options include: 'always', 'never', 'if_not_present', 'missing', 'build', or time-based refresh policies.",
+          "pattern": "^(always|never|build|if_not_present|missing|refresh|daily|weekly|every_([0-9]+[wdhms])+)$",
+          "type": "string"
+        },
+        "pull_refresh_after": {
+          "description": "Time after which to refresh the image. Used with pull_policy=refresh.",
+          "type": "string"
+        },
+        "read_only": {
+          "description": "Mount the container's filesystem as read only.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "runtime": {
+          "description": "Runtime to use for this container, e.g., 'runc'.",
+          "type": "string"
+        },
+        "secrets": {
+          "$ref": "#/$defs/service_config_or_secret",
+          "description": "Grant access to Secrets on a per-service basis."
+        },
+        "security_opt": {
+          "description": "Override the default labeling scheme for each container.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "shm_size": {
+          "description": "Size of /dev/shm. A string value can use suffix like '2g' for 2 gigabytes.",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "stop_grace_period": {
+          "description": "Time to wait for the container to stop gracefully before sending SIGKILL (e.g., '1s', '1m30s').",
+          "type": "string"
+        },
+        "stop_signal": {
+          "description": "Signal to stop the container (e.g., 'SIGTERM', 'SIGINT').",
+          "type": "string"
+        },
+        "storage_opt": {
+          "description": "Storage driver options for the container.",
+          "type": "object"
+        },
+        "sysctls": {
+          "$ref": "#/$defs/list_or_dict",
+          "description": "Kernel parameters to set in the container. You can use either an array or a list."
+        },
+        "tmpfs": {
+          "$ref": "#/$defs/string_or_list",
+          "description": "Mount a temporary filesystem (tmpfs) into the container. Can be a single value or a list."
+        },
+        "ulimits": {
+          "$ref": "#/$defs/ulimits",
+          "description": "Override the default ulimits for a container."
+        },
+        "umask": {
+          "description": "Set the initial umask for the container process. When omitted or null, no mask is set and the runtime's own behavior applies; an explicit 0 masks no permission bits.",
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
+        },
+        "use_api_socket": {
+          "description": "Bind mount Docker API socket and required auth.",
+          "type": "boolean"
+        },
+        "user": {
+          "description": "Username or UID to run the container process as.",
+          "type": "string"
+        },
+        "userns_mode": {
+          "description": "User namespace to use. 'host' shares the host's user namespace.",
+          "type": "string"
+        },
+        "uts": {
+          "description": "UTS namespace to use. 'host' shares the host's UTS namespace.",
+          "type": "string"
+        },
+        "volumes": {
+          "description": "Mount host paths or named volumes accessible to the container. Short syntax (VOLUME:CONTAINER_PATH[:MODE])",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "bind": {
+                    "additionalProperties": false,
+                    "description": "Configuration specific to bind mounts.",
+                    "patternProperties": {
+                      "^x-": {}
+                    },
+                    "properties": {
+                      "create_host_path": {
+                        "description": "Create the host path if it doesn't exist.",
+                        "type": [
+                          "boolean",
+                          "string"
+                        ]
+                      },
+                      "propagation": {
+                        "description": "The propagation mode for the bind mount: 'shared', 'slave', 'private', 'rshared', 'rslave', or 'rprivate'.",
+                        "type": "string"
+                      },
+                      "recursive": {
+                        "description": "Recursively mount the source directory.",
+                        "enum": [
+                          "enabled",
+                          "disabled",
+                          "writable",
+                          "readonly"
+                        ],
+                        "type": "string"
+                      },
+                      "selinux": {
+                        "description": "SELinux relabeling options: 'z' for shared content, 'Z' for private unshared content.",
+                        "enum": [
+                          "z",
+                          "Z"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "consistency": {
+                    "description": "The consistency requirements for the mount. Available values are platform specific.",
+                    "type": "string"
+                  },
+                  "image": {
+                    "additionalProperties": false,
+                    "description": "Configuration specific to image mounts.",
+                    "patternProperties": {
+                      "^x-": {}
+                    },
+                    "properties": {
+                      "subpath": {
+                        "description": "Path within the image to mount instead of the image root.",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "read_only": {
+                    "description": "Flag to set the volume as read-only.",
+                    "type": [
+                      "boolean",
+                      "string"
+                    ]
+                  },
+                  "source": {
+                    "description": "The source of the mount, a path on the host for a bind mount, a docker image reference for an image mount, or the name of a volume defined in the top-level volumes key. Not applicable for a tmpfs mount.",
+                    "type": "string"
+                  },
+                  "target": {
+                    "description": "The path in the container where the volume is mounted.",
+                    "type": "string"
+                  },
+                  "tmpfs": {
+                    "additionalProperties": false,
+                    "description": "Configuration specific to tmpfs mounts.",
+                    "patternProperties": {
+                      "^x-": {}
+                    },
+                    "properties": {
+                      "mode": {
+                        "description": "File mode of the tmpfs in octal.",
+                        "type": [
+                          "number",
+                          "string"
+                        ]
+                      },
+                      "size": {
+                        "description": "Size of the tmpfs mount in bytes.",
+                        "oneOf": [
+                          {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": {
+                    "description": "The mount type: bind for mounting host directories, volume for named volumes, tmpfs for temporary filesystems, cluster for cluster volumes, npipe for named pipes, or image for mounting from an image.",
+                    "enum": [
+                      "bind",
+                      "volume",
+                      "tmpfs",
+                      "cluster",
+                      "npipe",
+                      "image"
+                    ],
+                    "type": "string"
+                  },
+                  "volume": {
+                    "additionalProperties": false,
+                    "description": "Configuration specific to volume mounts.",
+                    "patternProperties": {
+                      "^x-": {}
+                    },
+                    "properties": {
+                      "labels": {
+                        "$ref": "#/$defs/list_or_dict",
+                        "description": "Labels to apply to the volume."
+                      },
+                      "nocopy": {
+                        "description": "Flag to disable copying of data from a container when a volume is created.",
+                        "type": [
+                          "boolean",
+                          "string"
+                        ]
+                      },
+                      "subpath": {
+                        "description": "Path within the volume to mount instead of the volume root.",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "volumes_from": {
+          "description": "Mount volumes from another service or container. Optionally specify read-only access (ro) or read-write (rw).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "working_dir": {
+          "description": "The working directory in which the entrypoint or command will be run",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "deployment": {
+      "additionalProperties": false,
+      "description": "Deployment configuration for the service.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "endpoint_mode": {
+          "description": "Endpoint mode for the service: 'vip' (default) or 'dnsrr'.",
+          "type": "string"
+        },
+        "labels": {
+          "$ref": "#/$defs/list_or_dict",
+          "description": "Labels to apply to the service."
+        },
+        "mode": {
+          "description": "Deployment mode for the service: 'replicated' (default) or 'global'.",
+          "type": "string"
+        },
+        "placement": {
+          "additionalProperties": false,
+          "description": "Constraints and preferences for the platform to select a physical node to run service containers",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "constraints": {
+              "description": "Placement constraints for the service (e.g., 'node.role==manager').",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "max_replicas_per_node": {
+              "description": "Maximum number of replicas of the service.",
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "preferences": {
+              "description": "Placement preferences for the service.",
+              "items": {
+                "additionalProperties": false,
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "spread": {
+                    "description": "Spread tasks evenly across values of the specified node label.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "replicas": {
+          "description": "Number of replicas of the service container to run.",
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "resources": {
+          "additionalProperties": false,
+          "description": "Resource constraints and reservations for the service.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "limits": {
+              "additionalProperties": false,
+              "description": "Resource limits for the service containers.",
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "cpus": {
+                  "description": "Limit for how much of the available CPU resources, as number of cores, a container can use.",
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "memory": {
+                  "description": "Limit on the amount of memory a container can allocate (e.g., '1g', '1024m').",
+                  "type": "string"
+                },
+                "pids": {
+                  "description": "Maximum number of PIDs available to the container.",
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "reservations": {
+              "additionalProperties": false,
+              "description": "Resource reservations for the service containers.",
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "cpus": {
+                  "description": "Reservation for how much of the available CPU resources, as number of cores, a container can use.",
+                  "type": [
+                    "number",
+                    "string"
+                  ]
+                },
+                "devices": {
+                  "$ref": "#/$defs/devices",
+                  "description": "Device reservations for the container."
+                },
+                "generic_resources": {
+                  "$ref": "#/$defs/generic_resources",
+                  "description": "User-defined resources to reserve."
+                },
+                "memory": {
+                  "description": "Reservation on the amount of memory a container can allocate (e.g., '1g', '1024m').",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "restart_policy": {
+          "additionalProperties": false,
+          "description": "Restart policy for the service containers.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "condition": {
+              "description": "Condition for restarting the container: 'none', 'on-failure', 'any'.",
+              "type": "string"
+            },
+            "delay": {
+              "description": "Delay between restart attempts (e.g., '1s', '1m30s').",
+              "type": "string"
+            },
+            "max_attempts": {
+              "description": "Maximum number of restart attempts before giving up.",
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            "window": {
+              "description": "Time window used to evaluate the restart policy (e.g., '1s', '1m30s').",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "rollback_config": {
+          "additionalProperties": false,
+          "description": "Configuration for rolling back a service update.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "delay": {
+              "description": "The time to wait between each container group's rollback (e.g., '1s', '1m30s').",
+              "type": "string"
+            },
+            "failure_action": {
+              "description": "Action to take if a rollback fails: 'continue', 'pause'.",
+              "type": "string"
+            },
+            "max_failure_ratio": {
+              "description": "Failure rate to tolerate during a rollback.",
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "monitor": {
+              "description": "Duration to monitor each task for failures after it is created (e.g., '1s', '1m30s').",
+              "type": "string"
+            },
+            "order": {
+              "description": "Order of operations during rollbacks: 'stop-first' (default) or 'start-first'.",
+              "enum": [
+                "start-first",
+                "stop-first"
+              ],
+              "type": "string"
+            },
+            "parallelism": {
+              "description": "The number of containers to rollback at a time. If set to 0, all containers rollback simultaneously.",
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "update_config": {
+          "additionalProperties": false,
+          "description": "Configuration for updating a service.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "delay": {
+              "description": "The time to wait between updating a group of containers (e.g., '1s', '1m30s').",
+              "type": "string"
+            },
+            "failure_action": {
+              "description": "Action to take if an update fails: 'continue', 'pause', 'rollback'.",
+              "type": "string"
+            },
+            "max_failure_ratio": {
+              "description": "Failure rate to tolerate during an update (0 to 1).",
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "monitor": {
+              "description": "Duration to monitor each updated task for failures after it is created (e.g., '1s', '1m30s').",
+              "type": "string"
+            },
+            "order": {
+              "description": "Order of operations during updates: 'stop-first' (default) or 'start-first'.",
+              "enum": [
+                "start-first",
+                "stop-first"
+              ],
+              "type": "string"
+            },
+            "parallelism": {
+              "description": "The number of containers to update at a time.",
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "development": {
+      "additionalProperties": false,
+      "description": "Development configuration for the service, used for development workflows.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "watch": {
+          "description": "Configure watch mode for the service, which monitors file changes and performs actions in response.",
+          "items": {
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "action": {
+                "description": "Action to take when a change is detected: rebuild the container, sync files, restart the container, sync and restart, or sync and execute a command.",
+                "enum": [
+                  "rebuild",
+                  "sync",
+                  "restart",
+                  "sync+restart",
+                  "sync+exec"
+                ],
+                "type": "string"
+              },
+              "exec": {
+                "$ref": "#/$defs/service_hook",
+                "description": "Command to execute when a change is detected and action is sync+exec."
+              },
+              "ignore": {
+                "$ref": "#/$defs/string_or_list",
+                "description": "Patterns to exclude from watching."
+              },
+              "include": {
+                "$ref": "#/$defs/string_or_list",
+                "description": "Patterns to include in watching."
+              },
+              "initial_sync": {
+                "description": "Ensure that an initial synchronization is done before starting watch mode for sync+x triggers",
+                "type": "boolean"
+              },
+              "path": {
+                "description": "Path to watch for changes.",
+                "type": "string"
+              },
+              "target": {
+                "description": "Target path in the container for sync operations.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "action"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "devices": {
+      "description": "Device reservations for containers, allowing services to access specific hardware devices.",
+      "items": {
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "capabilities": {
+            "$ref": "#/$defs/list_of_strings",
+            "description": "List of capabilities the device needs to have (e.g., 'gpu', 'compute', 'utility')."
+          },
+          "count": {
+            "description": "Number of devices of this type to reserve.",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "device_ids": {
+            "$ref": "#/$defs/list_of_strings",
+            "description": "List of specific device IDs to reserve."
+          },
+          "driver": {
+            "description": "Device driver to use (e.g., 'nvidia').",
+            "type": "string"
+          },
+          "options": {
+            "$ref": "#/$defs/list_or_dict",
+            "description": "Driver-specific options for the device."
+          }
+        },
+        "required": [
+          "capabilities"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "env_file": {
+      "oneOf": [
+        {
+          "description": "Path to a file containing environment variables.",
+          "type": "string"
+        },
+        {
+          "description": "List of paths to files containing environment variables.",
+          "items": {
+            "oneOf": [
+              {
+                "description": "Path to a file containing environment variables.",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Detailed configuration for an environment file.",
+                "properties": {
+                  "format": {
+                    "description": "Format attribute lets you to use an alternative file formats for env_file. When not set, env_file is parsed according to Compose rules.",
+                    "type": "string"
+                  },
+                  "path": {
+                    "description": "Path to the environment file.",
+                    "type": "string"
+                  },
+                  "required": {
+                    "default": true,
+                    "description": "Whether the file is required. If true and the file doesn't exist, an error will be raised.",
+                    "type": [
+                      "boolean",
+                      "string"
+                    ]
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "extra_hosts": {
+      "description": "Additional hostnames to be defined in the container's /etc/hosts file.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "list mapping hostnames to IP addresses.",
+          "patternProperties": {
+            ".+": {
+              "oneOf": [
+                {
+                  "description": "IP address for the hostname.",
+                  "type": "string"
+                },
+                {
+                  "description": "List of IP addresses for the hostname.",
+                  "items": {
+                    "description": "IP address for the hostname.",
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": false
+                }
+              ]
+            }
+          },
+          "type": "object"
+        },
+        {
+          "description": "List of host:IP mappings in the format 'hostname:IP'.",
+          "items": {
+            "description": "Host:IP mapping in the format 'hostname:IP'.",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      ]
+    },
+    "generic_resources": {
+      "description": "User-defined resources for services, allowing services to reserve specialized hardware resources.",
+      "items": {
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "discrete_resource_spec": {
+            "additionalProperties": false,
+            "description": "Specification for discrete (countable) resources.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "kind": {
+                "description": "Type of resource (e.g., 'GPU', 'FPGA', 'SSD').",
+                "type": "string"
+              },
+              "value": {
+                "description": "Number of resources of this kind to reserve.",
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "gpus": {
+      "oneOf": [
+        {
+          "description": "Use all available GPUs.",
+          "enum": [
+            "all"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "List of specific GPU devices to use.",
+          "items": {
+            "properties": {
+              "capabilities": {
+                "$ref": "#/$defs/list_of_strings",
+                "description": "List of capabilities the GPU needs to have (e.g., 'compute', 'utility')."
+              },
+              "count": {
+                "description": "Number of GPUs to use.",
+                "type": [
+                  "string",
+                  "integer"
+                ]
+              },
+              "device_ids": {
+                "$ref": "#/$defs/list_of_strings",
+                "description": "List of specific GPU device IDs to use."
+              },
+              "driver": {
+                "description": "GPU driver to use (e.g., 'nvidia').",
+                "type": "string"
+              },
+              "options": {
+                "$ref": "#/$defs/list_or_dict",
+                "description": "Driver-specific options for the GPU."
+              }
+            },
+            "type": "object"
+          },
+          "patternProperties": {
+            "^x-": {}
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "healthcheck": {
+      "additionalProperties": false,
+      "description": "Configuration options to determine whether the container is healthy.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "disable": {
+          "description": "Disable any container-specified healthcheck. Set to true to disable.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "interval": {
+          "description": "Time between running the check (e.g., '1s', '1m30s'). Default: 30s.",
+          "type": "string"
+        },
+        "retries": {
+          "description": "Number of consecutive failures needed to consider the container as unhealthy. Default: 3.",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "start_interval": {
+          "description": "Time between running the check during the start period (e.g., '1s', '1m30s'). Default: interval value.",
+          "type": "string"
+        },
+        "start_period": {
+          "description": "Start period for the container to initialize before starting health-retries countdown (e.g., '1s', '1m30s'). Default: 0s.",
+          "type": "string"
+        },
+        "test": {
+          "description": "The test to perform to check container health. Can be a string or a list. The first item is either NONE, CMD, or CMD-SHELL. If it's CMD, the rest of the command is exec'd. If it's CMD-SHELL, the rest is run in the shell.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
+        "timeout": {
+          "description": "Maximum time to allow one check to run (e.g., '1s', '1m30s'). Default: 30s.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "include": {
+      "description": "Compose application or sub-projects to be included.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "env_file": {
+              "$ref": "#/$defs/string_or_list",
+              "description": "Path to the environment files to use to define default values when interpolating variables in the Compose files being parsed."
+            },
+            "path": {
+              "$ref": "#/$defs/string_or_list",
+              "description": "Path to the Compose application or sub-project files to include."
+            },
+            "project_directory": {
+              "description": "Path to resolve relative paths set in the Compose file",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "job": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/container_spec"
+        },
+        {
+          "$ref": "#/$defs/workload_spec"
+        }
+      ],
+      "description": "Configuration for a job. Jobs are containers that run to completion.",
+      "properties": {
+        "extends": {
+          "description": "Extend another job, in the current file or another file.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "The file path where the job to extend is defined.",
+                  "type": "string"
+                },
+                "service": {
+                  "description": "The name of the job to extend.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "service"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "profiles": {
+          "$ref": "#/$defs/list_of_strings",
+          "description": "List of profiles for this job. When profiles are specified, the job is only active when the profile is activated."
+        },
+        "triggers": {
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "manual"
+              ]
+            },
+            {
+              "required": [
+                "schedule"
+              ]
+            }
+          ],
+          "description": "Trigger conditions for the job. At least one trigger attribute must be declared. Setting manual to false forbids manual execution by an explicit run command.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "manual": {
+              "description": "Whether the job can be triggered manually by an explicit run command. Defaults to true; an explicit false forbids manual execution.",
+              "type": [
+                "boolean",
+                "string"
+              ]
+            },
+            "schedule": {
+              "description": "List of schedules for the job.",
+              "items": {
+                "oneOf": [
+                  {
+                    "description": "Crontab expression to schedule the job (e.g. '0 * * * *' for every hour).",
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/schedule"
+                  }
+                ]
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "triggers"
+      ],
+      "unevaluatedProperties": false
+    },
+    "label_file": {
+      "oneOf": [
+        {
+          "description": "Path to a file containing Docker labels.",
+          "type": "string"
+        },
+        {
+          "description": "List of paths to files containing Docker labels.",
+          "items": {
+            "description": "Path to a file containing Docker labels.",
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "list_of_strings": {
+      "description": "A list of unique string values.",
+      "items": {
+        "description": "A string value in the list.",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "list_or_dict": {
+      "description": "Either a dictionary mapping keys to values, or a list of strings.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A dictionary mapping keys to values.",
+          "patternProperties": {
+            ".+": {
+              "description": "Value for the key, which can be a string, number, boolean, or null.",
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        {
+          "description": "A list of unique string values.",
+          "items": {
+            "description": "A string value in the list.",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      ]
+    },
+    "model": {
+      "additionalProperties": false,
+      "description": "Language Model for the Compose application.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "context_size": {
+          "type": "integer"
+        },
+        "model": {
+          "description": "Language Model to run.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Custom name for this model.",
+          "type": "string"
+        },
+        "runtime_flags": {
+          "description": "Raw runtime flags to pass to the inference engine.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "type": "object"
+    },
+    "network": {
+      "additionalProperties": false,
+      "description": "Network configuration for the Compose application.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "attachable": {
+          "description": "If true, standalone containers can attach to this network.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "driver": {
+          "description": "Specify which driver should be used for this network. Default is 'bridge'.",
+          "type": "string"
+        },
+        "driver_opts": {
+          "description": "Specify driver-specific options defined as key/value pairs.",
+          "patternProperties": {
+            "^.+$": {
+              "type": [
+                "string",
+                "number"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "enable_ipv4": {
+          "description": "Enable IPv4 networking.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "enable_ipv6": {
+          "description": "Enable IPv6 networking.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "external": {
+          "additionalProperties": false,
+          "description": "Specifies that this network already exists and was created outside of Compose.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "name": {
+              "deprecated": true,
+              "description": "Specifies the name of the external network. Deprecated: use the 'name' property instead.",
+              "type": "string"
+            }
+          },
+          "type": [
+            "boolean",
+            "string",
+            "object"
+          ]
+        },
+        "internal": {
+          "description": "Create an externally isolated network.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "ipam": {
+          "additionalProperties": false,
+          "description": "Custom IP Address Management configuration for this network.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "config": {
+              "description": "List of IPAM configuration blocks.",
+              "items": {
+                "additionalProperties": false,
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "aux_addresses": {
+                    "additionalProperties": false,
+                    "description": "Auxiliary IPv4 or IPv6 addresses used by Network driver.",
+                    "patternProperties": {
+                      "^.+$": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "gateway": {
+                    "description": "IPv4 or IPv6 gateway for the subnet.",
+                    "type": "string"
+                  },
+                  "ip_range": {
+                    "description": "Range of IPs from which to allocate container IPs.",
+                    "type": "string"
+                  },
+                  "subnet": {
+                    "description": "Subnet in CIDR format that represents a network segment.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "driver": {
+              "description": "Custom IPAM driver, instead of the default.",
+              "type": "string"
+            },
+            "options": {
+              "additionalProperties": false,
+              "description": "Driver-specific options for the IPAM driver.",
+              "patternProperties": {
+                "^.+$": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "labels": {
+          "$ref": "#/$defs/list_or_dict",
+          "description": "Add metadata to the network using labels."
+        },
+        "name": {
+          "description": "Custom name for this network.",
+          "type": "string"
+        }
+      },
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "pre_start_hook": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/container_spec"
+        }
+      ],
+      "description": "Configuration for a pre_start init container, run to completion before the service container starts. Accepts the full container specification; per #656, attributes not set explicitly are inherited from the service: collection attributes are completed by the hook's declarations (which win on conflicts), scalar attributes are replaced.",
+      "properties": {
+        "per_replica": {
+          "description": "When true, the hook runs once per service replica instead of once per service.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        }
+      },
+      "type": "object",
+      "unevaluatedProperties": false
+    },
+    "schedule": {
+      "additionalProperties": false,
+      "description": "Schedule configuration for a job trigger.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "concurrency": {
+          "description": "Policy applied when the schedule fires while a previous run is still in progress: prevent the new run ('forbid', the default) or queue it ('queue').",
+          "enum": [
+            "forbid",
+            "queue"
+          ],
+          "type": "string"
+        },
+        "cron": {
+          "description": "Crontab expression to schedule the job (e.g. '0 * * * *' for every hour).",
+          "type": "string"
+        },
+        "missed_fires": {
+          "description": "Policy applied to fires missed while the platform was unavailable: run a single catch-up ('one', the default) or skip them ('skip').",
+          "enum": [
+            "one",
+            "skip"
+          ],
+          "type": "string"
+        },
+        "timezone": {
+          "description": "Timezone used to evaluate the cron expression (e.g. 'Europe/Paris'). Defaults to the platform's local timezone.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cron"
+      ],
+      "type": "object"
+    },
+    "secret": {
+      "additionalProperties": false,
+      "description": "Secret configuration for the Compose application.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "driver": {
+          "description": "Specify which secret driver should be used for this secret.",
+          "type": "string"
+        },
+        "driver_opts": {
+          "description": "Specify driver-specific options.",
+          "patternProperties": {
+            "^.+$": {
+              "type": [
+                "string",
+                "number"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "environment": {
+          "description": "Name of an environment variable from which to get the secret value.",
+          "type": "string"
+        },
+        "external": {
+          "description": "Specifies that this secret already exists and was created outside of Compose.",
+          "properties": {
+            "name": {
+              "description": "Specifies the name of the external secret.",
+              "type": "string"
+            }
+          },
+          "type": [
+            "boolean",
+            "string",
+            "object"
+          ]
+        },
+        "file": {
+          "description": "Path to a file containing the secret value.",
+          "type": "string"
+        },
+        "labels": {
+          "$ref": "#/$defs/list_or_dict",
+          "description": "Add metadata to the secret using labels."
+        },
+        "name": {
+          "description": "Custom name for this secret.",
+          "type": "string"
+        },
+        "template_driver": {
+          "description": "Driver to use for templating the secret's value.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "service": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/container_spec"
+        },
+        {
+          "$ref": "#/$defs/workload_spec"
+        }
+      ],
+      "description": "Configuration for a service.",
+      "properties": {
+        "attach": {
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "container_name": {
+          "description": "Specify a custom container name, rather than a generated default name.",
+          "pattern": "[a-zA-Z0-9][a-zA-Z0-9_.-]+",
+          "type": "string"
+        },
+        "deploy": {
+          "$ref": "#/$defs/deployment"
+        },
+        "develop": {
+          "$ref": "#/$defs/development"
+        },
+        "extends": {
+          "description": "Extend another service, in the current file or another file.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "description": "The file path where the service to extend is defined.",
+                  "type": "string"
+                },
+                "service": {
+                  "description": "The name of the service to extend.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "service"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "external_links": {
+          "description": "Link to services started outside this Compose application. Specify services as <service_name>:<alias>.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "links": {
+          "description": "Link to containers in another service. Either specify both the service name and a link alias (SERVICE:ALIAS), or just the service name.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "post_start": {
+          "description": "Commands to run after the container starts. If any command fails, the container stops.",
+          "items": {
+            "$ref": "#/$defs/service_hook"
+          },
+          "type": "array"
+        },
+        "pre_start": {
+          "description": "Init containers to run to completion before the service container is started. Each step runs in its own ephemeral container, in declared order; a non-zero exit fails the bring-up of the service and its dependents.",
+          "items": {
+            "$ref": "#/$defs/pre_start_hook"
+          },
+          "type": "array"
+        },
+        "pre_stop": {
+          "description": "Commands to run before the container stops. If any command fails, the container stop is aborted.",
+          "items": {
+            "$ref": "#/$defs/service_hook"
+          },
+          "type": "array"
+        },
+        "profiles": {
+          "$ref": "#/$defs/list_of_strings",
+          "description": "List of profiles for this service. When profiles are specified, services are only started when the profile is activated."
+        },
+        "provider": {
+          "additionalProperties": false,
+          "description": "Specify a service which will not be manage by Compose directly, and delegate its management to an external provider.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "options": {
+              "description": "Provider-specific options.",
+              "patternProperties": {
+                "^.+$": {
+                  "oneOf": [
+                    {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean"
+                      ]
+                    },
+                    {
+                      "items": {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean"
+                        ]
+                      },
+                      "type": "array"
+                    }
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "type": {
+              "description": "External component used by Compose to manage setup and teardown lifecycle of the service.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        "restart": {
+          "description": "Restart policy for the service container. Options include: 'no', 'always', 'on-failure', and 'unless-stopped'.",
+          "type": "string"
+        },
+        "scale": {
+          "description": "Number of containers to deploy for this service.",
+          "type": [
+            "integer",
+            "string"
+          ]
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "service_config_or_secret": {
+      "description": "Configuration for service configs or secrets, defining how they are mounted in the container.",
+      "items": {
+        "oneOf": [
+          {
+            "description": "Name of the config or secret to grant access to.",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Detailed configuration for a config or secret.",
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "gid": {
+                "description": "GID of the file in the container. Default is 0 (root).",
+                "type": "string"
+              },
+              "mode": {
+                "description": "File permission mode inside the container, in octal. Default is 0444 for configs and 0400 for secrets.",
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "source": {
+                "description": "Name of the config or secret as defined in the top-level configs or secrets section.",
+                "type": "string"
+              },
+              "target": {
+                "description": "Path in the container where the config or secret will be mounted. Defaults to /<source> for configs and /run/secrets/<source> for secrets.",
+                "type": "string"
+              },
+              "uid": {
+                "description": "UID of the file in the container. Default is 0 (root).",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "service_hook": {
+      "additionalProperties": false,
+      "description": "Configuration for service lifecycle hooks, which are commands executed at specific points in a container's lifecycle.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/command",
+          "description": "Command to execute as part of the hook."
+        },
+        "environment": {
+          "$ref": "#/$defs/list_or_dict",
+          "description": "Environment variables for the command."
+        },
+        "privileged": {
+          "description": "Whether to run the command with extended privileges.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "user": {
+          "description": "User to run the command as.",
+          "type": "string"
+        },
+        "working_dir": {
+          "description": "Working directory for the command.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    "string_or_list": {
+      "description": "Either a single string or a list of strings.",
+      "oneOf": [
+        {
+          "description": "A single string value.",
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/list_of_strings",
+          "description": "A list of string values."
+        }
+      ]
+    },
+    "ulimits": {
+      "description": "Container ulimit options, controlling resource limits for processes inside the container.",
+      "patternProperties": {
+        "^[a-z]+$": {
+          "oneOf": [
+            {
+              "description": "Single value for both soft and hard limits.",
+              "type": [
+                "integer",
+                "string"
+              ]
+            },
+            {
+              "additionalProperties": false,
+              "description": "Separate soft and hard limits.",
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "hard": {
+                  "description": "Hard limit for the ulimit type. This is the maximum allowed value.",
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                },
+                "soft": {
+                  "description": "Soft limit for the ulimit type. This is the value that's actually enforced.",
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "soft",
+                "hard"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "volume": {
+      "additionalProperties": false,
+      "description": "Volume configuration for the Compose application.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "driver": {
+          "description": "Specify which volume driver should be used for this volume.",
+          "type": "string"
+        },
+        "driver_opts": {
+          "description": "Specify driver-specific options.",
+          "patternProperties": {
+            "^.+$": {
+              "type": [
+                "string",
+                "number"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "external": {
+          "additionalProperties": false,
+          "description": "Specifies that this volume already exists and was created outside of Compose.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "name": {
+              "deprecated": true,
+              "description": "Specifies the name of the external volume. Deprecated: use the 'name' property instead.",
+              "type": "string"
+            }
+          },
+          "type": [
+            "boolean",
+            "string",
+            "object"
+          ]
+        },
+        "labels": {
+          "$ref": "#/$defs/list_or_dict",
+          "description": "Add metadata to the volume using labels."
+        },
+        "name": {
+          "description": "Custom name for this volume.",
+          "type": "string"
+        }
+      },
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "workload_spec": {
+      "description": "Container attributes meaningful for orchestrated workloads (services and jobs) but not for run-to-completion init containers: build, dependency ordering, health reporting, port exposure and interactivity.",
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "build": {
+          "description": "Configuration options for building the service's image.",
+          "oneOf": [
+            {
+              "description": "Path to the build context. Can be a relative path or a URL.",
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "additional_contexts": {
+                  "$ref": "#/$defs/list_or_dict",
+                  "description": "Additional build contexts to use, specified as a map of name to context path or URL."
+                },
+                "args": {
+                  "$ref": "#/$defs/list_or_dict",
+                  "description": "Build-time variables, specified as a map or a list of KEY=VAL pairs."
+                },
+                "cache_from": {
+                  "description": "List of sources the image builder should use for cache resolution",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "cache_to": {
+                  "description": "Cache destinations for the build cache.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "context": {
+                  "description": "Path to the build context. Can be a relative path or a URL.",
+                  "type": "string"
+                },
+                "dockerfile": {
+                  "description": "Name of the Dockerfile to use for building the image.",
+                  "type": "string"
+                },
+                "dockerfile_inline": {
+                  "description": "Inline Dockerfile content to use instead of a Dockerfile from the build context.",
+                  "type": "string"
+                },
+                "entitlements": {
+                  "description": "List of extra privileged entitlements to grant to the build process.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "extra_hosts": {
+                  "$ref": "#/$defs/extra_hosts",
+                  "description": "Add hostname mappings for the build container."
+                },
+                "isolation": {
+                  "description": "Container isolation technology to use for the build process.",
+                  "type": "string"
+                },
+                "labels": {
+                  "$ref": "#/$defs/list_or_dict",
+                  "description": "Labels to apply to the built image."
+                },
+                "network": {
+                  "description": "Network mode to use for the build. Options include 'default', 'none', 'host', or a network name.",
+                  "type": "string"
+                },
+                "no_cache": {
+                  "description": "Do not use cache when building the image.",
+                  "type": [
+                    "boolean",
+                    "string"
+                  ]
+                },
+                "no_cache_filter": {
+                  "$ref": "#/$defs/string_or_list",
+                  "description": "Do not use build cache for the specified stages."
+                },
+                "platforms": {
+                  "description": "Platforms to build for, e.g., 'linux/amd64', 'linux/arm64', or 'windows/amd64'.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "privileged": {
+                  "description": "Give extended privileges to the build container.",
+                  "type": [
+                    "boolean",
+                    "string"
+                  ]
+                },
+                "provenance": {
+                  "description": "Add a provenance attestation",
+                  "type": [
+                    "string",
+                    "boolean"
+                  ]
+                },
+                "pull": {
+                  "description": "Always attempt to pull a newer version of the image.",
+                  "type": [
+                    "boolean",
+                    "string"
+                  ]
+                },
+                "sbom": {
+                  "description": "Add a SBOM attestation",
+                  "type": [
+                    "string",
+                    "boolean"
+                  ]
+                },
+                "secrets": {
+                  "$ref": "#/$defs/service_config_or_secret",
+                  "description": "Secrets to expose to the build. These are accessible at build-time."
+                },
+                "shm_size": {
+                  "description": "Size of /dev/shm for the build container. A string value can use suffix like '2g' for 2 gigabytes.",
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                },
+                "ssh": {
+                  "$ref": "#/$defs/list_or_dict",
+                  "description": "SSH agent socket or keys to expose to the build. Format is either a string or a list of 'default|<id>[=<socket>|<key>[,<key>]]'."
+                },
+                "tags": {
+                  "description": "Additional tags to apply to the built image.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "target": {
+                  "description": "Build stage to target in a multi-stage Dockerfile.",
+                  "type": "string"
+                },
+                "ulimits": {
+                  "$ref": "#/$defs/ulimits",
+                  "description": "Override the default ulimits for the build container."
+                }
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "depends_on": {
+          "description": "Express dependency between services. Service dependencies cause services to be started in dependency order. The dependent service will wait for the dependency to be ready before starting.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/list_of_strings"
+            },
+            {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-zA-Z0-9._-]+$": {
+                  "additionalProperties": false,
+                  "patternProperties": {
+                    "^x-": {}
+                  },
+                  "properties": {
+                    "condition": {
+                      "description": "Condition to wait for. 'service_started' waits until the service has started, 'service_healthy' waits until the service is healthy (as defined by its healthcheck), 'service_completed_successfully' waits until the service has completed successfully.",
+                      "enum": [
+                        "service_started",
+                        "service_healthy",
+                        "service_completed_successfully"
+                      ],
+                      "type": "string"
+                    },
+                    "required": {
+                      "default": true,
+                      "description": "Whether the dependency is required for the dependent service to start.",
+                      "type": "boolean"
+                    },
+                    "restart": {
+                      "description": "Whether to restart dependent services when this service is restarted.",
+                      "type": [
+                        "boolean",
+                        "string"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "condition"
+                  ],
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "expose": {
+          "description": "Expose ports without publishing them to the host machine - they'll only be accessible to linked services.",
+          "items": {
+            "type": [
+              "string",
+              "number"
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "healthcheck": {
+          "$ref": "#/$defs/healthcheck",
+          "description": "Configure a health check for the container to monitor its health status."
+        },
+        "ports": {
+          "description": "Expose container ports. Short format ([HOST:]CONTAINER[/PROTOCOL]).",
+          "items": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "patternProperties": {
+                  "^x-": {}
+                },
+                "properties": {
+                  "app_protocol": {
+                    "description": "Application protocol to use with the port (e.g., http, https, mysql).",
+                    "type": "string"
+                  },
+                  "host_ip": {
+                    "description": "The host IP to bind to.",
+                    "type": "string"
+                  },
+                  "mode": {
+                    "description": "The port binding mode, either 'host' for publishing a host port or 'ingress' for load balancing.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "A human-readable name for this port mapping.",
+                    "type": "string"
+                  },
+                  "protocol": {
+                    "description": "The port protocol (tcp or udp).",
+                    "type": "string"
+                  },
+                  "published": {
+                    "description": "The publicly exposed port.",
+                    "type": [
+                      "string",
+                      "integer"
+                    ]
+                  },
+                  "target": {
+                    "description": "The port inside the container.",
+                    "type": [
+                      "integer",
+                      "string"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "stdin_open": {
+          "description": "Keep STDIN open even if not attached.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        },
+        "tty": {
+          "description": "Allocate a pseudo-TTY to service container.",
+          "type": [
+            "boolean",
+            "string"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "compose_spec.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The Compose file is a YAML file defining a multi-containers based application.",
+  "patternProperties": {
+    "^x-": {}
+  },
+  "properties": {
+    "configs": {
+      "additionalProperties": false,
+      "description": "Configurations that are shared among multiple services.",
+      "patternProperties": {
+        "^[a-zA-Z0-9._-]+$": {
+          "$ref": "#/$defs/config"
+        }
+      },
+      "type": "object"
+    },
+    "include": {
+      "description": "compose sub-projects to be included.",
+      "items": {
+        "$ref": "#/$defs/include"
+      },
+      "type": "array"
+    },
+    "jobs": {
+      "additionalProperties": false,
+      "description": "Jobs are containers that run to completion.",
+      "patternProperties": {
+        "^[a-zA-Z0-9._-]+$": {
+          "$ref": "#/$defs/job"
+        }
+      },
+      "type": "object"
+    },
+    "models": {
+      "additionalProperties": false,
+      "description": "Language models that will be used by your application.",
+      "patternProperties": {
+        "^[a-zA-Z0-9._-]+$": {
+          "$ref": "#/$defs/model"
+        }
+      },
+      "type": "object"
+    },
+    "name": {
+      "description": "define the Compose project name, until user defines one explicitly.",
+      "type": "string"
+    },
+    "networks": {
+      "additionalProperties": false,
+      "description": "Networks that are shared among multiple services.",
+      "patternProperties": {
+        "^[a-zA-Z0-9._-]+$": {
+          "$ref": "#/$defs/network"
+        }
+      },
+      "type": "object"
+    },
+    "secrets": {
+      "additionalProperties": false,
+      "description": "Secrets that are shared among multiple services.",
+      "patternProperties": {
+        "^[a-zA-Z0-9._-]+$": {
+          "$ref": "#/$defs/secret"
+        }
+      },
+      "type": "object"
+    },
+    "services": {
+      "additionalProperties": false,
+      "description": "The services that will be used by your application.",
+      "patternProperties": {
+        "^[a-zA-Z0-9._-]+$": {
+          "$ref": "#/$defs/service"
+        }
+      },
+      "type": "object"
+    },
+    "version": {
+      "deprecated": true,
+      "description": "declared for backward compatibility, ignored. Please remove it.",
+      "type": "string"
+    },
+    "volumes": {
+      "additionalProperties": false,
+      "description": "Named volumes that are shared among multiple services.",
+      "patternProperties": {
+        "^[a-zA-Z0-9._-]+$": {
+          "$ref": "#/$defs/volume"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "title": "Compose Specification",
+  "type": "object"
+}

@@ -113,10 +113,31 @@ impl<Q: QuotedStringsOptionSet, K, A, C, H, M, O: KeyOrderingOptionSet>
     RulesTable<Q, K, A, C, H, M, O>
 {
     pub(super) fn validate(&self) -> Result<(), String> {
+        validate_schema_rule(self.schema.as_ref())?;
         validate_key_ordering_rule(self.key_ordering.as_ref())?;
         validate_quoted_strings_rule(self.quoted_strings.as_ref())?;
         Ok(())
     }
+}
+
+fn validate_schema_rule(
+    entry: Option<&RuleEntry<super::SchemaOptions>>,
+) -> Result<(), String> {
+    let Some(options) = rule_options(entry) else {
+        return Ok(());
+    };
+    for pattern in options
+        .specific
+        .schemas
+        .iter()
+        .flatten()
+        .flat_map(|entry| &entry.files)
+    {
+        Glob::new(pattern.strip_prefix('!').unwrap_or(pattern)).map_err(|err| {
+            format!("invalid config: schema files glob '{pattern}': {err}")
+        })?;
+    }
+    Ok(())
 }
 
 pub(super) fn validate_comments_rule(

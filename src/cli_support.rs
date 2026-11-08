@@ -233,7 +233,12 @@ pub fn resolve_ctx(
     if let Some(entry) = cache.by_dir.get(&start).cloned() {
         return Ok((entry.0, entry.1, Vec::new(), entry.2));
     }
-    let (entry, notices) = match locate_per_file(path, &SystemEnv)? {
+    let envx: &dyn crate::config::Env = if flags.format_only {
+        &crate::config::FormatEnv
+    } else {
+        &SystemEnv
+    };
+    let (entry, notices) = match locate_per_file(path, envx)? {
         PerFileConfig::Project {
             cfg_path,
             mut notices,
@@ -241,7 +246,7 @@ pub fn resolve_ctx(
             if let Some(entry) = cache.by_config.get(&cfg_path) {
                 (entry.clone(), notices)
             } else {
-                let ctx = load_project_config(&cfg_path)?;
+                let ctx = load_project_config(&cfg_path, envx)?;
                 // Each spelling keeps its own base dir, but one file warns once.
                 let identity =
                     std::fs::canonicalize(&cfg_path).unwrap_or(cfg_path.clone());
@@ -275,6 +280,7 @@ pub struct ConfigCache {
 /// CLI overrides applied to every resolved config.
 #[derive(Debug, Default)]
 pub struct CliConfigFlags {
+    pub format_only: bool,
     pub markdown: bool,
     pub enable: Option<Vec<&'static str>>,
     pub enable_all: bool,
