@@ -12,6 +12,58 @@ const RULES: &str = "[lint.rules]\ntruthy = \"enable\"\noctal-values = \"enable\
 const DIVERGENT: &str = "a: yes\nb: 0777\nc: 22:22\nd: 2026-10-10\ne: 1_000\nf: 0o17\n\
                          g: 08\nh: y\ni: 1:30.5\non: 1\nj: -0777\n";
 
+const UNSAFE_HINT: &str = "1 unsafe fix available with `--fix --unsafe-fixes` \
+                         (source-version: 1.2; set source-version to change).";
+
+#[test]
+fn github_emits_unsafe_fix_hint_as_a_notice_on_stderr() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join(".ryl.toml"), RULES).unwrap();
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "a: yes\n").unwrap();
+    for fix in [false, true] {
+        let mut cmd = ryl(dir.path());
+        cmd.args(["check", "--output-format", "github"]).arg(&file);
+        if fix {
+            cmd.arg("--fix");
+        }
+        let (code, stdout, stderr) = run(&mut cmd);
+        assert_eq!(code, 1, "{stderr}");
+        assert!(stdout.is_empty(), "{stdout}");
+        assert_eq!(
+            stderr.lines().last(),
+            Some(format!("::notice::{UNSAFE_HINT}").as_str())
+        );
+        cmd.arg("--no-unsafe-fixes");
+        let (_, _, quiet) = run(&mut cmd);
+        assert!(!quiet.contains("unsafe fix available"), "{quiet}");
+    }
+}
+
+#[test]
+fn other_formats_keep_their_unsafe_fix_hint_output() {
+    for format in ["standard", "colored", "parsable", "junit", "gitlab"] {
+        for fix in [false, true] {
+            let mut args = vec!["check", "--output-format", format];
+            if fix {
+                args.push("--fix");
+            }
+            let (code, output, _) = ryl_with(RULES, "a: yes\n", &args);
+            assert_eq!(code, 1, "{format}: {output}");
+            let hints: Vec<_> = output
+                .lines()
+                .filter(|line| line.contains("unsafe fix available"))
+                .collect();
+            let expected = if fix || matches!(format, "standard" | "colored") {
+                vec![UNSAFE_HINT]
+            } else {
+                vec![]
+            };
+            assert_eq!(hints, expected, "{format}, fix={fix}: {output}");
+        }
+    }
+}
+
 fn ryl_with(config: &str, content: &str, args: &[&str]) -> (i32, String, String) {
     let dir = tempdir().unwrap();
     fs::write(dir.path().join(".ryl.toml"), config).unwrap();

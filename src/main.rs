@@ -1014,6 +1014,11 @@ impl<'a> RecordStream<'a> {
         sinks: Vec<OutputSink>,
         paths: impl IntoIterator<Item = &'p Path>,
     ) -> Result<Self, String> {
+        deprecation::set_github_output(
+            targets
+                .iter()
+                .any(|target| target.format == OutputFormat::Github),
+        );
         let project_root = report_project_root();
         let mut writers: Vec<_> = sinks
             .into_iter()
@@ -1696,7 +1701,8 @@ fn lint_and_exit(
                 OutputFormat::Standard | OutputFormat::Colored
             )
         });
-        if summary.hidden_unsafe_fixes > 0 && (human || before_fix.is_some()) {
+        let github = targets.iter().any(|target| target.format == OutputFormat::Github);
+        if summary.hidden_unsafe_fixes > 0 && (human || github || before_fix.is_some()) {
             let versions = files
                 .iter()
                 .map(|(_, _, cfg, _)| match cfg.source_version() {
@@ -1707,7 +1713,7 @@ fn lint_and_exit(
                 .into_iter()
                 .collect::<Vec<_>>()
                 .join("/");
-            eprintln!(
+            let message = format!(
                 "{} unsafe {} available with `--fix --unsafe-fixes` (source-version: {}; set source-version to change).",
                 summary.hidden_unsafe_fixes,
                 if summary.hidden_unsafe_fixes == 1 {
@@ -1717,6 +1723,11 @@ fn lint_and_exit(
                 },
                 versions
             );
+            if github {
+                eprintln!("::notice::{}", github_escape(&message, false));
+            } else {
+                eprintln!("{message}");
+            }
         }
         if before_fix
             .as_ref()

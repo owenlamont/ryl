@@ -21,6 +21,37 @@ fn command(dir: &TempDir) -> Command {
 }
 
 #[test]
+fn github_emits_directive_deprecation_as_a_warning_on_stderr() {
+    let dir = project(CONFIG);
+    let file = dir.path().join("a.yaml");
+    fs::write(&file, "# yamllint enable\na: 1\n").unwrap();
+    for mode in [
+        vec!["check"],
+        vec!["check", "--fix"],
+        vec!["format", "--check"],
+    ] {
+        let mut cmd = ryl(dir.path());
+        cmd.args(&mode)
+            .args(["--output-format", "github"])
+            .arg(&file);
+        let (code, stdout, stderr) = run(&mut cmd);
+        assert_eq!(code, 0, "{mode:?}: {stderr}");
+        assert!(stdout.is_empty(), "{stdout}");
+        assert_eq!(
+            stderr.lines().last(),
+            Some(
+                "::warning::yamllint directive aliases are deprecated in 1 file; use `ryl --migrate-directives` to convert"
+            )
+        );
+        assert_eq!(stderr.matches(NOTICE).count(), 1, "{stderr}");
+        cmd.arg("--no-warnings");
+        let (code, _, stderr) = run(&mut cmd);
+        assert_eq!(code, 0, "{stderr}");
+        assert!(!stderr.contains(NOTICE), "{stderr}");
+    }
+}
+
+#[test]
 fn file_commands_warn_once_without_changing_clean_status_or_stdout() {
     for mode in [
         vec!["check", "--strict"],

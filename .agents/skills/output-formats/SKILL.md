@@ -19,6 +19,10 @@ The streaming console formats
 report formats `junit` (JUnit XML via `quick-xml`) and `gitlab` (GitLab Code Quality
 JSON via `serde_json`) default to **stdout**. `auto` never selects junit/gitlab.
 
+GitHub output emits the unsafe-fix hint as `::notice::` and the deprecated directive
+summary as `::warning::`, both on stderr. The summary has no location; it counts
+affected files. Both messages use `github_escape` for workflow-command data.
+
 ## Multiple outputs per run
 
 The RuboCop/Biome model: `--output-format` is repeatable and each `-o/--output-file`
