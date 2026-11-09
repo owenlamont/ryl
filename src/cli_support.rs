@@ -109,10 +109,23 @@ pub(crate) fn capture_file_stderr<T>(f: impl FnOnce() -> T) -> (T, Vec<u8>) {
 /// Replace control characters with a visible `\u{..}` escape, so a crafted key, anchor,
 /// or filename cannot inject terminal escape sequences or, via a newline, a GitHub
 /// Actions workflow command, nor split a single-line message. Printable text (incl.
-/// multibyte Unicode) is untouched and the control-free case borrows without allocating.
+/// multibyte Unicode) is untouched except bidi controls; the safe case borrows without allocating.
 #[must_use]
 pub fn sanitize_control(text: &str) -> Cow<'_, str> {
-    escape_chars(text, char::is_control)
+    escape_chars(text, is_output_control)
+}
+
+pub(crate) fn is_output_control(ch: char) -> bool {
+    ch.is_control()
+        || matches!(ch, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
+
+#[cfg(feature = "lsp")]
+pub(crate) fn sanitize_owned(text: String) -> String {
+    match sanitize_control(&text) {
+        Cow::Borrowed(_) => text,
+        Cow::Owned(escaped) => escaped,
+    }
 }
 
 /// Replace each char `escaped` matches with a visible `\u{..}` escape, borrowing when none does.
@@ -174,7 +187,7 @@ pub fn github_escape(value: &str, property: bool) -> String {
             '\n' => out.push_str("%0A"),
             ':' if property => out.push_str("%3A"),
             ',' if property => out.push_str("%2C"),
-            c if c.is_control() => {
+            c if is_output_control(c) => {
                 write!(out, "\\u{{{:x}}}", c as u32)
                     .expect("writing to a String is infallible");
             }
@@ -185,7 +198,7 @@ pub fn github_escape(value: &str, property: bool) -> String {
 }
 
 /// `display` made relative to `project_root`, forward-slashed, no `./` prefix (GitLab's
-/// requirement), `..` segments for a path outside the root. Control chars are stripped
+/// requirement), `..` segments for a path outside the root. Control chars are escaped
 /// so a crafted filename cannot inject.
 #[must_use]
 pub fn report_display_path(display: &Path, project_root: &Path) -> String {
@@ -332,4 +345,18 @@ fn resolved(
         Arc::new(cfg),
         ctx.config_found || flags.enable.is_some(),
     ))
+}
+
+#[must_use]
+pub fn is_symlink_or_junction(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
 }

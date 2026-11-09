@@ -1245,3 +1245,20 @@ fn workspace_scan_returns_none_when_cancelled() {
         "a cancelled scan yields no report"
     );
 }
+
+#[test]
+fn diagnostic_messages_escape_bidi_controls_without_moving_ranges() {
+    let cfg = yaml_cfg("[lint.rules.key-duplicates]\n");
+    let items = diagnostics(
+        "key\u{202e}: 1\nkey\u{202e}: 2\n",
+        Path::new("in.yaml"),
+        &cfg,
+        Path::new("."),
+        SourceKind::Yaml,
+        PositionEncoding::Utf16,
+    );
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].range.start.line, 1);
+    assert!(!items[0].message.contains('\u{202e}'));
+    assert!(items[0].message.contains("\\u{202e}"));
+}

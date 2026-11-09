@@ -864,6 +864,6 @@ already exists.
 ## Migrating local check-jsonschema checks
 
 Use the TOML-only [`schema`](../rules/schema.md) rule to associate local JSON Schemas
-with file globs. The first matching association wins. Download schemas and their
-references into the config directory first: URL fetching, catalogs and in-file
+with file globs. The first matching association wins. Remote schemas require
+[independent origin grants](../rules/schema.md#remote-schemas). Catalogs and in-file
 schema declarations are not supported. Normal ryl directives suppress findings.

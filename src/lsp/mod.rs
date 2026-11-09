@@ -47,7 +47,9 @@ use lsp_types::{
     WorkspaceUnchangedDocumentDiagnosticReport,
 };
 
-use crate::config::{ConfigContext, Overrides, SourceKind, discover_config};
+use crate::config::{
+    ConfigContext, Overrides, ServerEnv, SourceKind, discover_config_with,
+};
 use crate::discover::gather_yaml_from_dir_cancellable;
 use crate::fix::Rewrite;
 use crate::lsp::encoding::{
@@ -889,7 +891,10 @@ impl Server {
         message: String,
     ) {
         if self.reported_messages.insert(message.clone()) {
-            let params = ShowMessageParams { typ, message };
+            let params = ShowMessageParams {
+                typ,
+                message: crate::cli_support::sanitize_owned(message),
+            };
             send(
                 connection,
                 Message::Notification(Notification::new(
@@ -1348,8 +1353,11 @@ fn resolve_for_path(
     if !settings.enable {
         return Ok(None);
     }
-    let mut context =
-        discover_config(std::slice::from_ref(&path), &settings.overrides())?;
+    let mut context = discover_config_with(
+        std::slice::from_ref(&path),
+        &settings.overrides(),
+        &ServerEnv,
+    )?;
     if require_rules && !context.config.enables_any_rule() {
         return Ok(None);
     }
@@ -1654,7 +1662,10 @@ fn parse<P: serde::de::DeserializeOwned>(params: &serde_json::Value) -> Option<P
 
 /// The user-facing message for a config-discovery failure (push and pull paths share it).
 fn config_error_text(error: &str) -> String {
-    format!("ryl: configuration error, linting is off: {error}")
+    format!(
+        "ryl: configuration error, linting is off: {}",
+        crate::rules::schema::net::redact_message(error)
+    )
 }
 
 /// An error diagnostic standing in for a config-discovery failure, so a pull request

@@ -36,7 +36,7 @@ protocol); the streaming console formats run user text through `sanitize_control
 
 The `junit`/`gitlab` report formats are structured data, not command protocols, so the
 analogous risk is breaking out of an XML attribute / JSON string: `sanitize_control`
-first strips control chars, then `quick-xml` (XML) and `serde_json` (JSON) apply
+first escapes control chars, then `quick-xml` (XML) and `serde_json` (JSON) apply
 structural escaping, and fixed fields (`severity`, `check_name`, the testcase `name`) are
 derived from the rule/level, not the message. `tests/property_report.rs` fuzzes this
 (every output must stay well-formed XML / schema-valid JSON under hostile input).
@@ -59,7 +59,7 @@ multiple_crate_versions`).
 
 `rules::schema` prepares validators during config finalization, before cache lookup.
 Root and referenced files use the same canonical-path confinement and bounded reader:
-16 MiB total, 1,024 resources, no remote retrieval or UNC paths. Distinct URI aliases
+16 MiB total, 1,024 resources, no UNC paths. Distinct URI aliases
 count separately toward both limits. Regex uses the
 bounded fancy-regex engine. Before compilation, expanded schema weight is capped at
 1,000,000, counting declarations and resolved references with stack back-edges worth one.
@@ -72,3 +72,25 @@ scalar bytes and pointer storage before growing unbounded state. Limits are 1,00
 Schema content digests live in resolved-config Debug only when associations exist;
 keep the schema-free Debug unchanged. `cli_schema_rule` guards the boundaries and cache
 invalidation after an unmatched file; `property_schema` exercises projection and spans.
+
+## Remote JSON Schemas
+
+`rules::schema::net` owns HTTP and the user schema cache. Project URLs request
+resources; only CLI flags, launcher environment and the user allowlist grant origins.
+Every physical retrieval needs an exact HTTPS origin grant, including offline and
+after `$id` rebasing. Remote roots have no file capability. Retain recorded retriever
+failures: referencing can swallow failed `$schema` fetches.
+
+The bounded resolver worker checks every OS answer before ureq truncates to 16;
+connections use only checked addresses and retain the URL TLS name. Deny private,
+reserved and transition addresses, disable proxies/redirects/pooling, use bundled
+webpki roots, and cap requests, deadlines, headers and identity-encoded bodies.
+
+Cache keys hash canonical full URLs; verify content hashes and pins on every read.
+Offline never resolves DNS or refreshes timestamps. Refuse symlinks, write with
+create-new temporary files and rename, and evict oldest entries above 256 MiB.
+Resource budgets count cache reads and repeated associations. Network output redacts
+query values; `sanitize_control` also escapes bidi controls. The server refuses remote
+preparation until approval and background-worker support lands.
+Transport, resolver, clock and cache filesystem injections are trusted Rust test
+seams; never expose policy bypasses through project configuration or launcher flags.

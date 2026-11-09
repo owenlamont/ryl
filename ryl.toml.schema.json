@@ -1782,6 +1782,15 @@
             }
           ]
         },
+        "pins": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "schemas": {
           "items": {
             "$ref": "#/$defs/SchemaAssociation"
@@ -2656,6 +2665,24 @@
     },
     "SchemaAssociation": {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "path": {}
+          },
+          "required": [
+            "path"
+          ]
+        },
+        {
+          "properties": {
+            "url": {}
+          },
+          "required": [
+            "url"
+          ]
+        }
+      ],
       "properties": {
         "files": {
           "default": [],
@@ -2665,12 +2692,18 @@
           "type": "array"
         },
         "path": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
-      "required": [
-        "path"
-      ],
       "type": "object"
     },
     "SourceVersion": {

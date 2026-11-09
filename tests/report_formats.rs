@@ -457,3 +457,26 @@ fn gitlab_message_cannot_inject_json_structure() {
         "control characters are stripped from the description: {description:?}"
     );
 }
+
+#[test]
+fn reports_escape_bidi_controls_in_messages_and_paths() {
+    let problems = [problem(
+        1,
+        1,
+        Severity::Error,
+        Some("schema"),
+        "bad\u{202e}key",
+    )];
+    let entries = [ReportEntry {
+        path: "file\u{2066}.yaml".to_owned(),
+        problems: &problems,
+        error: None,
+    }];
+    let xml = junit_xml(&entries);
+    assert!(!xml.contains(['\u{202e}', '\u{2066}']));
+    assert!(xml.contains("\\u{202e}"));
+    assert!(xml.contains("\\u{2066}"));
+    let json = gitlab_json(&entries);
+    assert_eq!(json[0]["description"], "bad\\u{202e}key");
+    assert_eq!(json[0]["location"]["path"], "file\\u{2066}.yaml");
+}

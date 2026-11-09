@@ -1,3 +1,4 @@
+use ryl::cli_support::is_symlink_or_junction;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write as _;
@@ -177,20 +178,6 @@ fn refuse_symlink(path: &Path) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-fn is_symlink_or_junction(metadata: &fs::Metadata) -> bool {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-    }
-    #[cfg(not(windows))]
-    {
-        metadata.file_type().is_symlink()
-    }
 }
 
 fn cache_error(path: &Path, err: &std::io::Error) -> String {

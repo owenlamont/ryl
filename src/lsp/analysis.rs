@@ -36,7 +36,7 @@ fn to_diagnostic(
             .rule
             .map(|rule| NumberOrString::String(rule.to_string())),
         source: Some("ryl".to_string()),
-        message: problem.message,
+        message: crate::cli_support::sanitize_owned(problem.message),
         ..Default::default()
     }
 }

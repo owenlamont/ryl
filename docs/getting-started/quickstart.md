@@ -80,7 +80,9 @@ passes remain controlled by `[format]`, independently of lint rule selection.
 including when `-c` selects a config elsewhere. The cache directory
 contains `.gitignore` and `CACHEDIR.TAG`; deleting it clears all results.
 
-Use `--no-cache` or `RYL_NO_CACHE=1` to bypass the cache. `--cache-dir PATH`,
+Use `--no-cache` or `RYL_NO_CACHE=1` to bypass both result and remote schema caches.
+Remote schemas use a [separate user cache](../rules/schema.md#remote-schemas).
+`--cache-dir PATH`,
 `RYL_CACHE_DIR`, and the TOML-only top-level `cache-dir = "PATH"` select another
 location, in that precedence order. A relative path in TOML is resolved from
 the project root; a relative CLI or environment path uses the current directory.
@@ -417,10 +419,12 @@ flowchart TD
     linkStyle default stroke-width:3px;
 ```
 
-### Local JSON Schemas
+### JSON Schemas
 
-The TOML-only [`schema`](../rules/schema.md) rule adds local JSON Schema validation.
-Configure `[[lint.rules.schema.schemas]]` with a relative `path` and optional `files`
+The TOML-only [`schema`](../rules/schema.md) rule adds JSON Schema validation.
+Configure `[[lint.rules.schema.schemas]]` with a relative `path` or HTTPS `url` and optional `files`
 globs. The first matching association wins; empty `files` matches all inputs.
-Schemas and references must remain under the config base directory. Network access
-is unsupported. A config without schema associations performs no schema work.
+Local schemas and references must remain under the config base directory. Remote
+resources require independent origin grants; see the [schema controls](../rules/schema.md#remote-schemas)
+for flags, environment variables and the user allowlist. A config without schema
+associations performs no schema work.

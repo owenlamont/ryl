@@ -459,13 +459,15 @@ enum Commands {
     },
     /// Run the language server (LSP) over stdio for editor integration
     #[cfg(feature = "lsp")]
-    Server,
+    Server(SchemaNetworkArgs),
 }
 
 /// The lint pass arguments, flattened both at the top level (bare `ryl <paths>`) and under
 /// `ryl check`, so the two forms are byte-for-byte equivalent.
 #[derive(clap::Args, Debug, Default)]
 struct LintArgs {
+    #[command(flatten)]
+    schema_network: SchemaNetworkArgs,
     #[arg(skip)]
     format_only: bool,
     #[command(flatten)]
@@ -495,6 +497,30 @@ struct LintArgs {
 
     #[command(flatten)]
     lint: LintFlags,
+}
+
+#[derive(clap::Args, Debug, Default)]
+struct SchemaNetworkArgs {
+    /// Grant an exact HTTPS origin for schema retrieval; repeatable
+    #[arg(long = "schema-allow-origin", value_name = "ORIGIN")]
+    allowed_origins: Vec<String>,
+    /// Use cached schemas without DNS or HTTP
+    #[arg(long)]
+    offline: bool,
+    /// Suppress schema download progress
+    #[arg(long)]
+    no_progress: bool,
+}
+
+impl SchemaNetworkArgs {
+    fn configure(&self, no_cache: bool) {
+        ryl::rules::schema::net::configure(ryl::rules::schema::net::Options {
+            allowed_origins: self.allowed_origins.clone(),
+            offline: self.offline,
+            no_progress: self.no_progress,
+            no_cache,
+        });
+    }
 }
 
 /// The inputs and config selection shared by `check` and `format`.
@@ -1435,7 +1461,7 @@ fn main() -> ExitCode {
         Err(err) => {
             // Sanitize: errors embed user-controlled paths/values that could otherwise
             // inject control sequences or a CI workflow command.
-            eprintln!("{}", sanitize_control(&err));
+            eprintln!("{}", ryl::rules::schema::net::redact_message(&err));
             ExitCode::from(2)
         }
     }
@@ -1444,7 +1470,10 @@ fn main() -> ExitCode {
 fn run_cli(cli: &Cli, matches: &ArgMatches) -> Result<ExitCode, String> {
     match &cli.command {
         #[cfg(feature = "lsp")]
-        Some(Commands::Server) => return Ok(ryl::lsp::run()),
+        Some(Commands::Server(args)) => {
+            args.configure(false);
+            return Ok(ryl::lsp::run());
+        }
         // `ryl check`: lint via the subcommand's own args/matches (the `--format`/`--output-file`
         // indices `resolve_cli_targets` reads live in this nested `ArgMatches`, not the root's).
         Some(Commands::Check(args)) => {
@@ -1520,6 +1549,7 @@ fn stdin_requested(source: &SourceArgs) -> Result<bool, String> {
 }
 
 fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
+    args.schema_network.configure(args.source.no_cache);
     if stdin_requested(&args.source)? {
         if args.lint.fix.fix {
             return Err(

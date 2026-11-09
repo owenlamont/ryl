@@ -1264,12 +1264,18 @@ pub struct TagsOptions {
 #[serde(deny_unknown_fields)]
 pub struct SchemaOptions {
     pub schemas: Option<Vec<SchemaAssociation>>,
+    pub pins: Option<std::collections::BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[schemars(extend("oneOf" = json!([
+    {"properties": {"path": {}}, "required": ["path"]},
+    {"properties": {"url": {}}, "required": ["url"]}
+])))]
 pub struct SchemaAssociation {
-    pub path: String,
+    pub path: Option<String>,
+    pub url: Option<String>,
     #[serde(default)]
     pub files: Vec<String>,
 }

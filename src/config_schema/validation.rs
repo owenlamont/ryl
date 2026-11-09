@@ -126,6 +126,24 @@ fn validate_schema_rule(
     let Some(options) = rule_options(entry) else {
         return Ok(());
     };
+    for association in options.specific.schemas.iter().flatten() {
+        if association.path.is_some() == association.url.is_some() {
+            return Err("invalid config: schema association requires exactly one of path or url".to_owned());
+        }
+        #[cfg(not(feature = "schema-network"))]
+        if association.url.is_some() {
+            return Err("invalid config: schema: this build lacks network support (enable schema-network)".to_owned());
+        }
+    }
+    for pin in options.specific.pins.iter().flat_map(|pins| pins.values()) {
+        if !pin.strip_prefix("sha256:").is_some_and(|hex| {
+            hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())
+        }) {
+            return Err(
+                "invalid config: schema pins require sha256:<64 hex>".to_owned()
+            );
+        }
+    }
     for pattern in options
         .specific
         .schemas
