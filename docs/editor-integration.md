@@ -158,7 +158,9 @@ issue tracker: [owenlamont/ryl-vscode](https://github.com/owenlamont/ryl-vscode)
   (plus an explicit `configPath`) and `*.yaml`/`*.yml` sources, for clients that support
   dynamic `didChangeWatchedFiles` registration. Changed `configPath` settings update the
   registration. Local schema roots and local `$ref` dependencies are watched by exact path,
-  including missing files and files with any extension. Creating, saving or deleting a
+  including missing files, symlink targets and files with any extension. Watches are
+  removed when no open document needs them, unless workspace diagnostics are enabled.
+  Creating, saving or deleting a
   dependency revalidates open documents using local-only or mixed schema configurations:
   push clients receive diagnostics; pull clients with refresh support receive a refresh
   request. Unsaved schema buffers are not used. A config change re-lints open documents;

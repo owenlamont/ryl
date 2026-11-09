@@ -93,6 +93,17 @@ impl LocalRetriever {
                 )
             })?
             .to_string();
+        if let Some(dependencies) = &self.dependencies {
+            dependencies
+                .lock()
+                .expect("schema dependencies lock")
+                .insert(
+                    Url::parse(&identity)
+                        .expect("canonical schema file URI")
+                        .to_file_path()
+                        .expect("canonical schema filesystem path"),
+                );
+        }
         if let Some(bytes) = files.contents.get(&identity) {
             let size = bytes.len();
             if size > remaining {

@@ -273,6 +273,109 @@ fn local_schema_watchers_reload_roots_references_missing_files_and_deletions() {
 }
 
 #[test]
+fn symlinked_schema_targets_are_watched_and_revalidated() {
+    for reference in [false, true] {
+        let h = Harness::new("", false);
+        let target = h.dir.path().join("target.data");
+        let alias = h.dir.path().join("alias.data");
+        std::fs::write(&target, r#"{"type":"string"}"#).unwrap();
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&target, &alias);
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_file(&target, &alias);
+        if linked.is_err() {
+            return;
+        }
+        std::fs::write(
+            h.dir.path().join(".ryl.toml"),
+            local_config(if reference { "root.data" } else { "alias.data" }),
+        )
+        .unwrap();
+        if reference {
+            std::fs::write(h.dir.path().join("root.data"), r#"{"$ref":"alias.data"}"#)
+                .unwrap();
+        }
+        let mut client = h.client_options(Limits::default(), watching(), Value::Null);
+        h.open(&client);
+        assert!(client.diagnostics().is_empty());
+        let watchers = schema_registration(&client);
+        let canonical = Url::from_file_path(target.canonicalize().unwrap())
+            .unwrap()
+            .to_file_path()
+            .unwrap();
+        for path in [&alias, &canonical] {
+            assert!(watchers.as_array().unwrap().contains(&json!({"globPattern": globset::escape(&path.to_string_lossy().replace('\\', "/"))})));
+        }
+        std::fs::write(&target, r#"{"type":"integer"}"#).unwrap();
+        changed_schema(&client, h.dir.path(), "target.data", 2);
+        assert_eq!(await_schema(&client).len(), 1);
+        std::fs::remove_file(&alias).unwrap();
+        std::fs::write(&alias, r#"{"type":"string"}"#).unwrap();
+        changed_schema(&client, h.dir.path(), "alias.data", 2);
+        assert!(client.diagnostics().is_empty());
+        client.shutdown();
+    }
+}
+
+#[test]
+fn closing_documents_removes_only_unused_schema_watchers() {
+    for mixed in [false, true] {
+        for workspace in [false, true] {
+            let h = Harness::new(ORIGIN, false);
+            let mut config_text = local_config("root.data");
+            if mixed {
+                config_text = config_text.replace("*.yaml", "local.yaml");
+                config_text.push_str(&config(ROOT));
+            }
+            std::fs::write(h.dir.path().join(".ryl.toml"), config_text).unwrap();
+            std::fs::write(h.dir.path().join("root.data"), "true").unwrap();
+            std::fs::write(h.dir.path().join("test.yaml"), "text\n").unwrap();
+            let mut client = h.client_options(
+                Limits::default(),
+                watching(),
+                if workspace {
+                    workspace_mode()
+                } else {
+                    Value::Null
+                },
+            );
+            let first = h.open(&client);
+            schema_registration(&client);
+            if mixed {
+                await_schema(&client);
+            }
+            let second = file_uri(h.dir.path(), "second.yaml");
+            client.notify("textDocument/didOpen", json!({"textDocument":{"uri":second,"languageId":"yaml","version":1,"text":"text\n"}}));
+            let barrier = client.request(UNHANDLED_METHOD, Value::Null);
+            client.messages_until_response(&barrier);
+            for (uri, last) in [(first, false), (second, true)] {
+                client.notify(
+                    "textDocument/didClose",
+                    json!({"textDocument":{"uri":uri}}),
+                );
+                let barrier = client.request(UNHANDLED_METHOD, Value::Null);
+                let (messages, _) = client.messages_until_response(&barrier);
+                let unregistered = messages.iter().any(|message| matches!(message, Message::Request(request) if request.method == "client/unregisterCapability" && request.params["unregisterations"][0]["id"] == "ryl-watch-schemas"));
+                assert_eq!(
+                    unregistered,
+                    last && !workspace,
+                    "mixed={mixed}, workspace={workspace}, last={last}"
+                );
+            }
+            let id = client.request(
+                "textDocument/diagnostic",
+                json!({"textDocument":{"uri":file_uri(h.dir.path(), "test.yaml")}}),
+            );
+            client.response(&id).response_result.unwrap();
+            let barrier = client.request(UNHANDLED_METHOD, Value::Null);
+            let (messages, _) = client.messages_until_response(&barrier);
+            assert!(!messages.iter().any(|message| matches!(message, Message::Request(request) if request.params["registrations"][0]["id"] == "ryl-watch-schemas")));
+            client.shutdown();
+        }
+    }
+}
+
+#[test]
 fn local_schema_watching_refreshes_pull_diagnostics() {
     let h = Harness::new("", false);
     std::fs::write(h.dir.path().join(".ryl.toml"), local_config("root.data")).unwrap();

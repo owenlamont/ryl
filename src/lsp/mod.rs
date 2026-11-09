@@ -724,7 +724,7 @@ impl Server {
             {
                 let uri = params.text_document.uri;
                 self.documents.remove(uri.as_str());
-                self.cancel_unobserved_schemas();
+                self.close_schema_document(uri.as_str());
                 if self.delivery == Delivery::Pull
                     && !self.settings.reports_workspace()
                     && let Some(path) = uri_to_path(uri.as_str())
@@ -1461,7 +1461,12 @@ fn resolve_for_path(
     let context =
         discover_config_with(std::slice::from_ref(&path), &settings.overrides(), &env);
     if require_rules && let Some(session) = &settings.schema {
-        session.record_dependencies(path.clone(), &env, generation);
+        session.record_dependencies(
+            path.clone(),
+            &env,
+            generation,
+            context.as_ref().ok(),
+        );
     }
     let mut context = context?;
     if context.config.needs_remote_preparation() {

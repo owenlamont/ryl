@@ -479,6 +479,11 @@ impl Env for SchemaEnv<'_> {
     }
 }
 
+pub(super) struct DocumentDependencies {
+    paths: BTreeSet<PathBuf>,
+    service_key: Option<String>,
+}
+
 pub(super) struct Session {
     pub(super) generation: std::sync::atomic::AtomicU64,
     pub(super) env: Arc<dyn Env + Send + Sync>,
@@ -486,7 +491,7 @@ pub(super) struct Session {
     pub(super) events: Sender<super::Event>,
     pub(super) service: std::sync::OnceLock<Arc<Service>>,
     pub(super) dependencies:
-        std::sync::OnceLock<Mutex<BTreeMap<PathBuf, BTreeSet<PathBuf>>>>,
+        std::sync::OnceLock<Mutex<BTreeMap<PathBuf, DocumentDependencies>>>,
 }
 impl Session {
     pub(super) fn record_dependencies(
@@ -494,6 +499,7 @@ impl Session {
         path: PathBuf,
         env: &SchemaEnv<'_>,
         generation: u64,
+        context: Option<&ConfigContext>,
     ) {
         let paths = env.take_dependencies();
         if env.dependencies.get().is_none() {
@@ -512,21 +518,38 @@ impl Session {
             .lock()
             .expect("schema dependencies lock");
         if self.generation.load(Ordering::Relaxed) == generation {
-            dependencies.insert(path, paths);
+            dependencies.insert(
+                path,
+                DocumentDependencies {
+                    paths,
+                    service_key: context
+                        .filter(|context| context.config.needs_remote_preparation())
+                        .map(|context| {
+                            format!(
+                                "{}:{:?}",
+                                context.base_dir.display(),
+                                context.config
+                            )
+                        }),
+                },
+            );
         }
     }
 
-    pub(super) fn dependency_paths(&self) -> BTreeSet<PathBuf> {
+    fn dependency_paths(
+        &self,
+        mut tracked: impl FnMut(&Path) -> bool,
+    ) -> BTreeSet<PathBuf> {
         let mut paths = BTreeSet::new();
+        let mut service_keys = BTreeSet::new();
         if let Some(dependencies) = self.dependencies.get() {
-            paths.extend(
-                dependencies
-                    .lock()
-                    .expect("schema dependencies lock")
-                    .values()
-                    .flatten()
-                    .cloned(),
-            );
+            let mut dependencies =
+                dependencies.lock().expect("schema dependencies lock");
+            dependencies.retain(|path, _| tracked(path));
+            for dependency in dependencies.values() {
+                paths.extend(dependency.paths.iter().cloned());
+                service_keys.extend(dependency.service_key.iter().cloned());
+            }
         }
         if let Some(service) = self.service.get() {
             paths.extend(
@@ -535,8 +558,9 @@ impl Session {
                     .lock()
                     .expect("schema service lock")
                     .entries
-                    .values()
-                    .flat_map(|entry| entry.dependencies.iter().cloned()),
+                    .iter()
+                    .filter(|(key, _)| service_keys.contains(*key))
+                    .flat_map(|(_, entry)| entry.dependencies.iter().cloned()),
             );
         }
         paths
@@ -565,17 +589,26 @@ fn origin_title(prefix: &str, origin: &str) -> String {
 }
 
 impl super::Server {
+    fn schema_dependency_paths(&self) -> BTreeSet<PathBuf> {
+        self.settings
+            .schema
+            .as_ref()
+            .expect("schema session")
+            .dependency_paths(|path| {
+                self.settings.reports_workspace()
+                    || self
+                        .documents
+                        .keys()
+                        .any(|uri| self.uri_path(uri).0 == path)
+            })
+    }
+
     pub(super) fn watched_files_changed(
         &mut self,
         connection: &lsp_server::Connection,
         params: &serde_json::Value,
     ) {
-        let paths = self
-            .settings
-            .schema
-            .as_ref()
-            .expect("schema session")
-            .dependency_paths();
+        let paths = self.schema_dependency_paths();
         let is_dependency = |path: &Path| {
             paths.iter().any(|dependency| {
                 crate::config::paths_equal(
@@ -605,12 +638,7 @@ impl super::Server {
         if !self.supports_watch_registration {
             return;
         }
-        let paths = self
-            .settings
-            .schema
-            .as_ref()
-            .expect("schema session")
-            .dependency_paths();
+        let paths = self.schema_dependency_paths();
         if paths == self.schema_watches {
             return;
         }
@@ -672,6 +700,25 @@ impl super::Server {
         {
             service.cancel_pending();
         }
+    }
+
+    pub(super) fn close_schema_document(&self, uri: &str) {
+        if !self.settings.reports_workspace()
+            && let Some(dependencies) = self
+                .settings
+                .schema
+                .as_ref()
+                .expect("schema session")
+                .dependencies
+                .get()
+        {
+            let (path, _) = self.uri_path(uri);
+            dependencies
+                .lock()
+                .expect("schema dependencies lock")
+                .remove(&path);
+        }
+        self.cancel_unobserved_schemas();
     }
 
     pub(super) fn invalidate_schemas(&mut self, connection: &lsp_server::Connection) {
