@@ -302,6 +302,24 @@ fn blocked_schema_diagnostic_source_read_keeps_dispatch_responsive() {
 }
 
 #[test]
+fn watched_file_invalidation_preserves_pending_approval() {
+    let h = Harness::new("", false);
+    let mut client = h.client(Limits::default());
+    h.open(&client);
+    let request = prompt(&client);
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({"changes":[{"uri":file_uri(h.dir.path(), "unrelated.yaml"),"type":2}]}),
+    );
+    let barrier = client.request("ryl/unrelated", json!({}));
+    client.response(&barrier);
+    answer(&client, request, Some("Allow once"));
+    assert_eq!(await_schema(&client).len(), 1);
+    assert_eq!(h.calls(), 1);
+    client.shutdown();
+}
+
+#[test]
 fn remote_schema_allow_once_names_redacted_urls_and_reuses_session_grant() {
     let h = Harness::new("", false);
     let mut client = h.client(Limits::default());
