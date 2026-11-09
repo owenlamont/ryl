@@ -94,7 +94,15 @@ fn file_uri(dir: &Path, name: &str) -> Uri {
 /// A temp project directory carrying a `.ryl.toml`; the adjacent config shields
 /// discovery from any stray config higher up the tree.
 fn project(config: &str) -> TempDir {
-    let dir = tempdir().expect("tempdir");
+    // Windows CI's TEMP is an 8.3 short path, but schema watchers register canonical paths.
+    let parent = std::env::temp_dir()
+        .canonicalize()
+        .expect("canonical temp dir");
+    let parent = parent
+        .to_str()
+        .and_then(|path| path.strip_prefix(r"\\?\"))
+        .map_or_else(|| parent.clone(), std::path::PathBuf::from);
+    let dir = tempfile::tempdir_in(parent).expect("tempdir");
     std::fs::write(dir.path().join(".ryl.toml"), config).expect("write config");
     dir
 }
