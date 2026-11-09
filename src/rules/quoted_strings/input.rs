@@ -145,6 +145,13 @@ pub(super) fn constrain_keys(
     use ryl_yaml_parser::Event;
 
     let buffer = input.text();
+    let grows = |&(start, end, ref spelling): &super::Replacement| {
+        spelling.as_str().chars().count()
+            > buffer[start.get()..end.get()].chars().count()
+    };
+    if !replacements.iter().any(grows) {
+        return Vec::new();
+    }
     let mut indicators = input
         .tokens()
         .iter(buffer)
@@ -188,11 +195,12 @@ pub(super) fn constrain_keys(
         }
     }
     let mut refusals = Vec::new();
-    replacements.retain(|(start, end, spelling)| {
-        let after = spelling.as_str().chars().count();
-        if after <= buffer[start.get()..end.get()].chars().count() {
+    replacements.retain(|replacement| {
+        if !grows(replacement) {
             return true;
         }
+        let (start, end, spelling) = replacement;
+        let after = spelling.as_str().chars().count();
         let before = keys.partition_point(|&(key, _, _)| super::marker_byte_offset(key).get() <= start.get());
         let Some(&(key, key_end, collection_key)) = before.checked_sub(1).map(|index| &keys[index]) else {
             return true;
