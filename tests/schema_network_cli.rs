@@ -151,6 +151,12 @@ fn server_configuration_refuses_remote_associations_before_network() {
     assert!(error.contains("not supported by ryl server yet"), "{error}");
     #[cfg(not(feature = "schema-network"))]
     assert!(error.contains("lacks network support"), "{error}");
+    use ryl::config::Env as _;
+    assert_eq!(
+        ryl::config::ServerEnv.home_dir(),
+        ryl::config::SystemEnv.home_dir(),
+        "the server reads the same home directory as the CLI whatever XDG_CONFIG_HOME holds"
+    );
 }
 
 #[cfg(all(target_os = "linux", feature = "schema-network"))]
