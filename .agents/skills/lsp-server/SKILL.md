@@ -101,9 +101,8 @@ Schema association source text is read by the schema worker before taking its st
 `ServerEnv` returns typed `NeedsRemotePreparation` through the resolved config at the
 first remote resource; local schemas retain normal preparation. `schema_preparation`
 owns a lazy single worker shared by document diagnostics and workspace scans. The
-service caps queued or running remote preparations at 16; contexts awaiting approval and
-completed contexts remain until superseded or invalidated and do not count toward
-saturation. Non-config watched-file notifications invalidate preparations so local schemas
+service keeps one queued entry per config and processes entries in order. Non-config
+watched-file notifications invalidate preparations so local schemas
 are re-read; session grants
 and the HTTP cache survive. Queued
 preparations have a 65-second deadline from enqueue; cancellation and expiry are terminal.
@@ -112,18 +111,18 @@ entries for the same config. Dispatch returns a config-error diagnostic while
 preparation is pending and refreshes diagnostics when work completes. No fetch runs on
 dispatch or under the service state lock. Formatting skips schema preparation.
 
-Unapproved origins produce `window/showMessageRequest`: Allow once / Always allow
-`<origin>` / Don't allow. Null and dismissal deny until configuration changes; after
-30 seconds an unanswered prompt frees a slot but a later explicit approval still applies.
-The Allow `<origin>` quick fix reopens the prompt via `ryl.allowSchemaOrigin`.
-Always allow persists on the same worker through a bounded queue and returns an event
-for dispatch to apply the session grant; failed saves report a config error and still
-grant session access.
+Unapproved origins produce approval diagnostics with Always allow `<origin>` and
+Allow once `<origin>` quick fixes through `ryl.allowSchemaOrigin`. The optional second
+command argument selects persistence (default true); false grants only session access.
+There are no approval dialogs. Always allow persists on the same worker and returns an
+event for dispatch to apply the session grant; failed saves report a config error and
+still grant session access.
 Allowlist updates hold an exclusive sibling-file advisory lock across read-modify-rename;
 acquisition retries for at most 250 ms before reporting a failure and granting session access.
-Grants come only from launcher flags/environment, the user allowlist and session answers.
-Offline suppresses prompts and networking. `serve_with_schema_env` injects trusted test
-environment/dependencies and bounds; `tests/lsp_server/schema.rs` scripts client answers.
+Grants come only from launcher flags/environment, the user allowlist and approval commands.
+Offline disables approval actions and networking. `serve_with_schema_env` injects trusted
+test environment/dependencies and deadlines; `tests/lsp_server/schema.rs` executes
+approval commands.
 
 Config-file changes go through `handle_config_change` via a dynamic
 `didChangeWatchedFiles` registration: a push client gets a re-lint+re-push, a pull

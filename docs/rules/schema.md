@@ -55,15 +55,14 @@ Remote associations require a default-on `schema-network` build. A project reque
 resources; grants come only from the launcher or user allowlist, including offline.
 Every retrieved reference needs a grant for the resolved origin, even after `$id` rebasing.
 `ryl server` prepares remote schemas in the background. Before accessing an ungranted
-origin, the server lists the requested URLs and offers **Allow once**, **Always allow
-`<origin>`**, or **Don't allow**. Allow once lasts for the server session; Always allow
-atomically updates the user allowlist, refusing symlinks and non-regular files. A failed
-save reports a configuration error and still grants access for the session. Dismissal or
-a 30-second timeout
-denies access until configuration changes. The **Allow `<origin>`** quick fix reopens
-the approval request. Workspace settings and project configuration cannot grant access.
+origin, the server reports an approval diagnostic on the affected file and configuration.
+Use **Always allow `<origin>`** or **Allow once `<origin>`** from the diagnostic's quick
+fixes. Allow once lasts for the server session; Always allow atomically updates the user
+allowlist, refusing symlinks and non-regular files. A failed save reports a configuration
+error and still grants access for the session. Workspace settings and project
+configuration cannot grant access.
 
-`server --offline` and `RYL_OFFLINE=1` suppress prompts and all DNS/HTTP access;
+`server --offline` and `RYL_OFFLINE=1` disable approval actions and all DNS/HTTP access;
 granted origins can still use cached schemas. Formatting never retrieves schemas.
 
 <!-- ryl-config-check: skip -->
@@ -142,8 +141,8 @@ does not load lint schemas.
   [Python jsonschema's `best_match` heuristic](https://github.com/python-jsonschema/jsonschema/blob/main/jsonschema/exceptions.py).
   Equally ranked branches retain the summary. Messages mask instance values.
 
-Editor diagnostics use the same engine. Schema-file edits take effect when the
-configuration reloads; schema-file watching, hover and completion are separate work.
+Editor diagnostics use the same engine. Watched schema-file edits invalidate prepared
+schemas and revalidate affected documents. Schema hover and completion are separate work.
 
 Sources: [JSON Schema](https://json-schema.org/specification),
 [YAML 1.2.2](https://yaml.org/spec/1.2.2/).

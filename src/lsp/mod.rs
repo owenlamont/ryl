@@ -194,8 +194,6 @@ pub fn serve_with_schema_env(
         pull: None,
         closed: HashSet::new(),
         revision: 0,
-        schema_prompts: HashMap::new(),
-        schema_prompted: HashSet::new(),
         schema_config_diagnostics: HashMap::new(),
         scan_tx,
         scan_rx,
@@ -543,8 +541,6 @@ struct Server {
     /// made where the session state lives.
     scan_tx: Sender<Event>,
     scan_rx: Receiver<Event>,
-    schema_prompts: HashMap<RequestId, (String, Instant)>,
-    schema_prompted: HashSet<String>,
     schema_config_diagnostics: HashMap<String, lsp_types::Uri>,
 }
 
@@ -627,7 +623,7 @@ impl Server {
                             }
                             self.handle_notification(connection, notification);
                         }
-                        Message::Response(response) => self.schema_response(connection, &response),
+                        Message::Response(_) => {},
                     }
                 }
                 recv(scans) -> result => {
@@ -652,7 +648,7 @@ impl Server {
         let Request { id, method, params } = request;
         match method.as_str() {
             "workspace/executeCommand" => {
-                let result = self.schema_command(connection, &params);
+                let result = self.schema_command(&params);
                 respond(connection, id, result);
             }
             "textDocument/codeAction" => {

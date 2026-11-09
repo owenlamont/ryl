@@ -170,16 +170,12 @@ impl Harness {
 fn config(url: &str) -> String {
     format!("[[lint.rules.schema.schemas]]\nfiles = ['*.yaml']\nurl = '{url}'\n")
 }
-fn prompt(client: &Client) -> Request {
-    let request = client.recv_request();
-    assert_eq!(request.method, "window/showMessageRequest");
-    request
-}
-fn answer(client: &Client, request: Request, title: Option<&str>) {
-    client.send_raw(Message::Response(Response::new_ok(
-        request.id,
-        title.map(|title| json!({"title":title})),
-    )));
+fn approve(client: &mut Client, origin: &str, persist: bool) {
+    let id = client.request(
+        "workspace/executeCommand",
+        json!({"command":"ryl.allowSchemaOrigin","arguments":[origin, persist]}),
+    );
+    client.response(&id).response_result.unwrap();
 }
 fn await_schema(client: &Client) -> Vec<Diagnostic> {
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -217,7 +213,8 @@ fn watched_local_schema_changes_reload_mixed_and_local_only_configs() {
         let mut client = h.client(Limits::default());
         if mixed {
             client.did_open(file_uri(h.dir.path(), "remote.yaml"), "text\n");
-            answer(&client, prompt(&client), Some("Allow once"));
+            await_error(&client, "approval required");
+            approve(&mut client, ORIGIN, false);
             await_schema(&client);
         }
         let uri = file_uri(h.dir.path(), "local.yaml");
@@ -267,11 +264,8 @@ fn allowlist_lock_timeout_keeps_session_grant() {
     lock.lock().unwrap();
     let mut client = h.client(Limits::default());
     h.open(&client);
-    answer(
-        &client,
-        prompt(&client),
-        Some(&format!("Always allow {ORIGIN}")),
-    );
+    await_error(&client, "approval required");
+    approve(&mut client, ORIGIN, true);
     assert_eq!(await_schema(&client).len(), 1);
     assert_eq!(h.calls(), 1);
     assert!(!parent.join("allowed-schema-origins").exists());
@@ -297,7 +291,7 @@ fn blocked_schema_diagnostic_source_read_keeps_dispatch_responsive() {
     let response = client.response(&id);
     release.send(()).unwrap();
     assert!(response.response_result.is_err());
-    prompt(&client);
+    await_error(&client, "approval required");
     client.shutdown();
 }
 
@@ -306,35 +300,52 @@ fn watched_file_invalidation_preserves_pending_approval() {
     let h = Harness::new("", false);
     let mut client = h.client(Limits::default());
     h.open(&client);
-    let request = prompt(&client);
+    await_error(&client, "approval required");
+    client.assert_alive();
     client.notify(
         "workspace/didChangeWatchedFiles",
         json!({"changes":[{"uri":file_uri(h.dir.path(), "unrelated.yaml"),"type":2}]}),
     );
-    let barrier = client.request("ryl/unrelated", json!({}));
-    client.response(&barrier);
-    answer(&client, request, Some("Allow once"));
+    await_error(&client, "approval required");
+    approve(&mut client, ORIGIN, false);
     assert_eq!(await_schema(&client).len(), 1);
     assert_eq!(h.calls(), 1);
     client.shutdown();
 }
 
 #[test]
-fn remote_schema_allow_once_names_redacted_urls_and_reuses_session_grant() {
+fn closing_documents_retains_approval_and_completed_preparations() {
+    let h = Harness::new("", false);
+    let mut client = h.client(Limits::default());
+    let uri = h.open(&client);
+    await_error(&client, "approval required");
+    client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+    client.assert_alive();
+    h.open(&client);
+    await_error(&client, "approval required");
+    approve(&mut client, ORIGIN, false);
+    await_schema(&client);
+    approve(&mut client, ORIGIN, true);
+    client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+    client.assert_alive();
+    assert_eq!(h.calls(), 1);
+    assert!(
+        !h.dir
+            .path()
+            .join("user/ryl/allowed-schema-origins")
+            .exists()
+    );
+    client.shutdown();
+}
+
+#[test]
+fn remote_schema_allow_once_does_not_persist_grant() {
     let h = Harness::new("", false);
     let mut client = h.client(Limits::default());
     h.open(&client);
-    let request = prompt(&client);
+    await_error(&client, "approval required");
     assert_eq!(h.calls(), 0);
-    assert_eq!(
-        request.params["message"],
-        "ryl: allow remote schema access? Origin: https://schemas.example.org/ URLs: https://schemas.example.org/root.json?***"
-    );
-    assert_eq!(
-        request.params["actions"],
-        json!([{"title":"Allow once"},{"title":format!("Always allow {ORIGIN}")},{"title":"Don't allow"}])
-    );
-    answer(&client, request, Some("Allow once"));
+    approve(&mut client, ORIGIN, false);
     assert_eq!(await_schema(&client).len(), 1);
     assert_eq!(h.calls(), 1);
     assert!(
@@ -351,11 +362,8 @@ fn remote_schema_always_allow_persists_and_new_session_uses_user_grant() {
     let h = Harness::new("", false);
     let mut client = h.client(Limits::default());
     h.open(&client);
-    answer(
-        &client,
-        prompt(&client),
-        Some(&format!("Always allow {ORIGIN}")),
-    );
+    await_error(&client, "approval required");
+    approve(&mut client, ORIGIN, true);
     await_schema(&client);
     assert_eq!(
         std::fs::read_to_string(h.dir.path().join("user/ryl/allowed-schema-origins"))
@@ -372,42 +380,38 @@ fn remote_schema_always_allow_persists_and_new_session_uses_user_grant() {
 }
 
 #[test]
-fn remote_schema_denial_and_null_do_not_reprompt_on_document_changes() {
-    for title in [Some("Don't allow"), None, Some("unrecognised")] {
+fn remote_schema_code_actions_approve_without_prompt() {
+    for persist in [true, false] {
         let h = Harness::new("", false);
         let mut client = h.client(Limits::default());
         let uri = h.open(&client);
-        answer(&client, prompt(&client), title);
-        client.assert_alive();
-        client.notify("textDocument/didChange", json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":"other\n"}]}));
-        let id = client.request(UNHANDLED_METHOD, Value::Null);
-        let (messages, _) = client.messages_until_response(&id);
+        await_error(&client, "approval required");
+        let diagnostic = Diagnostic {
+            message: "schema origin approval required".to_owned(),
+            source: Some("ryl".to_owned()),
+            ..Default::default()
+        };
+        let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":uri},"range":Range::default(),"context":{"diagnostics":[diagnostic]}}));
+        let (messages, response) = client.messages_until_response(&id);
         assert!(!messages.iter().any(|message| matches!(message, Message::Request(request) if request.method == "window/showMessageRequest")));
-        assert_eq!(h.calls(), 0);
+        let actions = response.response_result.unwrap();
+        assert_eq!(actions.as_array().unwrap().len(), 2);
+        assert_eq!(actions[0]["title"], format!("Always allow {ORIGIN}"));
+        assert_eq!(actions[1]["title"], format!("Allow once {ORIGIN}"));
+        let action = &actions[usize::from(!persist)];
+        let id = client.request("workspace/executeCommand", action["command"].clone());
+        client.response(&id).response_result.unwrap();
+        await_schema(&client);
+        assert_eq!(h.calls(), 1);
+        assert_eq!(
+            h.dir
+                .path()
+                .join("user/ryl/allowed-schema-origins")
+                .exists(),
+            persist
+        );
         client.shutdown();
     }
-}
-
-#[test]
-fn remote_schema_code_action_recovers_dismissed_prompt() {
-    let h = Harness::new("", false);
-    let mut client = h.client(Limits::default());
-    let uri = h.open(&client);
-    answer(&client, prompt(&client), None);
-    let diagnostic = Diagnostic {
-        message: "schema origin approval required".to_owned(),
-        source: Some("ryl".to_owned()),
-        ..Default::default()
-    };
-    let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":uri},"range":Range::default(),"context":{"diagnostics":[diagnostic]}}));
-    let actions = client.response(&id).response_result.unwrap();
-    assert_eq!(actions[0]["title"], format!("Allow {ORIGIN}"));
-    let id = client.request("workspace/executeCommand", actions[0]["command"].clone());
-    let request = prompt(&client);
-    answer(&client, request, Some("Allow once"));
-    client.response(&id);
-    await_schema(&client);
-    client.shutdown();
 }
 
 #[test]
@@ -464,31 +468,6 @@ fn await_error(client: &Client, needle: &str) {
 }
 
 #[test]
-fn remote_schema_late_answers_honour_once_and_permanent_approval() {
-    for title in ["Allow once".to_owned(), format!("Always allow {ORIGIN}")] {
-        let h = Harness::new("", false);
-        let mut client = h.client(Limits {
-            prompt: Duration::ZERO,
-            ..Limits::default()
-        });
-        h.open(&client);
-        let request = prompt(&client);
-        client.assert_alive();
-        answer(&client, request, Some(&title));
-        await_schema(&client);
-        assert_eq!(h.calls(), 1);
-        assert_eq!(
-            h.dir
-                .path()
-                .join("user/ryl/allowed-schema-origins")
-                .exists(),
-            title.starts_with("Always")
-        );
-        client.shutdown();
-    }
-}
-
-#[test]
 fn approval_diagnostics_on_open_documents_match_config_and_offer_quickfix() {
     for (pull, name) in [
         (false, "test.yaml"),
@@ -511,12 +490,11 @@ fn approval_diagnostics_on_open_documents_match_config_and_offer_quickfix() {
         let mut client = h.client_options(Limits::default(), capabilities, Value::Null);
         let uri = file_uri(h.dir.path(), name);
         client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":"text\n"}}));
-        let mut requests = Vec::new();
         let mut config_diagnostics = Vec::new();
         let mut source_diagnostics = Vec::new();
-        while requests.len() < 2 || config_diagnostics.is_empty() {
+        while config_diagnostics.is_empty() {
             match client.recv() {
-                Message::Request(request) => requests.push(request),
+                Message::Request(request) => panic!("unexpected request: {request:?}"),
                 Message::Notification(note)
                     if note.method == "textDocument/publishDiagnostics" =>
                 {
@@ -530,10 +508,6 @@ fn approval_diagnostics_on_open_documents_match_config_and_offer_quickfix() {
                 }
                 _ => {}
             }
-        }
-        for request in requests {
-            assert_eq!(request.method, "window/showMessageRequest");
-            answer(&client, request, None);
         }
         let id = client.request(
             "textDocument/diagnostic",
@@ -559,7 +533,7 @@ fn approval_diagnostics_on_open_documents_match_config_and_offer_quickfix() {
         }
         let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":uri},"range":Range::default(),"context":{"diagnostics":diagnostics}}));
         let actions = client.response(&id).response_result.unwrap();
-        assert_eq!(actions.as_array().unwrap().len(), 2);
+        assert_eq!(actions.as_array().unwrap().len(), 4);
         std::fs::write(h.dir.path().join(".ryl.toml"), TRAILING).unwrap();
         client.notify(
             "workspace/didChangeWatchedFiles",
@@ -580,7 +554,7 @@ fn remote_schema_always_allow_refuses_symlinked_allowlist() {
     let h = Harness::new("", false);
     let mut client = h.client(Limits::default());
     h.open(&client);
-    let request = prompt(&client);
+    await_error(&client, "approval required");
     let target = h.dir.path().join("target");
     std::fs::write(&target, "").unwrap();
     std::fs::create_dir_all(h.dir.path().join("user/ryl")).unwrap();
@@ -589,7 +563,7 @@ fn remote_schema_always_allow_refuses_symlinked_allowlist() {
         h.dir.path().join("user/ryl/allowed-schema-origins"),
     )
     .unwrap();
-    answer(&client, request, Some(&format!("Always allow {ORIGIN}")));
+    approve(&mut client, ORIGIN, true);
     loop {
         if let Message::Notification(note) = client.recv()
             && note.method == "window/showMessage"
@@ -603,146 +577,6 @@ fn remote_schema_always_allow_refuses_symlinked_allowlist() {
     }
     assert_eq!(std::fs::read_to_string(target).unwrap(), "");
     assert_eq!(h.calls(), 0);
-    client.shutdown();
-}
-
-#[test]
-fn closed_denied_configs_do_not_block_new_origin_approval() {
-    let h = Harness::new("", false);
-    let mut client = h.client(Limits::default());
-    let mut uris = Vec::new();
-    for index in 0..16 {
-        let directory = h.dir.path().join(index.to_string());
-        std::fs::create_dir(&directory).unwrap();
-        std::fs::write(directory.join(".ryl.toml"), config(ROOT)).unwrap();
-        let uri = file_uri(&directory, "test.yaml");
-        client.did_open(uri.clone(), "text\n");
-        if index == 0 {
-            answer(&client, prompt(&client), Some("Don't allow"));
-            let id = client.request(
-                "textDocument/diagnostic",
-                json!({"textDocument":{"uri":uri}}),
-            );
-            assert!(
-                pull_items(client.response(&id))[0]
-                    .message
-                    .contains("approval required")
-            );
-            uris.push(uri);
-            continue;
-        }
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            let message = client
-                .conn()
-                .receiver
-                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-                .unwrap();
-            if let Message::Notification(note) = message
-                && note.method == "textDocument/publishDiagnostics"
-            {
-                let report: PublishDiagnosticsParams =
-                    serde_json::from_value(note.params).unwrap();
-                if report.uri == uri
-                    && report.diagnostics.iter().any(|diagnostic| {
-                        diagnostic.message.contains("approval required")
-                    })
-                {
-                    break;
-                }
-            }
-        }
-        uris.push(uri);
-    }
-    for uri in uris {
-        client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
-    }
-    let other = "https://new.example.org/root.json";
-    let directory = h.dir.path().join("last");
-    std::fs::create_dir(&directory).unwrap();
-    std::fs::write(directory.join(".ryl.toml"), config(other)).unwrap();
-    client.did_open(file_uri(&directory, "test.yaml"), "text\n");
-    let request = prompt(&client);
-    assert!(
-        request.params["message"]
-            .as_str()
-            .unwrap()
-            .contains("https://new.example.org")
-    );
-    answer(&client, request, Some("Don't allow"));
-    assert_eq!(h.calls(), 0);
-    client.shutdown();
-}
-
-#[test]
-fn only_in_flight_schema_preparations_saturate() {
-    let h = Harness::new(ORIGIN, false);
-    let (release, gate) = std::sync::mpsc::channel();
-    *h.env.remote.gate.lock().unwrap() = Some(gate);
-    let mut client = h.client(Limits {
-        pending: 2,
-        ..Limits::default()
-    });
-    let waiting = h.dir.path().join("waiting");
-    std::fs::create_dir(&waiting).unwrap();
-    std::fs::write(
-        waiting.join(".ryl.toml"),
-        config("https://waiting.example.org/root.json"),
-    )
-    .unwrap();
-    client.did_open(file_uri(&waiting, "test.yaml"), "text\n");
-    let approval = prompt(&client);
-    h.open(&client);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while h.calls() == 0 {
-        assert!(Instant::now() < deadline);
-        thread::yield_now();
-    }
-    std::fs::create_dir(h.dir.path().join("nested")).unwrap();
-    std::fs::write(h.dir.path().join("nested/.ryl.toml"), config(ROOT)).unwrap();
-    let uri = file_uri(h.dir.path(), "nested/other.yaml");
-    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":"text\n"}}));
-    let id = client.request(
-        "textDocument/diagnostic",
-        json!({"textDocument":{"uri":uri}}),
-    );
-    assert!(
-        pull_items(client.response(&id))[0]
-            .message
-            .contains("preparation pending")
-    );
-    let saturated = h.dir.path().join("saturated");
-    std::fs::create_dir(&saturated).unwrap();
-    std::fs::write(saturated.join(".ryl.toml"), config(ROOT)).unwrap();
-    let uri = file_uri(&saturated, "other.yaml");
-    client.did_open(uri.clone(), "text\n");
-    await_error(&client, "saturated");
-    client.assert_alive();
-    release.send(()).unwrap();
-    await_schema(&client);
-    client.did_change(uri.clone(), "other\n");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let message = client
-            .conn()
-            .receiver
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .unwrap();
-        if let Message::Notification(note) = message
-            && note.method == "textDocument/publishDiagnostics"
-        {
-            let report: PublishDiagnosticsParams =
-                serde_json::from_value(note.params).unwrap();
-            if report.uri == uri
-                && report.diagnostics.iter().any(|diagnostic| {
-                    diagnostic.code == Some(NumberOrString::String("schema".to_owned()))
-                })
-            {
-                break;
-            }
-        }
-    }
-    answer(&client, approval, Some("Don't allow"));
     client.shutdown();
 }
 
@@ -777,7 +611,6 @@ fn remote_schema_enqueue_deadline_is_visible_without_fetching() {
     let h = Harness::new(ORIGIN, false);
     let mut client = h.client(Limits {
         preparation: Duration::ZERO,
-        ..Limits::default()
     });
     h.open(&client);
     await_error(&client, "deadline exceeded");
@@ -801,10 +634,9 @@ fn remote_schema_transitive_origin_needs_its_own_grant() {
         .insert(other.to_owned(), br#"{"type":"integer"}"#.to_vec());
     let mut client = h.client(Limits::default());
     h.open(&client);
-    let request = prompt(&client);
-    assert!(request.params["message"].as_str().unwrap().contains(other));
+    await_error(&client, "approval required");
     assert_eq!(h.calls(), 1);
-    answer(&client, request, Some("Allow once"));
+    approve(&mut client, "https://other.example.org", false);
     await_schema(&client);
     assert_eq!(h.calls(), 2);
     client.shutdown();
@@ -825,14 +657,15 @@ fn local_schema_remote_reference_defers_without_fetching() {
     .unwrap();
     let mut client = h.client(Limits::default());
     h.open(&client);
-    answer(&client, prompt(&client), Some("Allow once"));
+    await_error(&client, "approval required");
+    approve(&mut client, ORIGIN, false);
     await_schema(&client);
     assert_eq!(h.calls(), 1);
     client.shutdown();
 }
 
 #[test]
-fn all_remote_association_origins_are_prompted_before_first_fetch() {
+fn all_remote_association_origins_need_approval_before_first_fetch() {
     let h = Harness::new("", false);
     let other = "https://other.example.org/type.json";
     std::fs::write(
@@ -848,11 +681,10 @@ fn all_remote_association_origins_are_prompted_before_first_fetch() {
         .insert(other.to_owned(), br#"{"type":"integer"}"#.to_vec());
     let mut client = h.client(Limits::default());
     h.open(&client);
-    let first = prompt(&client);
-    let second = prompt(&client);
+    await_error(&client, "approval required");
     assert_eq!(h.calls(), 0);
-    answer(&client, first, Some("Allow once"));
-    answer(&client, second, Some("Allow once"));
+    approve(&mut client, ORIGIN, false);
+    approve(&mut client, "https://other.example.org", false);
     await_schema(&client);
     assert_eq!(h.calls(), 2);
     client.shutdown();
@@ -902,55 +734,18 @@ fn formatting_does_not_prepare_newly_configured_remote_schemas() {
 }
 
 #[test]
-fn remote_schema_prompt_cannot_display_control_bidi_or_query_secrets() {
-    let h = Harness::new("", false);
-    std::fs::write(
-        h.dir.path().join(".ryl.toml"),
-        config("https://schemas.example.org/\u{202e}Allow?token=secret"),
-    )
-    .unwrap();
-    let mut client = h.client(Limits::default());
-    h.open(&client);
-    let request = prompt(&client);
-    let message = request.params["message"].as_str().unwrap();
-    assert!(!message.contains('\u{202e}'));
-    assert!(!message.contains("secret"));
-    assert!(message.contains("%E2%80%AEAllow?***"));
-    answer(&client, request, None);
-    assert_eq!(h.calls(), 0);
-    client.shutdown();
-}
-
-#[test]
 fn workspace_scans_and_document_pulls_share_remote_preparation() {
     let h = Harness::new("", false);
     std::fs::write(h.dir.path().join("test.yaml"), "text\n").unwrap();
     let mut client = h.client_options(Limits::default(), json!({"textDocument":{"diagnostic":{}}, "workspace":{"diagnostics":{"refreshSupport":true}}}), json!({"diagnosticMode":"workspace"}));
     let id = client.request("workspace/diagnostic", json!({"previousResultIds":[]}));
-    let mut request = None;
-    let mut response = None;
-    while request.is_none() || response.is_none() {
-        match client.recv() {
-            Message::Request(prompt)
-                if prompt.method == "window/showMessageRequest" =>
-            {
-                request = Some(prompt)
-            }
-            Message::Response(result) if result.id == id => response = Some(result),
-            Message::Notification(note)
-                if note.method == "textDocument/publishDiagnostics" =>
-            {
-                assert_eq!(
-                    note.params["uri"],
-                    file_uri(h.dir.path(), ".ryl.toml").as_str()
-                )
-            }
-            _ => {}
-        }
+    let (messages, response) = client.messages_until_response(&id);
+    assert!(response.response_result.is_ok());
+    if !messages.iter().any(|message| matches!(message, Message::Notification(note) if note.method == "textDocument/publishDiagnostics" && note.params.to_string().contains("approval required"))) {
+        await_error(&client, "approval required");
     }
     assert_eq!(h.calls(), 0);
-    assert!(response.unwrap().response_result.is_ok());
-    answer(&client, request.unwrap(), Some("Allow once"));
+    approve(&mut client, ORIGIN, false);
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         assert!(Instant::now() < deadline);
@@ -1006,12 +801,11 @@ fn grant_answered_during_running_preflight_retries_with_latest_grants() {
         .insert(other.to_owned(), br#"{"type":"integer"}"#.to_vec());
     let mut client = h.client(Limits::default());
     h.open(&client);
-    let first = prompt(&client);
-    let second = prompt(&client);
+    await_error(&client, "approval required");
     let (began, release) = install_policy_gate(&h);
-    answer(&client, first, Some("Allow once"));
+    approve(&mut client, ORIGIN, false);
     began.recv_timeout(Duration::from_secs(5)).unwrap();
-    answer(&client, second, Some("Allow once"));
+    approve(&mut client, "https://other.example.org", false);
     client.assert_alive();
     release.send(()).unwrap();
     await_schema(&client);
@@ -1025,7 +819,6 @@ fn existing_waiter_deadline_cancels_blocked_preparation() {
     let (began, release) = install_policy_gate(&h);
     let mut client = h.client(Limits {
         preparation: Duration::ZERO,
-        ..Limits::default()
     });
     let uri = h.open(&client);
     began.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1090,29 +883,6 @@ fn newer_queued_config_replaces_obsolete_preparations() {
 }
 
 #[test]
-fn config_changes_reprompt_and_clear_association_errors() {
-    let h = Harness::new("", false);
-    let mut client = h.client(Limits::default());
-    let uri = h.open(&client);
-    let request = prompt(&client);
-    client.send_raw(Message::Response(Response::new_err(
-        request.id,
-        ErrorCode::RequestCanceled as i32,
-        "dismissed".to_owned(),
-    )));
-    client.notify(
-        "workspace/didChangeWatchedFiles",
-        changed_config(h.dir.path()),
-    );
-    let request = prompt(&client);
-    answer(&client, request, None);
-    client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
-    client.assert_alive();
-    assert_eq!(h.calls(), 0);
-    client.shutdown();
-}
-
-#[test]
 fn offline_and_unprepared_sessions_ignore_approval_commands_and_actions() {
     let h = Harness::new("", true);
     let mut client = h.client(Limits::default());
@@ -1139,91 +909,6 @@ fn offline_and_unprepared_sessions_ignore_approval_commands_and_actions() {
         assert!(client.response(&id).response_result.unwrap().is_null());
     }
     assert_eq!(h.calls(), 0);
-    client.shutdown();
-}
-
-#[test]
-fn approval_code_action_can_replace_an_outstanding_prompt() {
-    let h = Harness::new("", false);
-    let mut client = h.client(Limits::default());
-    h.open(&client);
-    let old = prompt(&client);
-    let id = client.request(
-        "workspace/executeCommand",
-        json!({"command":"ryl.allowSchemaOrigin","arguments":[ORIGIN]}),
-    );
-    let new = prompt(&client);
-    assert_ne!(old.id, new.id);
-    client.response(&id);
-    answer(&client, old, Some("Allow once"));
-    client.assert_alive();
-    assert_eq!(h.calls(), 0);
-    answer(&client, new, Some("Allow once"));
-    await_schema(&client);
-    client.shutdown();
-}
-
-#[test]
-fn approval_prompt_saturation_is_visible() {
-    let h = Harness::new("", false);
-    std::fs::write(
-        h.dir.path().join(".ryl.toml"),
-        format!(
-            "{}{}",
-            config(ROOT),
-            config("https://other.example.org/type.json")
-        ),
-    )
-    .unwrap();
-    let mut client = h.client(Limits {
-        pending: 1,
-        ..Limits::default()
-    });
-    h.open(&client);
-    let first = prompt(&client);
-    loop {
-        if let Message::Notification(note) = client.recv()
-            && note.method == "window/showMessage"
-            && note.params["message"]
-                .as_str()
-                .unwrap()
-                .contains("prompts saturated")
-        {
-            break;
-        }
-    }
-    answer(&client, first, None);
-    assert_eq!(h.calls(), 0);
-    client.shutdown();
-}
-
-#[test]
-fn expired_schema_prompts_free_slots_without_losing_late_answers() {
-    let h = Harness::new("", false);
-    let other = "https://other.example.org/type.json";
-    std::fs::write(
-        h.dir.path().join(".ryl.toml"),
-        format!("{}{}", config(ROOT), config(other)),
-    )
-    .unwrap();
-    h.env
-        .remote
-        .resources
-        .lock()
-        .unwrap()
-        .insert(other.to_owned(), br#"{"type":"integer"}"#.to_vec());
-    let mut client = h.client(Limits {
-        pending: 1,
-        prompt: Duration::ZERO,
-        ..Limits::default()
-    });
-    h.open(&client);
-    let first = prompt(&client);
-    let second = prompt(&client);
-    answer(&client, first, Some("Allow once"));
-    answer(&client, second, Some("Allow once"));
-    await_schema(&client);
-    assert_eq!(h.calls(), 2);
     client.shutdown();
 }
 
@@ -1256,43 +941,13 @@ fn connection_free_workspace_scan_reports_unavailable_remote_preparation() {
 }
 
 #[test]
-fn a_denied_origin_is_not_prompted_again_for_another_config() {
-    let h = Harness::new("", false);
-    let mut client = h.client(Limits::default());
-    h.open(&client);
-    answer(&client, prompt(&client), None);
-    std::fs::create_dir(h.dir.path().join("nested")).unwrap();
-    std::fs::write(h.dir.path().join("nested/.ryl.toml"), config(ROOT)).unwrap();
-    let uri = file_uri(h.dir.path(), "nested/other.yaml");
-    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":"text\n"}}));
-    loop {
-        match client.recv() {
-            Message::Notification(note)
-                if note.method == "textDocument/publishDiagnostics"
-                    && note.params["uri"]
-                        == file_uri(h.dir.path(), "nested/.ryl.toml").as_str() =>
-            {
-                break;
-            }
-            Message::Request(request) => {
-                panic!("unexpected repeated prompt: {request:?}")
-            }
-            _ => {}
-        }
-    }
-    client.assert_alive();
-    assert_eq!(h.calls(), 0);
-    client.shutdown();
-}
-
-#[test]
 fn inline_workspace_configuration_can_request_schemas_but_cannot_grant_origins() {
     let h = Harness::new("", false);
     let mut client = h.client_options(Limits::default(), json!({}), json!({"configData":config(ROOT), "schemaAllowedOrigins":[ORIGIN], "allowedSchemaOrigins":[ORIGIN]}));
     h.open(&client);
-    let request = prompt(&client);
+    await_error(&client, "approval required");
     assert_eq!(h.calls(), 0);
-    answer(&client, request, Some("Allow once"));
+    approve(&mut client, ORIGIN, false);
     await_schema(&client);
     client.shutdown();
 }
@@ -1328,14 +983,14 @@ fn always_allow_persistence_keeps_dispatch_and_shutdown_responsive() {
     let h = Harness::new("", false);
     let mut client = h.client(Limits::default());
     h.open(&client);
-    let request = prompt(&client);
+    await_error(&client, "approval required");
     let (started, began) = std::sync::mpsc::sync_channel(1);
     let (release, gate) = std::sync::mpsc::channel();
     *h.env.config_gate.lock().unwrap() = Some(PolicyGate {
         started,
         release: gate,
     });
-    answer(&client, request, Some(&format!("Always allow {ORIGIN}")));
+    approve(&mut client, ORIGIN, true);
     began.recv_timeout(Duration::from_secs(5)).unwrap();
     let id = client.request("shutdown", Value::Null);
     let deadline = Instant::now() + Duration::from_millis(500);
@@ -1367,68 +1022,12 @@ fn always_allow_write_failure_reports_error_and_grants_session_access() {
     let h = Harness::new("", false);
     let mut client = h.client(Limits::default());
     h.open(&client);
-    let request = prompt(&client);
+    await_error(&client, "approval required");
     h.env.config_unavailable.store(true, Ordering::Relaxed);
-    answer(&client, request, Some(&format!("Always allow {ORIGIN}")));
+    approve(&mut client, ORIGIN, true);
     await_config_message(&client, "user config directory unavailable");
     await_schema(&client);
     assert_eq!(h.calls(), 1);
-    client.shutdown();
-}
-
-#[test]
-fn always_allow_persistence_queue_is_bounded_and_saturation_grants_session_access() {
-    let h = Harness::new("", false);
-    let urls = [
-        ROOT,
-        "https://second.example.org/root",
-        "https://third.example.org/root",
-    ];
-    std::fs::write(
-        h.dir.path().join(".ryl.toml"),
-        urls.iter().map(|url| config(url)).collect::<String>(),
-    )
-    .unwrap();
-    for url in urls {
-        h.env
-            .remote
-            .resources
-            .lock()
-            .unwrap()
-            .insert(url.to_owned(), br#"{"type":"integer"}"#.to_vec());
-    }
-    let mut client = h.client(Limits {
-        pending: 1,
-        prompt: Duration::ZERO,
-        ..Limits::default()
-    });
-    h.open(&client);
-    let requests = [prompt(&client), prompt(&client), prompt(&client)];
-    let (started, began) = std::sync::mpsc::sync_channel(1);
-    let (release, gate) = std::sync::mpsc::channel();
-    *h.env.config_gate.lock().unwrap() = Some(PolicyGate {
-        started,
-        release: gate,
-    });
-    let mut requests = requests.into_iter();
-    let first = requests.next().unwrap();
-    let title = first.params["actions"][1]["title"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    answer(&client, first, Some(&title));
-    began.recv_timeout(Duration::from_secs(5)).unwrap();
-    for request in requests {
-        let title = request.params["actions"][1]["title"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        answer(&client, request, Some(&title));
-    }
-    await_config_message(&client, "persistence saturated");
-    release.send(()).unwrap();
-    await_schema(&client);
-    assert_eq!(h.calls(), 3);
     client.shutdown();
 }
 
@@ -1487,7 +1086,6 @@ fn expired_preflight_never_resurrects_an_approval_or_retry() {
         let h = Harness::new("", false);
         let mut client = h.client(Limits {
             preparation: Duration::from_millis(100),
-            ..Limits::default()
         });
         let (began, release_policy) = install_policy_gate(&h);
         let uri = h.open(&client);

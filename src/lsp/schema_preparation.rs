@@ -16,17 +16,13 @@ pub(super) type Origins = BTreeMap<String, BTreeSet<String>>;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
-    pub pending: usize,
     pub preparation: Duration,
-    pub prompt: Duration,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            pending: 16,
             preparation: Duration::from_secs(65),
-            prompt: Duration::from_secs(30),
         }
     }
 }
@@ -34,7 +30,7 @@ impl Default for Limits {
 enum Status {
     Queued,
     Running,
-    NeedsRemotePreparation(Origins),
+    AwaitingApproval,
     Finished(Result<Arc<ConfigContext>, String>),
 }
 
@@ -44,6 +40,7 @@ struct Entry {
     deadline: Instant,
     cancel: Arc<AtomicBool>,
     source_text: String,
+    origins: Origins,
 }
 
 #[derive(Default)]
@@ -104,9 +101,9 @@ impl Service {
                     .as_ref()
                     .map(|context| context.as_ref().clone())
                     .map_err(Clone::clone),
-                Status::NeedsRemotePreparation(origins) => Err(format!(
+                Status::AwaitingApproval => Err(format!(
                     "schema origin approval required: {}",
-                    origins.keys().cloned().collect::<Vec<_>>().join(" ")
+                    entry.origins.keys().cloned().collect::<Vec<_>>().join(" ")
                 )),
                 Status::Queued | Status::Running => {
                     Err("schema remote preparation pending".to_owned())
@@ -131,15 +128,6 @@ impl Service {
                 .store(true, Ordering::Relaxed);
             state.queue.retain(|queued| queued != &key);
         }
-        if state
-            .entries
-            .values()
-            .filter(|entry| matches!(entry.status, Status::Queued | Status::Running))
-            .count()
-            >= self.limits.pending
-        {
-            return Err("schema preparation service saturated".to_owned());
-        }
         state.entries.insert(
             key.clone(),
             Entry {
@@ -148,6 +136,7 @@ impl Service {
                 deadline: Instant::now() + self.limits.preparation,
                 cancel: Arc::new(AtomicBool::new(false)),
                 source_text: String::new(),
+                origins: Origins::new(),
             },
         );
         state.queue.push_back(key);
@@ -162,9 +151,9 @@ impl Service {
             .entries
             .values()
             .filter_map(|entry| {
-                if let Status::NeedsRemotePreparation(origins) = &entry.status {
+                if matches!(entry.status, Status::AwaitingApproval) {
                     entry.context.source.clone().map(|source| {
-                        (source, origins.clone(), entry.source_text.clone())
+                        (source, entry.origins.clone(), entry.source_text.clone())
                     })
                 } else {
                     None
@@ -177,8 +166,8 @@ impl Service {
         let state = self.state.lock().expect("schema service lock");
         let mut needed = Origins::new();
         for entry in state.entries.values() {
-            if let Status::NeedsRemotePreparation(origins) = &entry.status {
-                for (origin, urls) in origins {
+            if !matches!(entry.status, Status::Finished(_)) {
+                for (origin, urls) in &entry.origins {
                     needed
                         .entry(origin.clone())
                         .or_default()
@@ -189,14 +178,10 @@ impl Service {
         needed
     }
 
-    fn persist(&self, origin: String) -> Result<(), String> {
+    fn persist(&self, origin: String) {
         let mut state = self.state.lock().expect("schema service lock");
-        if state.persist.len() >= self.limits.pending {
-            return Err("schema grant persistence saturated".to_owned());
-        }
         state.persist.push_back(origin);
         let _ = self.wake.try_send(());
-        Ok(())
     }
 
     pub(super) fn allow(&self, origin: &str) {
@@ -204,8 +189,8 @@ impl Service {
         state.grants.insert(origin.to_owned());
         let mut queued = Vec::new();
         for (key, entry) in &mut state.entries {
-            if let Status::NeedsRemotePreparation(origins) = &entry.status
-                && origins.contains_key(origin)
+            if matches!(entry.status, Status::AwaitingApproval)
+                && entry.origins.contains_key(origin)
                 && !entry.cancel.load(Ordering::Relaxed)
             {
                 entry.status = Status::Queued;
@@ -351,6 +336,7 @@ fn perform_job(
         return;
     }
     entry.source_text = source_text;
+    entry.origins = needed;
     entry.status = if expired {
         entry.cancel.store(true, Ordering::Relaxed);
         Status::Finished(Err(
@@ -358,10 +344,10 @@ fn perform_job(
         ))
     } else if retry {
         Status::Queued
-    } else if needed.is_empty() {
+    } else if entry.origins.is_empty() {
         Status::Finished(result)
     } else {
-        Status::NeedsRemotePreparation(needed)
+        Status::AwaitingApproval
     };
     if retry {
         state.queue.push_back(job.key);
@@ -532,8 +518,6 @@ impl super::Server {
         for (_, uri) in self.schema_config_diagnostics.drain() {
             super::publish(connection, uri, None, Vec::new());
         }
-        self.schema_prompts.clear();
-        self.schema_prompted.clear();
         if let Some(service) = self.schema_service() {
             service.invalidate();
         }
@@ -543,13 +527,12 @@ impl super::Server {
         self.handle_config_change(connection);
         self.publish_schema_associations(connection);
         self.wake(connection);
-        self.prompt_schemas(connection);
     }
 
     fn publish_schema_associations(&mut self, connection: &lsp_server::Connection) {
         let service = self
             .schema_service()
-            .expect("schema events and prompts have a preparation service");
+            .expect("schema events have a preparation service");
         let mut old = std::mem::take(&mut self.schema_config_diagnostics);
         for (path, origins, text) in service.associations() {
             let uri = super::encoding::path_to_uri(&path);
@@ -588,93 +571,6 @@ impl super::Server {
         }
     }
 
-    fn prompt_schemas(&mut self, connection: &lsp_server::Connection) {
-        let service = self
-            .schema_service()
-            .expect("schema events and prompts have a preparation service");
-        if net::offline(service.env.as_ref()) {
-            return;
-        }
-        for (origin, urls) in service.needed() {
-            if self.schema_prompted.contains(&origin) {
-                continue;
-            }
-            if self
-                .schema_prompts
-                .values()
-                .filter(|(_, deadline)| *deadline > Instant::now())
-                .count()
-                >= service.limits.pending
-            {
-                self.report_config_error(
-                    connection,
-                    "schema approval prompts saturated",
-                );
-                continue;
-            }
-            self.schema_prompted.insert(origin.clone());
-            self.next_request_id += 1;
-            let id = lsp_server::RequestId::from(format!(
-                "ryl-schema-{}",
-                self.next_request_id
-            ));
-            let always = origin_title("Always allow", &origin);
-            let message = format!(
-                "ryl: allow remote schema access? Origin: {origin} URLs: {}",
-                urls.iter()
-                    .map(|url| net::display_url(url))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            );
-            let params = serde_json::json!({
-                "type": 2,
-                "message": net::redact_message(&message),
-                "actions": [{"title": "Allow once"}, {"title": always}, {"title": "Don't allow"}],
-            });
-            self.schema_prompts
-                .insert(id.clone(), (origin, Instant::now() + service.limits.prompt));
-            super::send(
-                connection,
-                lsp_server::Message::Request(lsp_server::Request::new(
-                    id,
-                    "window/showMessageRequest".to_owned(),
-                    params,
-                )),
-            );
-        }
-    }
-
-    pub(super) fn schema_response(
-        &mut self,
-        connection: &lsp_server::Connection,
-        response: &lsp_server::Response,
-    ) {
-        let Some((origin, _)) = self.schema_prompts.remove(&response.id) else {
-            return;
-        };
-        let Some(title) = response
-            .response_result
-            .as_ref()
-            .ok()
-            .and_then(|result| result.get("title"))
-            .and_then(serde_json::Value::as_str)
-        else {
-            return;
-        };
-        let service = self
-            .schema_service()
-            .expect("schema events and prompts have a preparation service");
-        if title == origin_title("Always allow", &origin) {
-            match service.persist(origin.clone()) {
-                Ok(()) => return,
-                Err(error) => self.report_config_error(connection, &error),
-            }
-        } else if title != "Allow once" {
-            return;
-        }
-        service.allow(&origin);
-    }
-
     pub(super) fn schema_actions(
         &self,
         params: &lsp_types::CodeActionParams,
@@ -697,18 +593,29 @@ impl super::Server {
         service
             .needed()
             .keys()
-            .map(|origin| {
-                lsp_types::CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
-                    title: origin_title("Allow", origin),
-                    kind: Some(lsp_types::CodeActionKind::QUICKFIX),
-                    command: Some(lsp_types::Command {
-                        title: origin_title("Allow", origin),
-                        command: "ryl.allowSchemaOrigin".to_owned(),
-                        arguments: Some(vec![serde_json::Value::String(
-                            origin.clone(),
-                        )]),
-                    }),
-                    ..Default::default()
+            .flat_map(|origin| {
+                [true, false].map(move |persist| {
+                    let title = origin_title(
+                        if persist {
+                            "Always allow"
+                        } else {
+                            "Allow once"
+                        },
+                        origin,
+                    );
+                    lsp_types::CodeActionOrCommand::CodeAction(lsp_types::CodeAction {
+                        title: title.clone(),
+                        kind: Some(lsp_types::CodeActionKind::QUICKFIX),
+                        command: Some(lsp_types::Command {
+                            title,
+                            command: "ryl.allowSchemaOrigin".to_owned(),
+                            arguments: Some(vec![
+                                serde_json::Value::String(origin.clone()),
+                                serde_json::Value::Bool(persist),
+                            ]),
+                        }),
+                        ..Default::default()
+                    })
                 })
             })
             .collect()
@@ -716,7 +623,6 @@ impl super::Server {
 
     pub(super) fn schema_command(
         &mut self,
-        connection: &lsp_server::Connection,
         params: &serde_json::Value,
     ) -> serde_json::Value {
         if params.get("command").and_then(serde_json::Value::as_str)
@@ -735,10 +641,15 @@ impl super::Server {
         };
         if !net::offline(service.env.as_ref()) && service.needed().contains_key(origin)
         {
-            self.schema_prompted.remove(origin);
-            self.schema_prompts
-                .retain(|_, (pending, _)| pending != origin);
-            self.prompt_schemas(connection);
+            if params
+                .pointer("/arguments/1")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true)
+            {
+                service.persist(origin.to_owned());
+            } else {
+                service.allow(origin);
+            }
         }
         serde_json::Value::Null
     }
