@@ -11,7 +11,7 @@ pub(crate) use loader::load_owned_documents;
 pub use scalar::{Scalar, ScalarOwned, is_core_schema_int_spelling};
 pub(crate) use scalar::{
     canonical_core_schema_int, core_schema_int, is_core_schema_null,
-    parse_core_schema_bool, parse_core_schema_fp,
+    parse_core_schema_bool, parse_core_schema_fp, parse_core_schema_int,
 };
 pub use tag::{core_schema_suffix, is_core_schema};
 pub use yaml_owned::{MappingOwned, SequenceOwned, YamlOwned};

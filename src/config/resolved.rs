@@ -5,9 +5,9 @@ use crate::rules::ALL_RULE_IDS;
 
 type Slot = OnceLock<Box<dyn Any + Send + Sync>>;
 
-/// Facts derived from a config on first use. A clone starts empty, so a copy the caller
-/// goes on to mutate never reuses facts derived from the original.
+/// Lazy rule facts reset on cloning because callers may mutate the copy.
 pub(super) struct Resolved {
+    pub(super) schema: Option<std::sync::Arc<crate::rules::schema::Prepared>>,
     rules: [Slot; ALL_RULE_IDS.len()],
     has_path_ignores: OnceLock<bool>,
 }
@@ -31,11 +31,19 @@ impl Resolved {
     pub(super) fn has_path_ignores(&self, derive: impl FnOnce() -> bool) -> bool {
         *self.has_path_ignores.get_or_init(derive)
     }
+
+    pub(super) fn reset_rule_facts(&mut self) {
+        *self = Self {
+            schema: self.schema.take(),
+            ..Self::default()
+        };
+    }
 }
 
 impl Default for Resolved {
     fn default() -> Self {
         Self {
+            schema: None,
             rules: std::array::from_fn(|_| OnceLock::new()),
             has_path_ignores: OnceLock::new(),
         }
@@ -44,12 +52,18 @@ impl Default for Resolved {
 
 impl Clone for Resolved {
     fn clone(&self) -> Self {
-        Self::default()
+        Self {
+            schema: self.schema.clone(),
+            ..Self::default()
+        }
     }
 }
 
 impl std::fmt::Debug for Resolved {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Resolved")
+        match &self.schema {
+            Some(schema) => f.debug_tuple("Resolved").field(&schema.digest).finish(),
+            None => f.write_str("Resolved"),
+        }
     }
 }

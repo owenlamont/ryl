@@ -29,8 +29,8 @@ use ryl::cli_support::{
     lexical_abspath, report_display_path, resolve_ctx, sanitize_control,
 };
 use ryl::config::{
-    ConfigContext, Overrides, SourceKind, SystemEnv, YamlLintConfig, discover_config,
-    is_inline_toml, user_config_migration_paths,
+    ConfigContext, Overrides, SourceKind, SystemEnv, YamlLintConfig,
+    discover_config_with, is_inline_toml, user_config_migration_paths,
 };
 use ryl::config_schema::{
     OutputDestination, OutputTable, schema_string_pretty, yaml_schema_string_pretty,
@@ -103,6 +103,18 @@ fn cli_overrides(args: &LintArgs) -> Overrides {
     }
 }
 
+fn discover_cli_config(
+    inputs: &[PathBuf],
+    args: &LintArgs,
+) -> Result<ConfigContext, String> {
+    let envx: &dyn ryl::config::Env = if args.format_only {
+        &ryl::config::FormatEnv
+    } else {
+        &SystemEnv
+    };
+    discover_config_with(inputs, &cli_overrides(args), envx)
+}
+
 fn build_global_cfg(
     inputs: &[PathBuf],
     args: &LintArgs,
@@ -111,7 +123,7 @@ fn build_global_cfg(
         || args.source.config_file.is_some()
         || std::env::var("YAMLLINT_CONFIG_FILE").is_ok()
     {
-        discover_config(inputs, &cli_overrides(args)).map(Some)
+        discover_cli_config(inputs, args).map(Some)
     } else {
         Ok(None)
     }
@@ -131,7 +143,7 @@ fn run_config_settings(
     if let Some(ctx) = global_cfg {
         return Ok((ctx.config.output().cloned(), ctx.config.strict()));
     }
-    let cfg = discover_config(inputs, &cli_overrides(args))?.config;
+    let cfg = discover_cli_config(inputs, args)?.config;
     Ok((cfg.output().cloned(), cfg.strict()))
 }
 
@@ -454,6 +466,8 @@ enum Commands {
 /// `ryl check`, so the two forms are byte-for-byte equivalent.
 #[derive(clap::Args, Debug, Default)]
 struct LintArgs {
+    #[arg(skip)]
+    format_only: bool,
     #[command(flatten)]
     source: SourceArgs,
 
@@ -603,6 +617,7 @@ fn parse_rule_selector(value: &str) -> Result<&'static str, String> {
 fn cli_config_flags(args: &LintArgs) -> CliConfigFlags {
     let enable = &args.lint.enable;
     CliConfigFlags {
+        format_only: args.format_only,
         markdown: args.lint.markdown,
         enable: (!enable.is_empty()).then(|| {
             if enable.contains(&"ALL") {
@@ -2015,6 +2030,7 @@ impl<'a> PreviewOutput<'a> {
 
 fn format_lint_args(format: &FormatArgs) -> LintArgs {
     LintArgs {
+        format_only: true,
         source: format.source.clone(),
         lint: LintFlags {
             compatibility: CompatibilityLintFlags {
@@ -2299,7 +2315,7 @@ fn resolve_stdin_ctx(
     } else {
         PathBuf::from(".")
     };
-    let mut ctx = discover_config(std::slice::from_ref(&anchor), &cli_overrides(args))?;
+    let mut ctx = discover_cli_config(std::slice::from_ref(&anchor), args)?;
     let mut cfg = ctx.config;
     let flags = cli_config_flags(args);
     ctx.notices.extend(flags.apply(&mut cfg, &ctx.base_dir)?);

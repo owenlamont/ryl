@@ -416,3 +416,11 @@ flowchart TD
     classDef default stroke-width:3px;
     linkStyle default stroke-width:3px;
 ```
+
+### Local JSON Schemas
+
+The TOML-only [`schema`](../rules/schema.md) rule adds local JSON Schema validation.
+Configure `[[lint.rules.schema.schemas]]` with a relative `path` and optional `files`
+globs. The first matching association wins; empty `files` matches all inputs.
+Schemas and references must remain under the config base directory. Network access
+is unsupported. A config without schema associations performs no schema work.

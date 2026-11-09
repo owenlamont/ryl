@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "step": {
+      "properties": {
+        "run": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/definitions/step"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "properties": {
+    "jobs": {
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "properties": {
+              "runs-on": {
+                "type": "string"
+              },
+              "steps": {
+                "items": {
+                  "$ref": "#/definitions/step"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "runs-on",
+              "steps"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "uses": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "uses"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "type": "object"
+    }
+  },
+  "type": "object"
+}

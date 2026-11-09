@@ -3,6 +3,7 @@ extend-ignore-re = ['\bcaf\\xe9\b']
 
 [files]
 extend-exclude = [
+  "tests/fixtures/schema/*.json",
   "img/*.svg",
   # The property regression must preserve generated text byte for byte.
   "tests/fixtures/format_suppression/wide-prose-conversion.txt",

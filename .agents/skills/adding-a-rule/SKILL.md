@@ -75,3 +75,13 @@ Facts the codebase relies on; re-verify after changing the parser:
   `crate::yaml_dom::core_schema_suffix` / `is_core_schema`. They resolve every spelling
   (verbatim, `!!`, a `%TAG` split mid-token) and, unlike the parser's strict Core Schema
   `Tag::core_suffix` / `is_yaml_core_schema`, also see non-core types such as `merge`.
+
+## Schema rule preparation
+
+`schema` is TOML-only. Validators and content digests prepare at config resolution,
+before any file's cache lookup; dispatch and `lint_str` perform no schema I/O.
+`Resolved` clones retain prepared validators while resetting lazy rule slots.
+Schema-free `Resolved` Debug stays exactly `Resolved`. Format config resolution uses
+`FormatEnv` to skip schema preparation. Anonymous stdin drops associations with path
+constraints. Keep first-match selection, bounded merge expansion and root/ref confinement
+covered when changing the rule; see `payload-hardening` and `property_schema`.

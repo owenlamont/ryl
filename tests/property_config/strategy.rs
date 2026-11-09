@@ -59,6 +59,7 @@ pub struct ConfigModel {
     pub per_line_ignores: Vec<PerLineModel>,
     pub per_file_ignores: Vec<(&'static str, Vec<&'static str>)>,
     pub key_orders: Vec<KeyOrderModel>,
+    pub schemas: Vec<(&'static str, Vec<&'static str>)>,
     /// TOML-only top-level `line-length` and `indent-width`, as raw TOML values.
     pub shared: (Option<&'static str>, Option<&'static str>),
 }
@@ -245,6 +246,13 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
             0..3,
         ),
         prop::collection::vec(arb_key_order(), 0..3),
+        prop::collection::vec(
+            (
+                prop::sample::select(&["schema.json", "../escape.json", ""][..]),
+                prop::collection::vec(prop::sample::select(PER_LINE_PATHS), 0..3),
+            ),
+            0..3,
+        ),
         (
             prop::option::of(prop::sample::select(
                 &["1", "100", "65535", "0", "-1", "70000", "\"80\"", "2.5"][..],
@@ -263,6 +271,7 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
                 all,
                 per_file,
                 key_orders,
+                schemas,
                 shared,
             )| {
                 ConfigModel {
@@ -277,6 +286,7 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
                     per_line_ignores,
                     per_file_ignores: per_file.into_iter().collect(),
                     key_orders,
+                    schemas,
                     shared,
                 }
             },
@@ -413,6 +423,12 @@ pub fn render_toml(model: &ConfigModel, prefix: &str) -> String {
         if let Some(unlisted) = entry.unlisted {
             out.push_str(&format!("unlisted = \"{unlisted}\"\n"));
         }
+    }
+    for (path, files) in &model.schemas {
+        out.push_str(&format!(
+            "[[{prefix}rules.schema.schemas]]\npath = '{path}'\nfiles = {}\n",
+            quoted(files)
+        ));
     }
     // `per-line-ignores` is a top-level array of tables, TOML-only (the YAML path
     // rejects it), so it is rendered here but not in `render_yaml`.

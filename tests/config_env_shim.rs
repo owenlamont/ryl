@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use ryl::config::{
-    Env, Overrides, SystemEnv, discover_config_with, discover_per_file_with,
+    Env, FormatEnv, Overrides, SystemEnv, discover_config_with, discover_per_file_with,
 };
 use tempfile::tempdir;
 
@@ -317,6 +317,11 @@ fn system_env_read_invalid_encoding_reports_error() {
     let env = SystemEnv;
     let err = env.read_to_string(&path).unwrap_err();
     assert!(err.contains("invalid"));
+}
+
+#[test]
+fn format_env_uses_the_system_home() {
+    assert_eq!(FormatEnv.home_dir(), SystemEnv.home_dir());
 }
 
 #[test]

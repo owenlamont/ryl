@@ -1,8 +1,7 @@
 # What ryl won't do
 
-ryl lints general YAML, not the application that reads it, and its fixes never
-change what a document means. Requests outside that line are declined, so check this page before filing
-one.
+ryl lints general YAML and can validate user-supplied local JSON Schemas. Its fixes
+never change what a document means. Check the boundaries below before filing a request.
 
 ## Rules for one YAML flavour
 
@@ -28,8 +27,9 @@ for example:
 
 Rules check how a document is written and what YAML itself makes of it, such as
 a truthy word, an implicit octal or a merge key overriding a value. They don't
-check whether the values suit the application reading the file: sequence order,
-allowed keys and value ranges belong to that tool. Mapping key order is form,
+include built-in application policies. The optional [`schema`](rules/schema.md) rule
+checks allowed keys and value ranges against user-supplied local JSON Schemas.
+Mapping key order is form,
 since YAML gives it no meaning, so `key-ordering` fits.
 
 ## Fixes that change meaning or reprint the document
@@ -43,8 +43,8 @@ resolved value, comments and anchors. That rules out:
   reprinting formatter if that is what you want; ryl won't become one.
   [`ryl format`](formatter.md) edits in place under the same guarantees.
 
-## Not decided yet
+## Local schema validation
 
-ryl does no schema validation today; pair it with
-[`yaml-language-server`](editor-integration.md) for that. Whether ryl should
-validate against a user-supplied JSON Schema is an open question.
+User-supplied local JSON Schemas are in scope. Remote fetching requires a future
+network opt-in; catalogs, in-file schema declarations and built-in dialect policies
+are outside the current implementation.

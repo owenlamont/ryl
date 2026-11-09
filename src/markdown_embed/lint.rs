@@ -7,6 +7,7 @@ use super::{EmbeddedRegion, MarkdownSources, extract_regions};
 use crate::config::YamlLintConfig;
 use crate::fix::suppressed_rules;
 use crate::lint::{LintProblem, lint_str};
+use crate::rules::schema;
 
 /// Lint every embedded YAML region in `markdown` and return diagnostics whose line/column
 /// point into the original markdown document. Each region is linted as an independent
@@ -19,12 +20,39 @@ pub fn lint_markdown_str(
     base_dir: &Path,
 ) -> Vec<LintProblem> {
     let suppressed = suppressed_rules();
-    markdown_region_problems(markdown, cfg, |region| {
+    let mut problems = markdown_region_problems(markdown, cfg, |region| {
         let mut problems = lint_str(&region.content, path, cfg, base_dir);
         problems
             .retain(|problem| !problem.rule.is_some_and(|id| suppressed.contains(&id)));
         problems
-    })
+    });
+    if problems.len() > schema::MAX_DIAGNOSTICS && cfg.schema_for(path).is_some() {
+        cap_schema_problems(&mut problems);
+    }
+    problems
+}
+
+fn cap_schema_problems(problems: &mut Vec<LintProblem>) {
+    let mut count = 0;
+    let mut noted = false;
+    problems.retain_mut(|problem| {
+        if problem.rule != Some(schema::ID) {
+            return true;
+        }
+        if problem.message == schema::TRUNCATION {
+            return !std::mem::replace(&mut noted, true);
+        }
+        if count < schema::MAX_DIAGNOSTICS {
+            count += 1;
+            return true;
+        }
+        if noted {
+            return false;
+        }
+        noted = true;
+        schema::TRUNCATION.clone_into(&mut problem.message);
+        true
+    });
 }
 
 #[must_use]

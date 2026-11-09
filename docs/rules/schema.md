@@ -1,0 +1,94 @@
+# schema
+
+## What this rule does
+
+Validates YAML documents against local JSON Schemas. Schemas are supplied by the
+project; ryl supplies no application-specific schema catalog. No fix is available.
+
+## Configuration
+
+TOML only, in `.ryl.toml`, `ryl.toml`, or `[tool.ryl.lint.rules.schema]` in
+`pyproject.toml`. YAML configuration rejects `schema`.
+
+<!-- ryl-config-check: skip -->
+```toml
+[lint.rules.schema]
+level = "error"
+
+[[lint.rules.schema.schemas]]
+path = "schemas/github-workflow.json"
+files = [".github/workflows/*.yml", ".github/workflows/*.yaml"]
+```
+
+| Setting | Meaning |
+| :--- | :--- |
+| `path` | Required relative schema path, anchored at the config base directory. A config under `.config/` uses the parent directory. |
+| `files` | Optional path globs with `!` exclusions, like `key-ordering.orders`. Empty or omitted matches every file. |
+| Association order | The first matching entry wins. Unmatched files and an enabled rule without associations are no-ops. |
+
+`--stdin-filename` supplies the matching path for stdin. Anonymous stdin matches
+only associations with empty `files`. Markdown regions match the host filename.
+Normal rule directives, per-file ignores and per-line ignores apply.
+
+## Loading and limits
+
+Schemas compile during config resolution. Missing files, invalid schemas, unsupported
+regex patterns, remote references and confinement failures are config errors (exit 2).
+Both the root schema and referenced files must stay within the config base directory,
+including after resolving symlinks. Absolute root paths and UNC references are refused.
+Only local `file:` references are retrieved; network opt-in is not supported yet.
+Schema paths may contain spaces, brackets and other filename characters; `$ref`
+URIs must percent-encode characters outside the URI path syntax.
+
+Schema contents and local references contribute to the lint cache key. Schemas and
+references share a 16 MiB byte limit and a 1,024-resource limit per root schema.
+Distinct URI aliases count separately toward both limits. Regex matching
+uses a 100,000-step backtracking limit and 1 MiB compiled-pattern and DFA-cache limits. The draft
+comes from `$schema`, defaulting to 2020-12.
+
+At load time, schemas with expanded weight above 1,000,000 are refused as
+`schema too complex` (exit 2). The weight counts subschemas, declarations and
+resolved references. Recursion without instance descent or with overlapping recursive
+branches is also refused; distinct literal properties and disjoint object/array
+paths are accepted. Repeated recursive tuple items are conservatively refused.
+Drafts 04, 06 and 07 ignore keywords beside `$ref` during validation and complexity
+screening. Unreferenced definitions are conservatively screened in newer drafts.
+Draft 2019-09 `$recursiveRef` follows the validator's resource-root lookup even
+when the reference contains a fragment. Dynamic references include all matching anchors as possible targets; this conservative
+screen can refuse schemas whose runtime scopes would select fewer targets. Only
+applicators and references active in the schema draft contribute to the screen.
+More than 1,000,000 possible dynamic-reference edges are refused before expansion.
+
+Projection is bounded to 1,000,000 nodes, 16 MiB of scalar and pointer storage, and
+128 levels. A file reports at most 100 validation diagnostics plus a truncation note.
+Users with no schema associations do no schema loading or projection. `ryl format`
+does not load lint schemas.
+
+## YAML values and locations
+
+- Plain scalars resolve under YAML 1.2 core; explicit `%YAML 1.1` uses the existing
+  version-aware resolver. Unsupported 1.1 values, including timestamps, are refused.
+- Explicit YAML 1.1 float tags parse decimal or sexagesimal values rather than
+  implicitly resolving integers (`!!float 012` is 12.0; `!!int 012` is 10).
+- Explicit core tags must match the scalar's type and spelling; invalid tagged
+  values produce `cannot validate` findings. The non-specific `!` tag resolves
+  sequences and mappings as ordinary collections.
+- Integers in the combined i64/u64 range and finite floats are supported.
+- Aliases expand within the projection budget. Findings blame the alias use site.
+- Merge keys, including aliased merge keys, expand before validation; explicit keys override inherited keys, and
+  earlier mappings in merge sequences win. Malformed merges are refused.
+- Duplicate decoded keys, non-string or complex keys and custom tags produce
+  `cannot validate` findings (exit 1), rather than misleading type errors.
+- Every document in a stream is validated independently; an empty document is null.
+- Unexpected properties and invalid property names blame the key. Missing properties
+  blame the containing mapping's start. Additional and unevaluated items blame the
+  first offending item. Other findings use the instance value's source location.
+- `oneOf` and `anyOf` findings select the most relevant branch error using
+  [Python jsonschema's `best_match` heuristic](https://github.com/python-jsonschema/jsonschema/blob/main/jsonschema/exceptions.py).
+  Equally ranked branches retain the summary. Messages mask instance values.
+
+Editor diagnostics use the same engine. Schema-file edits take effect when the
+configuration reloads; schema-file watching, hover and completion are separate work.
+
+Sources: [JSON Schema](https://json-schema.org/specification),
+[YAML 1.2.2](https://yaml.org/spec/1.2.2/).

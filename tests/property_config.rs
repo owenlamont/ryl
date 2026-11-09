@@ -77,6 +77,7 @@ fn parse_toml_without_panicking(toml_config: &str) {
         let _ = normalize_toml_config(&typed);
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join(".ryl.toml");
+        std::fs::write(dir.path().join("schema.json"), r#"{"type":"object"}"#).unwrap();
         std::fs::write(&file, toml_config).unwrap();
         let overrides = Overrides {
             config_file: Some(file),

@@ -4,7 +4,7 @@
 
 ## Introduction
 
-ryl implements 29 rules for checking YAML files. This page is a categorised
+ryl implements 30 rules for checking YAML files. This page is a categorised
 index of every rule with a brief description and a link to its detailed
 documentation. Each rule page covers what the rule does, why it matters,
 configuration options, and (where applicable) automatic fix behaviour.
@@ -57,6 +57,7 @@ conflict with it.
 | [`key-ordering`](rules/key-ordering.md) | Alphabetical or configured ordering of mapping keys. | :wrench: |
 | [`merge-keys`](rules/merge-keys.md) | The `<<` merge key (a YAML 1.1 feature removed in 1.2). |  |
 | [`tags`](rules/tags.md) | Unsafe and non-portable YAML tags. |  |
+| [`schema`](rules/schema.md) | Validate against user-supplied local JSON Schemas. |  |
 | [`yaml-directive`](rules/yaml-directive.md) | A `%YAML` version directive on every document. | :wrench: |
 
 ## Comments

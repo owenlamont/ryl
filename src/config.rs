@@ -39,6 +39,9 @@ pub enum SourceKind {
 }
 
 pub trait Env {
+    fn prepare_lint_schemas(&self) -> bool {
+        true
+    }
     fn case_insensitive_paths(&self) -> bool {
         CASE_INSENSITIVE_PATHS
     }
@@ -60,6 +63,33 @@ fn process_cwd() -> &'static Path {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemEnv;
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FormatEnv;
+
+impl Env for FormatEnv {
+    fn prepare_lint_schemas(&self) -> bool {
+        false
+    }
+    fn current_dir(&self) -> PathBuf {
+        SystemEnv.current_dir()
+    }
+    fn config_dir(&self) -> Option<PathBuf> {
+        SystemEnv.config_dir()
+    }
+    fn home_dir(&self) -> Option<PathBuf> {
+        SystemEnv.home_dir()
+    }
+    fn read_to_string(&self, path: &Path) -> Result<String, String> {
+        SystemEnv.read_to_string(path)
+    }
+    fn path_exists(&self, path: &Path) -> bool {
+        SystemEnv.path_exists(path)
+    }
+    fn env_var(&self, key: &str) -> Option<String> {
+        SystemEnv.env_var(key)
+    }
+}
 
 pub(crate) const CASE_INSENSITIVE_PATHS: bool = cfg!(any(windows, target_os = "macos"));
 
@@ -306,16 +336,16 @@ impl PerFileIgnore {
 /// `!` inverting the whole match. A file outside the config dir can only match a relative
 /// pattern by basename, as in ruff and yamllint.
 #[derive(Debug, Clone)]
-struct PathGlob {
+pub(crate) struct PathGlob {
     basename: Compiled<GlobMatcher>,
     absolute: Compiled<GlobMatcher>,
-    negated: bool,
+    pub(crate) negated: bool,
     cwd: PathBuf,
 }
 
 impl PathGlob {
     /// `base_dir` resolves against the cwd, as walked and CLI paths do.
-    fn new(
+    pub(crate) fn new(
         pattern: &str,
         base_dir: &Path,
         case_insensitive: bool,
@@ -340,7 +370,7 @@ impl PathGlob {
         })
     }
 
-    fn matches(&self, path: &Path) -> bool {
+    pub(crate) fn matches(&self, path: &Path) -> bool {
         let filename_matches = path
             .file_name()
             .is_some_and(|file_name| self.basename.is_match(Path::new(file_name)));
@@ -668,7 +698,7 @@ impl YamlLintConfig {
     /// config stays self-contained after it moves to ryl's config dir (the original
     /// relative path would otherwise dangle). Call only after `finalize`.
     pub fn inline_resolved_ignore_from_file(&mut self) {
-        self.resolved = resolved::Resolved::default();
+        self.resolved.reset_rule_facts();
         self.ignore_from_files.clear();
     }
 
@@ -792,9 +822,14 @@ impl YamlLintConfig {
     /// content with no real path (e.g. stdin without `--stdin-filename`), so the ignore
     /// patterns cannot accidentally match the synthetic label.
     pub fn disable_path_based_rule_ignores(&mut self) {
-        self.resolved = resolved::Resolved::default();
+        self.resolved.reset_rule_facts();
         self.per_file_ignore_matchers.clear();
         self.key_orders.clear();
+        if let Some(prepared) = &mut self.resolved.schema {
+            std::sync::Arc::make_mut(prepared)
+                .associations
+                .retain(|entry| entry.files.is_empty());
+        }
         // A per-line entry with a path constraint can't match a synthetic label, so
         // drop it; pure-regex entries are content-based and still apply to stdin.
         self.per_line_ignore_matchers
@@ -847,6 +882,18 @@ impl YamlLintConfig {
             .filter(|(globs, _)| selects(globs))
             .map(|(_, order)| order.clone())
             .collect()
+    }
+
+    pub(crate) fn schema_for(
+        &self,
+        path: &Path,
+    ) -> Option<&crate::rules::schema::Association> {
+        self.resolved
+            .schema
+            .as_ref()?
+            .associations
+            .iter()
+            .find(|entry| entry.matches(path))
     }
 
     /// The `per-line-ignores` entries applying to `path`, as virtual-disable-line applies
@@ -914,7 +961,7 @@ impl YamlLintConfig {
     /// Enable markdown linting with default globs when none are configured. Backs the
     /// `--markdown` flag. A no-op when `[files].markdown` already lists globs.
     pub fn enable_default_markdown(&mut self, base_dir: &Path) {
-        self.resolved = resolved::Resolved::default();
+        self.resolved.reset_rule_facts();
         if self.markdown_file_patterns.is_empty() {
             self.markdown_file_patterns = DEFAULT_MARKDOWN_FILE_PATTERNS
                 .iter()
@@ -965,7 +1012,7 @@ impl YamlLintConfig {
 
     /// Backs `--enable`: run exactly `selected`, keeping the options of any already enabled.
     pub fn restrict_rules(&mut self, selected: &[&str]) {
-        self.resolved = resolved::Resolved::default();
+        self.resolved.reset_rule_facts();
         self.rules
             .retain(|name, _| selected.contains(&name.as_str()));
         self.rule_names
@@ -986,7 +1033,7 @@ impl YamlLintConfig {
     }
 
     pub fn disable_rules(&mut self, disabled: &[&str]) {
-        self.resolved = resolved::Resolved::default();
+        self.resolved.reset_rule_facts();
         self.rules
             .retain(|name, _| !disabled.contains(&name.as_str()));
         self.rule_names
@@ -996,7 +1043,7 @@ impl YamlLintConfig {
     /// # Errors
     /// Returns an error for an invalid exclusion glob.
     pub fn replace_exclude(&mut self, patterns: &[String]) -> Result<(), String> {
-        self.resolved = resolved::Resolved::default();
+        self.resolved.reset_rule_facts();
         let (matcher, _) = build_ignore_matcher(
             patterns,
             &[],
@@ -1092,7 +1139,7 @@ impl YamlLintConfig {
 
     /// Override `unsafe-fixes`, as `--unsafe-fixes` and `--no-unsafe-fixes` do.
     pub fn set_unsafe_fixes(&mut self, enabled: bool) {
-        self.resolved = resolved::Resolved::default();
+        self.resolved.reset_rule_facts();
         self.unsafe_fix.unsafe_fixes = Some(enabled);
     }
 
@@ -1285,6 +1332,10 @@ impl YamlLintConfig {
         .collect();
 
         self.build_file_kind_matchers(base_dir);
+
+        if envx.prepare_lint_schemas() {
+            self.resolved.schema = crate::rules::schema::prepare(self, base_dir, envx)?;
+        }
 
         for rule in self.rules.values_mut() {
             rule.build_filter(envx, base_dir)?;
@@ -1988,13 +2039,11 @@ pub(crate) enum PerFileConfig {
     Fallback(Box<ConfigContext>),
 }
 
-pub(crate) fn load_project_config(cfg_path: &Path) -> Result<ConfigContext, String> {
-    ctx_from_config_path_core(
-        &SystemEnv,
-        cfg_path,
-        LegacyYamlSource::Project,
-        Vec::new(),
-    )
+pub(crate) fn load_project_config(
+    cfg_path: &Path,
+    envx: &dyn Env,
+) -> Result<ConfigContext, String> {
+    ctx_from_config_path_core(envx, cfg_path, LegacyYamlSource::Project, Vec::new())
 }
 
 pub(crate) fn locate_per_file(

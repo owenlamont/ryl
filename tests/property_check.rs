@@ -160,6 +160,7 @@ proptest! {
 }
 
 const RULE_TRIGGERS: &[(&str, &str)] = &[
+    ("schema", "a: 1\n"),
     ("anchors", "a: *missing\n"),
     ("anchors", "a: [&anchor value, *anchor]\n"),
     ("anchors", "a: &foo: 1\nb: *foo:\n"),
