@@ -97,6 +97,7 @@ wrapped plain scalar lines when adding quotes. `quote-style = "preserve"` freeze
 quoting; `keep-quotes = true` retains optional quotes even when lint forbids them.
 [Conflicting lint rules](../formatter.md#conflicting-lint-rules) explains warnings
 and remedies. Oversized implicit keys are left plain with a refusal notice.
+Scalars inside implicit collection keys never gain quotes.
 
 ## YAML 1.1 values with `required = "only-when-needed"`
 

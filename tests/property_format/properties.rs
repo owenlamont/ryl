@@ -55,6 +55,7 @@ pub enum Property {
     Alias,
     Escaped(usize),
     QuotedKey(usize),
+    GuardedKey(usize),
     AliasKey,
     /// A tag from `TAGS`, or an anchor past its end, on an empty key.
     EmptyKey(usize),
@@ -72,6 +73,7 @@ fn arb_property() -> impl Strategy<Value = Property> {
         2 => Just(Property::Alias),
         2 => (0..ESCAPED.len()).prop_map(Property::Escaped),
         2 => (0..QUOTED_KEYS.len()).prop_map(Property::QuotedKey),
+        1 => (1021..=1023usize).prop_map(Property::GuardedKey),
         1 => Just(Property::AliasKey),
         1 => (0..=TAGS.len()).prop_map(Property::EmptyKey),
         1 => Just(Property::OmittedKey),
@@ -102,6 +104,8 @@ impl Decorator<'_> {
             }
             let key = match self.properties[self.next % self.properties.len()] {
                 Property::QuotedKey(index) => Some(QUOTED_KEYS[index].to_string()),
+                Property::GuardedKey(1021) => Some("[a, {b: c}]".to_owned()),
+                Property::GuardedKey(length) => Some("é".repeat(length)),
                 Property::AliasKey if self.anchors > 0 => {
                     Some(format!("*a{} ", self.next % self.anchors))
                 }
@@ -215,6 +219,7 @@ impl Decorator<'_> {
             }
             Property::None
             | Property::QuotedKey(_)
+            | Property::GuardedKey(_)
             | Property::AliasKey
             | Property::EmptyKey(_)
             | Property::AnchoredOmittedKey => return scalar.clone(),

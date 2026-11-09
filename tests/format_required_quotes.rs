@@ -250,7 +250,7 @@ fn jinja_header_stays_skipped() {
 }
 
 #[test]
-fn collection_key_quote_growth_is_bounded_together() {
+fn implicit_collection_keys_skip_required_quotes() {
     let config = format!("{REQUIRED}check-keys = true\n");
     for key in [
         format!("[{}]", "a".repeat(1021)),
@@ -262,16 +262,19 @@ fn collection_key_quote_growth_is_bounded_together() {
             ryl_on(Some(&config), &input, &["format", "--no-cache"]);
         assert_eq!(code, 0, "{stderr}");
         assert_eq!(output, input);
-        assert!(
-            stderr.contains("implicit key would exceed 1024 characters"),
-            "{stderr}"
-        );
         let (code, _, _, again) =
             ryl_on(Some(&config), &output, &["format", "--no-cache"]);
         assert_eq!(code, 0);
         assert_eq!(again, output);
     }
-    formatted("[a, b]: text\n", &config, "['a', 'b']: 'text'\n");
+    for input in ["[a, b]: text\n", "{a: [b]}: text\n", "[[a], b]: text\n"] {
+        let (_, _, stderr, output) =
+            ryl_on(Some(&config), input, &["format", "--no-cache"]);
+        assert_eq!(output, input.replace("text", "'text'"));
+        assert!(!stderr.contains("implicit key would exceed"));
+        check_values(input, &output).unwrap();
+    }
+    formatted("? [a, b]\n: text\n", &config, "? ['a', 'b']\n: 'text'\n");
 }
 
 #[test]
@@ -290,31 +293,6 @@ fn quote_retention_and_style_conflicts_are_both_named() {
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains("format.keep-quotes wins"));
     assert!(warnings[0].contains("format.quote-style wins"));
-}
-
-#[test]
-fn collection_key_reserves_space_for_formatted_gaps() {
-    let key = "a".repeat(1000);
-    let input = format!("[{key},b,c,d,e,f]: 1\n");
-    let config = format!("{REQUIRED}check-keys = true\n");
-    let (code, _, stderr, output) =
-        ryl_on(Some(&config), &input, &["format", "--no-cache"]);
-    assert_eq!(code, 0);
-    assert_eq!(output, format!("[{key}, b, c, d, e, f]: 1\n"));
-    assert!(stderr.contains("implicit key would exceed 1024 characters"));
-    check_values(&input, &output).unwrap();
-    let (_, _, _, again) = ryl_on(Some(&config), &output, &["format", "--no-cache"]);
-    assert_eq!(output, again);
-}
-
-#[test]
-fn shrinking_key_gaps_allow_required_quotes_in_one_pass() {
-    let key = "a".repeat(1003);
-    formatted(
-        &format!("[{key},     b,     c]: 1\n"),
-        &format!("{REQUIRED}check-keys = true\n"),
-        &format!("['{key}', 'b', 'c']: 1\n"),
-    );
 }
 
 #[test]
@@ -342,10 +320,14 @@ fn required_key_quotes_respect_skipped_and_suppressed_spacing() {
         ),
         "'a': ['one','two']\n"
     );
-    formatted(
-        "[a,b]: text  # ryl disable-line rule:commas\n",
-        &config,
-        "['a','b']: 'text'  # ryl disable-line rule:commas\n",
+    assert_eq!(
+        format_str(
+            "[a,b]: text  # ryl disable-line rule:commas\n",
+            &cfg,
+            Path::new("a.yaml"),
+            &[]
+        ),
+        "[a,b]: 'text'  # ryl disable-line rule:commas\n"
     );
     let input = "a: 'text'  # ryl disable-line rule:quoted-strings\n";
     let cfg = YamlLintConfig::from_toml_str("[lint.rules.quoted-strings]\nrequired = 'only-when-needed'\ncheck-keys = true\n").unwrap();

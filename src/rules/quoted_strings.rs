@@ -121,14 +121,6 @@ struct Requirements {
     extra_required: Vec<Regex>,
     extra_allowed: Vec<Regex>,
     check_keys: bool,
-    key_spacing: KeySpacing,
-}
-
-#[derive(Debug, Clone)]
-struct KeySpacing {
-    colons: Option<colons::Config>,
-    commas: Option<crate::rules::commas::Config>,
-    braces: Option<crate::rules::braces::Config>,
 }
 
 #[derive(Debug, Clone)]
@@ -279,11 +271,7 @@ impl Config {
         self
     }
 
-    pub(crate) fn with_requirements(
-        mut self,
-        cfg: &YamlLintConfig,
-        skip: &[&str],
-    ) -> Self {
+    pub(crate) fn with_requirements(mut self, cfg: &YamlLintConfig) -> Self {
         if cfg.rule_level(ID).is_some() {
             let lint = Self::resolve(cfg);
             self.requirements = Some(Requirements {
@@ -291,21 +279,6 @@ impl Config {
                 extra_required: lint.extra_required,
                 extra_allowed: lint.extra_allowed,
                 check_keys: lint.check_keys,
-                key_spacing: KeySpacing {
-                    colons: (!skip.contains(&colons::ID))
-                        .then_some(colons::Config::format()),
-                    commas: (!skip.contains(&crate::rules::commas::ID))
-                        .then_some(crate::rules::commas::Config::new(0, 1, 1)),
-                    braces: (!skip.contains(&crate::rules::braces::ID)).then_some(
-                        crate::rules::braces::Config::new(
-                            crate::rules::braces::Forbid::None,
-                            i64::from(cfg.format().targets().brace_spacing),
-                            i64::from(cfg.format().targets().brace_spacing),
-                            0,
-                            0,
-                        ),
-                    ),
-                },
             });
         }
         self
@@ -905,12 +878,7 @@ pub(crate) fn format_replacements<'a>(
     }
     std::mem::swap(&mut fixer.state.plain_scalar_cache, cache);
     let refusals = if format {
-        input::constrain_keys(
-            input,
-            cfg,
-            &mut fixer.replacements,
-            &input::key_spacing(input, cfg),
-        )
+        input::constrain_keys(input, &mut fixer.replacements)
     } else {
         Vec::new()
     };
@@ -929,7 +897,7 @@ pub(crate) fn format_refusals(
     }
     let directives =
         crate::directives::Directives::scoped(input, crate::directives::Scope::Format);
-    input::constrain_keys(input, cfg, &mut fixer.replacements, &[])
+    input::constrain_keys(input, &mut fixer.replacements)
         .into_iter()
         .filter(|violation| !directives.is_disabled(ID, violation.line))
         .collect()

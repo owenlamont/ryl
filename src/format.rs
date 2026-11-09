@@ -117,7 +117,7 @@ impl Passes<'static> {
                 |style| {
                     quoted_strings::Config::ladder(style, cfg.target_version())
                         .with_keep_quotes(table.keep_quotes)
-                        .with_requirements(cfg, skip)
+                        .with_requirements(cfg)
                 },
             ),
             trailing_spaces: on(trailing_spaces::ID),
@@ -584,7 +584,7 @@ fn quote_refusals(input: Analysis<'_>, cfg: &YamlLintConfig) -> Vec<LintProblem>
             input,
             &quoted_strings::Config::ladder(style, cfg.target_version())
                 .with_keep_quotes(cfg.format().targets().keep_quotes)
-                .with_requirements(cfg, &[]),
+                .with_requirements(cfg),
         )
         .into_iter()
         .map(|violation| LintProblem {
