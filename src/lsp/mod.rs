@@ -747,6 +747,8 @@ impl Server {
                 if config_changed {
                     self.invalidate_schemas(connection);
                     self.handle_config_change(connection);
+                } else if let Some(service) = self.schema_service() {
+                    service.invalidate();
                 }
                 self.wake(connection);
             }

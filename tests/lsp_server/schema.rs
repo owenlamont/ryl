@@ -204,6 +204,60 @@ fn await_schema(client: &Client) -> Vec<Diagnostic> {
 }
 
 #[test]
+fn watched_local_schema_changes_reload_mixed_and_local_only_configs() {
+    for mixed in [false, true] {
+        let h = Harness::new("", false);
+        let local = h.dir.path().join("local.json");
+        std::fs::write(&local, r#"{"type":"string"}"#).unwrap();
+        let mut config_text = "[[lint.rules.schema.schemas]]\nfiles = ['local.yaml']\npath = 'local.json'\n".to_owned();
+        if mixed {
+            config_text.push_str(&config(ROOT).replace("*.yaml", "remote.yaml"));
+        }
+        std::fs::write(h.dir.path().join(".ryl.toml"), config_text).unwrap();
+        let mut client = h.client(Limits::default());
+        if mixed {
+            client.did_open(file_uri(h.dir.path(), "remote.yaml"), "text\n");
+            answer(&client, prompt(&client), Some("Allow once"));
+            await_schema(&client);
+        }
+        let uri = file_uri(h.dir.path(), "local.yaml");
+        client.did_open(uri.clone(), "text\n");
+        let params = json!({"textDocument":{"uri":uri}});
+        let id = client.request("textDocument/diagnostic", params.clone());
+        assert!(pull_items(client.response(&id)).is_empty());
+
+        std::fs::write(&local, r#"{"type":"integer"}"#).unwrap();
+        client.notify(
+            "workspace/didChangeWatchedFiles",
+            json!({"changes":[{"uri":file_uri(h.dir.path(), "local.json"),"type":2}]}),
+        );
+        let id = client.request("textDocument/diagnostic", params.clone());
+        let (mut messages, response) = client.messages_until_response(&id);
+        let mut items = pull_items(response);
+        if items
+            .iter()
+            .any(|item| item.message.contains("preparation pending"))
+        {
+            await_schema(&client);
+            let id = client.request("textDocument/diagnostic", params);
+            let (ready_messages, response) = client.messages_until_response(&id);
+            messages.extend(ready_messages);
+            items = pull_items(response);
+        }
+        assert!(
+            items
+                .iter()
+                .any(|item| item.code
+                    == Some(NumberOrString::String("schema".to_owned()))),
+            "edited local schema must reject text (mixed={mixed}): {items:?}"
+        );
+        assert!(!messages.iter().any(|message| matches!(message, Message::Request(request) if request.method == "window/showMessageRequest")));
+        assert_eq!(h.calls(), usize::from(mixed));
+        client.shutdown();
+    }
+}
+
+#[test]
 fn allowlist_lock_timeout_keeps_session_grant() {
     let h = Harness::new("", false);
     let parent = h.dir.path().join("user/ryl");
