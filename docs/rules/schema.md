@@ -1,5 +1,12 @@
 # schema
 
+In `ryl server`, clients supporting dynamic file watching register exact local schema
+root and `$ref` paths, including missing files and arbitrary extensions. Creating,
+saving or deleting a dependency revalidates open documents and updates push diagnostics
+or requests a pull refresh. Local-only configurations require no network worker.
+Unsaved schema buffers are not read; clients without dynamic registration must restart
+the server or reopen documents after schema edits.
+
 ## What this rule does
 
 Validates YAML documents against user-supplied JSON Schemas. Schemas are supplied by the

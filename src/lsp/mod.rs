@@ -31,19 +31,18 @@ use lsp_types::{
     CancelParams, CodeActionParams, CodeActionProviderCapability, CodeActionResponse,
     Diagnostic, DiagnosticOptions, DiagnosticRegistrationOptions,
     DiagnosticServerCapabilities, DiagnosticSeverity, DidChangeConfigurationParams,
-    DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidChangeWatchedFilesRegistrationOptions, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
-    DocumentFormattingParams, FileSystemWatcher, FullDocumentDiagnosticReport,
-    GlobPattern, Hover, HoverParams, HoverProviderCapability, InitializeParams,
-    InitializeResult, MessageType, NumberOrString, OneOf, Position,
-    PrepareRenameResponse, PreviousResultId, ProgressToken, PublishDiagnosticsParams,
-    Range, Registration, RegistrationParams, RelatedFullDocumentDiagnosticReport,
-    RelatedUnchangedDocumentDiagnosticReport, RenameOptions, RenameParams,
-    ServerCapabilities, ServerInfo, ShowMessageParams, TextDocumentPositionParams,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
-    UnchangedDocumentDiagnosticReport, Unregistration, UnregistrationParams, Uri,
-    WorkDoneProgressOptions, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesRegistrationOptions,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentFormattingParams, FileSystemWatcher,
+    FullDocumentDiagnosticReport, GlobPattern, Hover, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, MessageType,
+    NumberOrString, OneOf, Position, PrepareRenameResponse, PreviousResultId,
+    ProgressToken, PublishDiagnosticsParams, Range, Registration, RegistrationParams,
+    RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport,
+    RenameOptions, RenameParams, ServerCapabilities, ServerInfo, ShowMessageParams,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextEdit, UnchangedDocumentDiagnosticReport, Unregistration, UnregistrationParams,
+    Uri, WorkDoneProgressOptions, WorkspaceDiagnosticParams, WorkspaceDiagnosticReport,
     WorkspaceDiagnosticReportPartialResult, WorkspaceDocumentDiagnosticReport,
     WorkspaceEdit, WorkspaceFullDocumentDiagnosticReport,
     WorkspaceUnchangedDocumentDiagnosticReport,
@@ -164,15 +163,24 @@ pub fn serve_with_schema_env(
     // capability now respects the LSP ordering (not sent before `initialized`). Only when
     // the client supports dynamic registration; older clients get no auto-reload.
     if client_supports_watch_registration(&params) {
-        register_config_watchers(connection, settings.config_file.as_deref());
+        send(
+            connection,
+            Message::Request(Request::new(
+                RequestId::from("ryl-register-watchers".to_owned()),
+                "client/registerCapability".to_owned(),
+                config_watchers(settings.config_file.as_deref()),
+            )),
+        );
     }
 
     let (scan_tx, scan_rx) = unbounded();
     settings.schema = Some(Arc::new(schema_preparation::Session {
+        generation: std::sync::atomic::AtomicU64::new(0),
         env,
         limits,
         events: scan_tx.clone(),
         service: std::sync::OnceLock::new(),
+        dependencies: std::sync::OnceLock::new(),
     }));
     let mut server = Server {
         encoding,
@@ -195,6 +203,8 @@ pub fn serve_with_schema_env(
         closed: HashSet::new(),
         revision: 0,
         schema_config_diagnostics: HashMap::new(),
+        supports_watch_registration: client_supports_watch_registration(&params),
+        schema_watches: BTreeSet::new(),
         scan_tx,
         scan_rx,
     };
@@ -331,12 +341,10 @@ const WATCHED_CONFIG_NAMES: [&str; 6] = [
     ".yamllint.yml",
 ];
 
-/// Ask the client to watch ryl's config files and YAML sources, so an out-of-editor edit
-/// re-lints open documents and wakes a long-polling pull. Fire-and-forget.
+/// Config and YAML source edits refresh diagnostics and wake long-polling pulls.
 ///
-/// Known limitation: files pulled in via a config's `extends:`, and a `configPath` changed
-/// after startup, are not (re-)watched; re-open a document to refresh after editing those.
-fn register_config_watchers(connection: &Connection, config_file: Option<&Path>) {
+/// Files pulled in via a config's `extends:` require reopening a document to refresh.
+fn config_watchers(config_file: Option<&Path>) -> RegistrationParams {
     let mut watchers = vec![
         FileSystemWatcher {
             glob_pattern: GlobPattern::String(format!(
@@ -365,17 +373,9 @@ fn register_config_watchers(connection: &Connection, config_file: Option<&Path>)
         method: "workspace/didChangeWatchedFiles".to_string(),
         register_options: serde_json::to_value(options).ok(),
     };
-    let params = RegistrationParams {
+    RegistrationParams {
         registrations: vec![registration],
-    };
-    send(
-        connection,
-        Message::Request(Request::new(
-            RequestId::from("ryl-register-watchers".to_string()),
-            "client/registerCapability".to_string(),
-            params,
-        )),
-    );
+    }
 }
 
 const DIAGNOSTIC_REGISTRATION_ID: &str = "ryl-diagnostics";
@@ -508,6 +508,8 @@ fn read_setting<'a, T>(
 }
 
 struct Server {
+    supports_watch_registration: bool,
+    schema_watches: BTreeSet<PathBuf>,
     encoding: PositionEncoding,
     /// All client folders, for anchoring config discovery of untitled URIs and enumerating
     /// files in a `workspace/diagnostic` pull. Empty when the client sent no folders.
@@ -641,6 +643,7 @@ impl Server {
                     }
                 }
             }
+            self.sync_schema_watchers(connection);
         }
     }
 
@@ -732,19 +735,7 @@ impl Server {
                 self.wake(connection);
             }
             "workspace/didChangeWatchedFiles" => {
-                // Params ryl cannot read say nothing about what changed, so assume the worst.
-                let config_changed = parse::<DidChangeWatchedFilesParams>(&params)
-                    .is_none_or(|watched| {
-                        watched
-                            .changes
-                            .iter()
-                            .any(|event| self.is_config_uri(event.uri.as_str()))
-                    });
-                if config_changed || self.schema_service().is_some() {
-                    self.invalidate_schemas(connection);
-                    self.handle_config_change(connection);
-                }
-                self.wake(connection);
+                self.watched_files_changed(connection, &params);
             }
             "workspace/didChangeConfiguration"
                 if let Some(params) =
@@ -754,6 +745,25 @@ impl Server {
                     Settings::from_options(Some(&params.settings));
                 let mode_changed =
                     settings.diagnostic_mode != self.settings.diagnostic_mode;
+                if self.supports_watch_registration
+                    && settings.config_file != self.settings.config_file
+                {
+                    self.client_request(
+                        connection,
+                        "client/unregisterCapability",
+                        UnregistrationParams {
+                            unregisterations: vec![Unregistration {
+                                id: "ryl-watch-config".to_owned(),
+                                method: "workspace/didChangeWatchedFiles".to_owned(),
+                            }],
+                        },
+                    );
+                    self.client_request(
+                        connection,
+                        "client/registerCapability",
+                        config_watchers(settings.config_file.as_deref()),
+                    );
+                }
                 let schema = self.settings.schema.clone();
                 self.settings = settings;
                 self.settings.schema = schema;
@@ -1444,8 +1454,16 @@ fn resolve_for_path(
             }),
         require_rules,
     );
-    let mut context =
-        discover_config_with(std::slice::from_ref(&path), &settings.overrides(), &env)?;
+    let generation = settings
+        .schema
+        .as_ref()
+        .map_or(0, |session| session.generation.load(Ordering::Relaxed));
+    let context =
+        discover_config_with(std::slice::from_ref(&path), &settings.overrides(), &env);
+    if require_rules && let Some(session) = &settings.schema {
+        session.record_dependencies(path.clone(), &env, generation);
+    }
+    let mut context = context?;
     if context.config.needs_remote_preparation() {
         context = settings
             .schema

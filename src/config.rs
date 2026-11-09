@@ -39,6 +39,12 @@ pub enum SourceKind {
 }
 
 pub trait Env {
+    fn local_schema_dependencies(
+        &self,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<PathBuf>>>>
+    {
+        None
+    }
     fn schema_policy(
         &self,
     ) -> Option<std::sync::Arc<dyn crate::rules::schema::net::Policy>> {

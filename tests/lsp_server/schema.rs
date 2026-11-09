@@ -199,6 +199,247 @@ fn await_schema(client: &Client) -> Vec<Diagnostic> {
     }
 }
 
+fn schema_registration(client: &Client) -> Value {
+    loop {
+        let request = client.recv_request();
+        if request.method == "client/registerCapability"
+            && request.params["registrations"][0]["id"] == "ryl-watch-schemas"
+        {
+            return request.params["registrations"][0]["registerOptions"]["watchers"]
+                .clone();
+        }
+    }
+}
+
+fn watching() -> Value {
+    json!({"workspace":{"didChangeWatchedFiles":{"dynamicRegistration":true}}})
+}
+
+fn local_config(path: &str) -> String {
+    format!("[[lint.rules.schema.schemas]]\nfiles = ['*.yaml']\npath = '{path}'\n")
+}
+
+fn changed_schema(client: &Client, dir: &Path, path: &str, kind: u8) {
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({"changes":[{"uri":file_uri(dir,path),"type":kind}]}),
+    );
+}
+
+#[test]
+fn local_schema_watchers_reload_roots_references_missing_files_and_deletions() {
+    for reference in [false, true] {
+        let h = Harness::new("", false);
+        let root = h.dir.path().join("root.schema");
+        std::fs::write(
+            h.dir.path().join(".ryl.toml"),
+            local_config("./root.schema"),
+        )
+        .unwrap();
+        if reference {
+            std::fs::write(&root, r#"{"$ref":"child.data"}"#).unwrap();
+        }
+        let changed = if reference {
+            "child.data"
+        } else {
+            "root.schema"
+        };
+        let mut client = h.client_options(Limits::default(), watching(), Value::Null);
+        h.open(&client);
+        await_error(&client, "schema");
+        let watchers = schema_registration(&client);
+        let mut expected = vec![
+            json!({"globPattern":globset::escape(&root.to_string_lossy().replace('\\',"/"))}),
+        ];
+        if reference {
+            expected.insert(0,json!({"globPattern":globset::escape(&h.dir.path().join(changed).to_string_lossy().replace('\\',"/"))}));
+        }
+        assert_eq!(watchers, json!(expected));
+        std::fs::write(h.dir.path().join(changed), r#"{"type":"string"}"#).unwrap();
+        changed_schema(&client, h.dir.path(), changed, 1);
+        assert!(client.diagnostics().is_empty());
+        std::fs::write(h.dir.path().join(changed), r#"{"type":"integer"}"#).unwrap();
+        changed_schema(&client, h.dir.path(), changed, 2);
+        assert_eq!(await_schema(&client).len(), 1);
+        std::fs::remove_file(h.dir.path().join(changed)).unwrap();
+        changed_schema(&client, h.dir.path(), changed, 3);
+        await_error(&client, "schema");
+        std::fs::write(h.dir.path().join(changed), r#"{"type":"string"}"#).unwrap();
+        changed_schema(&client, h.dir.path(), changed, 1);
+        assert!(client.diagnostics().is_empty());
+        assert_eq!(h.calls(), 0);
+        client.shutdown();
+    }
+}
+
+#[test]
+fn local_schema_watching_refreshes_pull_diagnostics() {
+    let h = Harness::new("", false);
+    std::fs::write(h.dir.path().join(".ryl.toml"), local_config("root.data")).unwrap();
+    std::fs::write(h.dir.path().join("root.data"), r#"{"type":"string"}"#).unwrap();
+    let mut capabilities = watching();
+    capabilities["textDocument"] = json!({"diagnostic":{}});
+    capabilities["workspace"]["diagnostics"] = json!({"refreshSupport":true});
+    let mut client = h.client_options(Limits::default(), capabilities, Value::Null);
+    let uri = h.open(&client);
+    schema_registration(&client);
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({"textDocument":{"uri":uri}}),
+    );
+    assert!(pull_items(client.response(&id)).is_empty());
+    std::fs::write(h.dir.path().join("root.data"), r#"{"type":"integer"}"#).unwrap();
+    changed_schema(&client, h.dir.path(), "root.data", 2);
+    assert_eq!(client.recv_request().method, "workspace/diagnostic/refresh");
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({"textDocument":{"uri":uri}}),
+    );
+    assert_eq!(pull_items(client.response(&id)).len(), 1);
+    client.shutdown();
+}
+
+#[test]
+fn schema_watchers_require_associations_and_dynamic_registration() {
+    for dynamic in [false, true] {
+        let h = Harness::new("", false);
+        std::fs::write(
+            h.dir.path().join(".ryl.toml"),
+            if dynamic {
+                TRAILING.to_owned()
+            } else {
+                local_config("root.data")
+            },
+        )
+        .unwrap();
+        std::fs::write(h.dir.path().join("root.data"), "true").unwrap();
+        let mut client = h.client_options(
+            Limits::default(),
+            if dynamic { watching() } else { json!({}) },
+            Value::Null,
+        );
+        h.open(&client);
+        let id = client.request(UNHANDLED_METHOD, Value::Null);
+        let (messages, _) = client.messages_until_response(&id);
+        assert!(!messages.iter().any(|message|matches!(message,Message::Request(request) if request.params["registrations"][0]["id"] == "ryl-watch-schemas")));
+        assert_eq!(h.calls(), 0);
+        if !dynamic {
+            std::fs::write(h.dir.path().join("root.data"), "false").unwrap();
+            client.notify(
+                "textDocument/didClose",
+                json!({"textDocument":{"uri":file_uri(h.dir.path(),"test.yaml")}}),
+            );
+            h.open(&client);
+            await_schema(&client);
+        }
+        client.shutdown();
+    }
+}
+
+#[test]
+fn changed_references_and_config_paths_replace_watchers() {
+    let h = Harness::new("", false);
+    let root = h.dir.path().join("root.data");
+    std::fs::write(h.dir.path().join(".ryl.toml"), local_config("root.data")).unwrap();
+    std::fs::write(&root, r#"{"$ref":"first.data"}"#).unwrap();
+    std::fs::write(h.dir.path().join("first.data"), "true").unwrap();
+    std::fs::write(h.dir.path().join("second.data"), "false").unwrap();
+    let mut client = h.client_options(Limits::default(), watching(), Value::Null);
+    h.open(&client);
+    let first = schema_registration(&client);
+    assert_eq!(first.as_array().unwrap().len(), 2);
+    std::fs::write(&root, r#"{"$ref":"second.data"}"#).unwrap();
+    changed_schema(&client, h.dir.path(), "root.data", 2);
+    let second = schema_registration(&client);
+    assert!(second.to_string().contains("second.data"));
+    assert!(!second.to_string().contains("first.data"));
+    let alternate = h.dir.path().join("custom.toml");
+    std::fs::write(&alternate, TRAILING).unwrap();
+    client.notify(
+        "workspace/didChangeConfiguration",
+        json!({"settings":{"configPath":alternate}}),
+    );
+    let id = client.request(UNHANDLED_METHOD, Value::Null);
+    let (messages, _) = client.messages_until_response(&id);
+    assert!(messages.iter().any(|message|matches!(message,Message::Request(request) if request.method == "client/unregisterCapability" && request.params["unregisterations"][0]["id"] == "ryl-watch-schemas")));
+    assert!(messages.iter().any(|message|matches!(message,Message::Request(request) if request.method == "client/registerCapability" && request.params["registrations"][0]["registerOptions"]["watchers"].as_array().is_some_and(|watchers|watchers.iter().any(|watcher|watcher["globPattern"] == alternate.to_string_lossy().replace('\\',"/"))))));
+    assert_eq!(h.calls(), 0);
+    client.shutdown();
+}
+
+#[test]
+fn obsolete_workspace_discovery_cannot_restore_schema_watchers() {
+    for schemas in [false, true] {
+        let h = Harness::new("", false);
+        let config_path = h.dir.path().join(".ryl.toml");
+        std::fs::write(&config_path, local_config("root.data")).unwrap();
+        std::fs::write(h.dir.path().join("root.data"), "false").unwrap();
+        std::fs::write(h.dir.path().join("test.yaml"), "text\n").unwrap();
+        let mut client =
+            h.client_options(Limits::default(), watching(), workspace_mode());
+        let uri = h.open(&client);
+        schema_registration(&client);
+        if !schemas {
+            std::fs::write(&config_path, TRAILING).unwrap();
+        }
+        let (started, began) = std::sync::mpsc::sync_channel(1);
+        let (release, gate) = std::sync::mpsc::channel();
+        *h.env.read_gate.lock().unwrap() = Some(PolicyGate {
+            started,
+            release: gate,
+        });
+        let id = client.request(
+            "workspace/diagnostic",
+            json!({"previousResultIds":[{"uri":uri,"value":"old"}]}),
+        );
+        began.recv_timeout(Duration::from_secs(5)).unwrap();
+        client.notify(
+            "workspace/didChangeConfiguration",
+            json!({"settings":{"enable":false}}),
+        );
+        let barrier = client.request(UNHANDLED_METHOD, Value::Null);
+        let (messages, _) = client.messages_until_response(&barrier);
+        release.send(()).unwrap();
+        if !messages.iter().any(|message|matches!(message,Message::Response(response) if response.id == id)) {
+            client.response(&id).response_result.unwrap();
+        }
+        client.shutdown();
+    }
+}
+
+#[test]
+fn local_schema_watchers_reject_absolute_roots() {
+    let h = Harness::new("", false);
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        local_config("/outside.schema"),
+    )
+    .unwrap();
+    let mut client = h.client_options(Limits::default(), watching(), Value::Null);
+    h.open(&client);
+    await_error(&client, "relative");
+    client.shutdown();
+}
+
+#[cfg(unix)]
+#[test]
+fn schema_reload_rechecks_symlink_confinement() {
+    let h = Harness::new("", false);
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("schema"), "true").unwrap();
+    let root = h.dir.path().join("root.data");
+    std::fs::write(h.dir.path().join(".ryl.toml"), local_config("root.data")).unwrap();
+    std::fs::write(&root, "true").unwrap();
+    let mut client = h.client_options(Limits::default(), watching(), Value::Null);
+    h.open(&client);
+    schema_registration(&client);
+    std::fs::remove_file(&root).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("schema"), &root).unwrap();
+    changed_schema(&client, h.dir.path(), "root.data", 2);
+    await_error(&client, "escapes config base");
+    client.shutdown();
+}
+
 #[test]
 fn watched_local_schema_changes_reload_mixed_and_local_only_configs() {
     for mixed in [false, true] {
@@ -296,7 +537,7 @@ fn blocked_schema_diagnostic_source_read_keeps_dispatch_responsive() {
 }
 
 #[test]
-fn watched_file_invalidation_preserves_pending_approval() {
+fn unrelated_watched_file_preserves_pending_approval() {
     let h = Harness::new("", false);
     let mut client = h.client(Limits::default());
     h.open(&client);
@@ -306,7 +547,15 @@ fn watched_file_invalidation_preserves_pending_approval() {
         "workspace/didChangeWatchedFiles",
         json!({"changes":[{"uri":file_uri(h.dir.path(), "unrelated.yaml"),"type":2}]}),
     );
-    await_error(&client, "approval required");
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({"textDocument":{"uri":file_uri(h.dir.path(), "test.yaml")}}),
+    );
+    assert!(
+        pull_items(client.response(&id))[0]
+            .message
+            .contains("approval required")
+    );
     approve(&mut client, ORIGIN, false);
     assert_eq!(await_schema(&client).len(), 1);
     assert_eq!(h.calls(), 1);
@@ -335,7 +584,7 @@ fn watched_file_after_last_close_clears_config_approval_diagnostics() {
     client.assert_alive();
     client.notify(
         "workspace/didChangeWatchedFiles",
-        json!({"changes":[{"uri":file_uri(h.dir.path(), "unrelated.yaml"),"type":2}]}),
+        changed_config(h.dir.path()),
     );
     let id = client.request("ryl/barrier", json!({}));
     let (messages, _) = client.messages_until_response(&id);

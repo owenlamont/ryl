@@ -41,6 +41,7 @@ struct Entry {
     cancel: Arc<AtomicBool>,
     source_text: String,
     origins: Origins,
+    dependencies: BTreeSet<PathBuf>,
 }
 
 #[derive(Default)]
@@ -137,6 +138,7 @@ impl Service {
                 cancel: Arc::new(AtomicBool::new(false)),
                 source_text: String::new(),
                 origins: Origins::new(),
+                dependencies: BTreeSet::new(),
             },
         );
         state.queue.push_back(key);
@@ -313,6 +315,7 @@ fn perform_job(
         policy: Some(policy.clone()),
         remote: true,
         lint: true,
+        dependencies: std::sync::OnceLock::new(),
     };
     let prepared = prepare(&mut job.context, &env);
     let source_text = job
@@ -336,6 +339,7 @@ fn perform_job(
         return;
     }
     entry.source_text = source_text;
+    entry.dependencies = env.take_dependencies();
     entry.origins = needed;
     entry.status = if expired {
         entry.cancel.store(true, Ordering::Relaxed);
@@ -411,6 +415,7 @@ pub(super) struct SchemaEnv<'a> {
     policy: Option<Arc<Approval>>,
     remote: bool,
     lint: bool,
+    dependencies: std::sync::OnceLock<Arc<Mutex<BTreeSet<PathBuf>>>>,
 }
 impl<'a> SchemaEnv<'a> {
     pub(super) fn discovery(base: &'a dyn Env, lint: bool) -> Self {
@@ -420,10 +425,20 @@ impl<'a> SchemaEnv<'a> {
             remote: false,
             grants: Vec::new(),
             policy: None,
+            dependencies: std::sync::OnceLock::new(),
         }
+    }
+
+    fn take_dependencies(&self) -> BTreeSet<PathBuf> {
+        self.dependencies.get().map_or_else(BTreeSet::new, |paths| {
+            std::mem::take(&mut *paths.lock().expect("schema dependencies lock"))
+        })
     }
 }
 impl Env for SchemaEnv<'_> {
+    fn local_schema_dependencies(&self) -> Option<Arc<Mutex<BTreeSet<PathBuf>>>> {
+        Some(self.dependencies.get_or_init(Arc::default).clone())
+    }
     fn remote_schemas(&self) -> bool {
         self.remote
     }
@@ -465,12 +480,67 @@ impl Env for SchemaEnv<'_> {
 }
 
 pub(super) struct Session {
+    pub(super) generation: std::sync::atomic::AtomicU64,
     pub(super) env: Arc<dyn Env + Send + Sync>,
     pub(super) limits: Limits,
     pub(super) events: Sender<super::Event>,
     pub(super) service: std::sync::OnceLock<Arc<Service>>,
+    pub(super) dependencies:
+        std::sync::OnceLock<Mutex<BTreeMap<PathBuf, BTreeSet<PathBuf>>>>,
 }
 impl Session {
+    pub(super) fn record_dependencies(
+        &self,
+        path: PathBuf,
+        env: &SchemaEnv<'_>,
+        generation: u64,
+    ) {
+        let paths = env.take_dependencies();
+        if env.dependencies.get().is_none() {
+            if let Some(dependencies) = self.dependencies.get() {
+                let mut dependencies =
+                    dependencies.lock().expect("schema dependencies lock");
+                if self.generation.load(Ordering::Relaxed) == generation {
+                    dependencies.remove(&path);
+                }
+            }
+            return;
+        }
+        let mut dependencies = self
+            .dependencies
+            .get_or_init(Mutex::default)
+            .lock()
+            .expect("schema dependencies lock");
+        if self.generation.load(Ordering::Relaxed) == generation {
+            dependencies.insert(path, paths);
+        }
+    }
+
+    pub(super) fn dependency_paths(&self) -> BTreeSet<PathBuf> {
+        let mut paths = BTreeSet::new();
+        if let Some(dependencies) = self.dependencies.get() {
+            paths.extend(
+                dependencies
+                    .lock()
+                    .expect("schema dependencies lock")
+                    .values()
+                    .flatten()
+                    .cloned(),
+            );
+        }
+        if let Some(service) = self.service.get() {
+            paths.extend(
+                service
+                    .state
+                    .lock()
+                    .expect("schema service lock")
+                    .entries
+                    .values()
+                    .flat_map(|entry| entry.dependencies.iter().cloned()),
+            );
+        }
+        paths
+    }
     pub(super) fn request(
         &self,
         context: ConfigContext,
@@ -495,6 +565,96 @@ fn origin_title(prefix: &str, origin: &str) -> String {
 }
 
 impl super::Server {
+    pub(super) fn watched_files_changed(
+        &mut self,
+        connection: &lsp_server::Connection,
+        params: &serde_json::Value,
+    ) {
+        let paths = self
+            .settings
+            .schema
+            .as_ref()
+            .expect("schema session")
+            .dependency_paths();
+        let is_dependency = |path: &Path| {
+            paths.iter().any(|dependency| {
+                crate::config::paths_equal(
+                    dependency,
+                    path,
+                    crate::config::CASE_INSENSITIVE_PATHS,
+                )
+            })
+        };
+        let changed = super::parse::<lsp_types::DidChangeWatchedFilesParams>(params)
+            .is_none_or(|watched| {
+                watched.changes.iter().any(|event| {
+                    self.is_config_uri(event.uri.as_str())
+                        || super::encoding::uri_to_path(event.uri.as_str())
+                            .as_deref()
+                            .is_some_and(is_dependency)
+                })
+            });
+        if changed {
+            self.invalidate_schemas(connection);
+            self.handle_config_change(connection);
+        }
+        self.wake(connection);
+    }
+
+    pub(super) fn sync_schema_watchers(&mut self, connection: &lsp_server::Connection) {
+        if !self.supports_watch_registration {
+            return;
+        }
+        let paths = self
+            .settings
+            .schema
+            .as_ref()
+            .expect("schema session")
+            .dependency_paths();
+        if paths == self.schema_watches {
+            return;
+        }
+        if !self.schema_watches.is_empty() {
+            self.client_request(
+                connection,
+                "client/unregisterCapability",
+                lsp_types::UnregistrationParams {
+                    unregisterations: vec![lsp_types::Unregistration {
+                        id: "ryl-watch-schemas".to_owned(),
+                        method: "workspace/didChangeWatchedFiles".to_owned(),
+                    }],
+                },
+            );
+        }
+        self.schema_watches = paths;
+        if self.schema_watches.is_empty() {
+            return;
+        }
+        let watchers: Vec<_> = self
+            .schema_watches
+            .iter()
+            .map(|path| {
+                let literal =
+                    globset::escape(&path.to_string_lossy().replace('\\', "/"));
+                lsp_types::FileSystemWatcher {
+                    glob_pattern: lsp_types::GlobPattern::String(literal),
+                    kind: None,
+                }
+            })
+            .collect();
+        self.client_request(
+            connection,
+            "client/registerCapability",
+            lsp_types::RegistrationParams {
+                registrations: vec![lsp_types::Registration {
+                    id: "ryl-watch-schemas".to_owned(),
+                    method: "workspace/didChangeWatchedFiles".to_owned(),
+                    register_options: Some(serde_json::json!({"watchers": watchers})),
+                }],
+            },
+        );
+    }
+
     pub(super) fn schema_service(&self) -> Option<Arc<Service>> {
         self.settings
             .schema
@@ -515,6 +675,25 @@ impl super::Server {
     }
 
     pub(super) fn invalidate_schemas(&mut self, connection: &lsp_server::Connection) {
+        self.settings
+            .schema
+            .as_ref()
+            .expect("schema session")
+            .generation
+            .fetch_add(1, Ordering::Relaxed);
+        if let Some(dependencies) = self
+            .settings
+            .schema
+            .as_ref()
+            .expect("schema session")
+            .dependencies
+            .get()
+        {
+            dependencies
+                .lock()
+                .expect("schema dependencies lock")
+                .clear();
+        }
         for (_, uri) in self.schema_config_diagnostics.drain() {
             super::publish(connection, uri, None, Vec::new());
         }
