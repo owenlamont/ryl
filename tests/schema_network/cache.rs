@@ -27,6 +27,9 @@ enum Fault {
     Rename,
     Evict,
     Target,
+    LockInspect,
+    LockType,
+    LockOpen,
 }
 
 struct FaultFs {
@@ -70,6 +73,15 @@ impl Write for FaultWriter {
 
 impl FileSystem for FaultFs {
     fn metadata(&self, path: &Path) -> io::Result<std::fs::Metadata> {
+        if path.ends_with("allowed-schema-origins.lock") {
+            match self.fault {
+                Fault::LockInspect => return Err(denied()),
+                Fault::LockType => {
+                    return SystemFileSystem.metadata(path.parent().unwrap());
+                }
+                _ => (),
+            }
+        }
         let phase = self.phase.load(Ordering::Relaxed);
         if phase > 0
             && (self.fault == Fault::BeforeCreate
@@ -88,6 +100,13 @@ impl FileSystem for FaultFs {
             Ok(Box::new(BadReader))
         } else {
             SystemFileSystem.open(path)
+        }
+    }
+    fn open_lock(&self, path: &Path) -> io::Result<std::fs::File> {
+        if self.fault == Fault::LockOpen {
+            Err(denied())
+        } else {
+            SystemFileSystem.open_lock(path)
         }
     }
     fn create_dirs(&self, path: &Path) -> io::Result<()> {
@@ -290,6 +309,9 @@ fn invalid_cache_metadata_and_content_are_misses() {
 #[test]
 fn user_allowlist_write_failures_preserve_existing_policy() {
     for fault in [
+        Fault::LockInspect,
+        Fault::LockType,
+        Fault::LockOpen,
         Fault::BeforeCreate,
         Fault::Read,
         Fault::Create,
@@ -329,12 +351,54 @@ fn user_allowlist_write_failures_preserve_existing_policy() {
         let parent = h.dir.path().join("user/ryl");
         if parent.exists() {
             assert_eq!(
-                std::fs::read_dir(parent).unwrap().count(),
-                0,
+                std::fs::read_dir(&parent).unwrap().count(),
+                usize::from(parent.join("allowed-schema-origins.lock").exists()),
                 "temporary files cleaned for {fault:?}"
             );
         }
     }
+}
+
+#[test]
+fn concurrent_user_grants_wait_for_lock_and_preserve_both_origins() {
+    use ryl::rules::schema::net::persist_origin;
+    use std::time::Duration;
+
+    let h = Harness::new();
+    let parent = h.dir.path().join("user/ryl");
+    std::fs::create_dir_all(&parent).unwrap();
+    let lock =
+        std::fs::File::create(parent.join("allowed-schema-origins.lock")).unwrap();
+    lock.lock().unwrap();
+    let (done, results) = std::sync::mpsc::channel();
+    let gate = Arc::new(std::sync::Barrier::new(3));
+    let workers: Vec<_> = ["https://one.example.org", "https://two.example.org"]
+        .into_iter()
+        .map(|origin| {
+            let env = h.env.clone().with_config_dir(h.dir.path().join("user"));
+            let gate = gate.clone();
+            let done = done.clone();
+            std::thread::spawn(move || {
+                gate.wait();
+                done.send(persist_origin(&env, origin)).unwrap();
+            })
+        })
+        .collect();
+    gate.wait();
+    assert!(results.recv_timeout(Duration::from_millis(50)).is_err());
+    drop(lock);
+    for _ in 0..2 {
+        results
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+    }
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    let text = std::fs::read_to_string(parent.join("allowed-schema-origins")).unwrap();
+    assert!(text.contains("https://one.example.org\n"));
+    assert!(text.contains("https://two.example.org\n"));
 }
 
 #[test]

@@ -97,6 +97,7 @@ Resolved per document via `discover_config_with` and `ServerEnv` (full CLI prece
 `workspace/didChangeConfiguration`: `configPath`/`configData`/`enable`, CLI-equivalent
 precedence, plus `diagnosticMode`). `read_setting` reports a mistyped or unknown value via
 `showMessage` and ignores it; `null` counts as unset.
+Schema association source text is read by the schema worker before taking its state lock.
 `ServerEnv` returns typed `NeedsRemotePreparation` through the resolved config at the
 first remote resource; local schemas retain normal preparation. `schema_preparation`
 owns a lazy single worker shared by document diagnostics and workspace scans. The
@@ -114,6 +115,8 @@ The Allow `<origin>` quick fix reopens the prompt via `ryl.allowSchemaOrigin`.
 Always allow persists on the same worker through a bounded queue and returns an event
 for dispatch to apply the session grant; failed saves report a config error and still
 grant session access.
+Allowlist updates hold an exclusive sibling-file advisory lock across read-modify-rename;
+acquisition retries for at most 250 ms before reporting a failure and granting session access.
 Grants come only from launcher flags/environment, the user allowlist and session answers.
 Offline suppresses prompts and networking. `serve_with_schema_env` injects trusted test
 environment/dependencies and bounds; `tests/lsp_server/schema.rs` scripts client answers.

@@ -43,6 +43,7 @@ struct Entry {
     status: Status,
     deadline: Instant,
     cancel: Arc<AtomicBool>,
+    source_text: String,
 }
 
 #[derive(Default)]
@@ -152,6 +153,7 @@ impl Service {
                 status: Status::Queued,
                 deadline: Instant::now() + self.limits.preparation,
                 cancel: Arc::new(AtomicBool::new(false)),
+                source_text: String::new(),
             },
         );
         state.queue.push_back(key);
@@ -159,7 +161,7 @@ impl Service {
         Err("schema remote preparation pending".to_owned())
     }
 
-    fn associations(&self) -> Vec<(PathBuf, Origins)> {
+    fn associations(&self) -> Vec<(PathBuf, Origins, String)> {
         self.state
             .lock()
             .expect("schema service lock")
@@ -167,11 +169,9 @@ impl Service {
             .values()
             .filter_map(|entry| {
                 if let Status::NeedsRemotePreparation(origins) = &entry.status {
-                    entry
-                        .context
-                        .source
-                        .clone()
-                        .map(|source| (source, origins.clone()))
+                    entry.context.source.clone().map(|source| {
+                        (source, origins.clone(), entry.source_text.clone())
+                    })
                 } else {
                     None
                 }
@@ -327,7 +327,14 @@ fn perform_job(
         remote: true,
         lint: true,
     };
-    let mut result = prepare(&mut job.context, &env).map(|()| Arc::new(job.context));
+    let prepared = prepare(&mut job.context, &env);
+    let source_text = job
+        .context
+        .source
+        .as_ref()
+        .and_then(|path| environment.read_to_string(path).ok())
+        .unwrap_or_default();
+    let mut result = prepared.map(|()| Arc::new(job.context));
     if job.cancel.load(Ordering::Relaxed) || Instant::now() >= job.deadline {
         result = Err("schema preparation cancelled or deadline exceeded".to_owned());
     }
@@ -341,6 +348,7 @@ fn perform_job(
     if !Arc::ptr_eq(&entry.cancel, &job.cancel) {
         return;
     }
+    entry.source_text = source_text;
     entry.status = if retry {
         Status::Queued
     } else if needed.is_empty() {
@@ -536,9 +544,8 @@ impl super::Server {
             .schema_service()
             .expect("schema events and prompts have a preparation service");
         let mut old = std::mem::take(&mut self.schema_config_diagnostics);
-        for (path, origins) in service.associations() {
+        for (path, origins, text) in service.associations() {
             let uri = super::encoding::path_to_uri(&path);
-            let text = service.env.read_to_string(&path).unwrap_or_default();
             let diagnostics = origins
                 .into_iter()
                 .map(|(origin, urls)| {

@@ -49,6 +49,7 @@ struct Environment {
     grants: String,
     policy_gate: Mutex<Option<PolicyGate>>,
     config_gate: Mutex<Option<PolicyGate>>,
+    read_gate: Mutex<Option<PolicyGate>>,
     config_unavailable: std::sync::atomic::AtomicBool,
 }
 struct PolicyGate {
@@ -79,6 +80,10 @@ impl Env for Environment {
         Some(self.root.clone())
     }
     fn read_to_string(&self, path: &Path) -> Result<String, String> {
+        if let Some(gate) = self.read_gate.lock().unwrap().take() {
+            gate.started.send(()).unwrap();
+            gate.release.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
         std::fs::read_to_string(path).map_err(|error| error.to_string())
     }
     fn path_exists(&self, path: &Path) -> bool {
@@ -123,6 +128,7 @@ impl Harness {
             grants: grants.to_owned(),
             policy_gate: Mutex::new(None),
             config_gate: Mutex::new(None),
+            read_gate: Mutex::new(None),
             config_unavailable: std::sync::atomic::AtomicBool::new(false),
         });
         Self { dir, env }
@@ -194,6 +200,50 @@ fn await_schema(client: &Client) -> Vec<Diagnostic> {
             }
         }
     }
+}
+
+#[test]
+fn allowlist_lock_timeout_keeps_session_grant() {
+    let h = Harness::new("", false);
+    let parent = h.dir.path().join("user/ryl");
+    std::fs::create_dir_all(&parent).unwrap();
+    let lock =
+        std::fs::File::create(parent.join("allowed-schema-origins.lock")).unwrap();
+    lock.lock().unwrap();
+    let mut client = h.client(Limits::default());
+    h.open(&client);
+    answer(
+        &client,
+        prompt(&client),
+        Some(&format!("Always allow {ORIGIN}")),
+    );
+    assert_eq!(await_schema(&client).len(), 1);
+    assert_eq!(h.calls(), 1);
+    assert!(!parent.join("allowed-schema-origins").exists());
+    client.shutdown();
+}
+
+#[test]
+fn blocked_schema_diagnostic_source_read_keeps_dispatch_responsive() {
+    let h = Harness::new("", false);
+    let mut client = h.client(Limits::default());
+    let (policy_began, policy_release) = install_policy_gate(&h);
+    h.open(&client);
+    policy_began.recv_timeout(Duration::from_secs(5)).unwrap();
+    let (started, began) = std::sync::mpsc::sync_channel(1);
+    let (release, gate) = std::sync::mpsc::channel();
+    *h.env.read_gate.lock().unwrap() = Some(PolicyGate {
+        started,
+        release: gate,
+    });
+    policy_release.send(()).unwrap();
+    began.recv_timeout(Duration::from_secs(5)).unwrap();
+    let id = client.request("ryl/unrelated", json!({}));
+    let response = client.response(&id);
+    release.send(()).unwrap();
+    assert!(response.response_result.is_err());
+    prompt(&client);
+    client.shutdown();
 }
 
 #[test]

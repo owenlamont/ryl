@@ -98,7 +98,10 @@ sanitised URLs. Denial/dismissal/timeout never fetch. Offline never prompts.
 The LSP preparation worker is lazy, bounded and shared with workspace scans. Cancellation
 and enqueue deadlines apply before retrieval; config revisions supersede queued work.
 User allowlist updates create the directory, refuse symlink components and atomically
-rename a create-new temporary file. A wedged DNS worker can be replaced once while stuck;
-at most two resolver threads exist, and further saturation fails visibly.
+rename a create-new temporary file.
+Concurrent allowlist updates serialize through a sibling advisory lock held across the
+read-modify-rename; lock acquisition has a 250 ms deadline and failure retains session access.
+A wedged DNS worker can be replaced once while stuck; at most two resolver threads exist,
+and further saturation fails visibly.
 Transport, resolver, clock and cache filesystem injections are trusted Rust test
 seams; never expose policy bypasses through project configuration or launcher flags.

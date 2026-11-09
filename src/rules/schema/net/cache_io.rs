@@ -11,6 +11,15 @@ pub trait FileSystem: Send + Sync {
     /// Returns cache read/open failures.
     fn open(&self, path: &Path) -> io::Result<Box<dyn Read + Send>>;
     /// # Errors
+    /// Returns lock-file open failures.
+    fn open_lock(&self, path: &Path) -> io::Result<std::fs::File> {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+    }
+    /// # Errors
     /// Returns directory creation failures.
     fn create_dirs(&self, path: &Path) -> io::Result<()>;
     /// # Errors

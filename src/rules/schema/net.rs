@@ -595,6 +595,23 @@ pub fn persist_origin(env: &dyn Env, raw: &str) -> Result<(), String> {
         .map_err(|_| "schema allowlist refuses symlinks or unreadable paths")?;
     regular_allowlist(fs.as_ref(), &path)
         .map_err(|_| "schema allowlist requires a regular file or missing path")?;
+    fs.create_dirs(&parent)
+        .map_err(|_| "cannot create user schema allowlist directory")?;
+    let lock_path = parent.join("allowed-schema-origins.lock");
+    safe_path(fs.as_ref(), &lock_path)
+        .map_err(|_| "schema allowlist lock requires a regular file")?;
+    regular_allowlist(fs.as_ref(), &lock_path)
+        .map_err(|_| "schema allowlist lock requires a regular file")?;
+    let lock = fs
+        .open_lock(&lock_path)
+        .map_err(|_| "cannot open user schema allowlist lock")?;
+    let deadline = std::time::Instant::now() + Duration::from_millis(250);
+    while lock.try_lock().is_err() {
+        if std::time::Instant::now() >= deadline {
+            return Err("user schema allowlist lock timed out".to_owned());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
     let mut text = match fs.open(&path).and_then(|mut file| {
         let mut text = String::new();
         file.read_to_string(&mut text).map(|_| text)
@@ -611,8 +628,6 @@ pub fn persist_origin(env: &dyn Env, raw: &str) -> Result<(), String> {
     }
     text.push_str(&origin);
     text.push('\n');
-    fs.create_dirs(&parent)
-        .map_err(|_| "cannot create user schema allowlist directory")?;
     let temp = parent.join(format!(
         ".allowed-schema-origins-{}-{}",
         std::process::id(),
