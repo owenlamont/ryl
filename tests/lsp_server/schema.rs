@@ -314,6 +314,90 @@ fn watched_file_invalidation_preserves_pending_approval() {
 }
 
 #[test]
+fn watched_file_after_last_close_clears_config_approval_diagnostics() {
+    let h = Harness::new("", false);
+    let mut client = h.client(Limits::default());
+    let uri = h.open(&client);
+    let config_uri = file_uri(h.dir.path(), ".ryl.toml");
+    loop {
+        if let Message::Notification(note) = client.recv()
+            && note.method == "textDocument/publishDiagnostics"
+        {
+            let report: PublishDiagnosticsParams =
+                serde_json::from_value(note.params).unwrap();
+            if report.uri == config_uri && !report.diagnostics.is_empty() {
+                assert!(report.diagnostics[0].message.contains("approval required"));
+                break;
+            }
+        }
+    }
+    client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+    client.assert_alive();
+    client.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({"changes":[{"uri":file_uri(h.dir.path(), "unrelated.yaml"),"type":2}]}),
+    );
+    let id = client.request("ryl/barrier", json!({}));
+    let (messages, _) = client.messages_until_response(&id);
+    assert!(messages.iter().any(|message| {
+        matches!(message, Message::Notification(note)
+            if note.method == "textDocument/publishDiagnostics"
+                && note.params["uri"] == config_uri.as_str()
+                && note.params["diagnostics"] == json!([]))
+    }));
+    client.shutdown();
+}
+
+#[test]
+fn approval_actions_are_scoped_to_context_origins_and_range() {
+    let h = Harness::new("", false);
+    let mut client = h.client(Limits::default());
+    let mut reports = Vec::new();
+    for (name, origin) in [("a", ORIGIN), ("b", "https://other.example.org")] {
+        let dir = h.dir.path().join(name);
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(
+            dir.join(".ryl.toml"),
+            config(&format!("{origin}/root.json")),
+        )
+        .unwrap();
+        let uri = file_uri(&dir, "test.yaml");
+        client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":"text\n"}}));
+        loop {
+            if let Message::Notification(note) = client.recv()
+                && note.method == "textDocument/publishDiagnostics"
+            {
+                let report: PublishDiagnosticsParams =
+                    serde_json::from_value(note.params).unwrap();
+                if report.uri == file_uri(&dir, ".ryl.toml")
+                    && !report.diagnostics.is_empty()
+                {
+                    reports.push((report, origin));
+                    break;
+                }
+            }
+        }
+    }
+    for (report, origin) in reports {
+        let range = report.diagnostics[0].range;
+        for (requested_range, expected) in [
+            (range, 2),
+            (Range::default(), 0),
+            (Range::new(Position::new(99, 0), Position::new(99, 0)), 0),
+        ] {
+            let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":report.uri},"range":requested_range,"context":{"diagnostics":report.diagnostics}}));
+            let actions = client.response(&id).response_result.unwrap();
+            let actions = actions.as_array().cloned().unwrap_or_default();
+            assert_eq!(actions.len(), expected);
+            for action in actions {
+                assert_eq!(action["command"]["arguments"][0], origin);
+            }
+        }
+    }
+    client.shutdown();
+}
+
+#[test]
 fn closing_documents_retains_approval_and_completed_preparations() {
     let h = Harness::new("", false);
     let mut client = h.client(Limits::default());
@@ -386,12 +470,12 @@ fn remote_schema_code_actions_approve_without_prompt() {
         let mut client = h.client(Limits::default());
         let uri = h.open(&client);
         await_error(&client, "approval required");
-        let diagnostic = Diagnostic {
-            message: "schema origin approval required".to_owned(),
-            source: Some("ryl".to_owned()),
-            ..Default::default()
-        };
-        let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":uri},"range":Range::default(),"context":{"diagnostics":[diagnostic]}}));
+        let id = client.request(
+            "textDocument/diagnostic",
+            json!({"textDocument":{"uri":uri}}),
+        );
+        let diagnostics = pull_items(client.response(&id));
+        let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":uri},"range":Range::default(),"context":{"diagnostics":diagnostics}}));
         let (messages, response) = client.messages_until_response(&id);
         assert!(!messages.iter().any(|message| matches!(message, Message::Request(request) if request.method == "window/showMessageRequest")));
         let actions = response.response_result.unwrap();

@@ -593,6 +593,17 @@ impl super::Server {
         service
             .needed()
             .keys()
+            .filter(|origin| {
+                let message = super::config_error_text(&format!(
+                    "schema origin approval required: {origin}"
+                ));
+                params.context.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.source.as_deref() == Some("ryl")
+                        && diagnostic.message == message
+                        && diagnostic.range.start <= params.range.end
+                        && params.range.start <= diagnostic.range.end
+                })
+            })
             .flat_map(|origin| {
                 [true, false].map(move |persist| {
                     let title = origin_title(

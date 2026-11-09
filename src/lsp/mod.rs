@@ -740,11 +740,8 @@ impl Server {
                             .iter()
                             .any(|event| self.is_config_uri(event.uri.as_str()))
                     });
-                if config_changed {
+                if config_changed || self.schema_service().is_some() {
                     self.invalidate_schemas(connection);
-                    self.handle_config_change(connection);
-                } else if let Some(service) = self.schema_service() {
-                    service.invalidate();
                     self.handle_config_change(connection);
                 }
                 self.wake(connection);
