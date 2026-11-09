@@ -142,6 +142,7 @@ impl Service {
                 break;
             };
             state.entries.remove(&key);
+            state.queue.retain(|queued| queued != &key);
         }
         if state.entries.len() >= self.limits.pending {
             return Err("schema preparation service saturated".to_owned());
@@ -271,9 +272,16 @@ struct Job {
 
 fn next_job(owned: &Mutex<State>) -> Option<Job> {
     let mut state = owned.lock().expect("schema service lock");
-    let key = state.queue.pop_front()?;
-    let grants = state.grants.iter().cloned().collect();
-    let entry = state.entries.get_mut(&key).expect("queued entry exists");
+    let State {
+        entries,
+        queue,
+        grants,
+        ..
+    } = &mut *state;
+    let key = std::iter::from_fn(|| queue.pop_front())
+        .find(|key| entries.contains_key(key))?;
+    let grants = grants.iter().cloned().collect();
+    let entry = entries.get_mut(&key).expect("selected entry exists");
     entry.status = Status::Running;
     Some(Job {
         key,

@@ -852,6 +852,44 @@ fn grant_answered_during_running_preflight_retries_with_latest_grants() {
 }
 
 #[test]
+fn expired_queued_preparation_is_evicted_without_stopping_worker() {
+    let h = Harness::new(ORIGIN, false);
+    let (began, release) = install_policy_gate(&h);
+    let mut client = h.client(Limits {
+        pending: 2,
+        preparation: Duration::ZERO,
+        ..Limits::default()
+    });
+    let a = h.open(&client);
+    began.recv_timeout(Duration::from_secs(5)).unwrap();
+    for name in ["b", "c"] {
+        let dir = h.dir.path().join(name);
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(dir.join(".ryl.toml"), config(ROOT)).unwrap();
+    }
+    let b = file_uri(h.dir.path(), "b/test.yaml");
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":b,"languageId":"yaml","version":1,"text":"text\n"}}));
+    let id =
+        client.request("textDocument/diagnostic", json!({"textDocument":{"uri":b}}));
+    assert!(
+        pull_items(client.response(&id))[0]
+            .message
+            .contains("deadline exceeded")
+    );
+    let c = file_uri(h.dir.path(), "c/test.yaml");
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":c,"languageId":"yaml","version":1,"text":"text\n"}}));
+    for uri in [a, b] {
+        client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+    }
+    client.assert_alive();
+    release.send(()).unwrap();
+    await_error(&client, "schema preparation cancelled or deadline exceeded");
+    client.assert_alive();
+    assert_eq!(h.calls(), 0);
+    client.shutdown();
+}
+
+#[test]
 fn existing_waiter_deadline_cancels_blocked_preparation() {
     let h = Harness::new(ORIGIN, false);
     let (began, release) = install_policy_gate(&h);
