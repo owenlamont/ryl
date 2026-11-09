@@ -43,7 +43,8 @@ Schema paths may contain spaces, brackets and other filename characters; `$ref`
 URIs must percent-encode characters outside the URI path syntax.
 
 Schema contents and local references contribute to the lint cache key. Schemas and
-references share a 16 MiB byte limit and a 1,024-resource limit per preparation.
+references share a 16 MiB byte limit and a 1,024-resource limit per config, bounding
+what a large or hostile schema can cost. The limits are fixed.
 Distinct URI aliases count separately toward both limits. Regex matching
 uses a 100,000-step backtracking limit and 1 MiB compiled-pattern and DFA-cache limits. The draft
 comes from `$schema`, defaulting to 2020-12.

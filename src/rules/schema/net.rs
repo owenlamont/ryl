@@ -17,6 +17,8 @@ pub mod cache_io;
 pub mod progress;
 
 const MAX_BYTES: usize = 16 * 1024 * 1024;
+pub(super) const SIZE_LIMIT: &str = "schema size limit exceeded: a config's schemas and their references share 16 MiB, bounding what a large or hostile schema can cost";
+pub(super) const RESOURCE_LIMIT: &str = "schema resource limit exceeded: a config's schemas and their references share 1,024 documents, bounding what a large or hostile schema can cost";
 const MAX_CACHE: u64 = 256 * 1024 * 1024;
 const FRESH: u64 = 24 * 60 * 60;
 
@@ -386,10 +388,7 @@ impl Network {
             }
         })?;
         if bytes.len() > limit {
-            return Err(Error::at(
-                &url,
-                "schema size limit exceeded (16 MiB including references)",
-            ));
+            return Err(Error::at(&url, SIZE_LIMIT));
         }
         Self::verify_pin(&url, pin, &bytes)?;
         self.write_cache(&url, &bytes)?;
@@ -443,10 +442,7 @@ impl Network {
             return Ok(None);
         }
         if bytes.len() > limit {
-            return Err(Error::at(
-                url,
-                "schema size limit exceeded (16 MiB including references)",
-            ));
+            return Err(Error::at(url, SIZE_LIMIT));
         }
         Ok(Some((meta, bytes.to_vec())))
     }
@@ -813,10 +809,7 @@ pub mod http {
                     source,
                 })?;
             if bytes.len() > limit {
-                return Err(Error::at(
-                    url,
-                    "schema size limit exceeded (16 MiB including references)",
-                ));
+                return Err(Error::at(url, super::SIZE_LIMIT));
             }
             Ok(bytes)
         }

@@ -30,9 +30,9 @@ enum ReadError {
     },
     #[error("schema path escapes config base directory")]
     Escape,
-    #[error("schema resource limit exceeded (1024)")]
+    #[error("{}", super::net::RESOURCE_LIMIT)]
     ResourceLimit,
-    #[error("schema size limit exceeded (16 MiB including references)")]
+    #[error("{}", super::net::SIZE_LIMIT)]
     ByteLimit,
     #[error("{0}")]
     Remote(String),
