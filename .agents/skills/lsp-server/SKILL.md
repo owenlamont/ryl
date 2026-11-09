@@ -101,9 +101,10 @@ Schema association source text is read by the schema worker before taking its st
 `ServerEnv` returns typed `NeedsRemotePreparation` through the resolved config at the
 first remote resource; local schemas retain normal preparation. `schema_preparation`
 owns a lazy single worker shared by document diagnostics and workspace scans. The
-service caps in-flight remote preparations at 16; completed contexts remain until
-superseded or invalidated and do not count toward saturation. Non-config watched-file
-notifications invalidate preparations so local schemas are re-read; session grants
+service caps queued or running remote preparations at 16; contexts awaiting approval and
+completed contexts remain until superseded or invalidated and do not count toward
+saturation. Non-config watched-file notifications invalidate preparations so local schemas
+are re-read; session grants
 and the HTTP cache survive. Queued
 preparations have a 65-second deadline from enqueue; cancellation and expiry are terminal.
 Newer revisions replace queued

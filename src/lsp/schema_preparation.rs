@@ -134,7 +134,7 @@ impl Service {
         if state
             .entries
             .values()
-            .filter(|entry| !matches!(entry.status, Status::Finished(_)))
+            .filter(|entry| matches!(entry.status, Status::Queued | Status::Running))
             .count()
             >= self.limits.pending
         {

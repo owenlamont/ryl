@@ -607,14 +607,91 @@ fn remote_schema_always_allow_refuses_symlinked_allowlist() {
 }
 
 #[test]
+fn closed_denied_configs_do_not_block_new_origin_approval() {
+    let h = Harness::new("", false);
+    let mut client = h.client(Limits::default());
+    let mut uris = Vec::new();
+    for index in 0..16 {
+        let directory = h.dir.path().join(index.to_string());
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(directory.join(".ryl.toml"), config(ROOT)).unwrap();
+        let uri = file_uri(&directory, "test.yaml");
+        client.did_open(uri.clone(), "text\n");
+        if index == 0 {
+            answer(&client, prompt(&client), Some("Don't allow"));
+            let id = client.request(
+                "textDocument/diagnostic",
+                json!({"textDocument":{"uri":uri}}),
+            );
+            assert!(
+                pull_items(client.response(&id))[0]
+                    .message
+                    .contains("approval required")
+            );
+            uris.push(uri);
+            continue;
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let message = client
+                .conn()
+                .receiver
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap();
+            if let Message::Notification(note) = message
+                && note.method == "textDocument/publishDiagnostics"
+            {
+                let report: PublishDiagnosticsParams =
+                    serde_json::from_value(note.params).unwrap();
+                if report.uri == uri
+                    && report.diagnostics.iter().any(|diagnostic| {
+                        diagnostic.message.contains("approval required")
+                    })
+                {
+                    break;
+                }
+            }
+        }
+        uris.push(uri);
+    }
+    for uri in uris {
+        client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+    }
+    let other = "https://new.example.org/root.json";
+    let directory = h.dir.path().join("last");
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::write(directory.join(".ryl.toml"), config(other)).unwrap();
+    client.did_open(file_uri(&directory, "test.yaml"), "text\n");
+    let request = prompt(&client);
+    assert!(
+        request.params["message"]
+            .as_str()
+            .unwrap()
+            .contains("https://new.example.org")
+    );
+    answer(&client, request, Some("Don't allow"));
+    assert_eq!(h.calls(), 0);
+    client.shutdown();
+}
+
+#[test]
 fn only_in_flight_schema_preparations_saturate() {
     let h = Harness::new(ORIGIN, false);
     let (release, gate) = std::sync::mpsc::channel();
     *h.env.remote.gate.lock().unwrap() = Some(gate);
     let mut client = h.client(Limits {
-        pending: 1,
+        pending: 2,
         ..Limits::default()
     });
+    let waiting = h.dir.path().join("waiting");
+    std::fs::create_dir(&waiting).unwrap();
+    std::fs::write(
+        waiting.join(".ryl.toml"),
+        config("https://waiting.example.org/root.json"),
+    )
+    .unwrap();
+    client.did_open(file_uri(&waiting, "test.yaml"), "text\n");
+    let approval = prompt(&client);
     h.open(&client);
     let deadline = Instant::now() + Duration::from_secs(5);
     while h.calls() == 0 {
@@ -625,21 +702,47 @@ fn only_in_flight_schema_preparations_saturate() {
     std::fs::write(h.dir.path().join("nested/.ryl.toml"), config(ROOT)).unwrap();
     let uri = file_uri(h.dir.path(), "nested/other.yaml");
     client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":"text\n"}}));
-    await_error(&client, "saturated");
-    client.assert_alive();
-    release.send(()).unwrap();
-    await_schema(&client);
-    let uri = file_uri(h.dir.path(), "nested/other.yaml");
-    client.did_change(uri.clone(), "other\n");
-    await_schema(&client);
     let id = client.request(
         "textDocument/diagnostic",
         json!({"textDocument":{"uri":uri}}),
     );
-    assert_eq!(
-        pull_items(client.response(&id))[0].code,
-        Some(NumberOrString::String("schema".to_owned()))
+    assert!(
+        pull_items(client.response(&id))[0]
+            .message
+            .contains("preparation pending")
     );
+    let saturated = h.dir.path().join("saturated");
+    std::fs::create_dir(&saturated).unwrap();
+    std::fs::write(saturated.join(".ryl.toml"), config(ROOT)).unwrap();
+    let uri = file_uri(&saturated, "other.yaml");
+    client.did_open(uri.clone(), "text\n");
+    await_error(&client, "saturated");
+    client.assert_alive();
+    release.send(()).unwrap();
+    await_schema(&client);
+    client.did_change(uri.clone(), "other\n");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let message = client
+            .conn()
+            .receiver
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        if let Message::Notification(note) = message
+            && note.method == "textDocument/publishDiagnostics"
+        {
+            let report: PublishDiagnosticsParams =
+                serde_json::from_value(note.params).unwrap();
+            if report.uri == uri
+                && report.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.code == Some(NumberOrString::String("schema".to_owned()))
+                })
+            {
+                break;
+            }
+        }
+    }
+    answer(&client, approval, Some("Don't allow"));
     client.shutdown();
 }
 
