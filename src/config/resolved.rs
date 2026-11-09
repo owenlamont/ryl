@@ -8,6 +8,7 @@ type Slot = OnceLock<Box<dyn Any + Send + Sync>>;
 /// Lazy rule facts reset on cloning because callers may mutate the copy.
 pub(super) struct Resolved {
     pub(super) schema: Option<std::sync::Arc<crate::rules::schema::Prepared>>,
+    pub(super) needs_remote_preparation: bool,
     rules: [Slot; ALL_RULE_IDS.len()],
     has_path_ignores: OnceLock<bool>,
 }
@@ -35,6 +36,7 @@ impl Resolved {
     pub(super) fn reset_rule_facts(&mut self) {
         *self = Self {
             schema: self.schema.take(),
+            needs_remote_preparation: self.needs_remote_preparation,
             ..Self::default()
         };
     }
@@ -44,6 +46,7 @@ impl Default for Resolved {
     fn default() -> Self {
         Self {
             schema: None,
+            needs_remote_preparation: false,
             rules: std::array::from_fn(|_| OnceLock::new()),
             has_path_ignores: OnceLock::new(),
         }
@@ -54,6 +57,7 @@ impl Clone for Resolved {
     fn clone(&self) -> Self {
         Self {
             schema: self.schema.clone(),
+            needs_remote_preparation: self.needs_remote_preparation,
             ..Self::default()
         }
     }

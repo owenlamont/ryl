@@ -39,6 +39,14 @@ pub enum SourceKind {
 }
 
 pub trait Env {
+    fn schema_policy(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::rules::schema::net::Policy>> {
+        None
+    }
+    fn session_schema_origins(&self) -> Vec<String> {
+        Vec::new()
+    }
     fn schema_dependencies(&self) -> Option<crate::rules::schema::net::Dependencies> {
         None
     }
@@ -1306,6 +1314,28 @@ impl YamlLintConfig {
             .expect("serializing TOML Value should not fail")
     }
 
+    #[doc(hidden)]
+    pub fn needs_remote_preparation(&self) -> bool {
+        self.resolved.needs_remote_preparation
+    }
+
+    pub(crate) fn prepare_schemas(
+        &mut self,
+        base: &Path,
+        env: &dyn Env,
+    ) -> Result<(), String> {
+        match crate::rules::schema::prepare(self, base, env)? {
+            crate::rules::schema::Preparation::Ready(schema) => {
+                self.resolved.schema = schema;
+                self.resolved.needs_remote_preparation = false;
+            }
+            crate::rules::schema::Preparation::NeedsRemotePreparation => {
+                self.resolved.needs_remote_preparation = true;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn finalize(
         &mut self,
         envx: &dyn Env,
@@ -1366,7 +1396,7 @@ impl YamlLintConfig {
         self.build_file_kind_matchers(base_dir);
 
         if envx.prepare_lint_schemas() {
-            self.resolved.schema = crate::rules::schema::prepare(self, base_dir, envx)?;
+            self.prepare_schemas(base_dir, envx)?;
         }
 
         for rule in self.rules.values_mut() {

@@ -23,9 +23,11 @@ unit/property testable: `encoding` (position math + `uri_to_path`/`path_to_uri`)
 
 ## Diagnostics
 
-Push diagnostics (`publishDiagnostics`) are gated on `Server::delivery` ==
+Source diagnostics (`publishDiagnostics`) are gated on `Server::delivery` ==
 `Delivery::Push` (`diagnostic_delivery`), so a pull-capable client gets diagnostics
-once via pull, not twice — clients like VS Code merge the two channels.
+once via pull, not twice — clients like VS Code merge the two channels. Remote-origin
+approval errors also identify the association in a separate config-file diagnostic;
+config files are outside the YAML source pull model.
 
 `Settings::diagnostic_mode` (`diagnosticMode`, after ty) defaults to `openFilesOnly`. A
 client with `textDocument.diagnostic.dynamicRegistration` gets no static
@@ -94,8 +96,21 @@ Resolved per document via `discover_config_with` and `ServerEnv` (full CLI prece
 `workspace/didChangeConfiguration`: `configPath`/`configData`/`enable`, CLI-equivalent
 precedence, plus `diagnosticMode`). `read_setting` reports a mistyped or unknown value via
 `showMessage` and ignores it; `null` counts as unset.
-`ServerEnv` refuses remote schema preparation until approval and background retrieval
-are supported; local schemas retain normal preparation.
+`ServerEnv` returns typed `NeedsRemotePreparation` through the resolved config at the
+first remote resource; local schemas retain normal preparation. `schema_preparation`
+owns a lazy single worker shared by document diagnostics and workspace scans. The
+service retains at most 16 remote config contexts, including completed results. Queued
+preparations have a 65-second deadline from enqueue. Newer revisions replace queued
+entries for the same config. Dispatch returns a config-error diagnostic while
+preparation is pending and refreshes diagnostics when work completes. No fetch runs on
+dispatch or under the service state lock. Formatting skips schema preparation.
+
+Unapproved origins produce `window/showMessageRequest`: Allow once / Always allow
+`<origin>` / Don't allow. Null, dismissal and a 30-second timeout deny until configuration
+changes; the Allow `<origin>` quick fix reopens the prompt via `ryl.allowSchemaOrigin`.
+Grants come only from launcher flags/environment, the user allowlist and session answers.
+Offline suppresses prompts and networking. `serve_with_schema_env` injects trusted test
+environment/dependencies and bounds; `tests/lsp_server/schema.rs` scripts client answers.
 
 Config-file changes go through `handle_config_change` via a dynamic
 `didChangeWatchedFiles` registration: a push client gets a re-lint+re-push, a pull

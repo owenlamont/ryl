@@ -54,7 +54,15 @@ comes from `$schema`, defaulting to 2020-12.
 Remote associations require a default-on `schema-network` build. A project requests
 resources; grants come only from the launcher or user allowlist, including offline.
 Every retrieved reference needs a grant for the resolved origin, even after `$id` rebasing.
-`ryl server` currently refuses remote schemas; formatting never retrieves schemas.
+`ryl server` prepares remote schemas in the background. Before accessing an ungranted
+origin, the server lists the requested URLs and offers **Allow once**, **Always allow
+`<origin>`**, or **Don't allow**. Allow once lasts for the server session; Always allow
+atomically updates the user allowlist, refusing symlinks. Dismissal or a 30-second timeout
+denies access until configuration changes. The **Allow `<origin>`** quick fix reopens
+the approval request. Workspace settings and project configuration cannot grant access.
+
+`server --offline` and `RYL_OFFLINE=1` suppress prompts and all DNS/HTTP access;
+granted origins can still use cached schemas. Formatting never retrieves schemas.
 
 <!-- ryl-config-check: skip -->
 ```toml

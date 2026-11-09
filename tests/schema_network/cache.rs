@@ -286,3 +286,89 @@ fn invalid_cache_metadata_and_content_are_misses() {
         assert_eq!(h.transport.calls.lock().unwrap().len(), 2, "{fault}");
     }
 }
+
+#[test]
+fn user_allowlist_write_failures_preserve_existing_policy() {
+    for fault in [
+        Fault::BeforeCreate,
+        Fault::Read,
+        Fault::Create,
+        Fault::Open,
+        Fault::Header,
+        Fault::Rename,
+    ] {
+        let h = Harness::new();
+        let env = h
+            .env
+            .clone()
+            .with_config_dir(h.dir.path().join("user"))
+            .with_schema_dependencies(Dependencies {
+                transport: h.transport.clone(),
+                clock: h.clock.clone(),
+                budget: Arc::default(),
+                filesystem: Arc::new(FaultFs {
+                    fault,
+                    phase: Arc::new(AtomicU8::new(1)),
+                    target: Mutex::new(None),
+                }),
+            });
+        assert!(
+            ryl::rules::schema::net::persist_origin(
+                &env,
+                "https://schemas.example.org"
+            )
+            .is_err(),
+            "{fault:?}"
+        );
+        assert!(
+            !h.dir
+                .path()
+                .join("user/ryl/allowed-schema-origins")
+                .exists()
+        );
+        let parent = h.dir.path().join("user/ryl");
+        if parent.exists() {
+            assert_eq!(
+                std::fs::read_dir(parent).unwrap().count(),
+                0,
+                "temporary files cleaned for {fault:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn user_allowlist_appends_canonical_origins_once_and_preserves_line_boundaries() {
+    use crate::common::fake_env::FakeEnv;
+    use ryl::rules::schema::net::persist_origin;
+    assert!(
+        persist_origin(&FakeEnv::new(), "https://schemas.example.org")
+            .unwrap_err()
+            .contains("directory unavailable")
+    );
+    for initial in [
+        "",
+        "https://first.example.org",
+        "https://first.example.org\n",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("ryl");
+        std::fs::create_dir(&parent).unwrap();
+        let path = parent.join("allowed-schema-origins");
+        std::fs::write(&path, initial).unwrap();
+        let env = FakeEnv::new().with_config_dir(dir.path());
+        persist_origin(&env, "https://schemas.example.org").unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text.lines().last(), Some("https://schemas.example.org"));
+        assert_eq!(text.lines().count(), usize::from(!initial.is_empty()) + 1);
+        persist_origin(&env, "https://schemas.example.org").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        for invalid in [
+            "http://schemas.example.org",
+            "https://schemas.example.org/",
+            "https://schemas.example.org/path",
+        ] {
+            assert!(persist_origin(&env, invalid).is_err());
+        }
+    }
+}

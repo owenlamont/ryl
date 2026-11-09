@@ -136,9 +136,9 @@ fn offline_cli_reads_cache_but_no_cache_disables_both_cache_families() {
 
 #[cfg(feature = "lsp")]
 #[test]
-fn server_configuration_refuses_remote_associations_before_network() {
+fn server_configuration_defers_remote_associations_before_network() {
     let dir = project("https://schemas.example.org/root.json");
-    let error = ryl::config::discover_config_with(
+    let context = ryl::config::discover_config_with(
         &[],
         &ryl::config::Overrides {
             config_file: Some(dir.path().join(".ryl.toml")),
@@ -146,11 +146,8 @@ fn server_configuration_refuses_remote_associations_before_network() {
         },
         &ryl::config::ServerEnv,
     )
-    .unwrap_err();
-    #[cfg(feature = "schema-network")]
-    assert!(error.contains("not supported by ryl server yet"), "{error}");
-    #[cfg(not(feature = "schema-network"))]
-    assert!(error.contains("lacks network support"), "{error}");
+    .unwrap();
+    assert!(context.config.needs_remote_preparation());
     use ryl::config::Env as _;
     assert_eq!(
         ryl::config::ServerEnv.home_dir(),

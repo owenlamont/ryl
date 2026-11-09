@@ -18,6 +18,11 @@ use crate::text_version::Analysis;
 
 pub(crate) use loading::prepare;
 
+pub(crate) enum Preparation {
+    Ready(Option<Arc<Prepared>>),
+    NeedsRemotePreparation,
+}
+
 pub const ID: &str = "schema";
 pub(crate) const MAX_DIAGNOSTICS: usize = 100;
 pub(crate) const TRUNCATION: &str = "further schema diagnostics truncated (limit 100)";

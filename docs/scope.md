@@ -28,7 +28,7 @@ for example:
 Rules check how a document is written and what YAML itself makes of it, such as
 a truthy word, an implicit octal or a merge key overriding a value. They don't
 include built-in application policies. The optional [`schema`](rules/schema.md) rule
-checks allowed keys and value ranges against user-supplied local JSON Schemas.
+checks allowed keys and value ranges against user-supplied JSON Schemas.
 Mapping key order is form,
 since YAML gives it no meaning, so `key-ordering` fits.
 
@@ -43,7 +43,7 @@ resolved value, comments and anchors. That rules out:
   reprinting formatter if that is what you want; ryl won't become one.
   [`ryl format`](formatter.md) edits in place under the same guarantees.
 
-## Local schema validation
+## JSON Schema validation
 
 User-supplied JSON Schemas are in scope. Remote fetching requires independent user
 origin grants; catalogs, in-file schema declarations and built-in dialect policies
