@@ -5,6 +5,7 @@ use ryl::config::Env;
 
 #[derive(Clone, Default)]
 pub struct FakeEnv {
+    schema_dependencies: Option<ryl::rules::schema::net::Dependencies>,
     cwd: PathBuf,
     files: HashMap<PathBuf, String>,
     exists: HashSet<PathBuf>,
@@ -15,6 +16,14 @@ pub struct FakeEnv {
 }
 
 impl FakeEnv {
+    #[cfg(feature = "schema-network")]
+    pub fn with_schema_dependencies(
+        mut self,
+        dependencies: ryl::rules::schema::net::Dependencies,
+    ) -> Self {
+        self.schema_dependencies = Some(dependencies);
+        self
+    }
     pub fn new() -> Self {
         Self {
             cwd: PathBuf::from("."),
@@ -83,6 +92,9 @@ impl FakeEnv {
 }
 
 impl Env for FakeEnv {
+    fn schema_dependencies(&self) -> Option<ryl::rules::schema::net::Dependencies> {
+        self.schema_dependencies.clone()
+    }
     fn case_insensitive_paths(&self) -> bool {
         self.case_insensitive_paths
             .unwrap_or(cfg!(any(windows, target_os = "macos")))

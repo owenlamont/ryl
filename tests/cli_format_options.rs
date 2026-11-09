@@ -2017,3 +2017,13 @@ fn two_outputs_under_aliased_parent_dirs_are_rejected() {
         "expected the colliding-output message: {stderr}"
     );
 }
+
+#[test]
+fn github_escaping_neutralizes_bidi_controls_in_data_and_properties() {
+    for property in [false, true] {
+        assert_eq!(
+            ryl::cli_support::github_escape("a\u{202e}\u{200f}\u{2069}b", property),
+            "a\\u{202e}\\u{200f}\\u{2069}b"
+        );
+    }
+}

@@ -37,7 +37,7 @@ use crate::common;
 use std::path::Path;
 
 use proptest::prelude::*;
-use ryl::config::{Overrides, YamlLintConfig, discover_config, discover_config_with};
+use ryl::config::{Overrides, YamlLintConfig, discover_config_with};
 use ryl::config_schema::TomlConfig;
 use ryl::config_schema::{
     normalize_toml_config, parse_toml_config_str, toml_config_to_value,
@@ -83,7 +83,11 @@ fn parse_toml_without_panicking(toml_config: &str) {
             config_file: Some(file),
             config_data: None,
         };
-        if let Ok(ctx) = discover_config(&[], &overrides) {
+        let env = crate::common::fake_env::FakeEnv::new()
+            .with_cwd(dir.path())
+            .with_file(overrides.config_file.as_ref().unwrap(), toml_config)
+            .with_var("RYL_OFFLINE", "1");
+        if let Ok(ctx) = discover_config_with(&[], &overrides, &env) {
             let cfg = ctx.config;
             for doc in SAMPLE_DOCS {
                 let _ = lint_str(doc, Path::new("in.yaml"), &cfg, Path::new("."));

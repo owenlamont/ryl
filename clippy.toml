@@ -10,5 +10,7 @@ allowed-duplicate-crates = [
     # postcard's cobs is on thiserror 2.x and dirs-next reaches 1.x only on Redox.
     "thiserror",
     "thiserror-impl",
+    # ring pins windows-sys 0.52 while the other Windows dependencies use 0.61.
+    "windows-sys",
 ]
 excessive-nesting-threshold = 5

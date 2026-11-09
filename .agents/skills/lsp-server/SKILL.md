@@ -89,11 +89,13 @@ has no per-occurrence fix; code actions honour `context.only`.
 
 ## Configuration
 
-Resolved per document via `discover_config` (full CLI precedence incl.
+Resolved per document via `discover_config_with` and `ServerEnv` (full CLI precedence incl.
 `YAMLLINT_CONFIG_FILE`), layering the client's `Settings` (`initializationOptions` /
 `workspace/didChangeConfiguration`: `configPath`/`configData`/`enable`, CLI-equivalent
 precedence, plus `diagnosticMode`). `read_setting` reports a mistyped or unknown value via
 `showMessage` and ignores it; `null` counts as unset.
+`ServerEnv` refuses remote schema preparation until approval and background retrieval
+are supported; local schemas retain normal preparation.
 
 Config-file changes go through `handle_config_change` via a dynamic
 `didChangeWatchedFiles` registration: a push client gets a re-lint+re-push, a pull

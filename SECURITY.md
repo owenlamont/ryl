@@ -66,6 +66,8 @@ in CI on contributor branches.
 - `--fix` writing to a file other than the one being linted.
 - Injection into CI or terminal output (e.g. GitHub Actions workflow-command
   injection, terminal escape sequences) via crafted file contents or filenames.
+- Schema retrieval without an independent origin grant, private destination access,
+  or remote schemas reading local files. See the [schema policy](docs/rules/schema.md#remote-schemas).
 
 **Out of scope** (generally not treated as vulnerabilities):
 

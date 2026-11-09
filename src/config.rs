@@ -39,6 +39,12 @@ pub enum SourceKind {
 }
 
 pub trait Env {
+    fn schema_dependencies(&self) -> Option<crate::rules::schema::net::Dependencies> {
+        None
+    }
+    fn remote_schemas(&self) -> bool {
+        true
+    }
     fn prepare_lint_schemas(&self) -> bool {
         true
     }
@@ -66,6 +72,32 @@ pub struct SystemEnv;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FormatEnv;
+
+pub struct ServerEnv;
+
+impl Env for ServerEnv {
+    fn remote_schemas(&self) -> bool {
+        false
+    }
+    fn current_dir(&self) -> PathBuf {
+        SystemEnv.current_dir()
+    }
+    fn config_dir(&self) -> Option<PathBuf> {
+        SystemEnv.config_dir()
+    }
+    fn home_dir(&self) -> Option<PathBuf> {
+        SystemEnv.home_dir()
+    }
+    fn read_to_string(&self, path: &Path) -> Result<String, String> {
+        SystemEnv.read_to_string(path)
+    }
+    fn path_exists(&self, path: &Path) -> bool {
+        SystemEnv.path_exists(path)
+    }
+    fn env_var(&self, key: &str) -> Option<String> {
+        SystemEnv.env_var(key)
+    }
+}
 
 impl Env for FormatEnv {
     fn prepare_lint_schemas(&self) -> bool {

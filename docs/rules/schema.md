@@ -2,7 +2,7 @@
 
 ## What this rule does
 
-Validates YAML documents against local JSON Schemas. Schemas are supplied by the
+Validates YAML documents against user-supplied JSON Schemas. Schemas are supplied by the
 project; ryl supplies no application-specific schema catalog. No fix is available.
 
 ## Configuration
@@ -22,7 +22,9 @@ files = [".github/workflows/*.yml", ".github/workflows/*.yaml"]
 
 | Setting | Meaning |
 | :--- | :--- |
-| `path` | Required relative schema path, anchored at the config base directory. A config under `.config/` uses the parent directory. |
+| `path` | Relative schema path, anchored at the config base directory. A config under `.config/` uses the parent directory. Exactly one of `path` or `url` is required. |
+| `url` | HTTPS schema URL on port 443. The user must independently grant the origin. |
+| `pins` | Optional map of full resource URLs to `sha256:<64 hex>` content pins. |
 | `files` | Optional path globs with `!` exclusions, like `key-ordering.orders`. Empty or omitted matches every file. |
 | Association order | The first matching entry wins. Unmatched files and an enabled rule without associations are no-ops. |
 
@@ -33,18 +35,60 @@ Normal rule directives, per-file ignores and per-line ignores apply.
 ## Loading and limits
 
 Schemas compile during config resolution. Missing files, invalid schemas, unsupported
-regex patterns, remote references and confinement failures are config errors (exit 2).
+regex patterns, denied remote references and confinement failures are config errors (exit 2).
 Both the root schema and referenced files must stay within the config base directory,
 including after resolving symlinks. Absolute root paths and UNC references are refused.
-Only local `file:` references are retrieved; network opt-in is not supported yet.
+Local roots retain confined `file:` references. Remote roots cannot read files.
 Schema paths may contain spaces, brackets and other filename characters; `$ref`
 URIs must percent-encode characters outside the URI path syntax.
 
 Schema contents and local references contribute to the lint cache key. Schemas and
-references share a 16 MiB byte limit and a 1,024-resource limit per root schema.
+references share a 16 MiB byte limit and a 1,024-resource limit per preparation.
 Distinct URI aliases count separately toward both limits. Regex matching
 uses a 100,000-step backtracking limit and 1 MiB compiled-pattern and DFA-cache limits. The draft
 comes from `$schema`, defaulting to 2020-12.
+
+## Remote schemas
+
+Remote associations require a default-on `schema-network` build. A project requests
+resources; grants come only from the launcher or user allowlist, including offline.
+Every retrieved reference needs a grant for the resolved origin, even after `$id` rebasing.
+`ryl server` currently refuses remote schemas; formatting never retrieves schemas.
+
+<!-- ryl-config-check: skip -->
+```toml
+[[lint.rules.schema.schemas]]
+url = "https://schemas.example.org/app.json"
+files = ["app.yaml"]
+
+[lint.rules.schema.pins]
+"https://schemas.example.org/app.json" = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+```
+
+```console
+ryl check --schema-allow-origin https://schemas.example.org app.yaml
+```
+
+| User control | Behaviour |
+| :--- | :--- |
+| `--schema-allow-origin ORIGIN` | Repeatable exact HTTPS origin; no wildcard, path, query or fragment. |
+| `RYL_SCHEMA_ALLOWED_ORIGINS` | Comma-separated origins, unioned with CLI grants. |
+| User allowlist | `<user-config-dir>/ryl/allowed-schema-origins`, one origin per line, unioned with grants. |
+| `--offline` / `RYL_OFFLINE=1` | No DNS or HTTP; cached full reference closure required. Stale entries are allowed. |
+| `--no-cache` / `RYL_NO_CACHE=1` | Disable both lint and schema caches. Offline then cannot retrieve remote schemas. |
+| `RYL_SCHEMA_CACHE_DIR` | Override the user schema cache (`<user-cache-dir>/ryl/schemas/v1`). |
+| `--no-progress` | Suppress schema download messages on stderr. |
+
+Only public destinations are accepted. Redirects, proxies, userinfo, encoded response
+bodies and private/reserved IP addresses are refused. DNS checks the complete answer
+before connecting, including mixed public/private answers. TLS uses bundled webpki roots.
+Requests have a 5-second connect limit and a 30-second total limit; each process gets
+64 requests and 60 seconds of network time. Query values are redacted in output.
+
+Schema cache keys hash the complete canonical URL. Unpinned entries are fresh for
+24 hours; stale entries refresh unconditionally. Pins are checked on every read and
+permit indefinite reuse. Offline and pinned reads preserve fetch timestamps. Corrupt
+entries are misses; symlinks are refused. Writes evict oldest entries above 256 MiB.
 
 At load time, schemas with expanded weight above 1,000,000 are refused as
 `schema too complex` (exit 2). The weight counts subschemas, declarations and

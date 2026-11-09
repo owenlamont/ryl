@@ -230,6 +230,8 @@ mod rule_quoted_strings;
 mod rule_trailing_spaces;
 mod rule_truthy;
 mod ryl_action_pins;
+mod schema_network;
+mod schema_network_cli;
 mod strict_indentation;
 mod test_layout;
 mod user_global_invalid_yaml;

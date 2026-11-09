@@ -266,7 +266,9 @@ passes remain controlled by `[format]`, independently of lint rule selection.
 including when `-c` selects a config elsewhere. The cache directory
 contains `.gitignore` and `CACHEDIR.TAG`; deleting it clears all results.
 
-Use `--no-cache` or `RYL_NO_CACHE=1` to bypass the cache. `--cache-dir PATH`,
+Use `--no-cache` or `RYL_NO_CACHE=1` to bypass both result and remote schema caches.
+Remote schemas use a [separate user cache](https://ryl-docs.pages.dev/rules/schema/#remote-schemas).
+`--cache-dir PATH`,
 `RYL_CACHE_DIR`, and the TOML-only top-level `cache-dir = "PATH"` select another
 location, in that precedence order. A relative path in TOML is resolved from
 the project root; a relative CLI or environment path uses the current directory.
@@ -603,13 +605,15 @@ flowchart TD
     linkStyle default stroke-width:3px;
 ```
 
-### Local JSON Schemas
+### JSON Schemas
 
-The TOML-only [`schema`](https://ryl-docs.pages.dev/rules/schema/) rule adds local JSON Schema validation.
-Configure `[[lint.rules.schema.schemas]]` with a relative `path` and optional `files`
+The TOML-only [`schema`](https://ryl-docs.pages.dev/rules/schema/) rule adds JSON Schema validation.
+Configure `[[lint.rules.schema.schemas]]` with a relative `path` or HTTPS `url` and optional `files`
 globs. The first matching association wins; empty `files` matches all inputs.
-Schemas and references must remain under the config base directory. Network access
-is unsupported. A config without schema associations performs no schema work.
+Local schemas and references must remain under the config base directory. Remote
+resources require independent origin grants; see the [schema controls](https://ryl-docs.pages.dev/rules/schema/#remote-schemas)
+for flags, environment variables and the user allowlist. A config without schema
+associations performs no schema work.
 
 ---
 
@@ -1553,8 +1557,8 @@ already exists.
 ## Migrating local check-jsonschema checks
 
 Use the TOML-only [`schema`](https://ryl-docs.pages.dev/rules/schema/) rule to associate local JSON Schemas
-with file globs. The first matching association wins. Download schemas and their
-references into the config directory first: URL fetching, catalogs and in-file
+with file globs. The first matching association wins. Remote schemas require
+[independent origin grants](https://ryl-docs.pages.dev/rules/schema/#remote-schemas). Catalogs and in-file
 schema declarations are not supported. Normal ryl directives suppress findings.
 
 ---
@@ -2312,7 +2316,7 @@ Source: https://ryl-docs.pages.dev/rules/schema/
 
 ## What this rule does
 
-Validates YAML documents against local JSON Schemas. Schemas are supplied by the
+Validates YAML documents against user-supplied JSON Schemas. Schemas are supplied by the
 project; ryl supplies no application-specific schema catalog. No fix is available.
 
 ## Configuration
@@ -2332,7 +2336,9 @@ files = [".github/workflows/*.yml", ".github/workflows/*.yaml"]
 
 | Setting | Meaning |
 | :--- | :--- |
-| `path` | Required relative schema path, anchored at the config base directory. A config under `.config/` uses the parent directory. |
+| `path` | Relative schema path, anchored at the config base directory. A config under `.config/` uses the parent directory. Exactly one of `path` or `url` is required. |
+| `url` | HTTPS schema URL on port 443. The user must independently grant the origin. |
+| `pins` | Optional map of full resource URLs to `sha256:<64 hex>` content pins. |
 | `files` | Optional path globs with `!` exclusions, like `key-ordering.orders`. Empty or omitted matches every file. |
 | Association order | The first matching entry wins. Unmatched files and an enabled rule without associations are no-ops. |
 
@@ -2343,18 +2349,60 @@ Normal rule directives, per-file ignores and per-line ignores apply.
 ## Loading and limits
 
 Schemas compile during config resolution. Missing files, invalid schemas, unsupported
-regex patterns, remote references and confinement failures are config errors (exit 2).
+regex patterns, denied remote references and confinement failures are config errors (exit 2).
 Both the root schema and referenced files must stay within the config base directory,
 including after resolving symlinks. Absolute root paths and UNC references are refused.
-Only local `file:` references are retrieved; network opt-in is not supported yet.
+Local roots retain confined `file:` references. Remote roots cannot read files.
 Schema paths may contain spaces, brackets and other filename characters; `$ref`
 URIs must percent-encode characters outside the URI path syntax.
 
 Schema contents and local references contribute to the lint cache key. Schemas and
-references share a 16 MiB byte limit and a 1,024-resource limit per root schema.
+references share a 16 MiB byte limit and a 1,024-resource limit per preparation.
 Distinct URI aliases count separately toward both limits. Regex matching
 uses a 100,000-step backtracking limit and 1 MiB compiled-pattern and DFA-cache limits. The draft
 comes from `$schema`, defaulting to 2020-12.
+
+## Remote schemas
+
+Remote associations require a default-on `schema-network` build. A project requests
+resources; grants come only from the launcher or user allowlist, including offline.
+Every retrieved reference needs a grant for the resolved origin, even after `$id` rebasing.
+`ryl server` currently refuses remote schemas; formatting never retrieves schemas.
+
+<!-- ryl-config-check: skip -->
+```toml
+[[lint.rules.schema.schemas]]
+url = "https://schemas.example.org/app.json"
+files = ["app.yaml"]
+
+[lint.rules.schema.pins]
+"https://schemas.example.org/app.json" = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+```
+
+```console
+ryl check --schema-allow-origin https://schemas.example.org app.yaml
+```
+
+| User control | Behaviour |
+| :--- | :--- |
+| `--schema-allow-origin ORIGIN` | Repeatable exact HTTPS origin; no wildcard, path, query or fragment. |
+| `RYL_SCHEMA_ALLOWED_ORIGINS` | Comma-separated origins, unioned with CLI grants. |
+| User allowlist | `<user-config-dir>/ryl/allowed-schema-origins`, one origin per line, unioned with grants. |
+| `--offline` / `RYL_OFFLINE=1` | No DNS or HTTP; cached full reference closure required. Stale entries are allowed. |
+| `--no-cache` / `RYL_NO_CACHE=1` | Disable both lint and schema caches. Offline then cannot retrieve remote schemas. |
+| `RYL_SCHEMA_CACHE_DIR` | Override the user schema cache (`<user-cache-dir>/ryl/schemas/v1`). |
+| `--no-progress` | Suppress schema download messages on stderr. |
+
+Only public destinations are accepted. Redirects, proxies, userinfo, encoded response
+bodies and private/reserved IP addresses are refused. DNS checks the complete answer
+before connecting, including mixed public/private answers. TLS uses bundled webpki roots.
+Requests have a 5-second connect limit and a 30-second total limit; each process gets
+64 requests and 60 seconds of network time. Query values are redacted in output.
+
+Schema cache keys hash the complete canonical URL. Unpinned entries are fresh for
+24 hours; stale entries refresh unconditionally. Pins are checked on every read and
+permit indefinite reuse. Offline and pinned reads preserve fetch timestamps. Corrupt
+entries are misses; symlinks are refused. Writes evict oldest entries above 256 MiB.
 
 At load time, schemas with expanded weight above 1,000,000 are refused as
 `schema too complex` (exit 2). The weight counts subschemas, declarations and
@@ -5388,7 +5436,7 @@ Source: https://ryl-docs.pages.dev/scope/
 
 # What ryl won't do
 
-ryl lints general YAML and can validate user-supplied local JSON Schemas. Its fixes
+ryl lints general YAML and can validate user-supplied JSON Schemas. Its fixes
 never change what a document means. Check the boundaries below before filing a request.
 
 ## Rules for one YAML flavour
@@ -5433,8 +5481,8 @@ resolved value, comments and anchors. That rules out:
 
 ## Local schema validation
 
-User-supplied local JSON Schemas are in scope. Remote fetching requires a future
-network opt-in; catalogs, in-file schema declarations and built-in dialect policies
+User-supplied JSON Schemas are in scope. Remote fetching requires independent user
+origin grants; catalogs, in-file schema declarations and built-in dialect policies
 are outside the current implementation.
 
 ---
@@ -5521,7 +5569,9 @@ flowchart LR
 | **Rules report every problem they find, even where yamllint reports fewer.** | Fail loudly: a problem ryl detects is reported, never hidden. Complete diagnostics matter more than matching yamllint's output count. | Maintainer decision |
 | **Built-in policies cover general YAML with evidence.** User-supplied local JSON Schemas are supported through the optional `schema` rule; built-in application policies and contested style remain outside the rule set. | Projects choose their application contracts explicitly. | [Scope](https://ryl-docs.pages.dev/scope/), [schema](https://ryl-docs.pages.dev/rules/schema/) |
 | **Schema associations are TOML-only and first-match wins.** Empty associations do no work. | Selection follows configured key-ordering precedence and keeps `ALL` usable. | [schema](https://ryl-docs.pages.dev/rules/schema/) |
-| **Schemas prepare before cache lookup.** Root and referenced files stay under the config base directory and share a byte limit. Remote fetching is unsupported until network opt-in exists. | Untrusted configs cannot read unrelated files or fetch remote resources; content changes invalidate cached findings. | [schema](https://ryl-docs.pages.dev/rules/schema/) |
+| **Schemas prepare before cache lookup.** Local files stay under the config base directory. All resources share preparation limits and content digests. | Content changes invalidate cached findings. | [schema](https://ryl-docs.pages.dev/rules/schema/) |
+| **Projects request remote schemas; users grant origins.** HTTPS on port 443 only, checked public addresses, no redirects or proxies, bundled TLS roots. Remote roots cannot read files. | Repository configuration cannot authorize network access. The server refuses remote schemas until background approval support exists. | [schema](https://ryl-docs.pages.dev/rules/schema/#remote-schemas) |
+| **Remote schemas have bounded user caches.** Full-URL hash keys, 24-hour freshness, optional SHA-256 pins, offline reuse and no-cache mode. | Schema identity and integrity remain independent of cache freshness. | [schema](https://ryl-docs.pages.dev/rules/schema/#remote-schemas) |
 | **Schema projection is bounded and expands merges.** Alias findings blame use sites; unsupported values report `cannot validate`. | Application schemas see inherited keys without silently changing unsupported YAML values. | [schema](https://ryl-docs.pages.dev/rules/schema/) |
 | **Ryl-only rules are TOML-only and opt-in.** Merge keys, tags, Unicode line breaks, and block-scalar chomping address portability or clarity without changing yamllint YAML config semantics. | These portability and clarity checks have no yamllint counterpart; TOML opt-in avoids changing YAML compatibility. | [Merge keys](https://github.com/owenlamont/ryl/pull/276), [tags](https://github.com/owenlamont/ryl/pull/272), [line breaks](https://github.com/owenlamont/ryl/pull/270), [chomping](https://github.com/owenlamont/ryl/pull/286) |
 | **Inline disable directives are shared across rules.** `# ryl` is preferred; `# yamllint` remains accepted for migration. | One engine-level implementation avoids inconsistent rule behavior while retaining existing yamllint directives. | [Decision](https://github.com/owenlamont/ryl/pull/243) |

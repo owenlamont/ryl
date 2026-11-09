@@ -62,6 +62,7 @@ pub struct ConfigModel {
     pub schemas: Vec<(&'static str, Vec<&'static str>)>,
     /// TOML-only top-level `line-length` and `indent-width`, as raw TOML values.
     pub shared: (Option<&'static str>, Option<&'static str>),
+    pub schema_pin: Option<&'static str>,
 }
 
 /// A generated `[[rules.key-ordering.orders]]` entry (TOML-only), with hostile globs,
@@ -248,7 +249,7 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
         prop::collection::vec(arb_key_order(), 0..3),
         prop::collection::vec(
             (
-                prop::sample::select(&["schema.json", "../escape.json", ""][..]),
+                prop::sample::select(&["schema.json", "../escape.json", "", "https://schemas.example.org/root.json", "http://schemas.example.org/root.json"][..]),
                 prop::collection::vec(prop::sample::select(PER_LINE_PATHS), 0..3),
             ),
             0..3,
@@ -261,6 +262,7 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
                 &["1", "4", "255", "0", "-1", "256", "\"2\"", "2.5"][..],
             )),
         ),
+        prop::option::of(prop::sample::select(&["sha256:0000000000000000000000000000000000000000000000000000000000000000", "sha256:bad", "bogus"][..])),
     )
         .prop_map(
             |(
@@ -273,6 +275,7 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
                 key_orders,
                 schemas,
                 shared,
+                schema_pin,
             )| {
                 ConfigModel {
                     all,
@@ -288,6 +291,7 @@ pub fn arb_config() -> impl Strategy<Value = ConfigModel> {
                     key_orders,
                     schemas,
                     shared,
+                    schema_pin,
                 }
             },
         )
@@ -425,10 +429,14 @@ pub fn render_toml(model: &ConfigModel, prefix: &str) -> String {
         }
     }
     for (path, files) in &model.schemas {
+        let key = if path.contains("://") { "url" } else { "path" };
         out.push_str(&format!(
-            "[[{prefix}rules.schema.schemas]]\npath = '{path}'\nfiles = {}\n",
+            "[[{prefix}rules.schema.schemas]]\n{key} = '{path}'\nfiles = {}\n",
             quoted(files)
         ));
+    }
+    if let Some(pin) = model.schema_pin {
+        out.push_str(&format!("[{prefix}rules.schema.pins]\n'https://schemas.example.org/root.json' = '{pin}'\n"));
     }
     // `per-line-ignores` is a top-level array of tables, TOML-only (the YAML path
     // rejects it), so it is rendered here but not in `render_yaml`.

@@ -206,7 +206,7 @@ fn write_suite<W: Write>(writer: &mut Writer<W>, entry: &ReportEntry) {
 /// `char` can hold (surrogates are unrepresentable), so this covers the whole gap.
 fn xml_sanitize(text: &str) -> Cow<'_, str> {
     crate::cli_support::escape_chars(text, |c| {
-        c.is_control() || c == '\u{fffe}' || c == '\u{ffff}'
+        crate::cli_support::is_output_control(c) || c == '\u{fffe}' || c == '\u{ffff}'
     })
 }
 
@@ -382,7 +382,7 @@ fn make_issue(
         severity,
         fingerprint: hash,
         location: GitlabLocation {
-            path: path.to_string(),
+            path: sanitize_control(path).into_owned(),
             lines: GitlabLines { begin: line },
         },
     }

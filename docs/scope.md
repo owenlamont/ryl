@@ -1,6 +1,6 @@
 # What ryl won't do
 
-ryl lints general YAML and can validate user-supplied local JSON Schemas. Its fixes
+ryl lints general YAML and can validate user-supplied JSON Schemas. Its fixes
 never change what a document means. Check the boundaries below before filing a request.
 
 ## Rules for one YAML flavour
@@ -45,6 +45,6 @@ resolved value, comments and anchors. That rules out:
 
 ## Local schema validation
 
-User-supplied local JSON Schemas are in scope. Remote fetching requires a future
-network opt-in; catalogs, in-file schema declarations and built-in dialect policies
+User-supplied JSON Schemas are in scope. Remote fetching requires independent user
+origin grants; catalogs, in-file schema declarations and built-in dialect policies
 are outside the current implementation.

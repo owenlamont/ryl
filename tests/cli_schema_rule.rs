@@ -429,6 +429,8 @@ fn all_without_associations_and_schema_free_debug_remain_unchanged() {
 fn failure(dir: &Path, expected: &str) {
     fs::write(dir.join("in.yaml"), "a: 1\n").unwrap();
     let result = run(ryl(dir)
+        .env_remove("RYL_SCHEMA_ALLOWED_ORIGINS")
+        .env("XDG_CONFIG_HOME", dir.join("user-config"))
         .args(["check", "-c"])
         .arg(dir.join(".ryl.toml"))
         .arg(dir.join("in.yaml")));
@@ -438,6 +440,11 @@ fn failure(dir: &Path, expected: &str) {
 
 #[test]
 fn schema_config_errors_fail_before_linting() {
+    let network_error = if cfg!(feature = "schema-network") {
+        "origin not granted"
+    } else {
+        "network support"
+    };
     let dir = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
     fs::write(outside.path().join("outside.json"), "true").unwrap();
@@ -446,11 +453,11 @@ fn schema_config_errors_fail_before_linting() {
         (r#"{"type":"invalid"}"#, "schema.json"),
         (
             r#"{"$ref":"https://example.invalid/schema"}"#,
-            "network opt-in",
+            network_error,
         ),
         (
             r#"{"$defs":{"unused":{"$ref":"https://example.invalid/schema"}}}"#,
-            "network opt-in",
+            network_error,
         ),
         (r#"{"$ref":"../outside.json"}"#, "escapes config"),
         (
@@ -1020,7 +1027,7 @@ fn markdown_without_a_matching_schema_keeps_all_other_findings() {
 }
 
 #[test]
-fn schema_size_budgets_are_independent_for_separate_roots() {
+fn schema_size_budget_is_shared_across_separate_roots() {
     let dir = tempfile::tempdir().unwrap();
     for name in ["first.json", "second.json"] {
         fs::write(
@@ -1031,23 +1038,16 @@ fn schema_size_budgets_are_independent_for_separate_roots() {
         .unwrap();
     }
     fs::write(dir.path().join(".ryl.toml"), "[[lint.rules.schema.schemas]]\npath = 'first.json'\n[[lint.rules.schema.schemas]]\npath = 'second.json'\n").unwrap();
-    let ctx = discover_config(
+    let error = discover_config(
         &[],
         &Overrides {
             config_file: Some(dir.path().join(".ryl.toml")),
             config_data: None,
         },
     )
-    .unwrap();
-    assert!(
-        lint_str(
-            "1\n",
-            &dir.path().join("in.yaml"),
-            &ctx.config,
-            &ctx.base_dir
-        )
-        .is_empty()
-    );
+    .unwrap_err();
+    assert!(error.contains("second.json"), "{error}");
+    assert!(error.contains("size limit"), "{error}");
 }
 
 #[test]
@@ -1691,5 +1691,36 @@ fn aliased_merge_keys_expand_their_mapping() {
             "&m !!merge <<: {a: 1}\nx:\n  *m : {b: 2}\n"
         )
         .is_empty()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn distinct_non_utf8_reference_paths_keep_distinct_schema_contents() {
+    use std::os::unix::ffi::OsStringExt;
+    let dir = tempfile::tempdir().unwrap();
+    for (byte, schema) in [
+        (0xfe, json!({"minimum":10})),
+        (0xff, json!({"type":"integer"})),
+    ] {
+        let name = std::ffi::OsString::from_vec(
+            [b"schema".as_slice(), &[byte], b".json"].concat(),
+        );
+        fs::write(dir.path().join(name), schema.to_string()).unwrap();
+    }
+    let ctx = config(
+        dir.path(),
+        &json!({"allOf":[{"$ref":"schema%FE.json"},{"$ref":"schema%FF.json"}]}),
+    );
+    let hits = lint_str(
+        "5\n---\ntext\n",
+        &dir.path().join("in.yaml"),
+        &ctx.config,
+        &ctx.base_dir,
+    );
+    assert_eq!(
+        hits.iter().map(|hit| hit.line).collect::<Vec<_>>(),
+        [1, 3],
+        "each reference contributes its own constraint: {hits:?}"
     );
 }
