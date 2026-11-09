@@ -356,15 +356,25 @@ fn output_redacts_query_values_credentials_and_bidi_controls() {
     for secret in ["password", "user", "secret", "value", "hidden"] {
         assert!(!text.contains(secret), "{text}");
     }
-    assert!(text.contains("token="));
+    assert!(text.ends_with("/a?***"), "{text}");
     for echoed in [
         "Invalid URI reference 'https://o.example.org/r?token=secret with spaces': detail",
         "Invalid URI reference 'https://o.example.org/r?token=a\"secret b': detail",
+        "Invalid URI reference 'child.json?token=secret with spaces': detail",
+        "Invalid URI reference '//user:secret@o.example.org/r': detail",
+        "Invalid URI reference 'https:child.json?token=a'secret b': detail",
+        "Invalid URI reference \"//o.example.org/r?token=secret\": detail",
     ] {
         let redacted = ryl::rules::schema::net::redact_message(echoed);
         assert!(!redacted.contains("secret"), "{redacted}");
-        assert!(redacted.ends_with("': detail"), "{redacted}");
+        assert!(redacted.ends_with(": detail"), "{redacted}");
     }
+    assert_eq!(
+        ryl::rules::schema::net::redact_message(
+            "can't read https://o.example.org/r?token=secret"
+        ),
+        "can't read https://o.example.org/r?***"
+    );
     assert_eq!(
         ryl::cli_support::sanitize_control("a\u{202e}b\u{200f}\u{2066}\n"),
         "a\\u{202e}b\\u{200f}\\u{2066}\\u{a}"

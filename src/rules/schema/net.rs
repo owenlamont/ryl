@@ -96,48 +96,47 @@ pub fn display_url(raw: &str) -> String {
     let _ = url.set_username("");
     let _ = url.set_password(None);
     if url.query().is_some() {
-        let keys: Vec<_> = url.query_pairs().map(|(key, _)| key.into_owned()).collect();
-        url.query_pairs_mut()
-            .clear()
-            .extend_pairs(keys.iter().map(|key| (key.as_str(), "***")));
+        url.set_query(Some("***"));
     }
     url.set_fragment(None);
     crate::cli_support::sanitize_control(url.as_str()).into_owned()
 }
 
-/// Redacts every URL in `text`; a URL opened by a quote runs to that quote's next occurrence, so
-/// a dependency echoing a malformed reference with spaces in its query still loses the query.
+/// Redacts URL secrets in `text`: a quoted span may be any URI reference a dependency echoes,
+/// so it loses its userinfo and everything from its first `?` to the line's last matching quote.
 #[must_use]
 pub fn redact_message(text: &str) -> String {
-    const QUOTES: [char; 3] = ['`', '\'', '"'];
-    static SCHEME: OnceLock<regex::Regex> = OnceLock::new();
-    let scheme = SCHEME.get_or_init(|| {
-        regex::Regex::new(r"[A-Za-z][A-Za-z0-9+.-]*://").expect("URL scheme pattern")
+    static USERINFO: OnceLock<regex::Regex> = OnceLock::new();
+    static URLS: OnceLock<regex::Regex> = OnceLock::new();
+    let userinfo = USERINFO.get_or_init(|| {
+        regex::Regex::new(r#"//[^/?#@\s'"`]*@"#).expect("URI userinfo pattern")
     });
     let text = crate::cli_support::sanitize_control(text);
     let mut out = String::with_capacity(text.len());
     let mut rest: &str = &text;
-    while let Some(found) = scheme.find(rest) {
-        let (head, tail) = rest.split_at(found.start());
-        out.push_str(head);
-        let opener = head
-            .trim_end_matches(|c: char| !c.is_whitespace() && !QUOTES.contains(&c))
-            .chars()
-            .next_back()
-            .filter(|c| QUOTES.contains(c));
-        let end = opener
-            .and_then(|quote| tail.find(quote))
-            .unwrap_or_else(|| {
-                tail.find(|c: char| {
-                    c.is_whitespace() || QUOTES.contains(&c) || "<>".contains(c)
-                })
-                .unwrap_or(tail.len())
-            });
-        out.push_str(&display_url(&tail[..end]));
-        rest = &tail[end..];
+    while let Some(open) = rest.find(['`', '\'', '"']) {
+        let quote = rest[open..].chars().next().expect("found a quote");
+        let body = &rest[open + 1..];
+        let Some(close) = body.find(quote) else { break };
+        let (span, close) = match body[..close].find('?') {
+            Some(query) => (
+                format!("{}?***", &body[..query]),
+                body.rfind(quote).expect("closing quote exists"),
+            ),
+            None => (body[..close].to_owned(), close),
+        };
+        out.push_str(&rest[..=open]);
+        out.push_str(&userinfo.replace_all(&span, "//"));
+        out.push(quote);
+        rest = &body[close + 1..];
     }
     out.push_str(rest);
-    out
+    let urls = URLS.get_or_init(|| {
+        regex::Regex::new(r#"[A-Za-z][A-Za-z0-9+.-]*://[^\s"'<>`]+"#)
+            .expect("URL token pattern")
+    });
+    urls.replace_all(&out, |found: &regex::Captures<'_>| display_url(&found[0]))
+        .into_owned()
 }
 
 #[cfg(feature = "schema-network")]
