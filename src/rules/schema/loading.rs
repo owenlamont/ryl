@@ -351,8 +351,15 @@ pub(crate) fn prepare(
             })
             .collect();
         let build = || reader.compile(path, remote.is_some(), files.clone());
+        let charged = {
+            let loaded = loaded.lock().expect("schema reader lock");
+            (loaded.bytes, loaded.resources)
+        };
         let mut result = build();
         if *reader.needs_network.lock().expect("schema network lock") {
+            let mut retry = loaded.lock().expect("schema reader lock");
+            (retry.bytes, retry.resources) = charged;
+            drop(retry);
             _progress = enable_network(&network, cfg, envx).map_err(|error| {
                 format!(
                     "invalid config: schema '{label}': {}",

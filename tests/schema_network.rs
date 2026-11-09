@@ -317,6 +317,20 @@ fn local_roots_can_request_granted_remote_refs_without_remote_file_capabilities(
 }
 
 #[test]
+fn enabling_the_network_mid_build_does_not_charge_the_local_root_twice() {
+    let h = Harness::new();
+    let padding = "x".repeat(9 * 1024 * 1024);
+    std::fs::write(
+        h.dir.path().join("local.json"),
+        format!("{{\"description\":\"{padding}\",\"$ref\":\"{ROOT}\"}}"),
+    )
+    .unwrap();
+    h.resource(ROOT, json!(true));
+    h.prepare("[[lint.rules.schema.schemas]]\npath = 'local.json'\n")
+        .unwrap();
+}
+
+#[test]
 fn process_request_budget_is_shared_across_preparations() {
     let h = Harness::new();
     for index in 0..64 {
@@ -343,6 +357,14 @@ fn output_redacts_query_values_credentials_and_bidi_controls() {
         assert!(!text.contains(secret), "{text}");
     }
     assert!(text.contains("token="));
+    for echoed in [
+        "Invalid URI reference 'https://o.example.org/r?token=secret with spaces': detail",
+        "Invalid URI reference 'https://o.example.org/r?token=a\"secret b': detail",
+    ] {
+        let redacted = ryl::rules::schema::net::redact_message(echoed);
+        assert!(!redacted.contains("secret"), "{redacted}");
+        assert!(redacted.ends_with("': detail"), "{redacted}");
+    }
     assert_eq!(
         ryl::cli_support::sanitize_control("a\u{202e}b\u{200f}\u{2066}\n"),
         "a\\u{202e}b\\u{200f}\\u{2066}\\u{a}"

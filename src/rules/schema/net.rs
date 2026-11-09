@@ -105,28 +105,39 @@ pub fn display_url(raw: &str) -> String {
     crate::cli_support::sanitize_control(url.as_str()).into_owned()
 }
 
+/// Redacts every URL in `text`; a URL opened by a quote runs to that quote's next occurrence, so
+/// a dependency echoing a malformed reference with spaces in its query still loses the query.
 #[must_use]
 pub fn redact_message(text: &str) -> String {
-    static PATH_URLS: OnceLock<regex::Regex> = OnceLock::new();
-    static URLS: OnceLock<regex::Regex> = OnceLock::new();
+    const QUOTES: [char; 3] = ['`', '\'', '"'];
+    static SCHEME: OnceLock<regex::Regex> = OnceLock::new();
+    let scheme = SCHEME.get_or_init(|| {
+        regex::Regex::new(r"[A-Za-z][A-Za-z0-9+.-]*://").expect("URL scheme pattern")
+    });
     let text = crate::cli_support::sanitize_control(text);
-    let path_urls = PATH_URLS.get_or_init(|| {
-        regex::Regex::new(
-            r"`(?P<prefix>[^`\r\n]*?)(?P<url>[A-Za-z][A-Za-z0-9+.-]*://[^\r\n]*)`",
-        )
-        .expect("URL key path pattern")
-    });
-    let text = path_urls.replace_all(&text, |captures: &regex::Captures<'_>| {
-        format!("`{}{}`", &captures["prefix"], display_url(&captures["url"]))
-    });
-    let urls = URLS.get_or_init(|| {
-        regex::Regex::new(r#"[A-Za-z][A-Za-z0-9+.-]*://[^\s\"'<>`]+"#)
-            .expect("URL token pattern")
-    });
-    urls.replace_all(&text, |captures: &regex::Captures<'_>| {
-        display_url(&captures[0])
-    })
-    .into_owned()
+    let mut out = String::with_capacity(text.len());
+    let mut rest: &str = &text;
+    while let Some(found) = scheme.find(rest) {
+        let (head, tail) = rest.split_at(found.start());
+        out.push_str(head);
+        let opener = head
+            .trim_end_matches(|c: char| !c.is_whitespace() && !QUOTES.contains(&c))
+            .chars()
+            .next_back()
+            .filter(|c| QUOTES.contains(c));
+        let end = opener
+            .and_then(|quote| tail.find(quote))
+            .unwrap_or_else(|| {
+                tail.find(|c: char| {
+                    c.is_whitespace() || QUOTES.contains(&c) || "<>".contains(c)
+                })
+                .unwrap_or(tail.len())
+            });
+        out.push_str(&display_url(&tail[..end]));
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(feature = "schema-network")]
