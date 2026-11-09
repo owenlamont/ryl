@@ -50,6 +50,7 @@ struct State {
     entries: BTreeMap<String, Entry>,
     queue: VecDeque<String>,
     grants: BTreeSet<String>,
+    persist: VecDeque<String>,
 }
 
 pub(super) struct Service {
@@ -194,6 +195,16 @@ impl Service {
         needed
     }
 
+    fn persist(&self, origin: String) -> Result<(), String> {
+        let mut state = self.state.lock().expect("schema service lock");
+        if state.persist.len() >= self.limits.pending {
+            return Err("schema grant persistence saturated".to_owned());
+        }
+        state.persist.push_back(origin);
+        let _ = self.wake.try_send(());
+        Ok(())
+    }
+
     pub(super) fn allow(&self, origin: &str) {
         let mut state = self.state.lock().expect("schema service lock");
         state.grants.insert(origin.to_owned());
@@ -280,8 +291,20 @@ fn run_service(
     events: &Sender<super::Event>,
 ) {
     while jobs.recv().is_ok() {
-        while let Some(job) = next_job(owned) {
-            perform_job(job, owned, environment, events);
+        loop {
+            let origin = owned
+                .lock()
+                .expect("schema service lock")
+                .persist
+                .pop_front();
+            if let Some(origin) = origin {
+                let result = net::persist_origin(environment, &origin);
+                let _ = events.send(super::Event::SchemaGrant { origin, result });
+            } else if let Some(job) = next_job(owned) {
+                perform_job(job, owned, environment, events);
+            } else {
+                break;
+            }
         }
     }
 }
@@ -628,9 +651,9 @@ impl super::Server {
             .schema_service()
             .expect("schema events and prompts have a preparation service");
         if title == origin_title("Always allow", &origin) {
-            if let Err(error) = net::persist_origin(service.env.as_ref(), &origin) {
-                self.report_config_error(connection, &error);
-                return;
+            match service.persist(origin.clone()) {
+                Ok(()) => return,
+                Err(error) => self.report_config_error(connection, &error),
             }
         } else if title != "Allow once" {
             return;

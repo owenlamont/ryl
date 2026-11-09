@@ -2371,7 +2371,9 @@ Every retrieved reference needs a grant for the resolved origin, even after `$id
 `ryl server` prepares remote schemas in the background. Before accessing an ungranted
 origin, the server lists the requested URLs and offers **Allow once**, **Always allow
 `<origin>`**, or **Don't allow**. Allow once lasts for the server session; Always allow
-atomically updates the user allowlist, refusing symlinks. Dismissal or a 30-second timeout
+atomically updates the user allowlist, refusing symlinks and non-regular files. A failed
+save reports a configuration error and still grants access for the session. Dismissal or
+a 30-second timeout
 denies access until configuration changes. The **Allow `<origin>`** quick fix reopens
 the approval request. Workspace settings and project configuration cannot grant access.
 
@@ -4960,7 +4962,10 @@ and affected open documents at line 1. Use the **Allow `<origin>`** quick fix to
 approval.
 
 Always allow writes `<user-config-dir>/ryl/allowed-schema-origins` atomically and refuses
-symlinks. `ryl server --offline` or `RYL_OFFLINE=1` never prompts or accesses the network;
+symlinks and non-regular files. A failed save reports a configuration error and still
+grants access for the current session. Persistence runs on the schema worker so requests
+and shutdown stay responsive. `ryl server --offline` or `RYL_OFFLINE=1` never prompts or
+accesses the network;
 previously granted origins can use cached schemas. Editor integrations should set offline
 mode in an untrusted workspace. Schema preparation uses one worker and retains at most
 16 remote configuration contexts, evicting the oldest completed entries when full;

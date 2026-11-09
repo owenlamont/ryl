@@ -57,7 +57,9 @@ Every retrieved reference needs a grant for the resolved origin, even after `$id
 `ryl server` prepares remote schemas in the background. Before accessing an ungranted
 origin, the server lists the requested URLs and offers **Allow once**, **Always allow
 `<origin>`**, or **Don't allow**. Allow once lasts for the server session; Always allow
-atomically updates the user allowlist, refusing symlinks. Dismissal or a 30-second timeout
+atomically updates the user allowlist, refusing symlinks and non-regular files. A failed
+save reports a configuration error and still grants access for the session. Dismissal or
+a 30-second timeout
 denies access until configuration changes. The **Allow `<origin>`** quick fix reopens
 the approval request. Workspace settings and project configuration cannot grant access.
 

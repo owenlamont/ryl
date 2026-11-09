@@ -290,6 +290,12 @@ impl Network {
             .map(|p| p.join("ryl/allowed-schema-origins"))
             && env.path_exists(&path)
         {
+            let fs = allowlist_filesystem(env);
+            regular_allowlist(fs.as_ref(), &path).map_err(|_| {
+                Error::Policy(
+                    "cannot read user schema origin allowlist: expected a regular file",
+                )
+            })?;
             let text = env.read_to_string(&path).map_err(|_| {
                 Error::Policy("cannot read user schema origin allowlist")
             })?;
@@ -553,8 +559,26 @@ impl Network {
     }
 }
 
+fn allowlist_filesystem(env: &dyn Env) -> Arc<dyn cache_io::FileSystem> {
+    env.schema_dependencies().map_or_else(
+        || Arc::new(cache_io::SystemFileSystem) as Arc<dyn cache_io::FileSystem>,
+        |dependencies| dependencies.filesystem,
+    )
+}
+
+fn regular_allowlist(
+    fs: &dyn cache_io::FileSystem,
+    path: &Path,
+) -> std::io::Result<()> {
+    match fs.metadata(path) {
+        Ok(meta) if meta.is_file() => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        _ => Err(std::io::ErrorKind::InvalidInput.into()),
+    }
+}
+
 /// # Errors
-/// Refuses symlinks, invalid origins and failed atomic allowlist updates.
+/// Refuses symlinks, non-regular files, invalid origins and failed atomic allowlist updates.
 pub fn persist_origin(env: &dyn Env, raw: &str) -> Result<(), String> {
     let url = canonical(raw).map_err(|e| e.to_string())?;
     let origin = url.origin().ascii_serialization();
@@ -566,12 +590,11 @@ pub fn persist_origin(env: &dyn Env, raw: &str) -> Result<(), String> {
         .ok_or("user config directory unavailable")?
         .join("ryl");
     let path = parent.join("allowed-schema-origins");
-    let fs = env.schema_dependencies().map_or_else(
-        || Arc::new(cache_io::SystemFileSystem) as Arc<dyn cache_io::FileSystem>,
-        |dependencies| dependencies.filesystem,
-    );
+    let fs = allowlist_filesystem(env);
     safe_path(fs.as_ref(), &path)
         .map_err(|_| "schema allowlist refuses symlinks or unreadable paths")?;
+    regular_allowlist(fs.as_ref(), &path)
+        .map_err(|_| "schema allowlist requires a regular file or missing path")?;
     let mut text = match fs.open(&path).and_then(|mut file| {
         let mut text = String::new();
         file.read_to_string(&mut text).map(|_| text)

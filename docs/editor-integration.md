@@ -70,7 +70,10 @@ and affected open documents at line 1. Use the **Allow `<origin>`** quick fix to
 approval.
 
 Always allow writes `<user-config-dir>/ryl/allowed-schema-origins` atomically and refuses
-symlinks. `ryl server --offline` or `RYL_OFFLINE=1` never prompts or accesses the network;
+symlinks and non-regular files. A failed save reports a configuration error and still
+grants access for the current session. Persistence runs on the schema worker so requests
+and shutdown stay responsive. `ryl server --offline` or `RYL_OFFLINE=1` never prompts or
+accesses the network;
 previously granted origins can use cached schemas. Editor integrations should set offline
 mode in an untrusted workspace. Schema preparation uses one worker and retains at most
 16 remote configuration contexts, evicting the oldest completed entries when full;

@@ -565,6 +565,10 @@ struct Pull {
 enum Event {
     Scan(ScanResult),
     Schema,
+    SchemaGrant {
+        origin: String,
+        result: Result<(), String>,
+    },
 }
 
 struct ScanResult {
@@ -632,6 +636,12 @@ impl Server {
                     match result {
                         Event::Scan(result) => self.finish_scan(connection, result),
                         Event::Schema => self.schema_ready(connection),
+                        Event::SchemaGrant { origin, result } => {
+                            if let Err(error) = result {
+                                self.report_config_error(connection, &error);
+                            }
+                            self.schema_service().expect("grant has a schema service").allow(&origin);
+                        }
                     }
                 }
             }

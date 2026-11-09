@@ -111,6 +111,9 @@ Unapproved origins produce `window/showMessageRequest`: Allow once / Always allo
 `<origin>` / Don't allow. Null and dismissal deny until configuration changes; after
 30 seconds an unanswered prompt frees a slot but a later explicit approval still applies.
 The Allow `<origin>` quick fix reopens the prompt via `ryl.allowSchemaOrigin`.
+Always allow persists on the same worker through a bounded queue and returns an event
+for dispatch to apply the session grant; failed saves report a config error and still
+grant session access.
 Grants come only from launcher flags/environment, the user allowlist and session answers.
 Offline suppresses prompts and networking. `serve_with_schema_env` injects trusted test
 environment/dependencies and bounds; `tests/lsp_server/schema.rs` scripts client answers.

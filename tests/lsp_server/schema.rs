@@ -48,6 +48,8 @@ struct Environment {
     offline: bool,
     grants: String,
     policy_gate: Mutex<Option<PolicyGate>>,
+    config_gate: Mutex<Option<PolicyGate>>,
+    config_unavailable: std::sync::atomic::AtomicBool,
 }
 struct PolicyGate {
     started: std::sync::mpsc::SyncSender<()>,
@@ -66,7 +68,12 @@ impl Env for Environment {
         self.root.clone()
     }
     fn config_dir(&self) -> Option<std::path::PathBuf> {
-        Some(self.root.join("user"))
+        if let Some(gate) = self.config_gate.lock().unwrap().take() {
+            gate.started.send(()).unwrap();
+            gate.release.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
+        (!self.config_unavailable.load(Ordering::Relaxed))
+            .then(|| self.root.join("user"))
     }
     fn home_dir(&self) -> Option<std::path::PathBuf> {
         Some(self.root.clone())
@@ -115,6 +122,8 @@ impl Harness {
             offline,
             grants: grants.to_owned(),
             policy_gate: Mutex::new(None),
+            config_gate: Mutex::new(None),
+            config_unavailable: std::sync::atomic::AtomicBool::new(false),
         });
         Self { dir, env }
     }
@@ -1094,4 +1103,130 @@ fn user_global_yaml_fallback_uses_injected_home_independently_of_host_xdg() {
     }
     assert_eq!(h.calls(), 0);
     client.shutdown();
+}
+
+#[test]
+fn always_allow_persistence_keeps_dispatch_and_shutdown_responsive() {
+    let h = Harness::new("", false);
+    let mut client = h.client(Limits::default());
+    h.open(&client);
+    let request = prompt(&client);
+    let (started, began) = std::sync::mpsc::sync_channel(1);
+    let (release, gate) = std::sync::mpsc::channel();
+    *h.env.config_gate.lock().unwrap() = Some(PolicyGate {
+        started,
+        release: gate,
+    });
+    answer(&client, request, Some(&format!("Always allow {ORIGIN}")));
+    began.recv_timeout(Duration::from_secs(5)).unwrap();
+    let id = client.request("shutdown", Value::Null);
+    let deadline = Instant::now() + Duration::from_millis(500);
+    let responsive = loop {
+        match client
+            .conn()
+            .receiver
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        {
+            Ok(Message::Response(response)) if response.id == id => break true,
+            Ok(_) => {}
+            Err(_) => break false,
+        }
+    };
+    release.send(()).unwrap();
+    if !responsive {
+        client.response(&id);
+    }
+    client.notify("exit", Value::Null);
+    drop(client);
+    assert!(
+        responsive,
+        "shutdown must respond while persistence is blocked"
+    );
+}
+
+#[test]
+fn always_allow_write_failure_reports_error_and_grants_session_access() {
+    let h = Harness::new("", false);
+    let mut client = h.client(Limits::default());
+    h.open(&client);
+    let request = prompt(&client);
+    h.env.config_unavailable.store(true, Ordering::Relaxed);
+    answer(&client, request, Some(&format!("Always allow {ORIGIN}")));
+    await_config_message(&client, "user config directory unavailable");
+    await_schema(&client);
+    assert_eq!(h.calls(), 1);
+    client.shutdown();
+}
+
+#[test]
+fn always_allow_persistence_queue_is_bounded_and_saturation_grants_session_access() {
+    let h = Harness::new("", false);
+    let urls = [
+        ROOT,
+        "https://second.example.org/root",
+        "https://third.example.org/root",
+    ];
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        urls.iter().map(|url| config(url)).collect::<String>(),
+    )
+    .unwrap();
+    for url in urls {
+        h.env
+            .remote
+            .resources
+            .lock()
+            .unwrap()
+            .insert(url.to_owned(), br#"{"type":"integer"}"#.to_vec());
+    }
+    let mut client = h.client(Limits {
+        pending: 1,
+        prompt: Duration::ZERO,
+        ..Limits::default()
+    });
+    h.open(&client);
+    let requests = [prompt(&client), prompt(&client), prompt(&client)];
+    let (started, began) = std::sync::mpsc::sync_channel(1);
+    let (release, gate) = std::sync::mpsc::channel();
+    *h.env.config_gate.lock().unwrap() = Some(PolicyGate {
+        started,
+        release: gate,
+    });
+    let mut requests = requests.into_iter();
+    let first = requests.next().unwrap();
+    let title = first.params["actions"][1]["title"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    answer(&client, first, Some(&title));
+    began.recv_timeout(Duration::from_secs(5)).unwrap();
+    for request in requests {
+        let title = request.params["actions"][1]["title"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        answer(&client, request, Some(&title));
+    }
+    await_config_message(&client, "persistence saturated");
+    release.send(()).unwrap();
+    await_schema(&client);
+    assert_eq!(h.calls(), 3);
+    client.shutdown();
+}
+
+fn await_config_message(client: &Client, needle: &str) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let message = client
+            .conn()
+            .receiver
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        if let Message::Notification(note) = message
+            && note.method == "window/showMessage"
+            && note.params["message"].as_str().unwrap().contains(needle)
+        {
+            return;
+        }
+    }
 }

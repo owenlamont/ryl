@@ -372,3 +372,59 @@ fn user_allowlist_appends_canonical_origins_once_and_preserves_line_boundaries()
         }
     }
 }
+
+#[test]
+fn user_allowlist_refuses_non_regular_files_on_read_and_persist() {
+    use crate::common::fake_env::FakeEnv;
+    use ryl::rules::schema::net::{Network, persist_origin};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ryl/allowed-schema-origins");
+    std::fs::create_dir_all(&path).unwrap();
+    let env = FakeEnv::new()
+        .with_config_dir(dir.path())
+        .with_file(&path, "https://schemas.example.org");
+    assert!(
+        Network::from_env(&env, Default::default())
+            .unwrap_err()
+            .to_string()
+            .contains("regular file")
+    );
+    assert!(
+        persist_origin(&env, "https://schemas.example.org")
+            .unwrap_err()
+            .contains("regular file")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn user_allowlist_fifo_is_rejected_without_opening() {
+    use crate::common::fake_env::FakeEnv;
+    use ryl::config::Env;
+    use ryl::rules::schema::net::{Network, persist_origin};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ryl/allowed-schema-origins");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let env = FakeEnv::new()
+        .with_config_dir(dir.path())
+        .with_exists(&path);
+    assert!(
+        Network::from_env(&env, Default::default())
+            .unwrap_err()
+            .to_string()
+            .contains("regular file")
+    );
+    assert!(
+        persist_origin(&env, "https://schemas.example.org")
+            .unwrap_err()
+            .contains("regular file")
+    );
+    assert!(env.path_exists(&path));
+}
