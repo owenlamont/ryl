@@ -314,7 +314,7 @@ pub(crate) fn prepare(
         .map_err(|error| format!("invalid config: schema base: {error}"))?;
     let mut digest = blake3::Hasher::new();
     let mut associations = Vec::new();
-    let files = Arc::new(Mutex::new(Files::default()));
+    let loaded = Arc::new(Mutex::new(Files::default()));
     let network = Arc::new(OnceLock::new());
     let mut _progress = None;
     for entry in entries {
@@ -333,7 +333,7 @@ pub(crate) fn prepare(
         }
         let reader = LocalRetriever {
             base: canonical_base.clone(),
-            files: Arc::clone(&files),
+            files: Arc::clone(&loaded),
             network: Arc::clone(&network),
             needs_network: Arc::default(),
             failure: Arc::default(),
@@ -373,7 +373,7 @@ pub(crate) fn prepare(
             )
         })?);
     }
-    for (name, bytes) in &files.lock().expect("schema reader lock").contents {
+    for (name, bytes) in &loaded.lock().expect("schema reader lock").contents {
         digest.update(&(name.len() as u64).to_le_bytes());
         digest.update(name.as_bytes());
         digest.update(&(bytes.len() as u64).to_le_bytes());

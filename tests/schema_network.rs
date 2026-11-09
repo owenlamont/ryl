@@ -244,6 +244,37 @@ fn cache_freshness_offline_and_pins_use_actual_bytes() {
 }
 
 #[test]
+fn updated_pin_refetches_a_cached_entry_but_offline_refuses_it() {
+    let pin_for =
+        |digest: &str| BTreeMap::from([(ROOT.to_owned(), format!("sha256:{digest}"))]);
+    let h = Harness::new();
+    h.resource(ROOT, json!(true));
+    let old =
+        pin_for("b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b");
+    Network::from_env(&h.env, old)
+        .unwrap()
+        .fetch(ROOT, 100)
+        .unwrap();
+    h.resource(ROOT, json!(false));
+    let new =
+        pin_for("fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa");
+    let offline = h.env.clone().with_var("RYL_OFFLINE", "1");
+    let refused = Network::from_env(&offline, new.clone())
+        .unwrap()
+        .fetch(ROOT, 100);
+    assert!(refused.unwrap_err().to_string().contains("pin mismatch"));
+    assert_eq!(
+        Network::from_env(&h.env, new)
+            .unwrap()
+            .fetch(ROOT, 100)
+            .unwrap(),
+        b"false",
+        "a pin no longer matching the cached copy must refetch, not fail"
+    );
+    assert_eq!(h.transport.calls.lock().unwrap().len(), 2);
+}
+
+#[test]
 fn corrupt_entries_miss_and_full_urls_have_distinct_cache_keys() {
     let h = Harness::new();
     h.resource(ROOT, json!(true));

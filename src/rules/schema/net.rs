@@ -99,7 +99,7 @@ pub fn display_url(raw: &str) -> String {
         let keys: Vec<_> = url.query_pairs().map(|(key, _)| key.into_owned()).collect();
         url.query_pairs_mut()
             .clear()
-            .extend_pairs(keys.iter().map(|key| (key.as_str(), "[redacted]")));
+            .extend_pairs(keys.iter().map(|key| (key.as_str(), "***")));
     }
     url.set_fragment(None);
     crate::cli_support::sanitize_control(url.as_str()).into_owned()
@@ -127,6 +127,12 @@ pub fn redact_message(text: &str) -> String {
         display_url(&captures[0])
     })
     .into_owned()
+}
+
+#[cfg(feature = "schema-network")]
+fn env_flag(env: &dyn Env, key: &str) -> bool {
+    env.env_var(key)
+        .is_some_and(|value| !value.is_empty() && value != "0")
 }
 
 fn canonical(raw: &str) -> Result<Url, Error> {
@@ -265,11 +271,7 @@ impl Network {
                 grants.insert(origin(line)?);
             }
         }
-        let cache = if options.no_cache
-            || env
-                .env_var("RYL_NO_CACHE")
-                .is_some_and(|value| !value.is_empty() && value != "0")
-        {
+        let cache = if options.no_cache || env_flag(env, "RYL_NO_CACHE") {
             None
         } else {
             env.env_var("RYL_SCHEMA_CACHE_DIR")
@@ -284,8 +286,7 @@ impl Network {
             grants,
             pins: normalized_pins,
             cache,
-            offline: options.offline
-                || env.env_var("RYL_OFFLINE").as_deref() == Some("1"),
+            offline: options.offline || env_flag(env, "RYL_OFFLINE"),
             no_progress: options.no_progress,
             proxy_vars: [
                 "HTTPS_PROXY",
@@ -312,24 +313,28 @@ impl Network {
     pub fn fetch(&self, raw: &str, limit: usize) -> Result<Vec<u8>, Error> {
         let limit = limit.min(MAX_BYTES);
         let url = canonical(raw)?;
-        if !self.grants.contains(&url.origin().ascii_serialization()) {
+        let origin = url.origin().ascii_serialization();
+        if !self.grants.contains(&origin) {
             return Err(Error::at(
                 &url,
-                "origin not granted; use --schema-allow-origin or RYL_SCHEMA_ALLOWED_ORIGINS",
+                &format!(
+                    "origin not granted; pass --schema-allow-origin {origin} or add it to RYL_SCHEMA_ALLOWED_ORIGINS"
+                ),
             ));
         }
         let pin = self.pins.get(url.as_str());
         if let Some((meta, bytes)) = self.read_cache(&url, limit)? {
-            Self::verify_pin(&url, pin, &bytes)?;
-            if self.offline
-                || pin.is_some()
-                || self
-                    .dependencies
-                    .clock
-                    .unix_seconds()
-                    .checked_sub(meta.fetched)
-                    .is_some_and(|age| age < FRESH)
-            {
+            let pinned = Self::verify_pin(&url, pin, &bytes);
+            if self.offline {
+                return pinned.map(|()| bytes);
+            }
+            let fresh = self
+                .dependencies
+                .clock
+                .unix_seconds()
+                .checked_sub(meta.fetched)
+                .is_some_and(|age| age < FRESH);
+            if pinned.is_ok() && (pin.is_some() || fresh) {
                 return Ok(bytes);
             }
         }
@@ -351,7 +356,7 @@ impl Network {
         budget.requests += 1;
         let timeout = Duration::from_secs(60)
             .checked_sub(budget.elapsed)
-            .unwrap()
+            .expect("budget elapsed is under 60 seconds after the exhaustion check")
             .min(Duration::from_secs(30));
         if !self.no_progress {
             eprintln!("Downloading schema {}", display_url(url.as_str()));
@@ -508,10 +513,6 @@ impl Network {
             file.write_all(b"\n")?;
             file.write_all(bytes)?;
             drop(file);
-            #[cfg(windows)]
-            if path.exists() {
-                self.dependencies.filesystem.remove(&path)?;
-            }
             self.dependencies.filesystem.rename(&temp, &path)
         })();
         if result.is_err() {
