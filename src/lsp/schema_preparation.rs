@@ -131,20 +131,13 @@ impl Service {
                 .store(true, Ordering::Relaxed);
             state.queue.retain(|queued| queued != &key);
         }
-        while state.entries.len() >= self.limits.pending {
-            let oldest = state
-                .entries
-                .iter()
-                .filter(|(_, entry)| matches!(entry.status, Status::Finished(_)))
-                .min_by_key(|(_, entry)| entry.deadline)
-                .map(|(key, _)| key.clone());
-            let Some(key) = oldest else {
-                break;
-            };
-            state.entries.remove(&key);
-            state.queue.retain(|queued| queued != &key);
-        }
-        if state.entries.len() >= self.limits.pending {
+        if state
+            .entries
+            .values()
+            .filter(|entry| !matches!(entry.status, Status::Finished(_)))
+            .count()
+            >= self.limits.pending
+        {
             return Err("schema preparation service saturated".to_owned());
         }
         state.entries.insert(
@@ -213,6 +206,7 @@ impl Service {
         for (key, entry) in &mut state.entries {
             if let Status::NeedsRemotePreparation(origins) = &entry.status
                 && origins.contains_key(origin)
+                && !entry.cancel.load(Ordering::Relaxed)
             {
                 entry.status = Status::Queued;
                 entry.deadline = Instant::now() + self.limits.preparation;
@@ -279,7 +273,7 @@ fn next_job(owned: &Mutex<State>) -> Option<Job> {
         ..
     } = &mut *state;
     let key = std::iter::from_fn(|| queue.pop_front())
-        .find(|key| entries.contains_key(key))?;
+        .find(|key| matches!(entries[key].status, Status::Queued))?;
     let grants = grants.iter().cloned().collect();
     let entry = entries.get_mut(&key).expect("selected entry exists");
     entry.status = Status::Running;
@@ -342,22 +336,27 @@ fn perform_job(
         .as_ref()
         .and_then(|path| environment.read_to_string(path).ok())
         .unwrap_or_default();
-    let mut result = prepared.map(|()| Arc::new(job.context));
-    if job.cancel.load(Ordering::Relaxed) || Instant::now() >= job.deadline {
-        result = Err("schema preparation cancelled or deadline exceeded".to_owned());
-    }
+    let result = prepared.map(|()| Arc::new(job.context));
     let needed =
         std::mem::take(&mut *policy.needed.lock().expect("schema approval lock"));
     let mut state = owned.lock().expect("schema service lock");
-    let retry = needed.keys().any(|origin| state.grants.contains(origin));
+    let expired = job.cancel.load(Ordering::Relaxed) || Instant::now() >= job.deadline;
+    let retry = !expired && needed.keys().any(|origin| state.grants.contains(origin));
     let Some(entry) = state.entries.get_mut(&job.key) else {
         return;
     };
-    if !Arc::ptr_eq(&entry.cancel, &job.cancel) {
+    if !Arc::ptr_eq(&entry.cancel, &job.cancel)
+        || matches!(entry.status, Status::Finished(_))
+    {
         return;
     }
     entry.source_text = source_text;
-    entry.status = if retry {
+    entry.status = if expired {
+        entry.cancel.store(true, Ordering::Relaxed);
+        Status::Finished(Err(
+            "schema preparation cancelled or deadline exceeded".to_owned()
+        ))
+    } else if retry {
         Status::Queued
     } else if needed.is_empty() {
         Status::Finished(result)

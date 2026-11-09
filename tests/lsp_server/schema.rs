@@ -80,7 +80,8 @@ impl Env for Environment {
         Some(self.root.clone())
     }
     fn read_to_string(&self, path: &Path) -> Result<String, String> {
-        if let Some(gate) = self.read_gate.lock().unwrap().take() {
+        let gate = self.read_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
             gate.started.send(()).unwrap();
             gate.release.recv_timeout(Duration::from_secs(5)).unwrap();
         }
@@ -416,25 +417,6 @@ fn remote_schema_late_answers_honour_once_and_permanent_approval() {
 }
 
 #[test]
-fn finished_schema_preparations_are_evicted_before_saturation() {
-    let h = Harness::new(ORIGIN, false);
-    let mut client = h.client(Limits {
-        pending: 1,
-        ..Limits::default()
-    });
-    let uri = h.open(&client);
-    await_schema(&client);
-    client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
-    std::fs::create_dir(h.dir.path().join("nested")).unwrap();
-    std::fs::write(h.dir.path().join("nested/.ryl.toml"), config(ROOT)).unwrap();
-    let uri = file_uri(h.dir.path(), "nested/other.yaml");
-    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":"text\n"}}));
-    await_schema(&client);
-    assert_eq!(h.calls(), 1);
-    client.shutdown();
-}
-
-#[test]
 fn approval_diagnostics_on_open_documents_match_config_and_offer_quickfix() {
     for (pull, name) in [
         (false, "test.yaml"),
@@ -553,7 +535,7 @@ fn remote_schema_always_allow_refuses_symlinked_allowlist() {
 }
 
 #[test]
-fn remote_schema_preparation_saturation_is_visible_and_dispatch_stays_responsive() {
+fn only_in_flight_schema_preparations_saturate() {
     let h = Harness::new(ORIGIN, false);
     let (release, gate) = std::sync::mpsc::channel();
     *h.env.remote.gate.lock().unwrap() = Some(gate);
@@ -575,6 +557,17 @@ fn remote_schema_preparation_saturation_is_visible_and_dispatch_stays_responsive
     client.assert_alive();
     release.send(()).unwrap();
     await_schema(&client);
+    let uri = file_uri(h.dir.path(), "nested/other.yaml");
+    client.did_change(uri.clone(), "other\n");
+    await_schema(&client);
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({"textDocument":{"uri":uri}}),
+    );
+    assert_eq!(
+        pull_items(client.response(&id))[0].code,
+        Some(NumberOrString::String("schema".to_owned()))
+    );
     client.shutdown();
 }
 
@@ -848,44 +841,6 @@ fn grant_answered_during_running_preflight_retries_with_latest_grants() {
     release.send(()).unwrap();
     await_schema(&client);
     assert_eq!(h.calls(), 2);
-    client.shutdown();
-}
-
-#[test]
-fn expired_queued_preparation_is_evicted_without_stopping_worker() {
-    let h = Harness::new(ORIGIN, false);
-    let (began, release) = install_policy_gate(&h);
-    let mut client = h.client(Limits {
-        pending: 2,
-        preparation: Duration::ZERO,
-        ..Limits::default()
-    });
-    let a = h.open(&client);
-    began.recv_timeout(Duration::from_secs(5)).unwrap();
-    for name in ["b", "c"] {
-        let dir = h.dir.path().join(name);
-        std::fs::create_dir(&dir).unwrap();
-        std::fs::write(dir.join(".ryl.toml"), config(ROOT)).unwrap();
-    }
-    let b = file_uri(h.dir.path(), "b/test.yaml");
-    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":b,"languageId":"yaml","version":1,"text":"text\n"}}));
-    let id =
-        client.request("textDocument/diagnostic", json!({"textDocument":{"uri":b}}));
-    assert!(
-        pull_items(client.response(&id))[0]
-            .message
-            .contains("deadline exceeded")
-    );
-    let c = file_uri(h.dir.path(), "c/test.yaml");
-    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":c,"languageId":"yaml","version":1,"text":"text\n"}}));
-    for uri in [a, b] {
-        client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
-    }
-    client.assert_alive();
-    release.send(()).unwrap();
-    await_error(&client, "schema preparation cancelled or deadline exceeded");
-    client.assert_alive();
-    assert_eq!(h.calls(), 0);
     client.shutdown();
 }
 
@@ -1316,5 +1271,100 @@ fn await_config_message(client: &Client, needle: &str) {
         {
             return;
         }
+    }
+}
+
+#[test]
+fn seventeen_remote_configs_settle_after_input_stops() {
+    let h = Harness::new(ORIGIN, true);
+    let mut client = h.client(Limits::default());
+    for index in 0..17 {
+        let dir = h.dir.path().join(index.to_string());
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(dir.join(".ryl.toml"), config(ROOT)).unwrap();
+        client.did_open(file_uri(&dir, "test.yaml"), "text\n");
+    }
+    client.assert_alive();
+    let end = Instant::now() + Duration::from_secs(1);
+    let mut publications = 0;
+    while let Ok(message) = client
+        .conn()
+        .receiver
+        .recv_timeout(end.saturating_duration_since(Instant::now()))
+    {
+        if let Message::Notification(note) = message
+            && note.method == "textDocument/publishDiagnostics"
+        {
+            publications += 1;
+            assert!(
+                publications <= 17 * 18,
+                "preparations must not cycle: {publications}"
+            );
+        }
+    }
+    assert_eq!(h.calls(), 0);
+    client.shutdown();
+}
+
+#[test]
+fn expired_preflight_never_resurrects_an_approval_or_retry() {
+    for requested_timeout in [false, true] {
+        let h = Harness::new("", false);
+        let mut client = h.client(Limits {
+            preparation: Duration::from_millis(100),
+            ..Limits::default()
+        });
+        let (began, release_policy) = install_policy_gate(&h);
+        let uri = h.open(&client);
+        began.recv_timeout(Duration::from_secs(5)).unwrap();
+        let (started, began) = std::sync::mpsc::sync_channel(1);
+        let (release, gate) = std::sync::mpsc::channel();
+        *h.env.read_gate.lock().unwrap() = Some(PolicyGate {
+            started,
+            release: gate,
+        });
+        release_policy.send(()).unwrap();
+        began.recv_timeout(Duration::from_secs(5)).unwrap();
+        thread::sleep(Duration::from_millis(150));
+        let timeout = if requested_timeout {
+            let id = client.request(
+                "textDocument/diagnostic",
+                json!({"textDocument":{"uri":uri}}),
+            );
+            let items = pull_items(client.response(&id));
+            assert!(items[0].message.contains("deadline exceeded"));
+            Some(items[0].message.clone())
+        } else {
+            None
+        };
+        release.send(()).unwrap();
+        if !requested_timeout {
+            await_error(&client, "cancelled or deadline exceeded");
+        }
+        let end = Instant::now() + Duration::from_millis(200);
+        while let Ok(message) = client
+            .conn()
+            .receiver
+            .recv_timeout(end.saturating_duration_since(Instant::now()))
+        {
+            assert!(
+                !matches!(message, Message::Request(ref request) if request.method == "window/showMessageRequest"),
+                "expired preparation cannot request approval"
+            );
+        }
+        let id = client.request(
+            "textDocument/diagnostic",
+            json!({"textDocument":{"uri":uri}}),
+        );
+        let items = pull_items(client.response(&id));
+        assert!(items[0].message.contains("deadline exceeded"));
+        if let Some(timeout) = timeout {
+            assert_eq!(
+                items[0].message, timeout,
+                "worker must preserve request's terminal result"
+            );
+        }
+        assert_eq!(h.calls(), 0);
+        client.shutdown();
     }
 }

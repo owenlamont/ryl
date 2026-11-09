@@ -4967,10 +4967,11 @@ grants access for the current session. Persistence runs on the schema worker so 
 and shutdown stay responsive. `ryl server --offline` or `RYL_OFFLINE=1` never prompts or
 accesses the network;
 previously granted origins can use cached schemas. Editor integrations should set offline
-mode in an untrusted workspace. Schema preparation uses one worker and retains at most
-16 remote configuration contexts, evicting the oldest completed entries when full;
+mode in an untrusted workspace. Schema preparation uses one worker and allows at most
+16 in-flight remote configuration contexts. Completed contexts remain until superseded
+or invalidated and do not count toward the limit;
 pending, saturated and failed preparations appear as
-configuration errors. Queued preparations have a 65-second deadline from enqueue. Formatting
+configuration errors. Queued preparations have a 65-second deadline from enqueue; timeouts are final. Formatting
 never prepares schemas.
 
 ## Configuring it from the editor
