@@ -64,14 +64,17 @@ with config discovery anchored at the workspace root.
 A remote schema association requests access; only launcher grants, the user allowlist,
 or your approval can authorize an origin. The server prompts with redacted URLs and
 **Allow once**, **Always allow `<origin>`**, and **Don't allow**. Dismissing the prompt
-or leaving the prompt unanswered for 30 seconds denies access until configuration
-changes. Use the **Allow `<origin>`** quick fix to reopen approval.
+denies access until configuration changes. After 30 seconds an unanswered prompt frees
+a prompt slot; a later approval still applies. Approval diagnostics appear on the config
+and affected open documents at line 1. Use the **Allow `<origin>`** quick fix to reopen
+approval.
 
 Always allow writes `<user-config-dir>/ryl/allowed-schema-origins` atomically and refuses
 symlinks. `ryl server --offline` or `RYL_OFFLINE=1` never prompts or accesses the network;
 previously granted origins can use cached schemas. Editor integrations should set offline
 mode in an untrusted workspace. Schema preparation uses one worker and retains at most
-16 remote configuration contexts; pending, saturated and failed preparations appear as
+16 remote configuration contexts, evicting the oldest completed entries when full;
+pending, saturated and failed preparations appear as
 configuration errors. Queued preparations have a 65-second deadline from enqueue. Formatting
 never prepares schemas.
 

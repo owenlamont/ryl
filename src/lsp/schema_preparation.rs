@@ -129,6 +129,18 @@ impl Service {
                 .store(true, Ordering::Relaxed);
             state.queue.retain(|queued| queued != &key);
         }
+        while state.entries.len() >= self.limits.pending {
+            let oldest = state
+                .entries
+                .iter()
+                .filter(|(_, entry)| matches!(entry.status, Status::Finished(_)))
+                .min_by_key(|(_, entry)| entry.deadline)
+                .map(|(key, _)| key.clone());
+            let Some(key) = oldest else {
+                break;
+            };
+            state.entries.remove(&key);
+        }
         if state.entries.len() >= self.limits.pending {
             return Err("schema preparation service saturated".to_owned());
         }
@@ -547,16 +559,23 @@ impl super::Server {
             return;
         }
         for (origin, urls) in service.needed() {
-            if !self.schema_prompted.insert(origin.clone()) {
+            if self.schema_prompted.contains(&origin) {
                 continue;
             }
-            if self.schema_prompts.len() >= service.limits.pending {
+            if self
+                .schema_prompts
+                .values()
+                .filter(|(_, deadline)| *deadline > Instant::now())
+                .count()
+                >= service.limits.pending
+            {
                 self.report_config_error(
                     connection,
                     "schema approval prompts saturated",
                 );
                 continue;
             }
+            self.schema_prompted.insert(origin.clone());
             self.next_request_id += 1;
             let id = lsp_server::RequestId::from(format!(
                 "ryl-schema-{}",
@@ -593,12 +612,9 @@ impl super::Server {
         connection: &lsp_server::Connection,
         response: &lsp_server::Response,
     ) {
-        let Some((origin, deadline)) = self.schema_prompts.remove(&response.id) else {
+        let Some((origin, _)) = self.schema_prompts.remove(&response.id) else {
             return;
         };
-        if response.response_result.is_err() || Instant::now() >= deadline {
-            return;
-        }
         let Some(title) = response
             .response_result
             .as_ref()

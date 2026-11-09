@@ -600,16 +600,6 @@ impl Server {
     fn run_loop(&mut self, connection: &Connection) -> SessionOutcome {
         let scans = self.scan_rx.clone();
         loop {
-            let timeout = self
-                .schema_prompts
-                .values()
-                .map(|(_, deadline)| *deadline)
-                .min()
-                .map_or_else(crossbeam_channel::never, |deadline| {
-                    crossbeam_channel::after(
-                        deadline.saturating_duration_since(Instant::now()),
-                    )
-                });
             select! {
                 recv(connection.receiver) -> message => {
                     // Connection dropped without a shutdown/exit: a normal end.
@@ -635,9 +625,6 @@ impl Server {
                         }
                         Message::Response(response) => self.schema_response(connection, &response),
                     }
-                }
-                recv(timeout) -> _ => {
-                    self.schema_prompts.retain(|_, (_, deadline)| *deadline > Instant::now());
                 }
                 recv(scans) -> result => {
                     // `scan_tx` is a field of `self`, so it outlives this loop.
@@ -845,7 +832,7 @@ impl Server {
             Err(error) => {
                 self.report_config_error(connection, &error);
                 if error.contains("schema") {
-                    vec![config_error_diagnostic(&error)]
+                    config_error_diagnostics(&error)
                 } else {
                     Vec::new()
                 }
@@ -1146,7 +1133,7 @@ impl Server {
                     // report, so a pull-only client is not misled into thinking the file is
                     // fine.
                     self.diagnostics_for(uri, &text).unwrap_or_else(|error| {
-                        (vec![config_error_diagnostic(&error)], Vec::new())
+                        (config_error_diagnostics(&error), Vec::new())
                     })
                 });
         self.report_config_notices(connection, &notices);
@@ -1517,7 +1504,7 @@ fn file_report(
         Ok(Some(target)) => target,
         Ok(None) => return (None, Vec::new()),
         Err(error) => {
-            let items = vec![config_error_diagnostic(&error)];
+            let items = config_error_diagnostics(&error);
             return (file_pull_report(path, None, items, previous_id), Vec::new());
         }
     };
@@ -1770,8 +1757,21 @@ fn config_error_text(error: &str) -> String {
     )
 }
 
-/// An error diagnostic standing in for a config-discovery failure, so a pull request
-/// surfaces it rather than reporting the file as clean.
+fn config_error_diagnostics(error: &str) -> Vec<Diagnostic> {
+    if let Some(origins) = error.strip_prefix("schema origin approval required: ") {
+        origins
+            .split_whitespace()
+            .map(|origin| {
+                config_error_diagnostic(&format!(
+                    "schema origin approval required: {origin}"
+                ))
+            })
+            .collect()
+    } else {
+        vec![config_error_diagnostic(error)]
+    }
+}
+
 fn config_error_diagnostic(error: &str) -> Diagnostic {
     Diagnostic {
         range: Range {

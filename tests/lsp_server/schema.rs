@@ -332,17 +332,133 @@ fn await_error(client: &Client, needle: &str) {
 }
 
 #[test]
-fn remote_schema_late_answer_after_timeout_does_not_grant() {
-    let h = Harness::new("", false);
+fn remote_schema_late_answers_honour_once_and_permanent_approval() {
+    for title in ["Allow once".to_owned(), format!("Always allow {ORIGIN}")] {
+        let h = Harness::new("", false);
+        let mut client = h.client(Limits {
+            prompt: Duration::ZERO,
+            ..Limits::default()
+        });
+        h.open(&client);
+        let request = prompt(&client);
+        client.assert_alive();
+        answer(&client, request, Some(&title));
+        await_schema(&client);
+        assert_eq!(h.calls(), 1);
+        assert_eq!(
+            h.dir
+                .path()
+                .join("user/ryl/allowed-schema-origins")
+                .exists(),
+            title.starts_with("Always")
+        );
+        client.shutdown();
+    }
+}
+
+#[test]
+fn finished_schema_preparations_are_evicted_before_saturation() {
+    let h = Harness::new(ORIGIN, false);
     let mut client = h.client(Limits {
-        prompt: Duration::ZERO,
+        pending: 1,
         ..Limits::default()
     });
-    h.open(&client);
-    answer(&client, prompt(&client), Some("Allow once"));
-    client.assert_alive();
-    assert_eq!(h.calls(), 0);
+    let uri = h.open(&client);
+    await_schema(&client);
+    client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+    std::fs::create_dir(h.dir.path().join("nested")).unwrap();
+    std::fs::write(h.dir.path().join("nested/.ryl.toml"), config(ROOT)).unwrap();
+    let uri = file_uri(h.dir.path(), "nested/other.yaml");
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":"text\n"}}));
+    await_schema(&client);
+    assert_eq!(h.calls(), 1);
     client.shutdown();
+}
+
+#[test]
+fn approval_diagnostics_on_open_documents_match_config_and_offer_quickfix() {
+    for (pull, name) in [
+        (false, "test.yaml"),
+        (true, "test.yaml"),
+        (true, "test.md"),
+        (false, "test.md"),
+    ] {
+        let h = Harness::new("", false);
+        let other = "https://other.example.org";
+        std::fs::write(
+            h.dir.path().join(".ryl.toml"),
+            format!("{}{}", config(ROOT), config(&format!("{other}/type.json"))),
+        )
+        .unwrap();
+        let capabilities = if pull {
+            json!({"textDocument":{"diagnostic":{}}})
+        } else {
+            json!({})
+        };
+        let mut client = h.client_options(Limits::default(), capabilities, Value::Null);
+        let uri = file_uri(h.dir.path(), name);
+        client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":"text\n"}}));
+        let mut requests = Vec::new();
+        let mut config_diagnostics = Vec::new();
+        let mut source_diagnostics = Vec::new();
+        while requests.len() < 2 || config_diagnostics.is_empty() {
+            match client.recv() {
+                Message::Request(request) => requests.push(request),
+                Message::Notification(note)
+                    if note.method == "textDocument/publishDiagnostics" =>
+                {
+                    let report: PublishDiagnosticsParams =
+                        serde_json::from_value(note.params).unwrap();
+                    if report.uri == uri {
+                        source_diagnostics = report.diagnostics;
+                    } else if report.uri == file_uri(h.dir.path(), ".ryl.toml") {
+                        config_diagnostics = report.diagnostics;
+                    }
+                }
+                _ => {}
+            }
+        }
+        for request in requests {
+            assert_eq!(request.method, "window/showMessageRequest");
+            answer(&client, request, None);
+        }
+        let id = client.request(
+            "textDocument/diagnostic",
+            json!({"textDocument":{"uri":uri}}),
+        );
+        let diagnostics = pull_items(client.response(&id));
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>(),
+            config_diagnostics
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+        if !pull {
+            assert_eq!(source_diagnostics, diagnostics);
+        }
+        for (diagnostic, origin) in diagnostics.iter().zip([other, ORIGIN]) {
+            assert_eq!(diagnostic.range, Range::default());
+            assert!(diagnostic.message.ends_with(&net::redact_message(&format!(
+                "schema origin approval required: {origin}"
+            ))));
+        }
+        let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":uri},"range":Range::default(),"context":{"diagnostics":diagnostics}}));
+        let actions = client.response(&id).response_result.unwrap();
+        assert_eq!(actions.as_array().unwrap().len(), 2);
+        std::fs::write(h.dir.path().join(".ryl.toml"), TRAILING).unwrap();
+        client.notify(
+            "workspace/didChangeWatchedFiles",
+            changed_config(h.dir.path()),
+        );
+        let id = client.request(
+            "textDocument/diagnostic",
+            json!({"textDocument":{"uri":uri}}),
+        );
+        assert!(pull_items(client.response(&id)).is_empty());
+        client.shutdown();
+    }
 }
 
 #[cfg(unix)]
@@ -851,6 +967,36 @@ fn approval_prompt_saturation_is_visible() {
     }
     answer(&client, first, None);
     assert_eq!(h.calls(), 0);
+    client.shutdown();
+}
+
+#[test]
+fn expired_schema_prompts_free_slots_without_losing_late_answers() {
+    let h = Harness::new("", false);
+    let other = "https://other.example.org/type.json";
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        format!("{}{}", config(ROOT), config(other)),
+    )
+    .unwrap();
+    h.env
+        .remote
+        .resources
+        .lock()
+        .unwrap()
+        .insert(other.to_owned(), br#"{"type":"integer"}"#.to_vec());
+    let mut client = h.client(Limits {
+        pending: 1,
+        prompt: Duration::ZERO,
+        ..Limits::default()
+    });
+    h.open(&client);
+    let first = prompt(&client);
+    let second = prompt(&client);
+    answer(&client, first, Some("Allow once"));
+    answer(&client, second, Some("Allow once"));
+    await_schema(&client);
+    assert_eq!(h.calls(), 2);
     client.shutdown();
 }
 
