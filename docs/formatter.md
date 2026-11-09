@@ -136,7 +136,7 @@ No single setting converts block collections to flow with one entry per line:
 | Key | Default | Values | What it sets |
 | :--- | :--- | :--- | :--- |
 | `quote-style` | `"single"` | `"single"`, `"double"`, `"preserve"` | The quote used where a string needs quoting; `"preserve"` leaves all quoting alone. See [Quote style](#quote-style). |
-| `keep-quotes` | `false` | `true`, `false` | Keep existing optional quotes while `quote-style` selects their character; plain strings stay plain. |
+| `keep-quotes` | `false` | `true`, `false` | Keep existing optional quotes while `quote-style` selects their character. |
 | `line-ending` | `"lf"` | `"lf"`, `"cr-lf"`, `"native"`, `"auto"` | Line endings, including the final newline; `"native"` is the platform's, and `"auto"` keeps the ending most of the file's lines use (`"lf"` on a tie or a file without line breaks). |
 | `document-start` | `"preserve"` | `"add"`, `"preserve"`, `"remove"` | Add missing `---` markers, preserve markers, or remove the first optional marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
@@ -520,8 +520,8 @@ or any document under the top-level `target-version = "1.2"`, drops those 1.1-on
 quotes; see [YAML version compatibility](yaml-version.md#how-ryl-handles-yaml-versions).
 
 Set `keep-quotes = true` to retain optional quotes while normalizing their character
-with the same escape-avoidance rules. Plain strings stay plain, and multi-line quoted
-strings keep their physical line breaks when their quote character changes. With
+with the same escape-avoidance rules. Multi-line quoted strings keep their physical
+line breaks when their quote character changes. With
 `quote-style = "preserve"`, quoting stays untouched regardless of `keep-quotes`.
 
 ```toml
@@ -539,6 +539,46 @@ quoted: 'hello'
 plain: hello
 quoted: "hello"
 ```
+
+### Required quotes
+
+When `quoted-strings` is enabled, formatting adds quotes required by `required = true`
+or matching `extra-required` patterns. Patterns match decoded values. `check-keys = true`
+extends those requirements to keys; ordinary key quote normalization always applies.
+`extra-allowed` retains matching existing quotes without adding quotes to plain strings.
+Disabled rules retain the formatter's default quoting policy.
+
+```toml
+[lint.rules.quoted-strings]
+required = false
+extra-required = ['\?']
+```
+
+```yaml
+# before
+args: [/health?ready=true]
+# after
+args: ['/health?ready=true']
+```
+
+Only strings under the effective YAML version receive quotes: booleans, numbers,
+nulls and YAML 1.1 timestamps stay typed. Explicit version directives override
+`target-version`. Wrapped plain strings retain continuation and blank lines under
+`prose-wrap = "preserve"`; `"always"` and `"never"` reflow using the selected quoting.
+Block scalars stay unchanged.
+
+`quote-style = "preserve"` freezes all quoting, including missing required quotes;
+`ryl check` may still report them. `keep-quotes = true` wins over
+`required = "only-when-needed"` and warns when retained optional quotes conflict.
+`quote-style` and escape avoidance choose the quote character; incompatible lint
+`quote-type` or escape exceptions warn with the winning setting and a remedy.
+
+Adding quotes to an implicit key is refused if the selected spelling, including
+escapes and properties, would exceed YAML's 1,024-character simple-key limit.
+The formatter reports the refusal; shorten the key or use explicit `?` syntax.
+Inline suppression and formatter suppression can also leave required quotes missing.
+With compatible settings and no refusals or suppression, quoted-string output passes
+`ryl check` under the same config.
 
 ## Preview style
 
@@ -578,7 +618,7 @@ one of them is enabled with options that reject what `ryl format` writes, every
 `ryl format` run warns on stderr, for example:
 
 ```text
-warning: the quoted-strings lint rule's options are incompatible with the formatter's `[format] quote-style = "single"`. Disable quoted-strings when using `ryl format`, or set its options `quote-type = "single"`, `required = "only-when-needed"`, `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`.
+warning: the quoted-strings lint rule's options (quote-type = "double", allow-quoted-quotes = false, allow-double-quotes-for-escaping = false) conflict with format.quote-style = "single" and its escape avoidance; format.quote-style wins. Use TOML with lint.rules.quoted-strings.quote-type = "any" and allow-double-quotes-for-escaping = true, or set format.quote-style = "preserve".
 ```
 
 `--no-warnings` silences it. A rule left at its defaults conflicts only where the table
@@ -608,14 +648,16 @@ finding can be fixed. A keep-chomped (`|+`/`>+`) tail can exceed `empty-lines ma
 trailing spaces inside a block scalar can remain findings after `ryl format` and
 `ryl check --fix` because removing them would change the scalar value.
 
-`quoted-strings` accepts the formatter's output when `required` is `"only-when-needed"`
-or `false`, `extra-required` is empty, and `quote-type` is either `"any"` or matches
+`quoted-strings` accepts the formatter's output for every supported `required` mode
+and `extra-required` pattern when `quote-type` is either `"any"` or matches
 `quote-style`. A `quote-type` of `"single"` or `"double"` also needs
-`allow-quoted-quotes = true`, for strings quoted to avoid an escape, and `"single"`
-needs `allow-double-quotes-for-escaping = true`, for strings that need escapes.
-The rule's defaults (`required = true`) conflict:
+`allow-quoted-quotes = true`, for strings quoted to avoid an escape. Under
+`required = "only-when-needed"`, set `allow-double-quotes-for-escaping = true`
+to retain optional escaped double quotes, including a literal backslash.
+A single-quote lint preference also needs the escape exception for necessary escapes.
+The rule's defaults (`required = true`) add quotes:
 
-<!-- ryl-config-check: format-conflict -->
+<!-- ryl-config-check: format-clean -->
 ```toml
 [lint.rules]
 quoted-strings = "enable"
@@ -628,6 +670,7 @@ These quoted-strings configs accept the formatter's output:
 [lint.rules.quoted-strings]
 quote-type = "any"
 required = "only-when-needed"
+allow-double-quotes-for-escaping = true
 ```
 
 <!-- ryl-config-check: format-clean -->
@@ -647,18 +690,19 @@ quote-style = "double"
 [lint.rules.quoted-strings]
 quote-type = "double"
 required = "only-when-needed"
+allow-double-quotes-for-escaping = true
 allow-quoted-quotes = true
 ```
 
-A YAML config cannot set `allow-double-quotes-for-escaping`, so there use
-`quote-type: any`:
+A YAML config cannot set `allow-double-quotes-for-escaping`. To accept optional
+escaped quotes there, use `quote-type: any` and `required: false`:
 
 <!-- ryl-config-check: format-clean -->
 ```yaml
 rules:
   quoted-strings:
     quote-type: any
-    required: only-when-needed
+    required: false
 ```
 
 The other conflicts follow the table:

@@ -116,6 +116,22 @@ enum QuoteRetention {
 }
 
 #[derive(Debug, Clone)]
+struct Requirements {
+    required: RequiredMode,
+    extra_required: Vec<Regex>,
+    extra_allowed: Vec<Regex>,
+    check_keys: bool,
+    key_spacing: KeySpacing,
+}
+
+#[derive(Debug, Clone)]
+struct KeySpacing {
+    colons: Option<colons::Config>,
+    commas: Option<crate::rules::commas::Config>,
+    braces: Option<crate::rules::braces::Config>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Config {
     quote_type: QuoteType,
     quote_type_label: &'static str,
@@ -128,6 +144,7 @@ pub struct Config {
     retention: QuoteRetention,
     pub check_keys: bool,
     target: TargetVersion,
+    requirements: Option<Requirements>,
 }
 
 impl Config {
@@ -215,16 +232,12 @@ impl Config {
             retention: QuoteRetention::Needed,
             check_keys,
             target: cfg.target_version(),
+            requirements: None,
         }
     }
 
     pub(crate) fn fixes_require_diagnostics(&self) -> bool {
         self.required == RequiredMode::Always
-    }
-
-    #[must_use]
-    pub fn has_extra_required(&self) -> bool {
-        !self.extra_required.is_empty()
     }
 
     #[must_use]
@@ -253,6 +266,7 @@ impl Config {
             retention: QuoteRetention::Needed,
             check_keys: true,
             target,
+            requirements: None,
         }
     }
 
@@ -262,6 +276,38 @@ impl Config {
         } else {
             QuoteRetention::Needed
         };
+        self
+    }
+
+    pub(crate) fn with_requirements(
+        mut self,
+        cfg: &YamlLintConfig,
+        skip: &[&str],
+    ) -> Self {
+        if cfg.rule_level(ID).is_some() {
+            let lint = Self::resolve(cfg);
+            self.requirements = Some(Requirements {
+                required: lint.required,
+                extra_required: lint.extra_required,
+                extra_allowed: lint.extra_allowed,
+                check_keys: lint.check_keys,
+                key_spacing: KeySpacing {
+                    colons: (!skip.contains(&colons::ID))
+                        .then_some(colons::Config::format()),
+                    commas: (!skip.contains(&crate::rules::commas::ID))
+                        .then_some(crate::rules::commas::Config::new(0, 1, 1)),
+                    braces: (!skip.contains(&crate::rules::braces::ID)).then_some(
+                        crate::rules::braces::Config::new(
+                            crate::rules::braces::Forbid::None,
+                            i64::from(cfg.format().targets().brace_spacing),
+                            i64::from(cfg.format().targets().brace_spacing),
+                            0,
+                            0,
+                        ),
+                    ),
+                },
+            });
+        }
         self
     }
 }
@@ -834,7 +880,7 @@ pub(crate) fn format_replacements<'a>(
     format: bool,
     spaced_colon: &'a colons::Guarantees<'a>,
     frame: Option<&'a dyn ConvertedLayout>,
-) -> Vec<Replacement> {
+) -> (Vec<Replacement>, bool) {
     let mut finder = ConsistentQuoteStyleFinder::new(cfg, input.text());
     if matches!(cfg.quote_type, QuoteType::Consistent) {
         for (event, span) in input.event_iter() {
@@ -858,7 +904,35 @@ pub(crate) fn format_replacements<'a>(
         }
     }
     std::mem::swap(&mut fixer.state.plain_scalar_cache, cache);
-    fixer.replacements
+    let refusals = if format {
+        input::constrain_keys(
+            input,
+            cfg,
+            &mut fixer.replacements,
+            &input::key_spacing(input, cfg),
+        )
+    } else {
+        Vec::new()
+    };
+    (fixer.replacements, !refusals.is_empty())
+}
+
+pub(crate) fn format_refusals(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &Config,
+) -> Vec<Violation> {
+    let mut fixer = QuotedStringsFixer::new(cfg, input.text());
+    fixer.format = true;
+    fixer.settle = true;
+    for (event, span) in input.event_iter() {
+        fixer.on_event(event, span);
+    }
+    let directives =
+        crate::directives::Directives::scoped(input, crate::directives::Scope::Format);
+    input::constrain_keys(input, cfg, &mut fixer.replacements, &[])
+        .into_iter()
+        .filter(|violation| !directives.is_disabled(ID, violation.line))
+        .collect()
 }
 
 fn initial_consistent_quote_style(
@@ -1175,7 +1249,11 @@ impl<'cfg> FixState<'cfg> {
         let active_key = model.is_key();
         let eligible = target::Eligible::new(self.config, model, style, mode)?;
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
-        let initial = scalar_initial(self.buffer, style, span);
+        let initial = if style == ScalarStyle::Plain {
+            target::Initial::new(style, &self.buffer[start.get()..end.get()])
+        } else {
+            scalar_initial(self.buffer, style, span)
+        };
         let column = self
             .projected
             .filter(|_| eligible.requires_column())
@@ -1208,7 +1286,7 @@ impl<'cfg> FixState<'cfg> {
                 ) {
                     inner_quoted_content(self.buffer, start, end)
                 } else {
-                    ""
+                    &self.buffer[start.get()..end.get()]
                 };
                 (start, end, Spelling::materialize(selected, retained))
             })

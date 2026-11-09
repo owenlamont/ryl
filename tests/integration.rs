@@ -172,6 +172,7 @@ mod format_fold_golden;
 mod format_indentation;
 mod format_parse_reuse;
 mod format_profile;
+mod format_required_quotes;
 mod format_suppression;
 mod legacy_yaml_equivalence;
 mod lint_multi_errors;

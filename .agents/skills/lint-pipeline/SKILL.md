@@ -196,9 +196,14 @@ back to the original bytes.
 `ryl check --fix`
 builds its `Passes` from the lint config (rule selection, per-rule `ignore`,
 per-file-ignores, `fixable`/`unfixable`, per-line-ignores); `ryl format` builds its own
-from the `[format]` table over `format::FORMAT_RULE_IDS` and reads none of those, so a
-zero-config run formats. Inline directives are honoured by both. A YAML config gets the
-`[format]` defaults.
+from the `[format]` table over `format::FORMAT_RULE_IDS`, independently of lint selection,
+fixability and path ignores, so a zero-config run formats. The enabled `quoted-strings`
+rule contributes only quote-presence requirements (`required`, patterns and key scope);
+formatter `quote-style` still chooses characters. Preserve freezes quoting; keep-quotes
+wins over optional-quote removal. Incompatible choices warn with remedies. Plain-to-quoted
+multiline recipes retain physical lines without quoted-source unescaping. Quote growth
+that would exceed an implicit key's length limit is refused and reported.
+Inline directives are honoured by both. A YAML config gets the `[format]` defaults.
 
 Value preservation and idempotence hold by rule order: each target reads only preserved
 facts and earlier targets. The property suites, not runtime checks, catch a rule that
@@ -224,7 +229,8 @@ probe. Multiline collapses change virtual lines; multiline style changes compose
 line-local edits. A partially suppressed multiline quote edit falls back at plan time.
 Every quote replacement retains
 the existing schema and snippet checks;
-unchanged plain and block scalars need no quote decision.
+plain scalars need no quote decision when quoted-strings requirements are disabled;
+block scalars stay exempt.
 
 Keep scalar and comment selection in their `target` modules, using the semantic views
 in `text_version::model` and narrow observations. Quote eligibility precedes a selected

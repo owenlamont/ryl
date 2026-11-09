@@ -63,7 +63,7 @@ impl Document {
         let targets = cfg.format().targets();
         let prose = self.words.join(" ");
         let prose = if on("line-length")
-            && (!targets.keep_quotes
+            && (!(targets.keep_quotes || quotes_retained(&prose, cfg))
                 || matches!(
                     targets.prose_wrap,
                     Some(
@@ -145,11 +145,57 @@ impl Document {
     }
 }
 
+fn quotes_retained(value: &str, cfg: &YamlLintConfig) -> bool {
+    cfg.rule_level("quoted-strings").is_some()
+        && (cfg.rule_option_bool("quoted-strings", "required", true)
+            || ["extra-required", "extra-allowed"]
+                .into_iter()
+                .any(|option| {
+                    cfg.rule_option("quoted-strings", option)
+                        .and_then(ryl::yaml_dom::YamlOwned::as_sequence)
+                        .is_some_and(|patterns| {
+                            patterns.iter().any(|pattern| {
+                                regex::Regex::new(pattern.as_str().unwrap())
+                                    .unwrap()
+                                    .is_match(value)
+                            })
+                        })
+                }))
+}
+
+#[test]
+fn required_quotes_limit_preserved_prose_perturbations() {
+    let document = Document {
+        words: vec!["secret".into(), "first".into(), "second".into()],
+        amount: 2,
+    };
+    for requirements in [
+        "required = true",
+        "required = false\nextra-required = ['secret']",
+        "required = 'only-when-needed'\nextra-allowed = ['secret']",
+    ] {
+        let cfg = YamlLintConfig::from_toml_str(&format!("[format]\nprose-wrap = 'preserve'\n[lint.rules.quoted-strings]\n{requirements}\n")).unwrap();
+        assert_eq!(
+            document.render(&[], &cfg),
+            document.render(&["line-length"], &cfg)
+        );
+    }
+}
+
 fn arb_document() -> impl Strategy<Value = Document> {
     (
         prop::collection::vec(
-            prop::sample::select(vec!["alpha", "café", "世界", "delta", "🦀", "echo"])
-                .prop_map(str::to_owned),
+            prop::sample::select(vec![
+                "alpha",
+                "café",
+                "世界",
+                "delta",
+                "🦀",
+                "echo",
+                "secret",
+                "/health?ready=true",
+            ])
+            .prop_map(str::to_owned),
             3..=15,
         ),
         1usize..=5,
@@ -189,6 +235,8 @@ fn arb_config() -> impl Strategy<Value = String> {
                 if crlf { "cr-lf" } else { "lf" },
             )
         })
+        .prop_flat_map(|config| (Just(config), crate::property::settings::arb_quote_requirements()))
+        .prop_map(|(config, requirements)| format!("{config}{requirements}"))
 }
 
 fn check_preserved(input: &str, output: &str) -> Result<(), String> {

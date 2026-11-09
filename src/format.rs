@@ -48,7 +48,7 @@ pub const FORMAT_RULE_IDS: [&str; 16] = [
 /// the shebang and blank-line run, which `conflicts` adds per the `[format]` table.
 const CONFLICT_PROBE: &str = "# lead\nkey: value  # note\n'a: b': 'c'\nplain: 'x'\n\
     necessary: 'a: b'\n\
-    escape: \"tab\\there\"\napostrophe: \"it's: x\"\nquote: 'say \"hi\": x'\n\
+    escape: \"tab\\there\"\nslash: \"back\\\\slash\"\napostrophe: \"it's: x\"\nquote: 'say \"hi\": x'\n\
     flow: {a: 1, b: [1, 2]}\nempty: {}\nnone: []\nblock: |\n  text\nlist:\n- item\npairs:\n- k: v\n";
 
 impl Passes<'static> {
@@ -117,6 +117,7 @@ impl Passes<'static> {
                 |style| {
                     quoted_strings::Config::ladder(style, cfg.target_version())
                         .with_keep_quotes(table.keep_quotes)
+                        .with_requirements(cfg, skip)
                 },
             ),
             trailing_spaces: on(trailing_spaces::ID),
@@ -471,7 +472,8 @@ pub(crate) fn unfixed(
     cfg: &YamlLintConfig,
     cache: &mut FormatCache,
 ) -> Vec<LintProblem> {
-    if cache.quiet(content) {
+    let quiet = cache.quiet(content);
+    if quiet {
         return Vec::new();
     }
     let local;
@@ -557,6 +559,7 @@ pub(crate) fn unfixed(
         .chain(kept)
         .collect();
     problems.extend(refused_spacing(input, cfg, &reindented.refused));
+    problems.extend(quote_refusals(input, cfg));
     problems.extend(refusals_with_analysis(
         input,
         cfg,
@@ -566,6 +569,36 @@ pub(crate) fn unfixed(
     problems.sort_by_key(|problem| (problem.line, problem.column));
     problems.dedup();
     problems
+}
+
+fn quote_refusals(input: Analysis<'_>, cfg: &YamlLintConfig) -> Vec<LintProblem> {
+    if cfg.rule_level(quoted_strings::ID).is_some()
+        && cfg.rule_option_bool(quoted_strings::ID, "check-keys", false)
+        && cfg.format().targets().quote_style != QuoteStyleTarget::Preserve
+    {
+        let style = match cfg.format().targets().quote_style {
+            QuoteStyleTarget::Double => quoted_strings::QuoteStyle::Double,
+            _ => quoted_strings::QuoteStyle::Single,
+        };
+        quoted_strings::format_refusals(
+            input,
+            &quoted_strings::Config::ladder(style, cfg.target_version())
+                .with_keep_quotes(cfg.format().targets().keep_quotes)
+                .with_requirements(cfg, &[]),
+        )
+        .into_iter()
+        .map(|violation| LintProblem {
+            line: violation.line,
+            column: violation.column,
+            message: violation.message,
+            rule: Some(quoted_strings::ID),
+            level: Severity::Error,
+            hidden_unsafe_fix: false,
+        })
+        .collect()
+    } else {
+        Vec::new()
+    }
 }
 
 fn refused_spacing(
@@ -634,6 +667,7 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
     };
     let probe = format!("{shebang}{CONFLICT_PROBE}{blanks}last: 1\n");
     let formatted = format_str(&probe, cfg, Path::new(""), &[]);
+    let consistent = consistent_quote_probe(cfg);
     let preserved_forbid = |problem: &LintProblem| match problem.rule {
         Some(braces::ID) => {
             table.mapping_style == CollectionStyleTarget::Preserve
@@ -648,15 +682,14 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
     let mut rejected: BTreeSet<&str> =
         lint_str(&formatted, Path::new(""), cfg, Path::new(""))
             .into_iter()
+            .chain(
+                consistent.as_deref().into_iter().flat_map(|probe| {
+                    lint_str(probe, Path::new(""), cfg, Path::new(""))
+                }),
+            )
             .filter(|problem| !preserved_forbid(problem))
             .filter_map(|problem| problem.rule)
             .collect();
-    // No fixed probe can match an arbitrary `extra-required` pattern.
-    if cfg.rule_level(quoted_strings::ID).is_some()
-        && quoted_strings::Config::resolve(cfg).has_extra_required()
-    {
-        rejected.insert(quoted_strings::ID);
-    }
     if cfg.rule_level(indentation::ID).is_some() && !spaces_admit_format(cfg) {
         rejected.insert(indentation::ID);
     }
@@ -670,6 +703,9 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
         .filter(|rule| rejected.contains(rule))
         .filter_map(|rule| {
             target(rule, cfg).map(|target| {
+                if rule == quoted_strings::ID {
+                    return quote_conflict(cfg, &formatted, consistent.as_deref());
+                }
                 if rule == document_start::ID {
                     let present = document_start::Config::resolve(cfg).requires_marker();
                     let format = if present { "remove" } else { "add" };
@@ -689,6 +725,75 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
         .collect()
 }
 
+fn consistent_quote_probe(cfg: &YamlLintConfig) -> Option<String> {
+    let style = cfg.format().targets().quote_style;
+    if cfg.rule_level(quoted_strings::ID).is_none()
+        || style == QuoteStyleTarget::Preserve
+        || cfg.rule_option_str(quoted_strings::ID, "quote-type") != Some("consistent")
+    {
+        return None;
+    }
+    let opposite = if style == QuoteStyleTarget::Double {
+        "'say \"hi\": x'"
+    } else {
+        "\"it's: x\""
+    };
+    Some(format_str(
+        &format!("- {opposite}\n- 'a: b'\n"),
+        cfg,
+        Path::new(""),
+        &[],
+    ))
+}
+
+fn quote_conflict(
+    cfg: &YamlLintConfig,
+    formatted: &str,
+    consistent: Option<&str>,
+) -> String {
+    let lint = quoted_strings::Config::resolve(cfg);
+    let mut violations = quoted_strings::check(formatted, &lint);
+    if let Some(probe) = consistent {
+        violations.extend(quoted_strings::check(probe, &lint));
+    }
+    let mut reasons = Vec::new();
+    let redundant = violations
+        .iter()
+        .any(|violation| violation.message.contains("redundantly quoted"));
+    let escape_conflict = redundant
+        && !cfg.rule_option_bool(
+            quoted_strings::ID,
+            "allow-double-quotes-for-escaping",
+            false,
+        );
+    if redundant && cfg.format().targets().keep_quotes {
+        reasons.push("the quoted-strings lint rule's required = \"only-when-needed\" conflicts with format.keep-quotes = true; format.keep-quotes wins. Set format.keep-quotes = false or lint.rules.quoted-strings.required = false without extra-allowed.".to_owned());
+    }
+    if escape_conflict
+        || violations
+            .iter()
+            .any(|violation| !violation.message.contains("redundantly quoted"))
+    {
+        let style = match cfg.format().targets().quote_style {
+            QuoteStyleTarget::Double => "double",
+            _ => "single",
+        };
+        let quote = cfg
+            .rule_option_str(quoted_strings::ID, "quote-type")
+            .unwrap_or("any");
+        let mut restrictions = format!("quote-type = \"{quote}\"");
+        for option in ["allow-quoted-quotes", "allow-double-quotes-for-escaping"] {
+            if !cfg.rule_option_bool(quoted_strings::ID, option, false) {
+                restrictions.push_str(", ");
+                restrictions.push_str(option);
+                restrictions.push_str(" = false");
+            }
+        }
+        reasons.push(format!("the quoted-strings lint rule's options ({restrictions}) conflict with format.quote-style = \"{style}\" and its escape avoidance; format.quote-style wins. Use TOML with lint.rules.quoted-strings.quote-type = \"any\" and allow-double-quotes-for-escaping = true, or set format.quote-style = \"preserve\"."));
+    }
+    reasons.join(" ")
+}
+
 /// Whether `[lint.rules.indentation] spaces` accepts each width `ryl format` can write.
 fn spaces_admit_format(cfg: &YamlLintConfig) -> bool {
     let lint = indentation::Config::resolve(cfg);
@@ -696,20 +801,7 @@ fn spaces_admit_format(cfg: &YamlLintConfig) -> bool {
 }
 
 fn remedy(rule: &str, cfg: &YamlLintConfig) -> String {
-    let required = if cfg.format().targets().keep_quotes {
-        "false"
-    } else {
-        "\"only-when-needed\""
-    };
     match (rule, cfg.format().targets().quote_style) {
-        (quoted_strings::ID, QuoteStyleTarget::Double) => {
-            format!("set its options `quote-type = \"double\"`, `required = {required}`, \
-             `allow-quoted-quotes = true`")
-        }
-        (quoted_strings::ID, _) => {
-            format!("set its options `quote-type = \"single\"`, `required = {required}`, \
-             `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`")
-        }
         (indentation::ID, _) if cfg.indent_width().is_none() => {
             "set the top-level TOML `indent-width` to its `spaces` (for a YAML config, follow its migration warning first)".to_owned()
         }

@@ -355,15 +355,15 @@ fn exclude_applies_to_lint_fix_diff_bare_and_all_format_modes_without_config() {
 
 #[test]
 fn format_disable_silences_lint_conflicts_without_disabling_formatting() {
-    let config = "[lint.rules]\nquoted-strings = 'enable'\n";
+    let config = "[lint.rules.quoted-strings]\nquote-type = 'double'\n";
     let (_, _, stderr, _) = ryl_on(Some(config), "a: 'word'   \n", &["format"]);
-    assert!(stderr.contains("incompatible"), "{stderr}");
+    assert!(stderr.contains("format.quote-style wins"), "{stderr}");
     let (code, _, stderr, contents) = ryl_on(
         Some(config),
         "a: 'word'   \n",
         &["format", "--disable", "quoted-strings,trailing-spaces"],
     );
     assert_eq!(code, 0, "{stderr}");
-    assert!(!stderr.contains("incompatible"), "{stderr}");
+    assert!(!stderr.contains("format.quote-style wins"), "{stderr}");
     assert_eq!(contents, "a: word\n");
 }
