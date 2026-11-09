@@ -160,14 +160,14 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/rvben/rumdl-pre-commit"
-rev = "v0.3.0"
+rev = "v0.3.2"
 hooks = [
   { id = "rumdl" }
 ]
 
 [[repos]]
 repo = "https://github.com/charliermarsh/ruff-pre-commit"
-rev = "v0.17.2"
+rev = "v0.17.3"
 hooks = [
   {
     id = "ruff-check",
@@ -194,7 +194,7 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/owenlamont/ryl-pre-commit"
-rev = "v0.26.1"
+rev = "v0.28.0"
 hooks = [
   { id = "ryl-check", args = ["--fix"] },
   { id = "ryl-check-markdown", args = ["--fix"] },
