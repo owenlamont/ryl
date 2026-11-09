@@ -65,11 +65,6 @@ struct LocalRetriever {
 
 impl LocalRetriever {
     fn read(&self, path: &Path) -> Result<Value, ReadError> {
-        if !self.allow_files {
-            return Err(ReadError::Remote(
-                "remote schema cannot read file references".to_owned(),
-            ));
-        }
         let path = path.canonicalize().map_err(|source| ReadError::Io {
             path: path.to_owned(),
             source,
@@ -163,6 +158,9 @@ impl LocalRetriever {
         let url = Url::parse(uri.as_str())?;
         if url.scheme() != "file" {
             return self.remote(uri.as_str()).map_err(Into::into);
+        }
+        if !self.allow_files {
+            return Err("remote schema cannot read file references".into());
         }
         if url.host_str().is_some_and(|host| !host.is_empty()) {
             return Err("schema UNC references are not supported".into());
