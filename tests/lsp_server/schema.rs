@@ -695,6 +695,36 @@ fn schema_hover_handles_position_encodings_and_markdown_offsets() {
 }
 
 #[test]
+fn schema_hover_maps_partially_expanded_tabs_in_markdown() {
+    let dir = project(&format!(
+        "[files]\nmarkdown = ['*.md']\n{}",
+        local_config("schema.json").replace("*.yaml", "*")
+    ));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"title":"Root","properties":{"name":{"title":"Name"}}}"#,
+    )
+    .unwrap();
+    for encoding in [
+        PositionEncodingKind::UTF8,
+        PositionEncodingKind::UTF16,
+        PositionEncodingKind::UTF32,
+    ] {
+        let (mut client, _) = Client::launch(Some(vec![encoding]), None);
+        let uri = file_uri(dir.path(), "test.md");
+        client.did_open(uri.clone(), "  ```yaml\n\tname: x\n  ```\n");
+        let _ = client.diagnostics();
+        for column in [1, 7] {
+            assert_eq!(
+                client.hover(&uri, 1, column).map(hover_text).as_deref(),
+                Some("Name")
+            );
+        }
+        client.shutdown();
+    }
+}
+
+#[test]
 fn schema_hover_never_prepares_unapproved_or_pending_schemas() {
     let h = Harness::new("", false);
     let mut client = h.client(Limits::default());

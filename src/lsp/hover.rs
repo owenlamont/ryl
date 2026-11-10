@@ -115,10 +115,16 @@ pub(super) fn schema(
         let content_lines = line_contents(&region.content);
         let content =
             content_lines[usize::try_from(local.line).expect("LSP line fits usize")];
-        let stripped = raw.chars().count().saturating_sub(content.chars().count());
+        let raw_len = raw.chars().count();
+        let content_len = content.chars().count();
+        let stripped = raw_len.saturating_sub(content_len);
         local.character = local
             .character
-            .checked_sub(position_at(&[raw], 1, stripped + 1, encoding).character)?;
+            .checked_sub(position_at(&[raw], 1, stripped + 1, encoding).character)?
+            .saturating_add(
+                u32::try_from(content_len.saturating_sub(raw_len))
+                    .expect("synthetic indentation fits LSP column"),
+            );
         &region.content
     } else {
         text
