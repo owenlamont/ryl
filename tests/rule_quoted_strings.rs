@@ -942,3 +942,38 @@ fn fix_keeps_quotes_on_a_key_whose_colon_needs_them() {
         );
     }
 }
+
+#[test]
+fn flow_requirements_include_keys_without_changing_block_scalars() {
+    let input = "block: a?b\nwrapped: has(object.spec.foo) &&\n  object.spec.foo?first:second\nflow: {?foo: a?b, :foo: [a?b], ordinary: plain}\n";
+    let expected = "block: a?b\nwrapped: has(object.spec.foo) &&\n  object.spec.foo?first:second\nflow: {'?foo': 'a?b', ':foo': ['a?b'], ordinary: plain}\n";
+    for required in ["false", "'only-when-needed'"] {
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[lint.rules.quoted-strings]\nrequired = {required}\nextra-required-flow = ['\\?|^:']\n"
+        )).unwrap();
+        let rule = Config::resolve(&cfg);
+        let hits = quoted_strings::check(input, &rule);
+        assert_eq!(hits.len(), 4, "{hits:?}");
+        assert_eq!(hits[0].message, "string key is not quoted");
+        let fixed = quoted_strings::fix(input, &rule).unwrap();
+        assert_eq!(fixed, expected);
+        assert!(quoted_strings::check(&fixed, &rule).is_empty());
+        assert!(quoted_strings::fix(&fixed, &rule).is_none());
+    }
+}
+
+#[test]
+fn flow_requirements_combine_with_required_true_and_consistent_quotes() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules.quoted-strings]\nrequired = true\nquote-type = 'consistent'\nextra-required-flow = ['\\?|^:']\n",
+    ).unwrap();
+    let rule = Config::resolve(&cfg);
+    let input =
+        "block: \"value\"\nflow: {?foo: word, :foo: \"quoted\", ordinary: \"fine\"}\n";
+    let fixed = quoted_strings::fix(input, &rule).unwrap();
+    assert_eq!(
+        fixed,
+        "block: \"value\"\nflow: {\"?foo\": \"word\", \":foo\": \"quoted\", ordinary: \"fine\"}\n"
+    );
+    assert!(quoted_strings::check(&fixed, &rule).is_empty());
+}

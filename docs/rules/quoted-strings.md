@@ -59,6 +59,7 @@ level = "warning"
 quote-type = "any"
 required = true
 extra-required = []
+extra-required-flow = []  # ryl-only
 extra-allowed = []
 allow-quoted-quotes = false
 allow-double-quotes-for-escaping = false  # ryl-only
@@ -70,12 +71,27 @@ check-keys = false
 | `quote-type` | `"any"` | `"single"`, `"double"`, `"any"`, or `"consistent"`. Consistent uses the first checked quoted scalar's style for subsequent checked scalars across the stream. |
 | `required` | `true` | `true` &mdash; every string scalar must be quoted. `false` &mdash; quotes are optional; configured quote style and `extra-required` still apply. `"only-when-needed"` &mdash; require quotes only when leaving the scalar bare would change its YAML type. |
 | `extra-required` | `[]` | Regular expressions; values matching any pattern must be quoted regardless of `required`. |
+| `extra-required-flow` | `[]` | **ryl-only, TOML-only.** Regular expressions requiring quotes on matching strings inside flow collections, including mapping keys regardless of `check-keys`. Allowed with every `required` mode. |
 | `extra-allowed` | `[]` | Regular expressions; matching strings may retain otherwise redundant quotes under `required = "only-when-needed"`. |
 | `allow-quoted-quotes` | `false` | Allow the other outer quote style when the string contains the configured quote character, avoiding escapes. |
 | `allow-double-quotes-for-escaping` | `false` | **ryl-only.** Allow double-quoted strings containing escapes despite the configured quote preference. |
 | `check-keys` | `false` | Also apply the rule to mapping keys, not only values. |
 
 ## Automatic fixing
+
+Some YAML readers reject `?` or `:` in plain strings only inside flow collections.
+Use `extra-required-flow` to quote those strings while leaving block-context
+expressions plain and preserving their existing line breaks:
+
+```toml
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['\?|^:']
+```
+
+Patterns match decoded string values. Lint and `check --fix` use the existing
+collection context; `ryl format` uses the final context, including collections
+converted from block to flow. Literal and folded block scalars remain unchanged.
 
 `ryl check --fix` rewrites string scalars to use the configured `quote-type` and
 adds or removes quotes to satisfy `required`. The fix is conservative: it
@@ -91,7 +107,7 @@ unfixable = ["quoted-strings"]
 ```
 
 `ryl format` imports the enabled rule's quote-presence requirements, including
-`extra-required`, `extra-allowed` and `check-keys`. The formatter's
+`extra-required`, `extra-required-flow`, `extra-allowed` and `check-keys`. The formatter's
 [quote style](../formatter.md#quote-style) chooses the quote character and preserves
 wrapped plain scalar lines when adding quotes. `quote-style = "preserve"` freezes
 quoting; `keep-quotes = true` retains optional quotes even when lint forbids them.

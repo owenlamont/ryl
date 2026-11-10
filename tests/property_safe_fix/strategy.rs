@@ -20,7 +20,11 @@ fn arb_multibyte_char() -> impl Strategy<Value = char> {
 }
 
 fn arb_plain_value() -> impl Strategy<Value = String> {
-    "[a-z][a-z0-9_']{0,6}".prop_map(|value| value)
+    prop_oneof![
+        "[a-z][a-z0-9_']{0,6}",
+        prop::sample::select(vec!["/health?ready=true", "a?b", ":foo", "a:?b"])
+            .prop_map(str::to_owned),
+    ]
 }
 
 pub fn arb_quoted_payload() -> impl Strategy<Value = String> {

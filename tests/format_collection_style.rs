@@ -1270,3 +1270,38 @@ fn omitted_implicit_keys_allow_independent_collection_conversion() {
         "a:\n- a\n: value\n"
     );
 }
+
+#[test]
+fn flow_required_quotes_use_final_context_at_the_width_boundary() {
+    for width in 10..=30 {
+        for styles in [
+            "sequence-style = 'flow'",
+            "mapping-style = 'flow'",
+            "sequence-style = 'block'\nmapping-style = 'block'",
+        ] {
+            let cfg = config(&format!(
+                "line-length = {width}\n[format]\n{styles}\n[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n"
+            ));
+            for input in [
+                "key:\n  - a?bc\n  - :def\n",
+                "key: [a?bc, :def]\n",
+                "key:\n  ?foo: a?bc\n  :foo: :def\n",
+                "key: {?foo: a?bc, :foo: :def}\n",
+            ] {
+                let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+                assert_eq!(
+                    format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+                    output,
+                    "width {width}, {styles}, {input}"
+                );
+                crate::property::reference::check_strict_events(input, &output)
+                    .unwrap();
+                let rule = ryl::rules::quoted_strings::Config::resolve(&cfg);
+                assert!(
+                    ryl::rules::quoted_strings::check(&output, &rule).is_empty(),
+                    "{output}"
+                );
+            }
+        }
+    }
+}

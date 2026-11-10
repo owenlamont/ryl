@@ -34,9 +34,10 @@ impl ConsistentStyle {
         config: &Config,
         model: &Scalar<'_>,
         initial: Initial<'_>,
+        context: crate::rules::support::collection_style::RetainedContext,
     ) {
         if self.0.is_none()
-            && !skip_scalar(config, initial.style, model)
+            && !skip_scalar(config, initial.style, model, context)
             && let Some(style) = quote_style(initial.style)
             && !escaped_double_quote_exception(config, style, initial.any_escape())
         {
@@ -77,6 +78,7 @@ impl<'text> Eligible<'text> {
         model: Scalar<'text>,
         style: ScalarStyle,
         mode: Mode,
+        context: crate::rules::support::collection_style::RetainedContext,
     ) -> Option<Self> {
         let keep = matches!(mode, Mode::Format)
             && matches!(
@@ -84,7 +86,7 @@ impl<'text> Eligible<'text> {
                 ScalarStyle::Plain | ScalarStyle::Literal | ScalarStyle::Folded
             )
             && (style != ScalarStyle::Plain || config.requirements.is_none());
-        (!keep && !skip_scalar(config, style, &model)).then_some(Self(model))
+        (!keep && !skip_scalar(config, style, &model, context)).then_some(Self(model))
     }
 }
 
@@ -106,21 +108,26 @@ impl<'cfg, 'state> Planner<'cfg, 'state> {
         let model = eligible.0;
         let value = model.value();
         let mut facts = facts(self.config, value, initial, placement, cache);
-        if let Some(requirements) = &self.config.requirements
-            && (!model.is_key() || requirements.check_keys)
-        {
+        if let Some(requirements) = &self.config.requirements {
             facts.extra_required = Flag::new(
-                requirements.required == RequiredMode::Always
-                    || requirements
-                        .extra_required
-                        .iter()
-                        .any(|re| re.is_match(value)),
+                ((!model.is_key() || requirements.check_keys)
+                    && (requirements.required == RequiredMode::Always
+                        || requirements
+                            .extra_required
+                            .iter()
+                            .any(|re| re.is_match(value))))
+                    || (placement.context.in_flow()
+                        && requirements
+                            .extra_required_flow
+                            .iter()
+                            .any(|re| re.is_match(value))),
             );
             facts.extra_allowed = Flag::new(
-                requirements
-                    .extra_allowed
-                    .iter()
-                    .any(|re| re.is_match(value)),
+                (!model.is_key() || requirements.check_keys)
+                    && requirements
+                        .extra_allowed
+                        .iter()
+                        .any(|re| re.is_match(value)),
             );
         }
         if placement.colon.adjacent() {
@@ -279,9 +286,12 @@ pub(super) fn skip_scalar(
     config: &Config,
     style: ScalarStyle,
     model: &Scalar<'_>,
+    context: crate::rules::support::collection_style::RetainedContext,
 ) -> bool {
     matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
-        || (model.is_key() && !config.check_keys)
+        || (model.is_key()
+            && !config.check_keys
+            && !config.requires_flow_quotes(model.value(), context))
         || model.has_core_tag()
         || (style == ScalarStyle::Plain && !model.plain_is_string())
 }
@@ -315,7 +325,8 @@ pub(super) fn facts(
                 },
         ),
         extra_required: Flag::new(
-            config.extra_required.iter().any(|re| re.is_match(value)),
+            config.extra_required.iter().any(|re| re.is_match(value))
+                || config.requires_flow_quotes(value, placement.context),
         ),
         extra_allowed: Flag::new(
             config.extra_allowed.iter().any(|re| re.is_match(value)),

@@ -804,7 +804,7 @@ document-start = "disable"
 #[test]
 fn typed_toml_parser_accepts_toml_only_quoted_strings_option() {
     let parsed = parse_toml_config_str(
-        "[lint.rules.quoted-strings]\nallow-double-quotes-for-escaping = true\n",
+        "[lint.rules.quoted-strings]\nallow-double-quotes-for-escaping = true\nextra-required-flow = ['[?:]']\n",
         false,
     )
     .expect("typed TOML parse should succeed")

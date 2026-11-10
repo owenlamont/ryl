@@ -119,6 +119,7 @@ enum QuoteRetention {
 struct Requirements {
     required: RequiredMode,
     extra_required: Vec<Regex>,
+    extra_required_flow: Vec<Regex>,
     extra_allowed: Vec<Regex>,
     check_keys: bool,
 }
@@ -129,6 +130,7 @@ pub struct Config {
     quote_type_label: &'static str,
     required: RequiredMode,
     extra_required: Vec<Regex>,
+    extra_required_flow: Vec<Regex>,
     extra_allowed: Vec<Regex>,
     allow_quoted_quotes: bool,
     allow_double_quotes_for_escaping: bool,
@@ -217,6 +219,16 @@ impl Config {
             quote_type_label,
             required,
             extra_required,
+            extra_required_flow: cfg
+                .rule_option(ID, "extra-required-flow")
+                .and_then(crate::yaml_dom::YamlOwned::as_sequence)
+                .into_iter()
+                .flatten()
+                .map(|item| {
+                    Regex::new(item.as_str().expect("validated regex string"))
+                        .expect("validated extra-required-flow regex")
+                })
+                .collect(),
             extra_allowed,
             allow_quoted_quotes,
             allow_double_quotes_for_escaping,
@@ -251,6 +263,7 @@ impl Config {
             quote_type_label,
             required: RequiredMode::OnlyWhenNeeded,
             extra_required: Vec::new(),
+            extra_required_flow: Vec::new(),
             extra_allowed: Vec::new(),
             allow_quoted_quotes: false,
             allow_double_quotes_for_escaping: true,
@@ -277,11 +290,17 @@ impl Config {
             self.requirements = Some(Requirements {
                 required: lint.required,
                 extra_required: lint.extra_required,
+                extra_required_flow: lint.extra_required_flow,
                 extra_allowed: lint.extra_allowed,
                 check_keys: lint.check_keys,
             });
         }
         self
+    }
+
+    fn requires_flow_quotes(&self, value: &str, context: RetainedContext) -> bool {
+        context.in_flow()
+            && self.extra_required_flow.iter().any(|re| re.is_match(value))
     }
 }
 
@@ -421,7 +440,7 @@ impl<'cfg> QuotedStringsState<'cfg> {
         let context = self.walker.begin_node();
         let active_key = context.active();
         let model = scalar_model(value, tag, active_key, self.current_readers);
-        if target::skip_scalar(self.config, style, &model) {
+        if target::skip_scalar(self.config, style, &model, self.context()) {
             self.walker.finish_node(context);
             return;
         }
@@ -1203,6 +1222,7 @@ impl<'cfg> FixState<'cfg> {
             self.config,
             &scalar_model(value, tag, active_key, self.current_readers),
             scalar_initial(self.buffer, style, span),
+            self.context(),
         );
         self.walker.finish_node(context);
     }
@@ -1215,7 +1235,8 @@ impl<'cfg> FixState<'cfg> {
         mode: target::Mode,
     ) -> Option<Replacement> {
         let active_key = model.is_key();
-        let eligible = target::Eligible::new(self.config, model, style, mode)?;
+        let eligible =
+            target::Eligible::new(self.config, model, style, mode, self.context())?;
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
         let initial = if style == ScalarStyle::Plain {
             target::Initial::new(style, &self.buffer[start.get()..end.get()])
