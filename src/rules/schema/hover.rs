@@ -1,10 +1,11 @@
 use std::collections::HashSet;
 
 use jsonschema::Draft;
-use ryl_yaml_parser::Span;
+use ryl_yaml_parser::{Marker, Span};
 use serde_json::Value;
 
 use super::{Association, projection};
+use crate::rules::support::span_utils::marker_byte_offset;
 use crate::text_version::TextVersion;
 
 pub(crate) fn at<'a>(
@@ -24,17 +25,39 @@ pub(crate) fn at<'a>(
             .nodes
             .iter()
             .chain(&projected.keys)
+            .map(|(pointer, span)| {
+                let mut span = *span;
+                if span.is_empty() {
+                    let start = span.start;
+                    let offset = marker_byte_offset(start).get();
+                    span = if text.as_bytes().get(offset) == Some(&b':') {
+                        Span::empty(
+                            Marker::new(
+                                start.index() + 1,
+                                start.line(),
+                                start.col() + 1,
+                            )
+                            .with_byte_offset(Some(offset + 1)),
+                        )
+                    } else {
+                        Span::empty(
+                            projected.keys.get(pointer).map_or(start, |key| key.end),
+                        )
+                    };
+                }
+                (pointer, span)
+            })
             .filter(|(_, span)| {
                 (span.start.line(), span.start.col()) <= position
                     && (position < (span.end.line(), span.end.col())
-                        || span.start == span.end)
+                        || position == (span.start.line(), span.start.col()))
             })
             .min_by_key(|(_, span)| span.end.index() - span.start.index())
         else {
             continue;
         };
         return lookup(association, pointer, &projected.value)
-            .map(|annotations| (annotations, *span));
+            .map(|annotations| (annotations, span));
     }
 }
 

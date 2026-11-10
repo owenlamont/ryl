@@ -324,6 +324,63 @@ fn schema_hover_follows_unambiguous_structure_even_for_invalid_values() {
 }
 
 #[test]
+fn schema_hover_empty_value_matches_only_its_insertion_point() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"properties":{"name":{"title":"Name"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    client.did_open(uri.clone(), "name:\n");
+    let _ = client.diagnostics();
+    let hover = client.hover(&uri, 0, 5).unwrap();
+    let range = hover.range.unwrap();
+    assert_eq!(range.start, lsp_types::Position::new(0, 5));
+    assert_eq!(range.start, range.end);
+    assert_eq!(hover_text(hover), "Name");
+    assert!(client.hover(&uri, 1, 0).is_none());
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_empty_values_do_not_shadow_later_siblings_or_documents() {
+    let dir = project(&format!(
+        "[files]\nmarkdown = ['*.md']\n{}",
+        local_config("schema.json").replace("*.yaml", "*")
+    ));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"properties":{"name":{"title":"Name"},"other":{"title":"Other"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    for (file, text, line, columns) in [
+        ("sibling.yaml", "name:\nother: x\n", 1, [0, 7]),
+        ("explicit.yaml", "? name\nother: x\n", 1, [0, 7]),
+        ("document.yaml", "name:\n---\nother: x\n", 2, [0, 7]),
+        ("flow.yaml", "{name: , other: x}\n", 0, [9, 16]),
+        ("front.md", "---\nname:\nother: x\n---\n", 2, [0, 7]),
+    ] {
+        let uri = file_uri(dir.path(), file);
+        client.did_open(uri.clone(), text);
+        let _ = client.diagnostics();
+        for column in columns {
+            let hover = client
+                .hover(&uri, line, column)
+                .unwrap_or_else(|| panic!("missing hover at {file}:{line}:{column}"));
+            assert!(
+                hover.range.is_none_or(|range| range.start.line == line),
+                "{file}"
+            );
+            assert_eq!(hover_text(hover), "Other", "{file}:{line}:{column}");
+        }
+    }
+    client.shutdown();
+}
+
+#[test]
 fn schema_hover_refuses_unsupported_paths_and_projection() {
     for (schema, text, line, column) in [
         (
@@ -473,7 +530,7 @@ fn schema_hover_uses_prepared_external_refs_and_id_scopes() {
 #[test]
 fn schema_hover_bounds_and_escapes_untrusted_text() {
     let dir = project(&local_config("schema.json"));
-    let hostile = "![image](https://example.org) <img src=x> &copy; **bold** `code`\n\u{1b}\u{202e}";
+    let hostile = "![image](https://example.org) <img src=x> &copy; **bold** `code`\n\u{1b}\u{061c}123\u{202e}456";
     std::fs::write(
         dir.path().join("schema.json"),
         json!({"properties":{"name":{"title":hostile,"description":"z".repeat(5000)}}})
@@ -496,7 +553,7 @@ fn schema_hover_bounds_and_escapes_untrusted_text() {
             event => panic!("schema text created markup: {event:?}"),
         }
     }
-    assert!(rendered.starts_with("![image](https://example.org) <img src=x> &copy; **bold** `code`\\u{a}\\u{1b}\\u{202e}"));
+    assert!(rendered.starts_with("![image](https://example.org) <img src=x> &copy; **bold** `code`\\u{a}\\u{1b}\\u{61c}123\\u{202e}456"));
     client.shutdown();
 }
 
