@@ -452,6 +452,29 @@ fn a_refused_conversion_is_placed_after_a_reshaped_one() {
 }
 
 #[test]
+fn reshaped_dash_positions_do_not_block_another_scalars_folding() {
+    formats(
+        "- k: v\n- long value\n- k: v # c\n",
+        "line-length = 10\n[format]\nfold-long-lines = true\ndash-on-own-line = true\n",
+        "-\n  k: v\n- long\n  value\n- k: v  # c\n",
+    );
+}
+
+#[test]
+fn reshaped_dash_positions_keep_their_own_scalar_comments_in_place() {
+    for input in [
+        "- k: v\n- k: long value # c\n",
+        "- {k: v}\n- k: long value # c\n",
+    ] {
+        formats(
+            input,
+            "line-length = 10\n[format]\nfold-long-lines = true\ndash-on-own-line = true\nmapping-style = 'block'\n",
+            "-\n  k: v\n- k: long value  # c\n",
+        );
+    }
+}
+
+#[test]
 fn folding_leaves_a_scalar_whose_comment_keeps_its_dash() {
     let input = "? k\n: - double: \"it's a long value: y\"  # w\n    b: 1\n";
     for style in ["", "sequence-style = 'block'\n"] {
