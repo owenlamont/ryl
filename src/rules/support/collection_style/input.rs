@@ -313,24 +313,12 @@ impl<'a> Initial<'a> {
         }
     }
 
-    /// The leading edit boundary, keeping preceding dash lines outside the edit.
+    /// The end of whatever precedes `node`'s properties: its key's `:`, its `-`, or the
+    /// line start.
     pub(super) fn lead_start(&self, node: usize) -> usize {
-        let start = self.properties_start(node);
-        let before = self.source.text()[..start]
+        self.source.text()[..self.properties_start(node)]
             .trim_end_matches(super::is_space)
-            .len();
-        if &self.source.text()[self.line_start(before)..before] == "---"
-            && self.line_start(start) > self.line_start(before)
-        {
-            self.line_start(start)
-        } else if start < self.sites[node].start
-            && self.line_start(start) > self.line_start(before)
-            && self.source.text()[..before].ends_with('-')
-        {
-            start
-        } else {
-            before
-        }
+            .len()
     }
 
     pub(super) fn start_of(&self, node: usize) -> usize {
@@ -444,7 +432,9 @@ impl<'a> Initial<'a> {
 
     pub(super) fn spans_lines(&self, node: usize) -> bool {
         let site = &self.sites[node];
-        self.fragment(Boundary(site.start), site.end).multiline()
+        let starts = self.source.byte_line_starts();
+        starts.partition_point(|&at| at <= site.start)
+            != starts.partition_point(|&at| at < site.end)
     }
 
     pub(super) fn outer(&self, node: usize) -> Outer<'a> {

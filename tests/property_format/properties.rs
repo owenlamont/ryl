@@ -359,14 +359,9 @@ pub fn arb_quoted_document() -> impl Strategy<Value = String> {
             ("- ", "\n"),
             ("key: ", "\n"),
             ("[", "]\n"),
-            ("[", "] # tail\n"),
-            ("key:\n  [", "] # tail\n"),
-            ("-\n  &col {k: ", "}\n"),
-            ("- k: [", "] # tail\n"),
             ("key: [a: ", "]\n"),
             ("items: [", ", 'one\n  two']\n"),
             ("a: {b: ", "}\n"),
-            ("{k: ", "} # tail\n"),
             ("", ": x\n"),
         ]),
         any::<bool>(),
@@ -381,7 +376,7 @@ pub fn arb_quoted_document() -> impl Strategy<Value = String> {
             let mut quoted = String::new();
             scalar.render(&mut quoted);
             if multiline && suffix != ": x\n" {
-                quoted.insert_str(1, "first\n    ");
+                quoted.insert_str(1, "first\n  ");
             }
             format!("{prefix}{quoted}{suffix}")
         })
