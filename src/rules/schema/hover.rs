@@ -144,7 +144,9 @@ fn lookup<'a>(
                 .resolver(base.as_ref().clone())
                 .lookup(&format!("#{fragment}"))
                 .expect("prepared registry contains static references");
-            (value, resolver, draft) = target.into_inner();
+            (value, resolver, _) = target.into_inner();
+            // Pointer resolution updates scope but retains the source resource's draft.
+            draft = resource_draft(association, &resolver.base_uri()).detect(value);
             continue;
         }
         let Some((token, tail)) = remaining.split_first() else {
@@ -184,4 +186,14 @@ fn lookup<'a>(
         remaining = tail;
     }
     None
+}
+
+fn resource_draft(association: &Association, uri: &jsonschema::Uri<String>) -> Draft {
+    association
+        .registry
+        .resolver(uri.clone())
+        .lookup("#")
+        .expect("prepared registry contains the resolved resource scope")
+        .into_inner()
+        .2
 }

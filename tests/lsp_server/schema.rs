@@ -622,6 +622,59 @@ fn schema_hover_refuses_unsupported_paths_and_projection() {
 }
 
 #[test]
+fn schema_hover_ignores_ref_siblings_in_pointer_resolved_legacy_resources() {
+    legacy_resource_hover(
+        json!({"description": "Referenced description"}),
+        "Referenced description",
+    );
+}
+
+#[test]
+fn schema_hover_preserves_conflicting_target_title_in_legacy_pointer_refs() {
+    legacy_resource_hover(json!({"title": "Target"}), "Target");
+}
+
+fn legacy_resource_hover(target: Value, expected: &str) {
+    for (reference, property_ref) in [
+        ("#/$defs/legacy", false),
+        ("legacy.json", false),
+        ("#/$defs/legacy/properties/name", true),
+        ("legacy.json#/properties/name", true),
+    ] {
+        let mut schema = json!({
+            "$defs": {"legacy": {
+                "$id": "legacy.json",
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "definitions": {"target": target},
+                "properties": {"name": {
+                    "$ref": "#/definitions/target",
+                    "title": "Ignored sibling title"
+                }}
+            }}
+        });
+        if property_ref {
+            schema["properties"] = json!({"name": {"$ref": reference}});
+        } else {
+            schema["$ref"] = json!(reference);
+        }
+        let dir = project(&local_config("schema.json"));
+        std::fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
+        let (mut client, _) = Client::launch(None, None);
+        let uri = file_uri(dir.path(), "test.yaml");
+        client.did_open(uri.clone(), "name: x\n");
+        assert!(client.diagnostics().is_empty(), "{reference}");
+        for column in [0, 6] {
+            assert_eq!(
+                client.hover(&uri, 0, column).map(hover_text).as_deref(),
+                Some(expected),
+                "{reference} at column {column}"
+            );
+        }
+        client.shutdown();
+    }
+}
+
+#[test]
 fn schema_hover_uses_prepared_external_refs_and_id_scopes() {
     let dir = project(&local_config("schema.json"));
     std::fs::write(
