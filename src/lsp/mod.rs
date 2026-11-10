@@ -387,6 +387,8 @@ struct Document {
     uri: Uri,
     version: i32,
     text: String,
+    schema_target: Option<Target>,
+    diagnostics: Vec<Diagnostic>,
 }
 
 /// Client-provided settings: a config-file path / inline data override (the CLI's
@@ -850,12 +852,23 @@ impl Server {
                 uri: uri.clone(),
                 version,
                 text,
+                schema_target: None,
+                diagnostics: Vec::new(),
             },
         );
         let text = &self.documents[uri.as_str()].text;
         let diagnostics = match self.diagnostics_for(uri.as_str(), text) {
-            Ok((diagnostics, notices)) => {
-                self.report_config_notices(connection, &notices);
+            Ok((diagnostics, target)) => {
+                if let Some(target) = &target {
+                    self.report_config_notices(connection, &target.context.notices);
+                }
+                self.documents
+                    .get_mut(uri.as_str())
+                    .expect("stored document")
+                    .schema_target = target.filter(|target| {
+                    target.context.config.schema_for(&target.path).is_some()
+                        || target.context.config.schema_directives()
+                });
                 diagnostics
             }
             // A broken config disables linting silently; tell the user once, then publish
@@ -869,6 +882,12 @@ impl Server {
                 }
             }
         };
+
+        self.documents
+            .get_mut(uri.as_str())
+            .expect("stored document")
+            .diagnostics
+            .clone_from(&diagnostics);
         self.push(connection, uri, Some(version), diagnostics);
     }
 
@@ -892,9 +911,8 @@ impl Server {
     /// refresh support re-pulls only on its own cadence.
     fn handle_config_change(&mut self, connection: &Connection) {
         self.reported_messages.clear();
-        if self.delivery == Delivery::Push {
-            self.relint_open_documents(connection);
-        } else if self.supports_diagnostic_refresh {
+        self.relint_open_documents(connection);
+        if self.delivery != Delivery::Push && self.supports_diagnostic_refresh {
             // `Value::Null` is the spec-correct no-params shape: `lsp_server::Request`
             // omits a null `params` from the wire entirely.
             self.client_request(
@@ -1074,12 +1092,17 @@ impl Server {
     fn hover(&self, params: &HoverParams) -> Option<Hover> {
         let position = &params.text_document_position_params;
         let document = self.documents.get(position.text_document.uri.as_str())?;
-        // Recompute for hit-testing (sub-ms/file) rather than caching published diagnostics.
-        // A config error here is silent: already surfaced on open/change.
-        let (diagnostics, _) = self
-            .diagnostics_for(position.text_document.uri.as_str(), &document.text)
-            .unwrap_or_default();
-        hover::hover(&diagnostics, position.position)
+        let schema = document.schema_target.as_ref().and_then(|target| {
+            hover::schema(
+                &document.text,
+                &target.path,
+                &target.context.config,
+                target.kind,
+                position.position,
+                self.encoding,
+            )
+        });
+        hover::with_schema(&document.diagnostics, position.position, schema)
     }
 
     fn prepare_rename(
@@ -1155,9 +1178,17 @@ impl Server {
                     // Surface a config failure as an error diagnostic, not an empty (clean)
                     // report, so a pull-only client is not misled into thinking the file is
                     // fine.
-                    self.diagnostics_for(uri, &text).unwrap_or_else(|error| {
-                        (config_error_diagnostics(&error), Vec::new())
-                    })
+                    self.diagnostics_for(uri, &text).map_or_else(
+                        |error| (config_error_diagnostics(&error), Vec::new()),
+                        |(items, target)| {
+                            (
+                                items,
+                                target.map_or_else(Vec::new, |target| {
+                                    target.context.notices
+                                }),
+                            )
+                        },
+                    )
                 });
         self.report_config_notices(connection, &notices);
         let result_id = analysis::result_id(&items);
@@ -1361,13 +1392,13 @@ impl Server {
         crate::decoder::read_file(&path).ok()
     }
 
-    /// Diagnostics for `text` against `uri`'s config, plus the config's notices; `Err` on
+    /// Diagnostics for `text` against `uri`'s config, plus the prepared target; `Err` on
     /// a config failure (callers decide whether to surface it).
     fn diagnostics_for(
         &self,
         uri: &str,
         text: &str,
-    ) -> Result<(Vec<Diagnostic>, Vec<String>), String> {
+    ) -> Result<(Vec<Diagnostic>, Option<Target>), String> {
         Ok(match self.resolve(uri)? {
             Some(mut target) => {
                 let revision = self
@@ -1415,7 +1446,7 @@ impl Server {
                         self.encoding,
                     )
                 };
-                (diagnostics, target.context.notices)
+                (diagnostics, Some(target))
             }
             None => Default::default(),
         })

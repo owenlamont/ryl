@@ -790,6 +790,753 @@ fn local_config(path: &str) -> String {
     format!("[[lint.rules.schema.schemas]]\nfiles = ['*.yaml']\npath = '{path}'\n")
 }
 
+fn hover_text(hover: Hover) -> String {
+    let HoverContents::Markup(markup) = hover.contents else {
+        panic!("expected markup");
+    };
+    markup.value
+}
+
+#[test]
+fn schema_hover_uses_unsaved_per_document_directives() {
+    let dir = project("[lint.rules.schema]\ndirectives = true\n");
+    std::fs::write(dir.path().join("first.json"), r#"{"properties":{"name":{"title":"First","description":"First description"}}}"#).unwrap();
+    std::fs::write(dir.path().join("second.json"), r#"{"properties":{"name":{"title":"Second","description":"Second description"}}}"#).unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    client.did_open(uri.clone(), "# $schema: first.json\nname: value\n---\n# $schema: second.json\nname: value\n---\n# $schema: none\nname: value\n");
+    assert!(client.diagnostics().is_empty());
+    assert_eq!(
+        hover_text(client.hover(&uri, 1, 0).unwrap()),
+        "First\n\nFirst description"
+    );
+    assert_eq!(
+        hover_text(client.hover(&uri, 4, 0).unwrap()),
+        "Second\n\nSecond description"
+    );
+    assert!(client.hover(&uri, 7, 0).is_none());
+    client.notify("textDocument/didChange", json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":"# $schema: second.json\nname: value\n"}]}));
+    assert!(client.diagnostics().is_empty());
+    assert_eq!(
+        hover_text(client.hover(&uri, 1, 0).unwrap()),
+        "Second\n\nSecond description"
+    );
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_follows_unambiguous_structure_even_for_invalid_values() {
+    for (schema, text, sites, expected) in [
+        (
+            json!({"properties":{"name":{"title":"Name"}}}),
+            "name: x\n",
+            vec![(0, 0), (0, 6)],
+            "Name",
+        ),
+        (
+            json!({"properties":{"name":{"title":"Empty value"}}}),
+            "name:\n",
+            vec![(0, 0), (0, 5)],
+            "Empty value",
+        ),
+        (
+            json!({"properties":{"name":{"title":"Literal"}}}),
+            "name: <<\n",
+            vec![(0, 0), (0, 6)],
+            "Literal",
+        ),
+        (
+            json!({"properties":{"name":{"description":"A name","type":"integer"}}}),
+            "name: wrong\n",
+            vec![(0, 0), (0, 6)],
+            "A name",
+        ),
+        (
+            json!({"properties":{"names":{"items":{"title":"Item","description":"A name"}}}}),
+            "names: [x]\n",
+            vec![(0, 8)],
+            "Item\n\nA name",
+        ),
+        (
+            json!({"$defs":{"name":{"description":"Referenced"}},"properties":{"name":{"$ref":"#/$defs/name"}}}),
+            "name: x\n",
+            vec![(0, 0)],
+            "Referenced",
+        ),
+        (
+            json!({"$id":"nested/base.json","$defs":{"name":{"title":"Root scope"}},"properties":{"name":{"$ref":"#/$defs/name"}}}),
+            "name: x\n",
+            vec![(0, 0)],
+            "Root scope",
+        ),
+        (
+            json!({"properties":{"a/b~c":{"description":"Escaped pointer"}}}),
+            "a/b~c: x\n",
+            vec![(0, 0)],
+            "Escaped pointer",
+        ),
+        (
+            json!({"properties":{"name":{"title":"Name"}}}),
+            "---\nname: x\n---\nname: y\n",
+            vec![(1, 0), (3, 6)],
+            "Name",
+        ),
+        (
+            json!({"$schema":"http://json-schema.org/draft-07/schema#","definitions":{"name":{"title":"Old draft"}},"properties":{"name":{"$ref":"#/definitions/name","title":"Ignored"}}}),
+            "name: x\n",
+            vec![(0, 0)],
+            "Old draft",
+        ),
+        (
+            json!({"$defs":{"name":{"title":"Same","description":"Target"}},"properties":{"name":{"$ref":"#/$defs/name","title":"Same"}}}),
+            "name: x\n",
+            vec![(0, 0)],
+            "Same\n\nTarget",
+        ),
+        (
+            json!({"oneOf":[{"required":["other"]}, {"required":["name"]}],"properties":{"name":{"title":"Direct"}}}),
+            "name: x\n",
+            vec![(0, 0)],
+            "Direct",
+        ),
+    ] {
+        let dir = project(&local_config("schema.json"));
+        std::fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
+        let (mut client, _) = Client::launch(None, None);
+        let uri = file_uri(dir.path(), "test.yaml");
+        client.did_open(uri.clone(), text);
+        let diagnostics = client.diagnostics();
+        for (line, column) in sites {
+            let hover =
+                hover_text(client.hover(&uri, line, column).expect("schema hover"));
+            assert!(hover.ends_with(expected), "{schema}: {hover}");
+            if !diagnostics.is_empty() && column == 6 {
+                assert!(
+                    hover.starts_with("**ryl: schema**"),
+                    "diagnostics precede schema text"
+                );
+            }
+        }
+        client.shutdown();
+    }
+}
+
+#[test]
+fn schema_hover_empty_value_matches_only_its_insertion_point() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"properties":{"name":{"title":"Name"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    client.did_open(uri.clone(), "name:\n");
+    let _ = client.diagnostics();
+    let hover = client.hover(&uri, 0, 5).unwrap();
+    let range = hover.range.unwrap();
+    assert_eq!(range.start, lsp_types::Position::new(0, 5));
+    assert_eq!(range.start, range.end);
+    assert_eq!(hover_text(hover), "Name");
+    assert!(client.hover(&uri, 1, 0).is_none());
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_empty_node_properties_keep_the_parser_insertion_point() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"title":"Root","properties":{"name":{"title":"Name"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    for (file, text, column) in [
+        ("tag.yaml", "name: !!str\n", 11),
+        ("anchor.yaml", "name: &a\n", 8),
+        ("both.yaml", "name: &a !!str\n", 14),
+        ("reverse.yaml", "name: !!str &a\n", 14),
+    ] {
+        let uri = file_uri(dir.path(), file);
+        client.did_open(uri.clone(), text);
+        assert!(client.diagnostics().is_empty());
+        let hover = client.hover(&uri, 0, column).unwrap();
+        let range = hover.range.unwrap();
+        assert_eq!(range.start, lsp_types::Position::new(0, column));
+        assert_eq!(range.start, range.end);
+        assert_eq!(hover_text(hover), "Name", "{text:?}");
+        assert_eq!(hover_text(client.hover(&uri, 0, 4).unwrap()), "Root");
+    }
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_tagged_empty_value_appends_field_annotation_to_diagnostic() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"title":"Root","properties":{"name":{"title":"Name","type":"integer"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    client.did_open(uri.clone(), "name: !!str\n");
+    let diagnostics = client.diagnostics();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].range.start, lsp_types::Position::new(0, 11));
+    let hover = client.hover(&uri, 0, 11).unwrap();
+    assert_eq!(hover.range, Some(diagnostics[0].range));
+    let text = hover_text(hover);
+    assert!(text.starts_with("**ryl: schema**"), "{text}");
+    assert!(text.ends_with("\n\nName"), "{text}");
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_empty_values_do_not_shadow_later_siblings_or_documents() {
+    let dir = project(&format!(
+        "[files]\nmarkdown = ['*.md']\n{}",
+        local_config("schema.json").replace("*.yaml", "*")
+    ));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"properties":{"name":{"title":"Name"},"other":{"title":"Other"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    for (file, text, line, columns) in [
+        ("sibling.yaml", "name:\nother: x\n", 1, [0, 7]),
+        ("explicit.yaml", "? name\nother: x\n", 1, [0, 7]),
+        ("document.yaml", "name:\n---\nother: x\n", 2, [0, 7]),
+        ("flow.yaml", "{name: , other: x}\n", 0, [9, 16]),
+        ("front.md", "---\nname:\nother: x\n---\n", 2, [0, 7]),
+    ] {
+        let uri = file_uri(dir.path(), file);
+        client.did_open(uri.clone(), text);
+        let _ = client.diagnostics();
+        for column in columns {
+            let hover = client
+                .hover(&uri, line, column)
+                .unwrap_or_else(|| panic!("missing hover at {file}:{line}:{column}"));
+            assert!(
+                hover.range.is_none_or(|range| range.start.line == line),
+                "{file}"
+            );
+            assert_eq!(hover_text(hover), "Other", "{file}:{line}:{column}");
+        }
+    }
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_recovers_after_refused_documents() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"properties":{"name":{"title":"Name"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    for text in ["1: x\n---\nname: x\n", "!custom x\n---\nname: x\n"] {
+        client.did_open(uri.clone(), text);
+        let diagnostics = client.diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("cannot validate"));
+        for column in [0, 6] {
+            let hover = client.hover(&uri, 2, column).expect("later document hover");
+            assert_eq!(hover.range.unwrap().start.line, 2);
+            assert_eq!(hover_text(hover), "Name", "{text:?}");
+        }
+    }
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_after_refusal_combines_diagnostics_in_push_and_pull_modes() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"properties":{"name":{"title":"Name","type":"integer"}}}"#,
+    )
+    .unwrap();
+    for pull in [false, true] {
+        let (mut client, _) = if pull {
+            Client::launch_pull(Some(dir.path()), false)
+        } else {
+            Client::launch(None, None)
+        };
+        let uri = file_uri(dir.path(), "test.yaml");
+        client.did_open(uri.clone(), "1: x\n---\nname: wrong\n");
+        let diagnostics = if pull {
+            let id = client.request(
+                "textDocument/diagnostic",
+                json!({"textDocument":{"uri":uri}}),
+            );
+            pull_items(client.response(&id))
+        } else {
+            client.diagnostics()
+        };
+        assert_eq!(diagnostics.len(), 2);
+        let hover = client.hover(&uri, 2, 6).unwrap();
+        assert_eq!(hover.range, Some(diagnostics[1].range));
+        let text = hover_text(hover);
+        assert!(text.starts_with("**ryl: schema**"), "{text}");
+        assert!(text.ends_with("\n\nName"), "{text}");
+        client.shutdown();
+    }
+}
+
+#[test]
+fn schema_hover_stops_after_projection_budget_exhaustion() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"properties":{"name":{"title":"Name"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    let text = format!("{}\n---\nname: x\n", "x".repeat(16 * 1024 * 1024 + 1));
+    client.did_open(uri.clone(), &text);
+    let diagnostics = client.diagnostics();
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].message.contains("resource limit"));
+    assert!(client.hover(&uri, 2, 0).is_none());
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_refuses_unsupported_paths_and_projection() {
+    for (schema, text, line, column) in [
+        (
+            json!({"oneOf":[{"properties":{"name":{"title":"Branch"}}}]}),
+            "name: x\n",
+            0,
+            0,
+        ),
+        (
+            json!({"patternProperties":{".*":{"title":"Pattern"}}}),
+            "name: x\n",
+            0,
+            0,
+        ),
+        (
+            json!({"additionalProperties":{"title":"Additional"}}),
+            "name: x\n",
+            0,
+            0,
+        ),
+        (
+            json!({"properties":{"other":{"title":"Unrelated"}}}),
+            "name: x\n",
+            0,
+            0,
+        ),
+        (
+            json!({"$defs":{"array":{"items":{"title":"Target"}}},"$ref":"#/$defs/array","items":{"title":"Sibling"}}),
+            "[x]\n",
+            0,
+            1,
+        ),
+        (
+            json!({"$schema":"http://json-schema.org/draft-07/schema#","items":[{"title":"Tuple"}]}),
+            "[x]\n",
+            0,
+            1,
+        ),
+        (
+            json!({"prefixItems":[{"title":"Tuple"}],"items":{"title":"Tail"}}),
+            "[x, y]\n",
+            0,
+            4,
+        ),
+        (
+            json!({"$defs":{"name":{"title":"Target"}},"properties":{"name":{"$ref":"#/$defs/name","title":"Conflict"}}}),
+            "name: x\n",
+            0,
+            0,
+        ),
+        (
+            json!({"$defs":{"object":{"properties":{"name":{"title":"Target"}}}},"$ref":"#/$defs/object","properties":{"name":{"title":"Sibling"}}}),
+            "name: x\n",
+            0,
+            0,
+        ),
+        (
+            json!({"$dynamicAnchor":"root","properties":{"name":{"$dynamicRef":"#root"}},"title":"Dynamic"}),
+            "name: x\n",
+            0,
+            0,
+        ),
+        (
+            json!({"properties":{"name":{"title":"Name"}}}),
+            "name: &a x\nother: *a\n",
+            1,
+            7,
+        ),
+        (
+            json!({"properties":{"name":{"title":"Name"}}}),
+            "base: &a {name: x}\n<<: *a\n",
+            0,
+            10,
+        ),
+        (
+            json!({"properties":{"name":{"title":"Name"}}}),
+            "name: !custom x\n",
+            0,
+            0,
+        ),
+        (
+            json!({"properties":{"name":{"title":"Name"}}}),
+            "name: x\n",
+            0,
+            5,
+        ),
+        (
+            json!({"properties":{"name":{"type":"string"}}}),
+            "name: x\n",
+            0,
+            0,
+        ),
+        (json!({"title":"Root"}), "", 0, 0),
+    ] {
+        let dir = project(&local_config("schema.json"));
+        std::fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
+        let (mut client, _) = Client::launch(None, None);
+        let uri = file_uri(dir.path(), "test.yaml");
+        client.did_open(uri.clone(), text);
+        let _ = client.diagnostics();
+        let hover = client
+            .hover(&uri, line, column)
+            .map(hover_text)
+            .unwrap_or_default();
+        assert!(
+            hover.is_empty() || hover.starts_with("**ryl"),
+            "{schema}: {hover}"
+        );
+        client.shutdown();
+    }
+}
+
+#[test]
+fn schema_hover_ignores_ref_siblings_in_pointer_resolved_legacy_resources() {
+    legacy_resource_hover(
+        json!({"description": "Referenced description"}),
+        "Referenced description",
+    );
+}
+
+#[test]
+fn schema_hover_preserves_conflicting_target_title_in_legacy_pointer_refs() {
+    legacy_resource_hover(json!({"title": "Target"}), "Target");
+}
+
+fn legacy_resource_hover(target: Value, expected: &str) {
+    for (reference, property_ref) in [
+        ("#/$defs/legacy", false),
+        ("legacy.json", false),
+        ("#/$defs/legacy/properties/name", true),
+        ("legacy.json#/properties/name", true),
+    ] {
+        let mut schema = json!({
+            "$defs": {"legacy": {
+                "$id": "legacy.json",
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "definitions": {"target": target},
+                "properties": {"name": {
+                    "$ref": "#/definitions/target",
+                    "title": "Ignored sibling title"
+                }}
+            }}
+        });
+        if property_ref {
+            schema["properties"] = json!({"name": {"$ref": reference}});
+        } else {
+            schema["$ref"] = json!(reference);
+        }
+        let dir = project(&local_config("schema.json"));
+        std::fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
+        let (mut client, _) = Client::launch(None, None);
+        let uri = file_uri(dir.path(), "test.yaml");
+        client.did_open(uri.clone(), "name: x\n");
+        assert!(client.diagnostics().is_empty(), "{reference}");
+        for column in [0, 6] {
+            assert_eq!(
+                client.hover(&uri, 0, column).map(hover_text).as_deref(),
+                Some(expected),
+                "{reference} at column {column}"
+            );
+        }
+        client.shutdown();
+    }
+}
+
+#[test]
+fn schema_hover_uses_prepared_external_refs_and_id_scopes() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"properties":{"name":{"$id":"nested/scope.json","$ref":"../child.json"}}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("child.json"),
+        r#"{"description":"External"}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch_with(None, None, true, None, true, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    client.did_open(uri.clone(), "name: x\n");
+    let _ = client.diagnostics();
+    std::fs::remove_file(dir.path().join("child.json")).unwrap();
+    assert_eq!(
+        hover_text(client.hover(&uri, 0, 0).unwrap()),
+        "External",
+        "hover does not read schema files"
+    );
+    std::fs::write(
+        dir.path().join("child.json"),
+        r#"{"description":"Updated"}"#,
+    )
+    .unwrap();
+    changed_schema(&client, dir.path(), "child.json", 2);
+    let _ = client.diagnostics();
+    assert_eq!(hover_text(client.hover(&uri, 0, 0).unwrap()), "Updated");
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_bounds_and_escapes_untrusted_text() {
+    let dir = project(&local_config("schema.json"));
+    let hostile = "![image](https://example.org) <img src=x> &copy; **bold** `code`\n\u{1b}\u{061c}123\u{202e}456";
+    std::fs::write(
+        dir.path().join("schema.json"),
+        json!({"properties":{"name":{"title":hostile,"description":"z".repeat(5000)}}})
+            .to_string(),
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    client.did_open(uri.clone(), "name: x\n");
+    let _ = client.diagnostics();
+    let text = hover_text(client.hover(&uri, 0, 0).unwrap());
+    assert!(text.ends_with(&"z".repeat(4096)));
+    assert!(!text.ends_with(&"z".repeat(4097)));
+    let mut rendered = String::new();
+    for event in pulldown_cmark::Parser::new(&text) {
+        match event {
+            pulldown_cmark::Event::Text(text) => rendered.push_str(&text),
+            pulldown_cmark::Event::Start(pulldown_cmark::Tag::Paragraph)
+            | pulldown_cmark::Event::End(pulldown_cmark::TagEnd::Paragraph) => {}
+            event => panic!("schema text created markup: {event:?}"),
+        }
+    }
+    assert!(rendered.starts_with("![image](https://example.org) <img src=x> &copy; **bold** `code`\\u{a}\\u{1b}\\u{61c}123\\u{202e}456"));
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_bounds_reference_chains_and_handles_recursive_schemas() {
+    let dir = project(&local_config("schema.json"));
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    let mut definitions = serde_json::Map::new();
+    for index in 0..130 {
+        definitions.insert(
+            format!("n{index}"),
+            json!({"$ref":format!("#/$defs/n{}", index + 1)}),
+        );
+    }
+    definitions.insert("n130".to_owned(), json!({"title":"Too far"}));
+    for (schema, text, expected) in [
+        (
+            json!({"$defs":definitions,"$ref":"#/$defs/n0"}),
+            "x\n",
+            None,
+        ),
+        (
+            json!({"title":"Recursive","properties":{"child":{"$ref":"#"}}}),
+            "child: {child: x}\n",
+            Some("Recursive"),
+        ),
+        (json!({"title":"Cycle","$ref":"#"}), "x\n", None),
+    ] {
+        std::fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
+        client.did_open(uri.clone(), text);
+        let _ = client.diagnostics();
+        let hover = client.hover(&uri, 0, 0).map(hover_text);
+        if let Some(expected) = expected {
+            assert_eq!(hover.as_deref(), Some(expected));
+        } else {
+            assert!(!hover.unwrap_or_default().contains("Too far"));
+        }
+    }
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_refreshes_cached_targets_for_pull_clients_and_skips_unassociated_files()
+{
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(dir.path().join("schema.json"), r#"{"title":"Prepared"}"#).unwrap();
+    let (mut client, _) = Client::launch_pull(Some(dir.path()), true);
+    let uri = file_uri(dir.path(), "test.yaml");
+    client.did_open(uri.clone(), "x\n");
+    assert_eq!(hover_text(client.hover(&uri, 0, 0).unwrap()), "Prepared");
+    std::fs::remove_file(dir.path().join(".ryl.toml")).unwrap();
+    assert_eq!(
+        hover_text(client.hover(&uri, 0, 0).unwrap()),
+        "Prepared",
+        "hover reads cached preparation only"
+    );
+    client.notify(
+        "workspace/didChangeConfiguration",
+        json!({"settings":{"ryl":{"enable":false}}}),
+    );
+    assert!(client.hover(&uri, 0, 0).is_none());
+    client.shutdown();
+
+    let dir = project(&format!(
+        "[lint.rules]\ntrailing-spaces = 'enable'\n{}",
+        local_config("schema.json")
+    ));
+    std::fs::write(dir.path().join("schema.json"), r#"{"title":"Unmatched"}"#).unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yml");
+    client.did_open(uri.clone(), "x \n");
+    let _ = client.diagnostics();
+    assert!(client.hover(&uri, 0, 0).is_none());
+    assert!(hover_text(client.hover(&uri, 0, 1).unwrap()).contains("trailing-spaces"));
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_handles_position_encodings_and_markdown_offsets() {
+    for (encoding, column) in [
+        (PositionEncodingKind::UTF8, 16),
+        (PositionEncodingKind::UTF16, 14),
+        (PositionEncodingKind::UTF32, 13),
+    ] {
+        let dir = project(&format!(
+            "[files]\nmarkdown = ['*.md']\n{}",
+            local_config("schema.json").replace("*.yaml", "*")
+        ));
+        std::fs::write(
+            dir.path().join("schema.json"),
+            r#"{"properties":{"name":{"title":"Name"}}}"#,
+        )
+        .unwrap();
+        let (mut client, _) = Client::launch(Some(vec![encoding]), None);
+        for (file, text, line) in [
+            ("test.yaml", "{a: 😀, name: x}\n", 0),
+            ("bom.yaml", "\u{feff}{a: 😀, name: x}\n", 0),
+            ("test.md", "---\n{a: 😀, name: x}\n---\n", 1),
+            ("bom.md", "\u{feff}---\n{a: 😀, name: x}\n---\n", 1),
+            (
+                "fence.md",
+                "Text\n\n  ```yaml\n  {a: 😀, name: x}\n  ```\n",
+                3,
+            ),
+        ] {
+            let uri = file_uri(dir.path(), file);
+            client.did_open(uri.clone(), text);
+            let _ = client.diagnostics();
+            let indent = if file == "fence.md" { 2 } else { 0 };
+            let bom = if file == "bom.yaml" {
+                if column == 16 { 3 } else { 1 }
+            } else {
+                0
+            };
+            assert_eq!(
+                hover_text(client.hover(&uri, line, column + indent + bom).unwrap()),
+                "Name"
+            );
+            if file == "bom.yaml" || file == "fence.md" || file == "test.md" {
+                assert!(client.hover(&uri, 0, 0).is_none());
+            }
+            if file == "fence.md" {
+                assert!(client.hover(&uri, line, 0).is_none());
+            }
+        }
+        let uri = file_uri(dir.path(), "bare-cr.md");
+        client.did_open(uri.clone(), "---\rname: x\r---\r");
+        let _ = client.diagnostics();
+        assert!(
+            !client
+                .hover(&uri, 0, 0)
+                .map(hover_text)
+                .unwrap_or_default()
+                .contains("Name")
+        );
+        client.shutdown();
+    }
+}
+
+#[test]
+fn schema_hover_maps_partially_expanded_tabs_in_markdown() {
+    let dir = project(&format!(
+        "[files]\nmarkdown = ['*.md']\n{}",
+        local_config("schema.json").replace("*.yaml", "*")
+    ));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"title":"Root","properties":{"name":{"title":"Name"}}}"#,
+    )
+    .unwrap();
+    for encoding in [
+        PositionEncodingKind::UTF8,
+        PositionEncodingKind::UTF16,
+        PositionEncodingKind::UTF32,
+    ] {
+        let (mut client, _) = Client::launch(Some(vec![encoding]), None);
+        let uri = file_uri(dir.path(), "test.md");
+        client.did_open(uri.clone(), "  ```yaml\n\tname: x\n  ```\n");
+        let _ = client.diagnostics();
+        for column in [1, 7] {
+            assert_eq!(
+                client.hover(&uri, 1, column).map(hover_text).as_deref(),
+                Some("Name")
+            );
+        }
+        client.shutdown();
+    }
+}
+
+#[test]
+fn schema_hover_never_prepares_unapproved_or_pending_schemas() {
+    let h = Harness::new("", false);
+    let mut client = h.client(Limits::default());
+    let uri = h.open(&client);
+    await_error(&client, "approval required");
+    let text = hover_text(client.hover(&uri, 0, 0).unwrap());
+    assert!(text.contains("schema"));
+    assert_eq!(h.calls(), 0);
+    client.shutdown();
+
+    let h = Harness::new(ORIGIN, false);
+    h.env.remote.resources.lock().unwrap().insert(
+        ROOT.to_owned(),
+        br#"{"type":"integer","description":"Remote"}"#.to_vec(),
+    );
+    let (release, gate) = std::sync::mpsc::channel();
+    *h.env.remote.gate.lock().unwrap() = Some(gate);
+    let mut client = h.client(Limits::default());
+    let uri = h.open(&client);
+    await_error(&client, "preparation pending");
+    let before = h.calls();
+    assert!(hover_text(client.hover(&uri, 0, 0).unwrap()).contains("schema"));
+    assert!(
+        h.calls() <= before + 1,
+        "only the preparation worker may fetch"
+    );
+    release.send(()).unwrap();
+    await_schema(&client);
+    assert!(hover_text(client.hover(&uri, 0, 0).unwrap()).ends_with("Remote"));
+    assert_eq!(h.calls(), 1, "hover reuses the prepared resource");
+    client.shutdown();
+}
+
 fn changed_schema(client: &Client, dir: &Path, path: &str, kind: u8) {
     client.notify(
         "workspace/didChangeWatchedFiles",

@@ -4,6 +4,8 @@
 mod complexity;
 mod diagnostics;
 pub(crate) mod directives;
+#[cfg(feature = "lsp")]
+pub(crate) mod hover;
 mod loading;
 #[doc(hidden)]
 pub mod net;
@@ -151,11 +153,7 @@ pub(crate) fn check_with_analysis(
             .and_then(Option::as_ref)
             .and_then(|header| header.value.as_deref());
         document += 1;
-        let association = match selected {
-            Some(value) if value.eq_ignore_ascii_case("none") => None,
-            Some(value) => cfg.schema_directive_for(value),
-            None => fallback,
-        };
+        let association = selected_association(cfg, fallback, selected);
         let Some(association) = association else {
             for (event, _) in events.by_ref() {
                 if matches!(event, ryl_yaml_parser::Event::DocumentEnd) {
@@ -185,6 +183,18 @@ pub(crate) fn check_with_analysis(
         }
     }
     diagnostics
+}
+
+fn selected_association<'a>(
+    cfg: &'a YamlLintConfig,
+    fallback: Option<&'a Association>,
+    selected: Option<&str>,
+) -> Option<&'a Association> {
+    match selected {
+        Some(value) if value.eq_ignore_ascii_case("none") => None,
+        Some(value) => cfg.schema_directive_for(value),
+        None => fallback,
+    }
 }
 
 fn validate_document(

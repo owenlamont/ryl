@@ -85,7 +85,8 @@ under `source.fixAll`, which `codeActionsOnSave` runs + `quickfix` disable-rule 
 for a diagnostic inside a block scalar, where a `#` would be content not a directive,
 via `protected_scalar_lines`);
 `textDocument/formatting` (`ryl format` via `rewrite_str`, no enabled rule needed; no range
-formatting); hover (rule + message + docs link for a covered diagnostic);
+formatting); hover (rule + message + docs link for a covered diagnostic, then escaped
+schema title/description from the prepared per-document selection);
 anchor/alias `rename` + `prepareRename` (parser scanner tokens, document-scoped, YAML
 only); and INCREMENTAL sync (ranged edits applied via `encoding::offset_at`). The engine
 has no per-occurrence fix; code actions honour `context.only`.
@@ -144,6 +145,19 @@ lints nothing silently; a malformed one lints nothing but is surfaced once via
 `window/showMessage` (no hard exit-2).
 
 ## Position encoding is the one load-bearing piece
+
+Hover reads only `Document::schema_target` and `Document::diagnostics`, refreshed by document
+updates and config/schema invalidation for push and pull clients. Never call config
+discovery or queue preparation from hover. Cache targets only when `schema_for` matches
+or schema directives are enabled during document analysis: glob matching may allocate,
+so unmatched hover must return before matching globs, extracting Markdown or constructing
+a `TextVersion`.
+`rules::schema::hover` hit-tests projection key/value spans and structurally walks the
+prepared registry; validator annotations disappear for invalid instances. Follow only
+literal properties, homogeneous items and static references, carrying draft and `$id`
+scope. Bound traversal to 128 steps, detect repeated schema/path states, and escape
+bounded annotations as text. Alias/merge documents and ambiguous paths receive no
+schema hover. `tests/lsp_server/schema.rs` pins the supported paths and read-only behavior.
 
 LSP columns are UTF-16 code units by default (NOT ryl's 1-based code-point columns);
 `encoding::problem_range`/`offset_at` walk the line CR-aware via `line_syntax` and the

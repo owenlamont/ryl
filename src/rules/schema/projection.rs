@@ -63,13 +63,16 @@ struct Node {
     bytes: usize,
     depth: usize,
     merge_key: bool,
+    ambiguous: bool,
 }
 
 pub(super) struct Projection {
     pub(super) value: Value,
-    nodes: BTreeMap<String, Span>,
+    pub(super) nodes: BTreeMap<String, Span>,
     pub(super) keys: BTreeMap<String, Span>,
     pub(super) root: Span,
+    #[cfg(feature = "lsp")]
+    pub(super) ambiguous: bool,
 }
 
 impl Projection {
@@ -214,6 +217,7 @@ impl Builder<'_> {
                 return Err(refuse("projection depth limit exceeded", span));
             }
             let mut node = anchor.clone();
+            node.ambiguous = true;
             node.span = span;
             node.nodes
                 .values_mut()
@@ -230,6 +234,7 @@ impl Builder<'_> {
             bytes: 0,
             depth: 0,
             merge_key: false,
+            ambiguous: false,
         };
         debug_assert!(event.is_node(), "projection consumes node events");
         let anchor = event.anchor_id().unwrap_or_default();
@@ -325,6 +330,7 @@ impl Node {
         budget: &mut Budget,
         span: Span,
     ) -> Result<(), Refusal> {
+        self.ambiguous = true;
         let sources = match &child.value {
             Value::Object(_) => vec![(&child.value, String::new())],
             Value::Array(values) => values
@@ -376,6 +382,7 @@ impl Node {
         prefix: &str,
         budget: &mut Budget,
     ) -> Result<(), Refusal> {
+        self.ambiguous |= child.ambiguous;
         self.size += child.size;
         self.bytes += child.bytes;
         self.depth = self.depth.max(child.depth + 1);
@@ -427,6 +434,7 @@ impl Node {
             nodes,
             keys,
             merge_key: false,
+            ambiguous: self.ambiguous,
         })
     }
 }
@@ -463,5 +471,7 @@ pub(super) fn document<'a>(
         nodes: node.nodes,
         keys: node.keys,
         root: node.span,
+        #[cfg(feature = "lsp")]
+        ambiguous: node.ambiguous,
     })
 }

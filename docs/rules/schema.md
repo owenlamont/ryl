@@ -7,6 +7,19 @@ or requests a pull refresh. Local-only configurations require no network worker.
 Unsaved schema buffers are not read; clients without dynamic registration must restart
 the server or reopen documents after schema edits.
 
+Hovering a key or value shows the prepared schema's `title` and `description`, even
+when the value is invalid. Keys use their value's schema. Schema text is escaped plain
+text, limited to 4,096 characters per annotation. Hover follows explicit `properties`,
+homogeneous `items` and static `$ref` paths, with a 128-step limit; branches, tuple items,
+dynamic references and documents containing aliases or merge keys receive no schema
+hover. Direct properties beside unrelated branches remain available. A refused document
+does not suppress hover in later documents unless the shared projection budget is exhausted.
+References honor the resolved resource's dialect, including embedded resources reached
+by JSON Pointer; Draft 7 and earlier ignore annotations beside `$ref`.
+Hover never reads schema files, fetches resources or starts preparation. Pending or
+unapproved schemas retain diagnostic explanations only. Files without associations
+require no schema projection. Markdown regions use the host file's association.
+
 ## What this rule does
 
 Validates YAML documents against user-supplied JSON Schemas. Schemas are supplied by the
@@ -198,7 +211,7 @@ does not load lint schemas.
   Equally ranked branches retain the summary. Messages mask instance values.
 
 Editor diagnostics use the same engine. Watched schema-file edits invalidate prepared
-schemas and revalidate affected documents. Schema hover and completion are separate work.
+schemas and revalidate affected documents. Schema completion is separate work.
 
 Sources: [JSON Schema](https://json-schema.org/specification),
 [YAML 1.2.2](https://yaml.org/spec/1.2.2/).
