@@ -20,7 +20,11 @@ fn arb_multibyte_char() -> impl Strategy<Value = char> {
 }
 
 fn arb_plain_value() -> impl Strategy<Value = String> {
-    "[a-z][a-z0-9_']{0,6}".prop_map(|value| value)
+    prop_oneof![
+        "[a-z][a-z0-9_']{0,6}",
+        prop::sample::select(vec!["/health?ready=true", "a?b", ":foo", "a:?b"])
+            .prop_map(str::to_owned),
+    ]
 }
 
 pub fn arb_quoted_payload() -> impl Strategy<Value = String> {
@@ -103,6 +107,7 @@ fn arb_scalar() -> impl Strategy<Value = Scalar> {
         1 => arb_bool_spelling().prop_map(Scalar::SingleQuoted),
         1 => arb_bool_spelling().prop_map(Scalar::DoubleQuoted),
         1 => arb_tagged_bool_spelling().prop_map(Scalar::Plain),
+        1 => arb_plain_value().prop_map(|value| Scalar::Plain(format!("!!str {value}"))),
         1 => arb_core_int_edge().prop_map(Scalar::Plain),
         1 => arb_core_int_edge().prop_map(Scalar::SingleQuoted),
         1 => arb_core_int_edge().prop_map(Scalar::DoubleQuoted),

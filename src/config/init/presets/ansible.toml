@@ -25,7 +25,6 @@ key-duplicates = "enable"
 key-ordering = "disable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.truthy]
@@ -53,3 +52,7 @@ level = "error"
 comment-spacing = 1
 # ansible-lint compatibility: https://github.com/ansible/ansible-lint/blob/main/src/ansiblelint/data/.yamllint
 brace-spacing = true
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['\?|^:']

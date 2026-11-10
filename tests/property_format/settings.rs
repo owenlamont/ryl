@@ -74,14 +74,16 @@ pub fn arb_quote_requirements() -> impl Strategy<Value = String> {
         prop::sample::select(vec!["true", "false", "'only-when-needed'"]),
         any::<bool>(),
         any::<bool>(),
-    ).prop_map(|(required, check_keys, enabled)| {
+        any::<bool>(),
+    ).prop_map(|(required, check_keys, enabled, general_patterns)| {
         if enabled {
             let patterns = match required {
+                _ if !general_patterns => "",
                 "true" => "",
                 "false" => "extra-required = ['\\?', 'secret']\n",
                 _ => "extra-required = ['\\?', 'secret']\nextra-allowed = ['keep']\n",
             };
-            format!("[lint.rules.quoted-strings]\nrequired = {required}\ncheck-keys = {check_keys}\n{patterns}")
+            format!("[lint.rules.quoted-strings]\nrequired = {required}\ncheck-keys = {check_keys}\nextra-required-flow = ['\\?|^:']\n{patterns}")
         } else {
             String::new()
         }

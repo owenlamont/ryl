@@ -21,6 +21,7 @@ pub(super) struct Planner<'a> {
     shift: Cell<isize>,
     block: Option<&'a BlockSpellings>,
     protected: &'a [bool],
+    flow: Option<&'a quoted_strings::FlowSpellings>,
 }
 
 /// Where a flow collection's line breaks go.
@@ -74,6 +75,7 @@ impl<'a> Planner<'a> {
             shift: Cell::new(0),
             block: None,
             protected: &[],
+            flow: None,
         }
     }
 
@@ -87,6 +89,14 @@ impl<'a> Planner<'a> {
 
     pub(super) const fn with_protection(mut self, protected: &'a [bool]) -> Self {
         self.protected = protected;
+        self
+    }
+
+    pub(super) const fn with_flow_spellings(
+        mut self,
+        flow: Option<&'a quoted_strings::FlowSpellings>,
+    ) -> Self {
+        self.flow = flow;
         self
     }
 
@@ -789,19 +799,22 @@ impl<'a> Planner<'a> {
         written: bool,
     ) -> Option<Fragment> {
         let source = written.then(|| self.initial.unselected());
-        let initial =
-            match self.nodes[index].kind() {
-                Kind::Scalar => [Some(self.initial), source]
-                    .into_iter()
-                    .flatten()
-                    .find(|initial| {
-                        initial
-                            .scalar(index)
-                            .is_some_and(quoted_strings::Retained::flow_compatible)
-                    })?,
-                Kind::Alias => self.initial,
-                _ => return None,
-            };
+        let initial = match self.nodes[index].kind() {
+            Kind::Scalar => [
+                self.flow.map(|flow| self.initial.flow_spelled(flow)),
+                Some(self.initial),
+                source,
+            ]
+            .into_iter()
+            .flatten()
+            .find(|initial| {
+                initial
+                    .scalar(index)
+                    .is_some_and(quoted_strings::Retained::flow_compatible)
+            })?,
+            Kind::Alias => self.initial,
+            _ => return None,
+        };
         single(initial.entry(pos, index)).ok()
     }
 
