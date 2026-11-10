@@ -78,8 +78,8 @@ Editor integrations should set offline mode in an untrusted workspace.
 Schema preparation uses one worker. Directive selections from unsaved buffers coexist
 within bounded configuration groups; edits supersede obsolete selections and closing
 documents releases their dependencies. Directive errors point to the source header;
-approval emits one diagnostic per origin with the same quick fixes, without publishing
-config diagnostics onto the YAML URI.
+approval emits one diagnostic per origin at the corresponding header with the same quick
+fixes, without publishing config diagnostics onto the YAML URI.
 Pending and failed preparations appear as configuration errors. Queued preparations have
 a 65-second deadline from enqueue; timeouts are final. Formatting never prepares schemas.
 

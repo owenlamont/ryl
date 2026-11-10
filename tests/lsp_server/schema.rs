@@ -137,7 +137,12 @@ fn unsaved_directive_origins_offer_independent_approval_actions() {
                     "ryl: configuration error, linting is off: schema origin approval required: {origin}/"
                 )
             );
-            let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":uri},"range":diagnostic.range,"context":{"diagnostics":[diagnostic],"only":["quickfix"]}}));
+            let line = if *origin == other { 3 } else { 0 };
+            assert_eq!(
+                diagnostic.range,
+                Range::new(Position::new(line, 0), Position::new(line, 1))
+            );
+            let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":uri},"range":diagnostic.range,"context":{"diagnostics":diagnostics,"only":["quickfix"]}}));
             let actions = client.response(&id).response_result.unwrap();
             let approvals: Vec<_> = actions
                 .as_array()
@@ -162,6 +167,84 @@ fn unsaved_directive_origins_offer_independent_approval_actions() {
             await_error(&client, "approval required");
         }
     }
+    client.shutdown();
+}
+
+#[test]
+fn untitled_directive_buffers_retain_independent_dependency_owners() {
+    let h = Harness::new("", false);
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        "[lint.rules.schema]\ndirectives = true\n",
+    )
+    .unwrap();
+    let mut client = h.client_options(Limits::default(), watching(), Value::Null);
+    let buffers = [
+        ("untitled:first", ORIGIN),
+        ("untitled:second", "https://other.example.org"),
+    ];
+    for (uri, origin) in buffers {
+        client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":format!("# $schema: {origin}/root.json\nx: 1\n")}}));
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut settled = std::collections::BTreeSet::new();
+    while settled.len() < buffers.len() {
+        let message = client
+            .conn()
+            .receiver
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        if let Message::Notification(note) = message
+            && note.method == "textDocument/publishDiagnostics"
+        {
+            let params: PublishDiagnosticsParams =
+                serde_json::from_value(note.params).unwrap();
+            if params
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("approval required"))
+            {
+                settled.insert(params.uri.as_str().to_owned());
+            }
+        }
+    }
+    for (uri, origin) in buffers {
+        let id = client.request(
+            "textDocument/diagnostic",
+            json!({"textDocument":{"uri":uri}}),
+        );
+        let diagnostics = pull_items(client.response(&id));
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.ends_with(&format!("{origin}/")));
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while client
+        .conn()
+        .receiver
+        .recv_timeout(Duration::from_millis(100))
+        .is_ok()
+    {
+        assert!(
+            Instant::now() < deadline,
+            "untitled preparations never become idle"
+        );
+    }
+    client.notify(
+        "textDocument/didClose",
+        json!({"textDocument":{"uri":buffers[0].0}}),
+    );
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({"textDocument":{"uri":buffers[1].0}}),
+    );
+    let diagnostics = pull_items(client.response(&id));
+    assert_eq!(diagnostics.len(), 1);
+    assert!(
+        diagnostics[0]
+            .message
+            .ends_with("https://other.example.org/")
+    );
+    assert_eq!(h.calls(), 0);
     client.shutdown();
 }
 

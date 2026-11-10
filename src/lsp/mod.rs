@@ -1399,7 +1399,12 @@ impl Server {
                     (Path::new(uri), revision),
                     &self.settings,
                 ) {
-                    schema_error_diagnostics(text, &error, self.encoding)
+                    schema_error_diagnostics(
+                        text,
+                        &error,
+                        &target.context.config,
+                        self.encoding,
+                    )
                 } else {
                     analysis::diagnostics(
                         text,
@@ -1474,18 +1479,36 @@ struct Target {
 fn schema_error_diagnostics(
     text: &str,
     error: &crate::rules::schema::PreparationError,
+    config: &crate::config::YamlLintConfig,
     encoding: PositionEncoding,
 ) -> Vec<Diagnostic> {
-    let range = encoding::problem_range(
-        &crate::rules::support::line_syntax::line_contents(text),
-        error.line,
-        error.column + usize::from(error.line == 1 && text.starts_with('\u{feff}')),
-        encoding,
-    );
+    let lines = crate::rules::support::line_syntax::line_contents(text);
     config_error_diagnostics(&error.message)
         .into_iter()
         .map(|mut diagnostic| {
-            diagnostic.range = range;
+            let declaration = config.schema_request().and_then(|request| {
+                request.declarations.iter().find(|declaration| {
+                    declaration
+                        .value
+                        .as_deref()
+                        .and_then(|value| url::Url::parse(value).ok())
+                        .is_some_and(|url| {
+                            diagnostic.message
+                                == config_error_text(&format!(
+                                    "schema origin approval required: {}",
+                                    url.origin().ascii_serialization()
+                                ))
+                        })
+                })
+            });
+            let (line, column) =
+                declaration.map_or((error.line, error.column), |d| (d.line, d.column));
+            diagnostic.range = encoding::problem_range(
+                &lines,
+                line,
+                column + usize::from(line == 1 && text.starts_with('\u{feff}')),
+                encoding,
+            );
             diagnostic
         })
         .collect()
@@ -1525,13 +1548,9 @@ fn prepare_target(
         .context
         .config
         .identify_schema_document(owner, revision, text);
-    if let Some(context) = session.finish_document(
-        target.path.clone(),
-        &target.context,
-        &env,
-        generation,
-        result,
-    )? {
+    if let Some(context) =
+        session.finish_document(&target.context, &env, generation, result)?
+    {
         target.context = context;
     }
     Ok(())
@@ -1657,7 +1676,7 @@ fn file_report(
         let items = if let Err(error) =
             prepare_target(&mut target, &text, true, (path, version), settings)
         {
-            schema_error_diagnostics(&text, &error, encoding)
+            schema_error_diagnostics(&text, &error, &target.context.config, encoding)
         } else {
             analysis::diagnostics(
                 &text,

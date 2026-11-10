@@ -659,7 +659,6 @@ impl Session {
 
     pub(super) fn finish_document(
         &self,
-        path: PathBuf,
         context: &ConfigContext,
         env: &SchemaEnv<'_>,
         generation: u64,
@@ -684,7 +683,7 @@ impl Session {
             ));
         }
         self.observe_document(context);
-        self.record_dependencies(path, env, generation, Some(context));
+        self.record_dependencies(request.owner.clone(), env, generation, Some(context));
         result?;
         if context.config.needs_remote_preparation() {
             self.request_document(context.clone()).map(Some)
@@ -827,10 +826,12 @@ impl super::Server {
             .expect("schema session")
             .dependency_paths(|path| {
                 self.settings.reports_workspace()
-                    || self
-                        .documents
-                        .keys()
-                        .any(|uri| self.uri_path(uri).0 == path)
+                    || self.documents.keys().any(|uri| {
+                        super::encoding::uri_to_path(uri)
+                            .as_deref()
+                            .unwrap_or_else(|| Path::new(uri))
+                            == path
+                    })
             })
     }
 
@@ -954,7 +955,8 @@ impl super::Server {
                 .dependencies
                 .get()
         {
-            let (path, _) = self.uri_path(uri);
+            let path =
+                super::encoding::uri_to_path(uri).unwrap_or_else(|| PathBuf::from(uri));
             dependencies
                 .lock()
                 .expect("schema dependencies lock")
