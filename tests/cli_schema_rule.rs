@@ -47,6 +47,25 @@ fn alias_diagnostics_blame_the_use_site() {
 }
 
 #[test]
+fn truncated_mapping_refuses_a_missing_key_without_panicking() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = config(dir.path(), &json!(true));
+    let hits =
+        ryl::rules::schema::check("a: 1\nb", &ctx.config, &dir.path().join("in.yaml"));
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].message, "cannot validate: incomplete YAML document");
+}
+
+#[test]
+fn presentation_comments_do_not_become_schema_nodes() {
+    let hits = findings(
+        &json!({"const":{"items":[1,2]}}),
+        "# header\nitems:\n  # first\n  - 1\n  # second\n  - 2\n# end\n",
+    );
+    assert!(hits.is_empty(), "{hits:?}");
+}
+
+#[test]
 fn escaped_pointers_and_additional_properties_blame_keys() {
     let hits = findings(
         &json!({"properties":{"a/b~c":{"type":"integer"}},"additionalProperties":false}),
