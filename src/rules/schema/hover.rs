@@ -26,7 +26,11 @@ pub(crate) fn at<'a>(
     let mut events = version.analysis().event_iter().peekable();
     let mut budget = projection::Budget::default();
     loop {
-        let projected = projection::document(&mut events, &mut budget).ok()??;
+        let projected = match projection::document(&mut events, &mut budget) {
+            Ok(Some(projected)) => projected,
+            Err(_) if !budget.exhausted() => continue,
+            Ok(None) | Err(_) => return None,
+        };
         if projected.ambiguous {
             continue;
         }

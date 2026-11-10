@@ -431,6 +431,84 @@ fn schema_hover_empty_values_do_not_shadow_later_siblings_or_documents() {
 }
 
 #[test]
+fn schema_hover_recovers_after_refused_documents() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"properties":{"name":{"title":"Name"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    for text in ["1: x\n---\nname: x\n", "!custom x\n---\nname: x\n"] {
+        client.did_open(uri.clone(), text);
+        let diagnostics = client.diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("cannot validate"));
+        for column in [0, 6] {
+            let hover = client.hover(&uri, 2, column).expect("later document hover");
+            assert_eq!(hover.range.unwrap().start.line, 2);
+            assert_eq!(hover_text(hover), "Name", "{text:?}");
+        }
+    }
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_after_refusal_combines_diagnostics_in_push_and_pull_modes() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"properties":{"name":{"title":"Name","type":"integer"}}}"#,
+    )
+    .unwrap();
+    for pull in [false, true] {
+        let (mut client, _) = if pull {
+            Client::launch_pull(Some(dir.path()), false)
+        } else {
+            Client::launch(None, None)
+        };
+        let uri = file_uri(dir.path(), "test.yaml");
+        client.did_open(uri.clone(), "1: x\n---\nname: wrong\n");
+        let diagnostics = if pull {
+            let id = client.request(
+                "textDocument/diagnostic",
+                json!({"textDocument":{"uri":uri}}),
+            );
+            pull_items(client.response(&id))
+        } else {
+            client.diagnostics()
+        };
+        assert_eq!(diagnostics.len(), 2);
+        let hover = client.hover(&uri, 2, 6).unwrap();
+        assert_eq!(hover.range, Some(diagnostics[1].range));
+        let text = hover_text(hover);
+        assert!(text.starts_with("**ryl: schema**"), "{text}");
+        assert!(text.ends_with("\n\nName"), "{text}");
+        client.shutdown();
+    }
+}
+
+#[test]
+fn schema_hover_stops_after_projection_budget_exhaustion() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"properties":{"name":{"title":"Name"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    let text = format!("{}\n---\nname: x\n", "x".repeat(16 * 1024 * 1024 + 1));
+    client.did_open(uri.clone(), &text);
+    let diagnostics = client.diagnostics();
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].message.contains("resource limit"));
+    assert!(client.hover(&uri, 2, 0).is_none());
+    client.shutdown();
+}
+
+#[test]
 fn schema_hover_refuses_unsupported_paths_and_projection() {
     for (schema, text, line, column) in [
         (
