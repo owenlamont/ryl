@@ -110,6 +110,62 @@ fn remote_directives_require_approval_at_the_header_without_config_publication()
 }
 
 #[test]
+fn unsaved_directive_origins_offer_independent_approval_actions() {
+    let h = Harness::new("", false);
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        "[lint.rules.schema]\ndirectives = true\n",
+    )
+    .unwrap();
+    let other = "https://other.example.org";
+    let mut client = h.client(Limits::default());
+    let uri = file_uri(h.dir.path(), "unsaved.yaml");
+    assert!(!h.dir.path().join("unsaved.yaml").exists());
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":format!("# $schema: {ROOT}\nx: 1\n---\n# $schema: {other}/root.json\nx: 2\n")}}));
+    await_error(&client, "approval required");
+    for origins in [vec![other, ORIGIN], vec![ORIGIN]] {
+        let id = client.request(
+            "textDocument/diagnostic",
+            json!({"textDocument":{"uri":uri}}),
+        );
+        let diagnostics = pull_items(client.response(&id));
+        assert_eq!(diagnostics.len(), origins.len());
+        for (diagnostic, origin) in diagnostics.iter().zip(&origins) {
+            assert_eq!(
+                diagnostic.message,
+                format!(
+                    "ryl: configuration error, linting is off: schema origin approval required: {origin}/"
+                )
+            );
+            let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":uri},"range":diagnostic.range,"context":{"diagnostics":[diagnostic],"only":["quickfix"]}}));
+            let actions = client.response(&id).response_result.unwrap();
+            let approvals: Vec<_> = actions
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|action| {
+                    action["command"]["command"] == "ryl.allowSchemaOrigin"
+                })
+                .collect();
+            assert_eq!(approvals.len(), 2);
+            for (action, (prefix, persist)) in approvals
+                .iter()
+                .zip([("Always allow", true), ("Allow once", false)])
+            {
+                assert_eq!(action["title"], format!("{prefix} {origin}"));
+                assert_eq!(action["command"]["arguments"], json!([origin, persist]));
+            }
+        }
+        assert_eq!(h.calls(), 0);
+        if origins.len() == 2 {
+            approve(&mut client, other, false);
+            await_error(&client, "approval required");
+        }
+    }
+    client.shutdown();
+}
+
+#[test]
 fn remote_directive_edits_supersede_late_results() {
     let h = Harness::new(ORIGIN, false);
     std::fs::write(

@@ -1476,14 +1476,19 @@ fn schema_error_diagnostics(
     error: &crate::rules::schema::PreparationError,
     encoding: PositionEncoding,
 ) -> Vec<Diagnostic> {
-    let mut diagnostic = config_error_diagnostic(&error.message);
-    diagnostic.range = encoding::problem_range(
+    let range = encoding::problem_range(
         &crate::rules::support::line_syntax::line_contents(text),
         error.line,
         error.column + usize::from(error.line == 1 && text.starts_with('\u{feff}')),
         encoding,
     );
-    vec![diagnostic]
+    config_error_diagnostics(&error.message)
+        .into_iter()
+        .map(|mut diagnostic| {
+            diagnostic.range = range;
+            diagnostic
+        })
+        .collect()
 }
 
 fn prepare_target(
