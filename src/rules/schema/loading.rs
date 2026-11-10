@@ -74,9 +74,17 @@ struct LocalRetriever {
     dependencies: Option<Arc<Mutex<std::collections::BTreeSet<PathBuf>>>>,
 }
 
+fn local_path(path: &Path) -> PathBuf {
+    Url::from_file_path(path)
+        .expect("schema paths originate from file URIs")
+        .to_file_path()
+        .expect("schema file URI has a filesystem path")
+}
+
 impl LocalRetriever {
     fn track(&self, path: &Path) -> Result<(), ReadError> {
-        let mut ancestor = path;
+        let path = local_path(path);
+        let mut ancestor = path.as_path();
         while let Err(source) = std::fs::symlink_metadata(ancestor) {
             if source.kind() != std::io::ErrorKind::NotFound {
                 return Err(ReadError::Io {
@@ -95,8 +103,8 @@ impl LocalRetriever {
         if !canonical.starts_with(&self.base) {
             return Err(ReadError::Escape);
         }
-        let normalized = crate::cli_support::lexical_abspath(path);
-        if !normalized.starts_with(&self.base) {
+        let normalized = crate::cli_support::lexical_abspath(&path);
+        if !normalized.starts_with(local_path(&self.base)) {
             return Err(ReadError::Escape);
         }
         self.dependencies
@@ -109,15 +117,15 @@ impl LocalRetriever {
     }
 
     fn read(&self, path: &Path) -> Result<Value, ReadError> {
-        let candidate = path;
-        let path = match path.canonicalize() {
+        let candidate = local_path(path);
+        let path = match candidate.canonicalize() {
             Ok(path) => path,
             Err(source) => {
                 if self.dependencies.is_some() {
-                    self.track(candidate)?;
+                    self.track(&candidate)?;
                 }
                 return Err(ReadError::Io {
-                    path: candidate.to_owned(),
+                    path: candidate,
                     source,
                 });
             }
@@ -145,14 +153,15 @@ impl LocalRetriever {
                 )
             })?
             .to_string();
+        let display_path = local_path(&path);
         if let Some(dependencies) = &self.dependencies {
             let mut dependencies =
                 dependencies.lock().expect("schema dependencies lock");
-            let candidate = crate::cli_support::lexical_abspath(candidate);
-            if candidate.starts_with(&self.base) {
+            let candidate = crate::cli_support::lexical_abspath(&candidate);
+            if candidate.starts_with(local_path(&self.base)) {
                 dependencies.insert(candidate);
             }
-            dependencies.insert(path.clone());
+            dependencies.insert(display_path.clone());
         }
         if let Some(bytes) = files.contents.get(&identity) {
             let size = bytes.len();
@@ -169,7 +178,7 @@ impl LocalRetriever {
         std::fs::File::open(&path)
             .and_then(|file| file.take((remaining + 1) as u64).read_to_end(&mut bytes))
             .map_err(|source| ReadError::Io {
-                path: path.clone(),
+                path: display_path.clone(),
                 source,
             })?;
         if bytes.len() > remaining {
@@ -177,7 +186,7 @@ impl LocalRetriever {
         }
         let value =
             serde_json::from_slice(&bytes).map_err(|source| ReadError::Json {
-                path: path.clone(),
+                path: display_path,
                 source,
             })?;
         files.bytes += bytes.len();
