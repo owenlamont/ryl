@@ -688,6 +688,38 @@ fn omitted_mapping_key_formats_without_indentation_errors() {
 }
 
 #[test]
+fn implicit_collection_key_quote_refusals_survive_a_document_marker() {
+    let input = "[a, {b: c}]: |\n  a";
+    let cfg = YamlLintConfig::from_toml_str("[format]\ndocument-start = 'add'\n[lint.rules.quoted-strings]\nrequired = true\ncheck-keys = true\n").unwrap();
+    let (output, notices) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = output.unwrap();
+    assert_eq!(output, "---\n[a, {b: c}]: |\n  a\n");
+    assert!(
+        notices
+            .iter()
+            .any(|notice| notice.rule == Some("quoted-strings")
+                && notice.message
+                    == "cannot add required quotes inside an implicit collection key")
+    );
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert_eq!(problems.len(), 3);
+    assert!(
+        problems.iter().all(|problem| consistency::refused(
+            input, &output, problem, &notices, &before
+        )),
+        "{problems:?}: {notices:?}"
+    );
+}
+
+#[test]
 fn anchored_sequence_after_omitted_key_converts_to_block() {
     let input = ": &a [b]\n";
     let cfg =

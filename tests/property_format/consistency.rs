@@ -113,6 +113,9 @@ pub fn refused(
         if notice.rule != problem.rule {
             return false;
         }
+        if notice.message == "cannot add required quotes inside an implicit collection key" {
+            return unchanged_problem && (notice.line, notice.column) == (problem.line, problem.column);
+        }
         if unchanged_problem {
             return true;
         }

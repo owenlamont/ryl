@@ -578,7 +578,8 @@ Block scalars stay unchanged.
 Adding quotes to an implicit key is refused if the selected spelling, including
 escapes and properties, would exceed YAML's 1,024-character simple-key limit.
 The formatter reports the refusal; shorten the key or use explicit `?` syntax.
-Scalars inside an implicit collection key never gain quotes.
+Scalars inside an implicit collection key never gain quotes; refused additions receive
+a notice.
 Inline suppression and formatter suppression can also leave required quotes missing.
 With compatible settings and no collection keys, refusals or suppression, quoted-string output passes
 `ryl check` under the same config.

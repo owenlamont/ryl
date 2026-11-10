@@ -208,18 +208,20 @@ pub(super) fn constrain_keys(
         if start.get() >= key_end {
             return true;
         }
-        if collection_key {
-            return false;
-        }
-        let key_start = super::marker_byte_offset(key).get();
-        let characters = buffer[key_start..start.get()].chars().count()
-            + after + buffer[end.get()..key_end].chars().count();
-        if characters <= 1024 {
-            return true;
-        }
+        let message = if collection_key {
+            "cannot add required quotes inside an implicit collection key"
+        } else {
+            let key_start = super::marker_byte_offset(key).get();
+            let characters = buffer[key_start..start.get()].chars().count()
+                + after + buffer[end.get()..key_end].chars().count();
+            if characters <= 1024 {
+                return true;
+            }
+            "cannot add required quotes: the implicit key would exceed 1024 characters; shorten the key or use an explicit `?` key"
+        };
         refusals.push(super::Violation {
             line: key.line(), column: key.col() + 1,
-            message: "cannot add required quotes: the implicit key would exceed 1024 characters; shorten the key or use an explicit `?` key".to_owned(),
+            message: message.to_owned(),
         });
         false
     });

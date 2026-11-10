@@ -3102,7 +3102,8 @@ Block scalars stay unchanged.
 Adding quotes to an implicit key is refused if the selected spelling, including
 escapes and properties, would exceed YAML's 1,024-character simple-key limit.
 The formatter reports the refusal; shorten the key or use explicit `?` syntax.
-Scalars inside an implicit collection key never gain quotes.
+Scalars inside an implicit collection key never gain quotes; refused additions receive
+a notice.
 Inline suppression and formatter suppression can also leave required quotes missing.
 With compatible settings and no collection keys, refusals or suppression, quoted-string output passes
 `ryl check` under the same config.
@@ -8088,7 +8089,8 @@ wrapped plain scalar lines when adding quotes. `quote-style = "preserve"` freeze
 quoting; `keep-quotes = true` retains optional quotes even when lint forbids them.
 [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules) explains warnings
 and remedies. Oversized implicit keys are left plain with a refusal notice.
-Scalars inside implicit collection keys never gain quotes.
+Scalars inside implicit collection keys never gain quotes; refused additions receive
+a notice.
 
 ## YAML 1.1 values with `required = "only-when-needed"`
 
