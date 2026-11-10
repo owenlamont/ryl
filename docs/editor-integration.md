@@ -6,9 +6,9 @@ as you type. It is the same lint and fix engine as the CLI, exposed over the pro
 
 A ryl language server is a **linter** provider. It is meant to run *alongside* Red Hat's
 [`yaml-language-server`](https://github.com/redhat-developer/yaml-language-server) (schema
-completion and schema hover), the way Ruff runs alongside Pylance: editors attach
-both and merge their diagnostics. ryl validates explicitly configured schema associations;
-its hover only explains ryl's own diagnostics.
+completion), the way Ruff runs alongside Pylance: editors attach both and merge their
+diagnostics. ryl validates explicitly configured schema associations and shows their
+titles and descriptions on hover, alongside diagnostic explanations.
 
 ## What it provides
 
@@ -20,7 +20,7 @@ its hover only explains ryl's own diagnostics.
 | Fix all of one rule | `source.fixAll.ryl.<rule>` code action | Applies just one safe-fixable rule's fixes (offered per rule with a diagnostic) |
 | Disable a rule | `quickfix` code action | Inserts `# ryl disable-line rule:<rule>` (per line) or a first-line `# ryl disable-file` (whole file) |
 | Formatting | `textDocument/formatting` | Runs [`ryl format`](formatter.md) on the document, under the `[format]` table; each YAML region of a Markdown file is formatted on its own |
-| Hover | `textDocument/hover` | The rule and message for a diagnostic under the cursor, with a link to the rules reference |
+| Hover | `textDocument/hover` | Diagnostic explanations and rules reference, followed by the associated schema's title and description for the key or value |
 | Rename | `textDocument/rename`, `textDocument/prepareRename` | Rename a YAML anchor/alias and every same-name use in its document |
 | File watching | `workspace/didChangeWatchedFiles` | Watches configs, YAML sources and exact local schema dependencies: config/schema changes revalidate open documents (push clients) or request `workspace/diagnostic/refresh`; any change resumes a long-polling workspace pull |
 
