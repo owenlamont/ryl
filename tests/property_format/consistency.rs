@@ -101,20 +101,9 @@ pub fn refused(
     {
         return true;
     }
-    if unchanged_problem
-        && problem.rule == Some("quoted-strings")
-        && notices
-            .iter()
-            .any(|notice| refused_key_contains(output, notice, problem))
-    {
-        return true;
-    }
     notices.iter().any(|notice| {
         if notice.rule != problem.rule {
             return false;
-        }
-        if notice.message == "cannot add required quotes inside an implicit collection key" {
-            return unchanged_problem && (notice.line, notice.column) == (problem.line, problem.column);
         }
         if unchanged_problem {
             return true;
@@ -134,41 +123,6 @@ pub fn refused(
                     _ => false,
                 })
     })
-}
-
-fn refused_key_contains(
-    output: &str,
-    notice: &ryl::LintProblem,
-    problem: &ryl::LintProblem,
-) -> bool {
-    if !matches!(notice.rule, Some("brackets" | "braces"))
-        || notice.message != "cannot convert to block safely: it is a mapping key"
-    {
-        return false;
-    }
-    let start = (notice.line, notice.column);
-    let position = (problem.line, problem.column);
-    let mut depth = 0usize;
-    let mut active = false;
-    for token in Scanner::new(StrInput::new(output)).map_while(Result::ok) {
-        let (span, kind) = token.into_parts();
-        let at = (span.start.line(), span.start.col() + 1);
-        active |= at == start;
-        if !active {
-            continue;
-        }
-        match kind {
-            TokenType::FlowSequenceStart | TokenType::FlowMappingStart => depth += 1,
-            TokenType::FlowSequenceEnd | TokenType::FlowMappingEnd => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return start <= position && position <= at;
-                }
-            }
-            _ => {}
-        }
-    }
-    false
 }
 
 fn unchanged_fragment(

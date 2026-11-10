@@ -2203,6 +2203,15 @@
             "null"
           ]
         },
+        "extra-required-flow": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "ignore": {
           "anyOf": [
             {

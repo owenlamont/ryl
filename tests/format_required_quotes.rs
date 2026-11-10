@@ -19,6 +19,15 @@ fn formatted(input: &str, config: &str, expected: &str) {
 }
 
 #[test]
+fn flow_only_requirements_still_normalize_block_quotes() {
+    formatted(
+        "block: a?b\nquoted: \"plain\"\nnecessary: \"a: b\"\n",
+        "[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n",
+        "block: a?b\nquoted: plain\nnecessary: 'a: b'\n",
+    );
+}
+
+#[test]
 fn extra_required_quotes_flow_url() {
     for required in ["false", "'only-when-needed'"] {
         formatted(
@@ -275,6 +284,18 @@ fn implicit_collection_keys_skip_required_quotes() {
         check_values(input, &output).unwrap();
     }
     formatted("? [a, b]\n: text\n", &config, "? ['a', 'b']\n: 'text'\n");
+}
+
+#[test]
+fn implicit_collection_key_quote_refusals_are_reported() {
+    for (config, expected) in [
+        (format!("{REQUIRED}check-keys = true\n"), "[a?b]: 'value'\n"),
+        ("[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?']\n".to_owned(), "[a?b]: value\n"),
+    ] {
+        let (_, _, stderr, output) = ryl_on(Some(&config), "[a?b]: value\n", &["format", "--no-cache"]);
+        assert_eq!(output, expected);
+        assert!(stderr.contains("cannot add quotes inside an implicit collection key"), "{stderr}");
+    }
 }
 
 #[test]

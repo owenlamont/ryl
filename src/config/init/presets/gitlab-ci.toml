@@ -27,7 +27,6 @@ line-length = "disable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
 octal-values = "disable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.comments]
@@ -42,3 +41,7 @@ level = "warning"
 [lint.rules.tags]
 # Native reference tag: https://docs.gitlab.com/ci/yaml/yaml_optimization/
 allowed-tags = ["!reference"]
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['^[?:]|:\?']

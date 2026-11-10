@@ -1351,6 +1351,8 @@ pub struct TomlQuotedStringsOptions {
     pub required: Option<QuotedStringsRequired>,
     #[serde(rename = "extra-required")]
     pub extra_required: Option<Vec<String>>,
+    #[serde(rename = "extra-required-flow")]
+    pub extra_required_flow: Option<Vec<String>>,
     #[serde(rename = "extra-allowed")]
     pub extra_allowed: Option<Vec<String>>,
     #[serde(rename = "allow-quoted-quotes")]

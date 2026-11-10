@@ -224,6 +224,12 @@ const UNCONFLICTABLE: &[(&str, &str, &str, &str)] = &[
     (
         "quoted-strings",
         QUOTED,
+        "extra-required-flow = ['[?:]']",
+        "matching flow strings receive quotes",
+    ),
+    (
+        "quoted-strings",
+        QUOTED,
         "check-keys = true",
         "keys are quoted as values are, so a value conflicts first",
     ),

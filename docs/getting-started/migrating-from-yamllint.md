@@ -238,6 +238,17 @@ the rule-enabled gate.
 
 ## How ryl differs from yamllint
 
+### Flow-only quote requirements (TOML)
+
+`quoted-strings.extra-required-flow` requires matching strings to be quoted only
+inside flow collections, including keys even with `check-keys = false`. Yamllint
+has no equivalent. Ecosystem presets use the option for reader grammar gaps:
+YAML 1.2.2 §7.3.3, productions 126–130, permits `/health?ready=true`, `?foo`
+and `:foo` as flow plain strings, but some application readers reject or misread
+them. The reference parser reports `+SEQ []`, `=VAL :/health?ready=true`, `-SEQ`
+for the URL sequence, and `=VAL :?foo` for the question-prefixed string.
+Ryl quotes matching strings without changing block-context expression wrapping.
+
 ryl reads yamllint configs and directives, but behaves differently in a small number
 of places. Each difference is deliberate: ryl follows the YAML 1.2.2 specification and
 its reference parser, reports a problem rather than ignoring it, or avoids repeated

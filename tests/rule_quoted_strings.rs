@@ -186,7 +186,7 @@ fn double_quoted_non_printable_is_considered_needed() {
     let cfg = build_config(
         "rules:\n  document-start: disable\n  quoted-strings:\n    required: only-when-needed\n",
     );
-    let yaml = "foo: \"\u{0007}\"\n";
+    let yaml = "foo: \"\\a\"\n";
     let hits = quoted_strings::check(yaml, &cfg);
     assert!(hits.is_empty(), "non-printable characters require quotes");
 }
@@ -940,5 +940,110 @@ fn fix_keeps_quotes_on_a_key_whose_colon_needs_them() {
             expected,
             "{input:?}"
         );
+    }
+}
+
+#[test]
+fn flow_only_requirements_leave_block_documents_unchanged() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n",
+    ).unwrap();
+    let rule = Config::resolve(&cfg);
+    let input = "block: a?b\nquoted: \"a?b\"\nlist:\n  - :foo\n";
+    assert!(quoted_strings::check(input, &rule).is_empty());
+    assert!(quoted_strings::fix(input, &rule).is_none());
+}
+
+#[test]
+fn flow_requirements_include_keys_without_changing_block_scalars() {
+    let input = "block: a?b\nwrapped: has(object.spec.foo) &&\n  object.spec.foo?first:second\nflow: {?foo: a?b, :foo: [a?b], ordinary: plain}\n";
+    let expected = "block: a?b\nwrapped: has(object.spec.foo) &&\n  object.spec.foo?first:second\nflow: {'?foo': 'a?b', ':foo': ['a?b'], ordinary: plain}\n";
+    for required in ["false", "'only-when-needed'"] {
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[lint.rules.quoted-strings]\nrequired = {required}\nextra-required-flow = ['\\?|^:']\n"
+        )).unwrap();
+        let rule = Config::resolve(&cfg);
+        let hits = quoted_strings::check(input, &rule);
+        assert_eq!(hits.len(), 4, "{hits:?}");
+        assert_eq!(hits[0].message, "string key is not quoted");
+        let fixed = quoted_strings::fix(input, &rule).unwrap();
+        assert_eq!(fixed, expected);
+        assert!(quoted_strings::check(&fixed, &rule).is_empty());
+        assert!(quoted_strings::fix(&fixed, &rule).is_none());
+    }
+}
+
+#[test]
+fn flow_requirements_combine_with_required_true_and_consistent_quotes() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules.quoted-strings]\nrequired = true\nquote-type = 'consistent'\nextra-required-flow = ['\\?|^:']\n",
+    ).unwrap();
+    let rule = Config::resolve(&cfg);
+    let input =
+        "block: \"value\"\nflow: {?foo: word, :foo: \"quoted\", ordinary: \"fine\"}\n";
+    let fixed = quoted_strings::fix(input, &rule).unwrap();
+    assert_eq!(
+        fixed,
+        "block: \"value\"\nflow: {\"?foo\": \"word\", \":foo\": \"quoted\", ordinary: \"fine\"}\n"
+    );
+    assert!(quoted_strings::check(&fixed, &rule).is_empty());
+}
+
+#[test]
+fn flow_requirements_exempt_empty_tagged_strings_and_anchors() {
+    for required in ["false", "true", "'only-when-needed'"] {
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[lint.rules.quoted-strings]\nrequired = {required}\nextra-required-flow = ['^$']\n"
+        )).unwrap();
+        let rule = Config::resolve(&cfg);
+        for input in [
+            "[!!str ]\n",
+            "[!!str &a , *a]\n",
+            "[&a !!str , *a]\n",
+            "key:\n  - !!str\n",
+        ] {
+            assert!(quoted_strings::check(input, &rule).is_empty(), "{input:?}");
+            assert!(quoted_strings::fix(input, &rule).is_none(), "{input:?}");
+            crate::property::reference::check_strict_events(input, input).unwrap();
+        }
+    }
+}
+
+#[test]
+fn flow_requirements_quote_explicit_strings_and_leave_other_core_tags_alone() {
+    let input = "[!!str a?b, !!int 1, !!str ordinary]\n";
+    let expected = "[!!str 'a?b', !!int 1, !!str ordinary]\n";
+    for required in ["false", "true", "'only-when-needed'"] {
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[lint.rules.quoted-strings]\nrequired = {required}\nextra-required-flow = ['\\?|^:|^1$']\n"
+        )).unwrap();
+        let rule = Config::resolve(&cfg);
+        assert_eq!(quoted_strings::check(input, &rule).len(), 1);
+        assert_eq!(quoted_strings::fix(input, &rule).as_deref(), Some(expected));
+        assert!(quoted_strings::check(expected, &rule).is_empty());
+        assert!(quoted_strings::fix(expected, &rule).is_none());
+    }
+}
+
+#[test]
+fn flow_requirements_recognize_explicit_string_tag_spellings_and_typed_content() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^true$']\n"
+    ).unwrap();
+    let rule = Config::resolve(&cfg);
+    for (input, expected) in [
+        (
+            "[!<tag:yaml.org,2002:str> a?b]\n",
+            "[!<tag:yaml.org,2002:str> 'a?b']\n",
+        ),
+        (
+            "%TAG !s! tag:yaml.org,2002:s\n---\n[!s!tr a?b]\n",
+            "%TAG !s! tag:yaml.org,2002:s\n---\n[!s!tr 'a?b']\n",
+        ),
+        ("[!!str true]\n", "[!!str 'true']\n"),
+    ] {
+        assert_eq!(quoted_strings::check(input, &rule).len(), 1);
+        assert_eq!(quoted_strings::fix(input, &rule).as_deref(), Some(expected));
+        assert!(quoted_strings::check(expected, &rule).is_empty());
     }
 }

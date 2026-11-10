@@ -319,3 +319,90 @@ fn ancestor_config_read_failure_is_reported() {
     assert!(stderr.contains("pyproject.toml"), "{stderr}");
     assert!(!child.join(".ryl.toml").exists());
 }
+
+#[test]
+fn kubernetes_flow_conversion_quotes_urls_and_preserves_wrapped_expressions() {
+    let dir = tempdir().unwrap();
+    let cfg = format!(
+        "target-version = '1.1'\n{}\n[format]\nmapping-style = 'block'\nsequence-style = 'flow'\nprose-wrap = 'preserve'\n",
+        Preset::Kubernetes.toml()
+    );
+    fs::write(dir.path().join(".ryl.toml"), cfg).unwrap();
+    let input = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: formatter-compatibility\nspec:\n  containers:\n    - name: worker\n      image: busybox\n      args:\n        - /health?ready=true\nexpression: has(object.spec.foo) &&\n  object.spec.foo?first:second\n";
+    let path = dir.path().join("pod.yaml");
+    fs::write(&path, input).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(dir.path()).args([
+        "format",
+        "--no-cache",
+        "pod.yaml",
+    ]));
+    assert_eq!(code, 0, "{stderr}");
+    let formatted = fs::read_to_string(&path).unwrap();
+    assert!(
+        formatted.contains("args: ['/health?ready=true']"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.ends_with(
+            "expression: has(object.spec.foo) &&\n  object.spec.foo?first:second\n"
+        ),
+        "{formatted}"
+    );
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(dir.path()).args([
+        "check",
+        "--fix",
+        "--no-cache",
+        "pod.yaml",
+    ]));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(fs::read_to_string(&path).unwrap(), formatted);
+    fs::write(&path, input).unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(dir.path()).args([
+        "check",
+        "--fix",
+        "--no-cache",
+        "pod.yaml",
+    ]));
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(fs::read_to_string(&path).unwrap(), input);
+}
+
+#[test]
+fn reader_presets_only_add_flow_quote_requirements() {
+    for preset in [
+        Preset::Ansible,
+        Preset::Cloudformation,
+        Preset::Kubernetes,
+        Preset::GithubActions,
+        Preset::Compose,
+        Preset::GitlabCi,
+        Preset::HomeAssistant,
+        Preset::Helm,
+    ] {
+        let cfg = YamlLintConfig::from_toml_str(preset.toml()).unwrap();
+        let rule = ryl::rules::quoted_strings::Config::resolve(&cfg);
+        let input = "{?foo: \"word\", :foo: \"word\"}\n";
+        assert_eq!(
+            ryl::rules::quoted_strings::check(input, &rule).len(),
+            2,
+            "{}",
+            preset.name()
+        );
+        let fixed = ryl::rules::quoted_strings::fix(input, &rule).unwrap();
+        assert!(
+            ryl::rules::quoted_strings::check(&fixed, &rule).is_empty(),
+            "{fixed}"
+        );
+        if !matches!(preset, Preset::Helm) {
+            assert!(
+                ryl::rules::quoted_strings::check(
+                    "plain: word\nquestion: a?b\ncolon: a:b\nquoted: \"word\"\n",
+                    &rule
+                )
+                .is_empty(),
+                "{}",
+                preset.name()
+            );
+        }
+    }
+}

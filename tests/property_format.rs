@@ -634,35 +634,6 @@ fn directive_profile_preserves_spelling_without_changing_zero_config_profiles() 
 }
 
 #[test]
-fn an_opaque_mapping_key_accounts_only_for_its_unchanged_quote_diagnostics() {
-    let input = "outer:\n  [a, {b: c}]: {é: [v]}\n";
-    let cfg = YamlLintConfig::from_toml_str("[format]\nquote-style = 'double'\nmapping-style = 'block'\nsequence-style = 'block'\n[lint.rules.quoted-strings]\nquote-type = 'double'\nrequired = true\ncheck-keys = true\nallow-quoted-quotes = true\nallow-double-quotes-for-escaping = true\n").unwrap();
-    let (output, notices) = ryl::fix::rewrite_str(
-        input,
-        &cfg,
-        synthetic_path(),
-        synthetic_base_dir(),
-        ryl::config::SourceKind::Yaml,
-        ryl::fix::Rewrite::Format,
-    );
-    let output = output.unwrap();
-    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
-    let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
-    assert!(!problems.is_empty());
-    assert!(problems.iter().all(|problem| consistency::refused(
-        input, &output, problem, &notices, &before
-    )));
-    let broken = output.replacen("\"outer\"", "outer", 1);
-    let outside = lint_str(&broken, synthetic_path(), &cfg, synthetic_base_dir())
-        .into_iter()
-        .find(|problem| problem.line == 1)
-        .unwrap();
-    assert!(!consistency::refused(
-        input, &broken, &outside, &notices, &before
-    ));
-}
-
-#[test]
 fn omitted_mapping_key_formats_without_indentation_errors() {
     let input = ":  a\n";
     let cfg =
@@ -706,7 +677,7 @@ fn implicit_collection_key_quote_refusals_survive_a_document_marker() {
             .iter()
             .any(|notice| notice.rule == Some("quoted-strings")
                 && notice.message
-                    == "cannot add required quotes inside an implicit collection key")
+                    == "cannot add quotes inside an implicit collection key; use an explicit `?` key")
     );
     let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
     let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());

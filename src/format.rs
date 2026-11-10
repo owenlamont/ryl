@@ -562,7 +562,9 @@ pub(crate) fn unfixed(
         .chain(kept)
         .collect();
     problems.extend(refused_spacing(input, cfg, &reindented.refused));
-    problems.extend(quote_refusals(input, cfg));
+    if cached.is_none_or(|evidence| evidence.quotes_refused) {
+        problems.extend(quote_refusals(input, cfg));
+    }
     problems.extend(refusals_with_analysis(
         input,
         cfg,
@@ -576,7 +578,6 @@ pub(crate) fn unfixed(
 
 fn quote_refusals(input: Analysis<'_>, cfg: &YamlLintConfig) -> Vec<LintProblem> {
     if cfg.rule_level(quoted_strings::ID).is_some()
-        && cfg.rule_option_bool(quoted_strings::ID, "check-keys", false)
         && cfg.format().targets().quote_style != QuoteStyleTarget::Preserve
     {
         let style = match cfg.format().targets().quote_style {

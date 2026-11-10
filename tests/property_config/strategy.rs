@@ -131,6 +131,7 @@ const CATALOG: &[(&str, &[(&str, OptValKind)])] = &[
         "quoted-strings",
         &[
             ("extra-required", OptValKind::RegexList),
+            ("extra-required-flow", OptValKind::RegexList),
             ("extra-allowed", OptValKind::RegexList),
             (
                 "quote-type",
