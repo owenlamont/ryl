@@ -50,3 +50,4 @@ quote-type = "any"
 required = true
 # Quote string values: https://helm.sh/docs/chart_best_practices/values/
 check-keys = false
+extra-required-flow = ['\?|^:']

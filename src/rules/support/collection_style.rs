@@ -60,13 +60,13 @@ impl BlockSpellings {
     }
 }
 
-/// Every collection in block style, for the quote pass behind [`BlockSpellings`].
-pub(crate) struct BlockLayout {
+/// Every collection in the proposed style, for quote planning before style selection.
+pub(crate) struct UniformLayout {
     forms: Forms,
     root_keys: Vec<usize>,
 }
 
-impl crate::rules::quoted_strings::ConvertedLayout for BlockLayout {
+impl crate::rules::quoted_strings::ConvertedLayout for UniformLayout {
     fn forms(&self) -> &Forms {
         &self.forms
     }
@@ -235,9 +235,9 @@ impl Plan {
         self.recipes.is_empty()
     }
 
-    /// The plan's collections all in block style, or `None` with nothing to reconsider.
-    pub(crate) fn block_layout(&self) -> Option<BlockLayout> {
-        (!self.pending.is_empty()).then(|| BlockLayout {
+    /// The plan's collections in one style, or `None` with nothing to reconsider.
+    pub(crate) fn uniform_layout(&self, form: Form) -> Option<UniformLayout> {
+        (!self.pending.is_empty()).then(|| UniformLayout {
             forms: Forms::new(
                 self.nodes
                     .iter()
@@ -245,7 +245,7 @@ impl Plan {
                     .filter(|(_, node)| {
                         matches!(node.kind(), Kind::Sequence | Kind::Mapping)
                     })
-                    .map(|(index, _)| (index, Form::Block))
+                    .map(|(index, _)| (index, form))
                     .collect(),
             ),
             root_keys: self
@@ -253,7 +253,8 @@ impl Plan {
                 .iter()
                 .zip(&self.sites)
                 .filter(|(node, _)| {
-                    node.position().is_multiple_of(2)
+                    matches!(form, Form::Block)
+                        && node.position().is_multiple_of(2)
                         && node.parent().is_some_and(|parent| {
                             self.nodes[parent].kind() == Kind::Mapping
                                 && self.nodes[parent].parent().is_none()
@@ -325,7 +326,10 @@ impl Plan {
         ),
         styles: &crate::rules::quoted_strings::Styles,
         (layout, targets): (&indentation::Layout<'_>, &indentation::Candidates),
-        block: &BlockSpellings,
+        (block, flow): (
+            &BlockSpellings,
+            Option<&crate::rules::quoted_strings::FlowSpellings>,
+        ),
     ) -> bool {
         let pending: Vec<_> = self
             .pending
@@ -385,7 +389,8 @@ impl Plan {
             cfg.shape,
         )
         .with_protection(&self.protected)
-        .with_block_spellings(block);
+        .with_block_spellings(block)
+        .with_flow_spellings(flow);
         let initial = input::Initial::new(source, &sites, &self.comments);
         let column = |byte| {
             layout
@@ -451,8 +456,8 @@ impl Plan {
         cfg: Config,
         edits: &[crate::format::layout::PlanEdit],
         styles: &crate::rules::quoted_strings::Styles,
-        layout: &indentation::Layout<'_>,
-        targets: &indentation::Candidates,
+        (layout, targets): (&indentation::Layout<'_>, &indentation::Candidates),
+        flow: Option<&crate::rules::quoted_strings::FlowSpellings>,
     ) -> bool {
         if cfg.mappings != CollectionStyleTarget::Flow
             || source.directives().disables_any(braces::ID)
@@ -475,7 +480,8 @@ impl Plan {
             (usize::from(cfg.indent), usize::from(cfg.width)),
             cfg.shape,
         )
-        .with_protection(&self.protected);
+        .with_protection(&self.protected)
+        .with_flow_spellings(flow);
         let mut replacements = std::collections::HashMap::new();
         for part in self.selections().flat_map(Selected::fragments) {
             let FragmentPart::Structure(Structure::Start {

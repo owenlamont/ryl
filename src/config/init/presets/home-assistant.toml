@@ -57,6 +57,7 @@ allow-quoted-quotes = false
 extra-required = ['\{\{|\{%']
 # Apply string guidance to values: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
 check-keys = false
+extra-required-flow = ['\?|^:']
 
 [lint.rules.tags]
 # Registered configuration tags: https://github.com/home-assistant-libs/annotatedyaml/blob/main/src/annotatedyaml/loader.py

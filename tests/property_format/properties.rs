@@ -14,7 +14,8 @@ use super::strategy::arb_quoted_payload;
 
 const TAGS: [&str; 3] = ["!!str", "!local", "!"];
 
-const ESCAPED: [(bool, &str); 18] = [
+const ESCAPED: [(bool, &str); 19] = [
+    (false, "a?b"),
     (false, "/health?ready=true"),
     (false, "secret"),
     (true, "keep"),
@@ -35,7 +36,9 @@ const ESCAPED: [(bool, &str); 18] = [
     (true, "🦀 é 世 \"quoted\""),
 ];
 
-const QUOTED_KEYS: [&str; 8] = [
+const QUOTED_KEYS: [&str; 10] = [
+    "'?foo'",
+    "':foo'",
     "'quoted'",
     "\"double\"",
     "'a: b'",

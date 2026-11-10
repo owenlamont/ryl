@@ -149,6 +149,12 @@ impl<'a> Scalar<'a> {
         self.tag.is_some_and(is_core_schema)
     }
 
+    pub(crate) fn has_string_tag(&self) -> bool {
+        self.tag.is_some_and(|tag| {
+            crate::yaml_dom::core_schema_suffix(tag).as_deref() == Some("str")
+        })
+    }
+
     pub(crate) const fn is_key(&self) -> bool {
         matches!(self.role, Role::Key)
     }

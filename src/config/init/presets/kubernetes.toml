@@ -24,7 +24,6 @@ line-length = "enable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
 octal-values = "disable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.comments]
@@ -45,3 +44,7 @@ indent-sequences = "whatever"
 forbid-nan = true
 # JSON conversion rejects nonfinite floats: https://github.com/kubernetes-sigs/yaml/blob/master/yaml.go
 forbid-inf = true
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['\?|^:']

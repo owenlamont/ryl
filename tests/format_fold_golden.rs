@@ -12,6 +12,23 @@ use std::path::Path;
 use ryl::config::YamlLintConfig;
 use ryl::format::{FORMAT_RULE_IDS, format_str};
 
+#[test]
+fn collection_conversion_preserves_fold_indent_on_a_whitespace_first_line() {
+    let cfg = YamlLintConfig::from_toml_str("line-length = 16\n[format]\nquote-style = 'preserve'\nline-ending = 'lf'\nprose-wrap = 'always'\nsequence-style = 'block'\n").unwrap();
+    let expected = "x:\n  - a\na: >1-\n    \n # a long\n content line\nb: c\n";
+    for ending in ["\n", "\r"] {
+        let input = "x: [a]\na: >1-\n    \n # a long content line\nb: c\n"
+            .replace('\n', ending);
+        let output = format_str(&input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, expected);
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
+        crate::property::reference::check_strict_events(&input, &output).unwrap();
+    }
+}
+
 fn fold(input: &str, width: u16, indent: u8) -> String {
     let cfg = YamlLintConfig::from_toml_str(&format!(
         "line-length = {width}\nindent-width = {indent}\n[format]\nfold-long-lines = true\n"

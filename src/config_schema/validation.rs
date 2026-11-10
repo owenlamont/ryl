@@ -54,6 +54,9 @@ pub trait QuotedStringsOptionSet {
     fn required(&self) -> Option<&QuotedStringsRequired>;
     fn extra_required(&self) -> Option<&[String]>;
     fn extra_allowed(&self) -> Option<&[String]>;
+    fn extra_required_flow(&self) -> Option<&[String]> {
+        None
+    }
 }
 
 impl QuotedStringsOptionSet for QuotedStringsOptions {
@@ -71,6 +74,9 @@ impl QuotedStringsOptionSet for QuotedStringsOptions {
 }
 
 impl QuotedStringsOptionSet for TomlQuotedStringsOptions {
+    fn extra_required_flow(&self) -> Option<&[String]> {
+        self.extra_required_flow.as_deref()
+    }
     fn required(&self) -> Option<&QuotedStringsRequired> {
         self.required.as_ref()
     }
@@ -230,7 +236,12 @@ fn validate_quoted_strings_rule(
         quoted_strings_required_mode(specific.required()),
         specific.extra_required(),
         specific.extra_allowed(),
-    )
+    )?;
+    validate_regex_list(specific.extra_required_flow(), |text, err| {
+        format!(
+            "invalid config: regex \"{text}\" in option \"extra-required-flow\" of \"quoted-strings\" is invalid: {err}"
+        )
+    })
 }
 
 fn rule_options<T>(entry: Option<&RuleEntry<T>>) -> Option<&RuleOptions<T>> {

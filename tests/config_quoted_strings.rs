@@ -200,3 +200,19 @@ fn resolve_required_true_sets_mode() {
     let hits = quoted_strings::check("foo: bar\n", &resolved);
     assert_eq!(hits.len(), 1);
 }
+
+#[test]
+fn extra_required_flow_is_toml_only_and_validates_patterns() {
+    for option in ["['[']", "'pattern'", "[false]"] {
+        let error = ryl::config::YamlLintConfig::from_toml_str(&format!(
+            "[lint.rules.quoted-strings]\nextra-required-flow = {option}\n"
+        ))
+        .unwrap_err();
+        assert!(error.contains("extra-required-flow"), "{error}");
+    }
+    let error = ryl::config::YamlLintConfig::from_yaml_str(
+        "rules:\n  quoted-strings:\n    extra-required-flow: ['pattern']\n",
+    )
+    .unwrap_err();
+    assert!(error.contains("extra-required-flow"), "{error}");
+}

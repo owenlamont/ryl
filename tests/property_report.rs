@@ -59,6 +59,10 @@ fn arb_char() -> impl Strategy<Value = char> {
         Just('\n'),
         Just('\r'),
         Just('\u{85}'),
+        Just('\u{061c}'),
+        Just('\u{200e}'),
+        Just('\u{202e}'),
+        Just('\u{2069}'),
         Just('\u{2028}'),
         Just('\u{2029}'),
         Just('\u{fffe}'),
@@ -249,7 +253,9 @@ proptest! {
     ) {
         let escaped = github_escape(&text, property);
         prop_assert!(
-            !escaped.chars().any(|c| c.is_control()),
+            !escaped.chars().any(|c| c.is_control()
+                || matches!(c, '\u{061c}' | '\u{200e}'..='\u{200f}'
+                    | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')),
             "github_escape leaked a control character from {text:?}: {escaped:?}"
         );
     }

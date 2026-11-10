@@ -416,6 +416,7 @@ pub(crate) struct ParsedFacts {
     scalars: Vec<(ScalarStyle, u32)>,
     pub(crate) root_scalars: HashMap<usize, usize>,
     pub(crate) document_starts: Vec<usize>,
+    pub(crate) has_flow_collections: bool,
     pub(crate) valid: bool,
     pub(crate) error: Option<ScanError>,
     strict_indentation_error: Option<ScanError>,
@@ -460,7 +461,11 @@ impl ParsedFacts {
             Event::DocumentStart(..) => {
                 self.document_starts.push(span.start.line() - 1);
             }
-            Event::MappingStart(..) | Event::SequenceStart(..) => *depth += 1,
+            Event::MappingStart(style, ..) | Event::SequenceStart(style, ..) => {
+                *depth += 1;
+                self.has_flow_collections |=
+                    *style == ryl_yaml_parser::StructureStyle::Flow;
+            }
             Event::MappingEnd | Event::SequenceEnd => *depth -= 1,
             Event::Scalar(_, style, ..) => {
                 self.scalars.push((
