@@ -3,6 +3,8 @@
 
 mod complexity;
 mod diagnostics;
+#[cfg(feature = "lsp")]
+pub(crate) mod hover;
 mod loading;
 #[doc(hidden)]
 pub mod net;
