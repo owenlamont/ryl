@@ -94,6 +94,7 @@ collection context; `ryl format` uses the final context, including collections
 converted from block to flow. Flow patterns also apply to explicitly tagged strings
 (`!!str`); other core tags remain exempt. Collection width includes the required
 quotes before choosing flow style. Literal and folded block scalars remain unchanged.
+Empty explicitly tagged scalars are exempt from flow patterns, including with anchors.
 
 `ryl check --fix` rewrites string scalars to use the configured `quote-type` and
 adds or removes quotes to satisfy `required`. The fix is conservative: it

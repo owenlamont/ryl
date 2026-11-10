@@ -294,6 +294,7 @@ pub(super) fn skip_scalar(
             && !config.requires_flow_quotes(model.value(), context))
         || (model.has_core_tag()
             && !(model.has_string_tag()
+                && !model.value().is_empty()
                 && config.requires_flow_quotes(model.value(), context)))
         || (style == ScalarStyle::Plain
             && !model.plain_is_string()

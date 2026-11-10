@@ -979,6 +979,26 @@ fn flow_requirements_combine_with_required_true_and_consistent_quotes() {
 }
 
 #[test]
+fn flow_requirements_exempt_empty_tagged_strings_and_anchors() {
+    for required in ["false", "true", "'only-when-needed'"] {
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[lint.rules.quoted-strings]\nrequired = {required}\nextra-required-flow = ['^$']\n"
+        )).unwrap();
+        let rule = Config::resolve(&cfg);
+        for input in [
+            "[!!str ]\n",
+            "[!!str &a , *a]\n",
+            "[&a !!str , *a]\n",
+            "key:\n  - !!str\n",
+        ] {
+            assert!(quoted_strings::check(input, &rule).is_empty(), "{input:?}");
+            assert!(quoted_strings::fix(input, &rule).is_none(), "{input:?}");
+            crate::property::reference::check_strict_events(input, input).unwrap();
+        }
+    }
+}
+
+#[test]
 fn flow_requirements_quote_explicit_strings_and_leave_other_core_tags_alone() {
     let input = "[!!str a?b, !!int 1, !!str ordinary]\n";
     let expected = "[!!str 'a?b', !!int 1, !!str ordinary]\n";

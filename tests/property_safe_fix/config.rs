@@ -139,7 +139,7 @@ ignored-keys = ['^k']
 quote-type = 'single'
 required = 'only-when-needed'
 allow-double-quotes-for-escaping = true
-extra-required-flow = ['\\?|^:']
+extra-required-flow = ['\\?|^:|^$']
 ";
 
 const COMMENTS_TOML_VARIANTS: &[(&str, &str)] = &[

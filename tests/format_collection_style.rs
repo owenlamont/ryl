@@ -1331,6 +1331,35 @@ fn flow_conversion_measures_required_quotes_before_selecting_collection_style() 
 }
 
 #[test]
+fn flow_requirements_preserve_empty_tagged_strings() {
+    assert_empty_tagged_flow_unchanged("[!!str ]\n", "[!!str]\n");
+}
+
+#[test]
+fn flow_requirements_preserve_empty_tagged_anchors_and_aliases() {
+    assert_empty_tagged_flow_unchanged("[!!str &a , *a]\n", "[!!str &a, *a]\n");
+    assert_empty_tagged_flow_unchanged("[&a !!str , *a]\n", "[&a !!str, *a]\n");
+}
+
+#[test]
+fn flow_conversion_preserves_empty_tagged_strings() {
+    assert_empty_tagged_flow_unchanged("key:\n  - !!str\n", "key:\n  - !!str\n");
+}
+
+fn assert_empty_tagged_flow_unchanged(input: &str, expected: &str) {
+    let baseline = config("[format]\nsequence-style = 'flow'\n");
+    let cfg = config(
+        "[format]\nsequence-style = 'flow'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['^$']\n",
+    );
+    let path = Path::new("case.yaml");
+    let output = format_str(input, &cfg, path, &[]);
+    assert_eq!(output, expected);
+    assert_eq!(output, format_str(input, &baseline, path, &[]));
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(format_str(&output, &cfg, path, &[]), output);
+}
+
+#[test]
 fn flow_conversion_quotes_explicit_string_tags() {
     let cfg = config(
         "[format]\nsequence-style = 'flow'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n",
