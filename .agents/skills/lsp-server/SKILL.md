@@ -115,6 +115,11 @@ Newer revisions replace queued
 entries for the same config. Dispatch returns a config-error diagnostic while
 preparation is pending and refreshes diagnostics when work completes. No fetch runs on
 dispatch or under the service state lock. Formatting skips schema preparation.
+Opted-in schema modelines use unsaved document text, per-document headers and the same
+worker/grant boundary. Selections coexist in bounded config groups, tagged with document
+revisions; edits cancel obsolete work and closing releases dependencies. Directive
+errors blame their source headers and never publish separate config diagnostics onto
+the YAML URI. Local candidates are confined before watcher registration.
 
 Unapproved origins produce approval diagnostics with Always allow `<origin>` and
 Allow once `<origin>` quick fixes through `ryl.allowSchemaOrigin`. The optional second

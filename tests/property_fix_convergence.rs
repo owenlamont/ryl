@@ -280,6 +280,13 @@ fn assert_converges(
 ) -> Result<usize, TestCaseError> {
     let rules = pipeline_rules(cfg);
     let fixed = apply_safe_fixes(input, cfg, synthetic_path(), synthetic_base_dir());
+    if cfg.schema_directives() {
+        prop_assert_eq!(
+            ryl::rules::schema::document_directives(input),
+            ryl::rules::schema::document_directives(&fixed),
+            "schema selection changed"
+        );
+    }
     let Some(start) =
         safe_fix_start(input, cfg, synthetic_path(), synthetic_base_dir())
     else {

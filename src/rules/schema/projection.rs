@@ -455,25 +455,22 @@ fn value_bytes(value: &Value) -> usize {
 pub(super) fn document<'a>(
     events: &mut Peekable<impl Iterator<Item = (Event<'a>, Span)>>,
     budget: &mut Budget,
-) -> Result<Option<Projection>, Refusal> {
-    while let Some((event, start)) = events.next() {
-        if let Event::DocumentStart(_, version) = event {
-            let mut builder = Builder {
-                anchors: BTreeMap::new(),
-                start,
-                yaml11: yaml_version::resolves_as_yaml_1_1(
-                    version.map(yaml_version::event_version),
-                ),
-                budget,
-            };
-            let node = builder.node(events, 0, false)?;
-            return Ok(Some(Projection {
-                value: node.value,
-                nodes: node.nodes,
-                keys: node.keys,
-                root: node.span,
-            }));
-        }
-    }
-    Ok(None)
+    start: Span,
+    version: Option<ryl_yaml_parser::YamlVersion>,
+) -> Result<Projection, Refusal> {
+    let mut builder = Builder {
+        anchors: BTreeMap::new(),
+        start,
+        yaml11: yaml_version::resolves_as_yaml_1_1(
+            version.map(yaml_version::event_version),
+        ),
+        budget,
+    };
+    let node = builder.node(events, 0, false)?;
+    Ok(Projection {
+        value: node.value,
+        nodes: node.nodes,
+        keys: node.keys,
+        root: node.span,
+    })
 }

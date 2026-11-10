@@ -12,6 +12,394 @@ use super::*;
 const ORIGIN: &str = "https://schemas.example.org";
 const ROOT: &str = "https://schemas.example.org/root.json?secret=hidden";
 
+#[test]
+fn directive_buffers_keep_separate_unsaved_selections_and_local_watchers() {
+    let h = Harness::new("", false);
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        "[lint.rules.schema]\ndirectives = true\n",
+    )
+    .unwrap();
+    std::fs::write(h.dir.path().join("accept.schema"), "true").unwrap();
+    std::fs::write(h.dir.path().join("reject.schema"), "false").unwrap();
+    let mut client = h.client_options(Limits::default(), watching(), Value::Null);
+    let first = file_uri(h.dir.path(), "first.yaml");
+    let second = file_uri(h.dir.path(), "second.yaml");
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":first,"languageId":"yaml","version":1,"text":"# $schema: accept.schema\nx: 1\n"}}));
+    assert!(client.diagnostics().is_empty());
+    schema_registration(&client);
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":second,"languageId":"yaml","version":1,"text":"# $schema: reject.schema\nx: 1\n"}}));
+    assert_eq!(await_schema(&client).len(), 1);
+    assert_eq!(schema_registration(&client).as_array().unwrap().len(), 2);
+    client.notify("textDocument/didChange", json!({"textDocument":{"uri":first,"version":2},"contentChanges":[{"text":"# $schema: reject.schema\nx: 1\n"}]}));
+    assert_eq!(await_schema(&client).len(), 1);
+    assert_eq!(schema_registration(&client).as_array().unwrap().len(), 1);
+    std::fs::write(h.dir.path().join("reject.schema"), "true").unwrap();
+    changed_schema(&client, h.dir.path(), "reject.schema", 2);
+    assert!(client.diagnostics().is_empty());
+    assert!(client.diagnostics().is_empty());
+    assert_eq!(h.calls(), 0);
+    client.shutdown();
+}
+
+#[test]
+fn remote_directives_require_approval_at_the_header_without_config_publication() {
+    let h = Harness::new("", false);
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        "[lint.rules.schema]\ndirectives = true\n",
+    )
+    .unwrap();
+    let mut client = h.client(Limits::default());
+    let uri = file_uri(h.dir.path(), "test.yaml");
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":format!("# 🦀\n# $schema: {ROOT}\ntext\n")}}));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let params = client.publish_params();
+        assert_eq!(params.uri, uri);
+        if let Some(diagnostic) = params
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.message.contains("approval required"))
+        {
+            assert_eq!(diagnostic.range.start.line, 1);
+            assert!(!diagnostic.message.contains("hidden"));
+            break;
+        }
+        assert!(Instant::now() < deadline);
+    }
+    assert_eq!(h.calls(), 0);
+    approve(&mut client, ORIGIN, false);
+    assert_eq!(await_schema(&client).len(), 1);
+    assert_eq!(h.calls(), 1);
+    client.shutdown();
+}
+
+#[test]
+fn remote_directive_edits_supersede_late_results() {
+    let h = Harness::new(ORIGIN, false);
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        "[lint.rules.schema]\ndirectives = true\n",
+    )
+    .unwrap();
+    let (release, gate) = std::sync::mpsc::channel();
+    *h.env.remote.gate.lock().unwrap() = Some(gate);
+    let mut client = h.client(Limits::default());
+    let uri = file_uri(h.dir.path(), "test.yaml");
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":format!("# $schema: {ROOT}\ntext\n")}}));
+    await_error(&client, "pending");
+    client.notify("textDocument/didChange", json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":"# $schema: none\ntext\n"}]}));
+    assert!(client.diagnostics().is_empty());
+    release.send(()).unwrap();
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({"textDocument":{"uri":uri}}),
+    );
+    assert_eq!(
+        client.response(&id).response_result.unwrap()["items"],
+        json!([])
+    );
+    client.shutdown();
+}
+
+#[test]
+fn directive_formatting_never_fetches_and_offline_never_approves() {
+    let h = Harness::new("", true);
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        "[lint.rules.schema]\ndirectives = true\n",
+    )
+    .unwrap();
+    let mut client = h.client(Limits::default());
+    let uri = file_uri(h.dir.path(), "test.yaml");
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":format!("# $schema: {ROOT}\nx:  1\n")}}));
+    await_error(&client, "approval required");
+    let id = client.request(
+        "textDocument/formatting",
+        json!({"textDocument":{"uri":uri},"options":{"tabSize":2,"insertSpaces":true}}),
+    );
+    client.response(&id).response_result.unwrap();
+    assert_eq!(h.calls(), 0);
+    client.shutdown();
+}
+
+#[test]
+fn closing_a_directive_buffer_releases_its_selection_without_watch_support() {
+    let h = Harness::new(ORIGIN, false);
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        "[lint.rules.schema]\ndirectives = true\n",
+    )
+    .unwrap();
+    let mut client = h.client(Limits::default());
+    let uri = file_uri(h.dir.path(), "test.yaml");
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":format!("# $schema: {ROOT}\ntext\n")}}));
+    assert_eq!(await_schema(&client).len(), 1);
+    client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+    assert!(client.diagnostics().is_empty());
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":"# $schema: none\ntext\n"}}));
+    assert!(client.diagnostics().is_empty());
+    client.shutdown();
+}
+
+#[test]
+fn queued_directive_selections_are_discarded_on_edit_close_and_untracked_pulls() {
+    let h = Harness::new(ORIGIN, false);
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        "[lint.rules.schema]\ndirectives = true\n",
+    )
+    .unwrap();
+    std::fs::write(
+        h.dir.path().join("closed.yaml"),
+        format!("# $schema: {ORIGIN}/closed.json\ntext\n"),
+    )
+    .unwrap();
+    let (began, release) = install_policy_gate(&h);
+    let mut client = h.client_options(Limits::default(), watching(), Value::Null);
+    let first = file_uri(h.dir.path(), "first.yaml");
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":first,"languageId":"yaml","version":1,"text":format!("# $schema: {ROOT}\ntext\n")}}));
+    await_error(&client, "pending");
+    began.recv_timeout(Duration::from_secs(5)).unwrap();
+    let closed = file_uri(h.dir.path(), "closed.yaml");
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({"textDocument":{"uri":closed}}),
+    );
+    assert!(
+        pull_items(client.response(&id))[0]
+            .message
+            .contains("pending")
+    );
+    let second = file_uri(h.dir.path(), "second.yaml");
+    let third = file_uri(h.dir.path(), "third.yaml");
+    for uri in [&second, &third] {
+        client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":format!("# $schema: {ORIGIN}/queued.json\ntext\n")}}));
+        await_error(&client, "pending");
+    }
+    client.notify("textDocument/didChange", json!({"textDocument":{"uri":second,"version":2},"contentChanges":[{"text":"# $schema: none\ntext\n"}]}));
+    assert!(client.diagnostics().is_empty());
+    for uri in [&third, &first, &second] {
+        client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+        assert!(client.diagnostics().is_empty());
+    }
+    release.send(()).unwrap();
+    client.shutdown();
+    assert_eq!(h.calls(), 0);
+}
+
+#[test]
+fn a_stale_workspace_snapshot_cannot_restore_an_unsaved_directive() {
+    for reopen in [false, true] {
+        let h = Harness::new(ORIGIN, false);
+        std::fs::write(
+            h.dir.path().join(".ryl.toml"),
+            "[lint.rules.schema]\ndirectives = true\n",
+        )
+        .unwrap();
+        std::fs::write(h.dir.path().join("test.yaml"), "text\n").unwrap();
+        let mut client =
+            h.client_options(Limits::default(), watching(), workspace_mode());
+        let uri = file_uri(h.dir.path(), "test.yaml");
+        client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":format!("# $schema: {ROOT}\ntext\n")}}));
+        await_schema(&client);
+        let (started, began) = std::sync::mpsc::sync_channel(1);
+        let (release, gate) = std::sync::mpsc::channel();
+        *h.env.read_gate.lock().unwrap() = Some(PolicyGate {
+            started,
+            release: gate,
+        });
+        let id = client.request(
+            "workspace/diagnostic",
+            json!({"previousResultIds":[{"uri":uri,"value":"old"}]}),
+        );
+        began.recv_timeout(Duration::from_secs(5)).unwrap();
+        if reopen {
+            client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+            client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":"# $schema: none\ntext\n"}}));
+        } else {
+            client.notify("textDocument/didChange", json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":"# $schema: none\ntext\n"}]}));
+        }
+        let barrier = client.request(UNHANDLED_METHOD, Value::Null);
+        let (messages, _) = client.messages_until_response(&barrier);
+        release.send(()).unwrap();
+        if !messages.iter().any(
+        |message| matches!(message,Message::Response(response) if response.id == id),
+    ) {
+        client.response(&id).response_result.unwrap();
+    }
+        let id = client.request(
+            "textDocument/diagnostic",
+            json!({"textDocument":{"uri":uri}}),
+        );
+        assert_eq!(
+            client.response(&id).response_result.unwrap()["items"],
+            json!([])
+        );
+        client.shutdown();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn directive_watchers_refuse_dangling_symlinks_and_non_directory_components() {
+    let h = Harness::new("", false);
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        "[lint.rules.schema]\ndirectives = true\n",
+    )
+    .unwrap();
+    std::fs::write(h.dir.path().join("plain-file"), "true").unwrap();
+    std::os::unix::fs::symlink(
+        outside.path().join("missing"),
+        h.dir.path().join("escape"),
+    )
+    .unwrap();
+    let mut client = h.client_options(Limits::default(), watching(), Value::Null);
+    let uri = file_uri(h.dir.path(), "test.yaml");
+    for (version, value) in [
+        (1, "escape/schema.json"),
+        (2, "plain-file/schema.json"),
+        (3, "missing/../../escaped.json"),
+        (4, "../outside-schema.json"),
+    ] {
+        client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":version,"text":format!("# $schema: {value}\nx: 1\n")}}));
+        await_error(&client, "schema");
+        let id = client.request(
+            "textDocument/diagnostic",
+            json!({"textDocument":{"uri":uri}}),
+        );
+        assert_eq!(
+            client.response(&id).response_result.unwrap()["items"][0]["range"]["start"]
+                ["line"],
+            0
+        );
+    }
+    assert_eq!(h.calls(), 0);
+    client.shutdown();
+}
+
+#[cfg(unix)]
+#[test]
+fn confined_targets_are_watched_without_registering_an_outside_alias() {
+    let h = Harness::new("", false);
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        "[lint.rules.schema]\ndirectives = true\n",
+    )
+    .unwrap();
+    std::fs::write(h.dir.path().join("accept.schema"), "true").unwrap();
+    std::os::unix::fs::symlink(h.dir.path(), outside.path().join("link")).unwrap();
+    let value = format!(
+        "../{}/link/accept.schema",
+        outside.path().file_name().unwrap().to_str().unwrap()
+    );
+    let mut client = h.client_options(Limits::default(), watching(), Value::Null);
+    let uri = file_uri(h.dir.path(), "test.yaml");
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":format!("# $schema: {value}\nx: 1\n")}}));
+    assert!(client.diagnostics().is_empty());
+    assert_eq!(
+        schema_registration(&client),
+        json!([{"globPattern":globset::escape(&h.dir.path().join("accept.schema").to_string_lossy().replace('\\', "/"))}])
+    );
+    client.shutdown();
+}
+
+#[test]
+fn directive_preparations_share_bounded_retention_and_release_closed_buffers() {
+    for (limits, error) in [
+        (
+            Limits {
+                retained_bytes: 6,
+                ..Limits::default()
+            },
+            "size limit",
+        ),
+        (
+            Limits {
+                retained_resources: 1,
+                ..Limits::default()
+            },
+            "resource limit",
+        ),
+        (
+            Limits {
+                document_selections: 1,
+                ..Limits::default()
+            },
+            "resource limit",
+        ),
+    ] {
+        let h = Harness::new(ORIGIN, false);
+        std::fs::write(
+            h.dir.path().join(".ryl.toml"),
+            "[lint.rules.schema]\ndirectives = true\n",
+        )
+        .unwrap();
+        let other = format!("{ORIGIN}/other.json");
+        for url in [ROOT, other.as_str()] {
+            h.env
+                .remote
+                .resources
+                .lock()
+                .unwrap()
+                .insert(url.to_owned(), b"true".to_vec());
+        }
+        let mut client = h.client(limits);
+        let first = file_uri(h.dir.path(), "first.yaml");
+        let second = file_uri(h.dir.path(), "second.yaml");
+        client.notify("textDocument/didOpen", json!({"textDocument":{"uri":first,"languageId":"yaml","version":1,"text":format!("# $schema: {ROOT}\ntext\n")}}));
+        await_clean(&client);
+        client.notify("textDocument/didOpen", json!({"textDocument":{"uri":second,"languageId":"yaml","version":1,"text":format!("# $schema: {other}\ntext\n")}}));
+        await_error(&client, error);
+        client.notify(
+            "textDocument/didClose",
+            json!({"textDocument":{"uri":first}}),
+        );
+        assert!(client.diagnostics().is_empty());
+        client.notify("textDocument/didChange", json!({"textDocument":{"uri":second,"version":2},"contentChanges":[{"text":format!("# $schema: {other}\ntext\n")}]}));
+        await_clean(&client);
+        client.shutdown();
+    }
+}
+
+#[test]
+fn directive_errors_preserve_bom_untitled_and_markdown_positions() {
+    let h = Harness::new("", false);
+    std::fs::write(
+        h.dir.path().join(".ryl.toml"),
+        "[files]\nmarkdown = ['*.md']\n[lint.rules.schema]\ndirectives = true\n",
+    )
+    .unwrap();
+    let mut client = h.client(Limits::default());
+    let uri = "untitled:directive-test";
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":"\u{feff}# $schema: missing.json\nx: 1\n"}}));
+    let diagnostics = client.diagnostics();
+    assert!(diagnostics[0].message.contains("filename"));
+    assert_eq!(diagnostics[0].range.start, Position::new(0, 1));
+    client.notify("textDocument/didChange", json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":"# $schema: none\nx: 1\n"}]}));
+    assert!(client.diagnostics().is_empty());
+    client.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+    assert!(client.diagnostics().is_empty());
+    let uri = file_uri(h.dir.path(), "guide.md");
+    client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"markdown","version":1,"text":"🦀 heading\n\n> ```yaml\n> # $schema: missing.json\n> x: 1\n> ```\n"}}));
+    assert_eq!(client.diagnostics()[0].range.start, Position::new(3, 2));
+    std::fs::write(h.dir.path().join("closed.yaml"), "# $schema: none\nx: 1\n")
+        .unwrap();
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({"textDocument":{"uri":file_uri(h.dir.path(), "closed.yaml")}}),
+    );
+    assert_eq!(
+        client.response(&id).response_result.unwrap()["items"],
+        json!([])
+    );
+    client.shutdown();
+}
+
 #[derive(Default)]
 struct Remote {
     calls: AtomicUsize,
@@ -196,6 +584,16 @@ fn await_schema(client: &Client) -> Vec<Diagnostic> {
                 return params.diagnostics;
             }
         }
+    }
+}
+
+fn await_clean(client: &Client) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !client.diagnostics().is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "directive preparation did not settle"
+        );
     }
 }
 
@@ -1047,6 +1445,7 @@ fn remote_schema_enqueue_deadline_is_visible_without_fetching() {
     let h = Harness::new(ORIGIN, false);
     let mut client = h.client(Limits {
         preparation: Duration::ZERO,
+        ..Limits::default()
     });
     h.open(&client);
     await_error(&client, "deadline exceeded");
@@ -1255,6 +1654,7 @@ fn existing_waiter_deadline_cancels_blocked_preparation() {
     let (began, release) = install_policy_gate(&h);
     let mut client = h.client(Limits {
         preparation: Duration::ZERO,
+        ..Limits::default()
     });
     let uri = h.open(&client);
     began.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1522,6 +1922,7 @@ fn expired_preflight_never_resurrects_an_approval_or_retry() {
         let h = Harness::new("", false);
         let mut client = h.client(Limits {
             preparation: Duration::from_millis(100),
+            ..Limits::default()
         });
         let (began, release_policy) = install_policy_gate(&h);
         let uri = h.open(&client);

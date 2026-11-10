@@ -606,12 +606,60 @@ fn check_yaml_1_1_values(
 fn check_pass(pass: &FormatPass, input: &str) -> Result<String, String> {
     check_invariants(&pass.format, input)
         .and_then(|once| {
+            if pass.cfg.schema_directives()
+                && ryl::rules::schema::document_directives(input)
+                    != ryl::rules::schema::document_directives(&once)
+            {
+                return Err("schema selection changed".to_owned());
+            }
             if pass.cfg.target_version() != TargetVersion::Yaml12 {
                 check_yaml_1_1_preserved(input, &once)?;
             }
             Ok(once)
         })
         .map_err(|violation| format!("pass '{}' on {input:?}: {violation}", pass.name))
+}
+
+#[test]
+fn directive_profile_preserves_spelling_without_changing_zero_config_profiles() {
+    let source = "#$schema: none\nx: 1\n";
+    assert_eq!(
+        (named_pass("format/preview").format)(source),
+        (named_pass("format/default").format)(source)
+    );
+    assert_eq!(
+        (named_pass("format/schema-directives").format)(source),
+        source
+    );
+}
+
+#[test]
+fn an_opaque_mapping_key_accounts_only_for_its_unchanged_quote_diagnostics() {
+    let input = "outer:\n  [a, {b: c}]: {é: [v]}\n";
+    let cfg = YamlLintConfig::from_toml_str("[format]\nquote-style = 'double'\nmapping-style = 'block'\nsequence-style = 'block'\n[lint.rules.quoted-strings]\nquote-type = 'double'\nrequired = true\ncheck-keys = true\nallow-quoted-quotes = true\nallow-double-quotes-for-escaping = true\n").unwrap();
+    let (output, notices) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = output.unwrap();
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert!(!problems.is_empty());
+    assert!(problems.iter().all(|problem| consistency::refused(
+        input, &output, problem, &notices, &before
+    )));
+    let broken = output.replacen("\"outer\"", "outer", 1);
+    let outside = lint_str(&broken, synthetic_path(), &cfg, synthetic_base_dir())
+        .into_iter()
+        .find(|problem| problem.line == 1)
+        .unwrap();
+    assert!(!consistency::refused(
+        input, &broken, &outside, &notices, &before
+    ));
 }
 
 #[test]

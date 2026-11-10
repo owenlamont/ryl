@@ -47,6 +47,32 @@ impl Settings {
         kind: SourceKind,
         mode: &str,
     ) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
+        self.entry_with((path, base_dir, cfg, kind, mode), None)
+    }
+
+    pub fn document_entry(
+        &self,
+        file: &ryl::cli_support::LintFile,
+        bytes: Vec<u8>,
+        prepared: &YamlLintConfig,
+    ) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
+        self.entry_with(
+            (&file.0, &file.1, &file.2, file.3, "check"),
+            Some((bytes, format!("{prepared:?}"))),
+        )
+    }
+
+    fn entry_with(
+        &self,
+        (path, base_dir, cfg, kind, mode): (
+            &Path,
+            &Path,
+            &YamlLintConfig,
+            SourceKind,
+            &str,
+        ),
+        document: Option<(Vec<u8>, String)>,
+    ) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
         if self.disabled {
             return Ok(None);
         }
@@ -82,8 +108,12 @@ impl Settings {
             let _ = fs::remove_file(&probe);
         }
         drop(checked);
-        let Ok(content) = fs::read(path) else {
-            return Ok(None);
+        let (content, prepared) = match document {
+            Some((bytes, prepared)) => (bytes, Some(prepared)),
+            None => match fs::read(path) {
+                Ok(bytes) => (bytes, None),
+                Err(_) => return Ok(None),
+            },
         };
         if mode == "format"
             && (path.as_os_str().to_str().is_none()
@@ -125,6 +155,9 @@ impl Settings {
             })
             .clone();
         drop(prefixes);
+        if let Some(prepared) = prepared {
+            hash.update(prepared.as_bytes());
+        }
         hash.update(path.as_os_str().as_encoded_bytes());
         hash.update(&[0]);
         hash.update(&content);

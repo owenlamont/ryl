@@ -9,6 +9,8 @@ use crossbeam_channel::{Sender, bounded};
 use url::Url;
 
 use crate::config::{ConfigContext, Env};
+use crate::rules::schema::PreparationError;
+use crate::rules::schema::directives::Revision;
 use crate::rules::schema::net::{self, Dependencies, Network, Policy};
 use crate::yaml_dom::YamlOwned;
 
@@ -17,12 +19,18 @@ pub(super) type Origins = BTreeMap<String, BTreeSet<String>>;
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
     pub preparation: Duration,
+    pub retained_bytes: usize,
+    pub retained_resources: usize,
+    pub document_selections: usize,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         Self {
             preparation: Duration::from_secs(65),
+            retained_bytes: crate::rules::schema::MAX_SCHEMA_BYTES,
+            retained_resources: crate::rules::schema::MAX_SCHEMA_RESOURCES,
+            document_selections: crate::rules::schema::MAX_SCHEMA_RESOURCES,
         }
     }
 }
@@ -30,11 +38,12 @@ impl Default for Limits {
 enum Status {
     Queued,
     Running,
-    AwaitingApproval,
-    Finished(Result<Arc<ConfigContext>, String>),
+    AwaitingApproval(PreparationError),
+    Finished(Result<Arc<ConfigContext>, PreparationError>),
 }
 
 struct Entry {
+    group: Option<String>,
     context: ConfigContext,
     status: Status,
     deadline: Instant,
@@ -44,12 +53,35 @@ struct Entry {
     dependencies: BTreeSet<PathBuf>,
 }
 
+impl Entry {
+    fn superseded_by(&self, context: &ConfigContext, group: Option<&str>) -> bool {
+        self.context.source == context.source
+            && self.context.base_dir == context.base_dir
+            && (self.group.as_deref() != group
+                || self
+                    .context
+                    .config
+                    .schema_request()
+                    .map(|request| &request.owner)
+                    == context
+                        .config
+                        .schema_request()
+                        .map(|request| &request.owner))
+    }
+}
+
 #[derive(Default)]
 struct State {
     entries: BTreeMap<String, Entry>,
     queue: VecDeque<String>,
     grants: BTreeSet<String>,
     persist: VecDeque<String>,
+}
+
+impl State {
+    fn prune_queue(&mut self) {
+        self.queue.retain(|key| self.entries.contains_key(key));
+    }
 }
 
 pub(super) struct Service {
@@ -71,7 +103,7 @@ impl Service {
         let owned = state.clone();
         let environment = env.clone();
         let worker = std::thread::spawn(move || {
-            run_service(&owned, &jobs, environment.as_ref(), &events);
+            run_service(&owned, &jobs, environment.as_ref(), &events, limits);
         });
         Self {
             state,
@@ -85,39 +117,48 @@ impl Service {
     pub(super) fn request(
         &self,
         context: ConfigContext,
-    ) -> Result<ConfigContext, String> {
+    ) -> Result<ConfigContext, PreparationError> {
         let key = format!("{}:{:?}", context.base_dir.display(), context.config);
+        let group = context.config.schema_directives().then(|| {
+            format!(
+                "{}:{}",
+                context.base_dir.display(),
+                context.config.to_toml_string()
+            )
+        });
         let mut state = self.state.lock().expect("schema service lock");
         if let Some(entry) = state.entries.get_mut(&key) {
             if Instant::now() >= entry.deadline
                 && matches!(entry.status, Status::Queued | Status::Running)
             {
                 entry.cancel.store(true, Ordering::Relaxed);
-                entry.status = Status::Finished(Err(
+                entry.status = Status::Finished(Err(preparation_error(
+                    &entry.context,
                     "schema preparation deadline exceeded".to_owned(),
-                ));
+                )));
             }
             return match &entry.status {
                 Status::Finished(result) => result
                     .as_ref()
                     .map(|context| context.as_ref().clone())
                     .map_err(Clone::clone),
-                Status::AwaitingApproval => Err(format!(
-                    "schema origin approval required: {}",
-                    entry.origins.keys().cloned().collect::<Vec<_>>().join(" ")
+                Status::AwaitingApproval(error) => Err(PreparationError {
+                    message: format!(
+                        "schema origin approval required: {}",
+                        entry.origins.keys().cloned().collect::<Vec<_>>().join(" ")
+                    ),
+                    ..error.clone()
+                }),
+                Status::Queued | Status::Running => Err(preparation_error(
+                    &entry.context,
+                    "schema remote preparation pending".to_owned(),
                 )),
-                Status::Queued | Status::Running => {
-                    Err("schema remote preparation pending".to_owned())
-                }
             };
         }
         let obsolete: Vec<_> = state
             .entries
             .iter()
-            .filter(|(_, entry)| {
-                entry.context.source == context.source
-                    && entry.context.base_dir == context.base_dir
-            })
+            .filter(|(_, entry)| entry.superseded_by(&context, group.as_deref()))
             .map(|(key, _)| key.clone())
             .collect();
         for key in obsolete {
@@ -129,9 +170,22 @@ impl Service {
                 .store(true, Ordering::Relaxed);
             state.queue.retain(|queued| queued != &key);
         }
+        if group.is_some()
+            && state
+                .entries
+                .values()
+                .filter(|entry| entry.group == group)
+                .count()
+                >= self.limits.document_selections
+        {
+            return Err(preparation_error(&context, net::RESOURCE_LIMIT.to_owned()));
+        }
+        let pending =
+            preparation_error(&context, "schema remote preparation pending".to_owned());
         state.entries.insert(
             key.clone(),
             Entry {
+                group,
                 context,
                 status: Status::Queued,
                 deadline: Instant::now() + self.limits.preparation,
@@ -143,7 +197,7 @@ impl Service {
         );
         state.queue.push_back(key);
         let _ = self.wake.try_send(());
-        Err("schema remote preparation pending".to_owned())
+        Err(pending)
     }
 
     fn associations(&self) -> Vec<(PathBuf, Origins, String)> {
@@ -153,7 +207,9 @@ impl Service {
             .entries
             .values()
             .filter_map(|entry| {
-                if matches!(entry.status, Status::AwaitingApproval) {
+                if matches!(entry.status, Status::AwaitingApproval(..))
+                    && entry.context.config.schema_request().is_none()
+                {
                     entry.context.source.clone().map(|source| {
                         (source, entry.origins.clone(), entry.source_text.clone())
                     })
@@ -191,7 +247,7 @@ impl Service {
         state.grants.insert(origin.to_owned());
         let mut queued = Vec::new();
         for (key, entry) in &mut state.entries {
-            if matches!(entry.status, Status::AwaitingApproval)
+            if matches!(entry.status, Status::AwaitingApproval(..))
                 && entry.origins.contains_key(origin)
                 && !entry.cancel.load(Ordering::Relaxed)
             {
@@ -207,7 +263,9 @@ impl Service {
     pub(super) fn cancel_pending(&self) {
         let mut state = self.state.lock().expect("schema service lock");
         state.entries.retain(|_, entry| {
-            if matches!(entry.status, Status::Queued | Status::Running) {
+            if entry.context.config.schema_request().is_some()
+                || matches!(entry.status, Status::Queued | Status::Running)
+            {
                 entry.cancel.store(true, Ordering::Relaxed);
                 false
             } else {
@@ -278,6 +336,7 @@ fn run_service(
     jobs: &crossbeam_channel::Receiver<()>,
     environment: &(dyn Env + Send + Sync),
     events: &Sender<super::Event>,
+    limits: Limits,
 ) {
     while jobs.recv().is_ok() {
         loop {
@@ -290,7 +349,7 @@ fn run_service(
                 let result = net::persist_origin(environment, &origin);
                 let _ = events.send(super::Event::SchemaGrant { origin, result });
             } else if let Some(job) = next_job(owned) {
-                perform_job(job, owned, environment, events);
+                perform_job(job, owned, environment, events, limits);
             } else {
                 break;
             }
@@ -303,6 +362,7 @@ fn perform_job(
     owned: &Mutex<State>,
     environment: &(dyn Env + Send + Sync),
     events: &Sender<super::Event>,
+    limits: Limits,
 ) {
     let policy = Arc::new(Approval {
         cancel: job.cancel.clone(),
@@ -324,10 +384,37 @@ fn perform_job(
         .as_ref()
         .and_then(|path| environment.read_to_string(path).ok())
         .unwrap_or_default();
-    let result = prepared.map(|()| Arc::new(job.context));
+    let mut result = prepared.map(|()| Arc::new(job.context));
     let needed =
         std::mem::take(&mut *policy.needed.lock().expect("schema approval lock"));
     let mut state = owned.lock().expect("schema service lock");
+    if let Some(current) = state.entries.get(&job.key) {
+        let (mut bytes, mut resources) = result
+            .as_ref()
+            .map_or((0, 0), |context| context.config.schema_usage());
+        for (key, entry) in &state.entries {
+            if key != &job.key
+                && current.group.is_some()
+                && entry.group == current.group
+                && let Status::Finished(Ok(context)) = &entry.status
+            {
+                let usage = context.config.schema_usage();
+                bytes += usage.0;
+                resources += usage.1;
+            }
+        }
+        if bytes > limits.retained_bytes {
+            result = Err(preparation_error(
+                &current.context,
+                net::SIZE_LIMIT.to_owned(),
+            ));
+        } else if resources > limits.retained_resources {
+            result = Err(preparation_error(
+                &current.context,
+                net::RESOURCE_LIMIT.to_owned(),
+            ));
+        }
+    }
     let expired = job.cancel.load(Ordering::Relaxed) || Instant::now() >= job.deadline;
     let retry = !expired && needed.keys().any(|origin| state.grants.contains(origin));
     let Some(entry) = state.entries.get_mut(&job.key) else {
@@ -343,15 +430,18 @@ fn perform_job(
     entry.origins = needed;
     entry.status = if expired {
         entry.cancel.store(true, Ordering::Relaxed);
-        Status::Finished(Err(
-            "schema preparation cancelled or deadline exceeded".to_owned()
-        ))
+        Status::Finished(Err(preparation_error(
+            &entry.context,
+            "schema preparation cancelled or deadline exceeded".to_owned(),
+        )))
     } else if retry {
         Status::Queued
     } else if entry.origins.is_empty() {
         Status::Finished(result)
     } else {
-        Status::AwaitingApproval
+        Status::AwaitingApproval(
+            result.expect_err("unapproved origins prevent preparation"),
+        )
     };
     if retry {
         state.queue.push_back(job.key);
@@ -360,7 +450,21 @@ fn perform_job(
     let _ = events.send(super::Event::Schema);
 }
 
-fn prepare(context: &mut ConfigContext, env: &SchemaEnv<'_>) -> Result<(), String> {
+fn preparation_error(context: &ConfigContext, message: String) -> PreparationError {
+    match context.config.schema_request() {
+        Some(request) => request.error(message),
+        None => PreparationError {
+            line: 1,
+            column: 1,
+            message,
+        },
+    }
+}
+
+fn prepare(
+    context: &mut ConfigContext,
+    env: &SchemaEnv<'_>,
+) -> Result<(), PreparationError> {
     let urls: Vec<_> = context
         .config
         .rule_option("schema", "schemas")
@@ -368,14 +472,36 @@ fn prepare(context: &mut ConfigContext, env: &SchemaEnv<'_>) -> Result<(), Strin
         .into_iter()
         .flatten()
         .filter_map(|entry| entry.as_mapping_get("url").and_then(YamlOwned::as_str))
+        .chain(
+            context
+                .config
+                .schema_request()
+                .into_iter()
+                .flat_map(|request| request.declarations.iter())
+                .filter_map(|declaration| declaration.value.as_deref())
+                .filter(|value| {
+                    value
+                        .get(..6)
+                        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https:"))
+                }),
+        )
         .collect();
     if !urls.is_empty() {
         let network = Network::from_env(env, BTreeMap::new())
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| preparation_error(context, error.to_string()))?;
         let mut failure = None;
         for url in urls {
             if let Err(error) = network.authorize(url) {
-                failure = Some(error.to_string());
+                let mut error = preparation_error(context, error.to_string());
+                if let Some(declaration) = context
+                    .config
+                    .schema_request()
+                    .and_then(|request| request.declaration_for(url))
+                {
+                    error.line = declaration.line;
+                    error.column = declaration.column;
+                }
+                failure = Some(error);
             }
         }
         if let Some(error) = failure {
@@ -482,6 +608,7 @@ impl Env for SchemaEnv<'_> {
 pub(super) struct DocumentDependencies {
     paths: BTreeSet<PathBuf>,
     service_key: Option<String>,
+    directives: bool,
 }
 
 pub(super) struct Session {
@@ -492,8 +619,124 @@ pub(super) struct Session {
     pub(super) service: std::sync::OnceLock<Arc<Service>>,
     pub(super) dependencies:
         std::sync::OnceLock<Mutex<BTreeMap<PathBuf, DocumentDependencies>>>,
+    pub(super) revisions: std::sync::OnceLock<Mutex<BTreeMap<PathBuf, Revision>>>,
 }
 impl Session {
+    fn close_revision(&self, uri: &str) {
+        let Some(revisions) = self.revisions.get() else {
+            return;
+        };
+        let owner =
+            super::encoding::uri_to_path(uri).unwrap_or_else(|| PathBuf::from(uri));
+        revisions
+            .lock()
+            .expect("schema revisions lock")
+            .remove(&owner);
+        if let Some(service) = self.service.get() {
+            let mut state = service.state.lock().expect("schema service lock");
+            state.entries.retain(|_, entry| {
+                let keep = entry
+                    .context
+                    .config
+                    .schema_request()
+                    .is_none_or(|request| request.owner != owner);
+                if !keep {
+                    entry.cancel.store(true, Ordering::Relaxed);
+                }
+                keep
+            });
+            state.prune_queue();
+        }
+    }
+
+    pub(super) fn update_revision(&self, uri: &str, revision: i32) {
+        if let Some(revisions) = self.revisions.get()
+            && let Some(current) =
+                revisions.lock().expect("schema revisions lock").get_mut(
+                    super::encoding::uri_to_path(uri)
+                        .as_deref()
+                        .unwrap_or_else(|| Path::new(uri)),
+                )
+        {
+            current.version = i64::from(revision);
+        }
+    }
+
+    pub(super) fn register_revision(
+        &self,
+        owner: &Path,
+        revision: Option<i64>,
+        text: &str,
+    ) {
+        if let Some(revision) = revision {
+            self.revisions
+                .get_or_init(Mutex::default)
+                .lock()
+                .expect("schema revisions lock")
+                .insert(owner.to_owned(), Revision::new(revision, text));
+        }
+    }
+
+    pub(super) fn finish_document(
+        &self,
+        path: PathBuf,
+        context: &ConfigContext,
+        env: &SchemaEnv<'_>,
+        generation: u64,
+        result: Result<(), PreparationError>,
+    ) -> Result<Option<ConfigContext>, PreparationError> {
+        let request = context
+            .config
+            .schema_request()
+            .expect("directive preparation has a request");
+        let revisions = self
+            .revisions
+            .get()
+            .map(|revisions| revisions.lock().expect("schema revisions lock"));
+        let current = revisions
+            .as_ref()
+            .and_then(|revisions| revisions.get(&request.owner))
+            .copied();
+        if current != request.revision {
+            return Err(preparation_error(
+                context,
+                "schema preparation superseded by a newer document revision".to_owned(),
+            ));
+        }
+        self.observe_document(context);
+        self.record_dependencies(path, env, generation, Some(context));
+        result?;
+        if context.config.needs_remote_preparation() {
+            self.request_document(context.clone()).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+    pub(super) fn observe_document(&self, context: &ConfigContext) {
+        let Some(service) = self.service.get() else {
+            return;
+        };
+        let request = context
+            .config
+            .schema_request()
+            .expect("only directive preparations are observed");
+        let key = format!("{}:{:?}", context.base_dir.display(), context.config);
+        let mut state = service.state.lock().expect("schema service lock");
+        state.entries.retain(|old, entry| {
+            let obsolete = old != &key
+                && entry
+                    .context
+                    .config
+                    .schema_request()
+                    .is_some_and(|current| current.owner == request.owner);
+            if obsolete {
+                entry.cancel.store(true, Ordering::Relaxed);
+            }
+            !obsolete
+        });
+        state.prune_queue();
+    }
+
     pub(super) fn record_dependencies(
         &self,
         path: PathBuf,
@@ -522,6 +765,9 @@ impl Session {
                 path,
                 DocumentDependencies {
                     paths,
+                    directives: context.is_some_and(|context| {
+                        context.config.schema_request().is_some()
+                    }),
                     service_key: context
                         .filter(|context| context.config.needs_remote_preparation())
                         .map(|context| {
@@ -552,11 +798,18 @@ impl Session {
             }
         }
         if let Some(service) = self.service.get() {
+            let mut state = service.state.lock().expect("schema service lock");
+            state.entries.retain(|key, entry| {
+                let retain = entry.context.config.schema_request().is_none()
+                    || service_keys.contains(key);
+                if !retain {
+                    entry.cancel.store(true, Ordering::Relaxed);
+                }
+                retain
+            });
+            state.prune_queue();
             paths.extend(
-                service
-                    .state
-                    .lock()
-                    .expect("schema service lock")
+                state
                     .entries
                     .iter()
                     .filter(|(key, _)| service_keys.contains(*key))
@@ -569,6 +822,14 @@ impl Session {
         &self,
         context: ConfigContext,
     ) -> Result<ConfigContext, String> {
+        self.request_document(context)
+            .map_err(|error| error.to_string())
+    }
+
+    pub(super) fn request_document(
+        &self,
+        context: ConfigContext,
+    ) -> Result<ConfigContext, PreparationError> {
         self.service
             .get_or_init(|| {
                 Arc::new(Service::new(
@@ -699,10 +960,21 @@ impl super::Server {
             && let Some(service) = self.schema_service()
         {
             service.cancel_pending();
+            self.settings
+                .schema
+                .as_ref()
+                .expect("schema session")
+                .dependencies
+                .get_or_init(Mutex::default)
+                .lock()
+                .expect("schema dependencies lock")
+                .retain(|_, dependency| !dependency.directives);
         }
     }
 
     pub(super) fn close_schema_document(&self, uri: &str) {
+        let session = self.settings.schema.as_ref().expect("schema session");
+        session.close_revision(uri);
         if !self.settings.reports_workspace()
             && let Some(dependencies) = self
                 .settings

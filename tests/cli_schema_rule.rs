@@ -7,6 +7,8 @@ use serde_json::{Value, json};
 
 use crate::common::cli::{run, run_with_stdin, ryl};
 
+mod directives;
+
 pub(crate) fn config(dir: &Path, schema: &Value) -> ryl::config::ConfigContext {
     fs::write(dir.join("schema.json"), schema.to_string()).unwrap();
     fs::write(

@@ -1263,6 +1263,7 @@ pub struct TagsOptions {
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SchemaOptions {
+    pub directives: Option<bool>,
     pub schemas: Option<Vec<SchemaAssociation>>,
     pub pins: Option<std::collections::BTreeMap<String, String>>,
 }

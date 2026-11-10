@@ -865,5 +865,6 @@ already exists.
 
 Use the TOML-only [`schema`](../rules/schema.md) rule to associate local JSON Schemas
 with file globs. The first matching association wins. Remote schemas require
-[independent origin grants](../rules/schema.md#remote-schemas). Catalogs and in-file
-schema declarations are not supported. Normal ryl directives suppress findings.
+[independent origin grants](../rules/schema.md#remote-schemas). Opt into Red Hat's two
+[schema comment forms](../rules/schema.md#in-file-directives) with `directives = true`.
+Inline `$schema` data keys and catalogs do not select schemas. Normal ryl directives suppress findings.

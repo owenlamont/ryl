@@ -51,6 +51,9 @@ trailing-spaces = 'enable'
 min-spaces-from-content = 2
 max-spaces-from-content = 2
 
+[lint.rules.schema]
+directives = true
+
 [lint.rules.quoted-strings]
 quote-type = 'single'
 required = 'only-when-needed'
@@ -148,6 +151,7 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
         .chain([
             toml_pass("fix/ladder-toml", TOML_LADDER, fix),
             toml_pass("format/default", "[format]\n", format),
+            toml_pass("format/schema-directives", "[format]\n[lint.rules.schema]\ndirectives = true\n", format),
             toml_pass("format/required", "[lint.rules.quoted-strings]\nrequired = true\ncheck-keys = true\n", format),
             toml_pass("format/patterns", "[lint.rules.quoted-strings]\nrequired = 'only-when-needed'\nextra-required = ['\\?', 'secret']\nextra-allowed = ['keep']\ncheck-keys = true\n", format),
             toml_pass("format/required-double", "[format]\nquote-style = 'double'\n[lint.rules.quoted-strings]\nrequired = true\n", format),

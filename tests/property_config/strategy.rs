@@ -125,6 +125,7 @@ impl OptValKind {
 /// Rules paired with a couple of their real option keys and the value kinds those
 /// keys accept. Keeping keys real lets generation reach each rule's `resolve()`.
 const CATALOG: &[(&str, &[(&str, OptValKind)])] = &[
+    ("schema", &[("directives", OptValKind::Bool)]),
     ("key-ordering", &[("ignored-keys", OptValKind::RegexList)]),
     (
         "quoted-strings",
