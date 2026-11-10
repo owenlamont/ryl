@@ -19,6 +19,15 @@ fn formatted(input: &str, config: &str, expected: &str) {
 }
 
 #[test]
+fn flow_only_requirements_still_normalize_block_quotes() {
+    formatted(
+        "block: a?b\nquoted: \"plain\"\nnecessary: \"a: b\"\n",
+        "[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n",
+        "block: a?b\nquoted: plain\nnecessary: 'a: b'\n",
+    );
+}
+
+#[test]
 fn extra_required_quotes_flow_url() {
     for required in ["false", "'only-when-needed'"] {
         formatted(

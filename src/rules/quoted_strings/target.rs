@@ -85,7 +85,9 @@ impl<'text> Eligible<'text> {
                 style,
                 ScalarStyle::Plain | ScalarStyle::Literal | ScalarStyle::Folded
             )
-            && (style != ScalarStyle::Plain || config.requirements.is_none());
+            && (style != ScalarStyle::Plain
+                || config.requirements.is_none()
+                || !config.requires_plain_quotes(context));
         (!keep && !skip_scalar(config, style, &model, context)).then_some(Self(model))
     }
 }
@@ -289,6 +291,7 @@ pub(super) fn skip_scalar(
     context: crate::rules::support::collection_style::RetainedContext,
 ) -> bool {
     matches!(style, ScalarStyle::Literal | ScalarStyle::Folded)
+        || (style == ScalarStyle::Plain && !config.requires_plain_quotes(context))
         || (model.is_key()
             && !config.check_keys
             && !config.requires_flow_quotes(model.value(), context))
@@ -337,10 +340,12 @@ pub(super) fn facts(
             config.extra_allowed.iter().any(|re| re.is_match(value)),
         ),
         quotes_needed: Flag::new(
-            matches!(
-                initial.style,
-                ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
-            ) && quotes_are_needed(value, initial, placement, cache),
+            config.required == RequiredMode::OnlyWhenNeeded
+                && matches!(
+                    initial.style,
+                    ScalarStyle::SingleQuoted | ScalarStyle::DoubleQuoted
+                )
+                && quotes_are_needed(value, initial, placement, cache),
         ),
     }
 }

@@ -186,7 +186,7 @@ fn double_quoted_non_printable_is_considered_needed() {
     let cfg = build_config(
         "rules:\n  document-start: disable\n  quoted-strings:\n    required: only-when-needed\n",
     );
-    let yaml = "foo: \"\u{0007}\"\n";
+    let yaml = "foo: \"\\a\"\n";
     let hits = quoted_strings::check(yaml, &cfg);
     assert!(hits.is_empty(), "non-printable characters require quotes");
 }
@@ -941,6 +941,17 @@ fn fix_keeps_quotes_on_a_key_whose_colon_needs_them() {
             "{input:?}"
         );
     }
+}
+
+#[test]
+fn flow_only_requirements_leave_block_documents_unchanged() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n",
+    ).unwrap();
+    let rule = Config::resolve(&cfg);
+    let input = "block: a?b\nquoted: \"a?b\"\nlist:\n  - :foo\n";
+    assert!(quoted_strings::check(input, &rule).is_empty());
+    assert!(quoted_strings::fix(input, &rule).is_none());
 }
 
 #[test]

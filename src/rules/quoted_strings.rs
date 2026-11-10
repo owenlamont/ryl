@@ -286,12 +286,12 @@ impl Config {
 
     pub(crate) fn with_requirements(mut self, cfg: &YamlLintConfig) -> Self {
         if cfg.rule_level(ID).is_some() {
-            let lint = Self::resolve(cfg);
+            let lint = cfg.resolved(ID, Self::resolve);
             self.requirements = Some(Requirements {
                 required: lint.required,
-                extra_required: lint.extra_required,
-                extra_required_flow: lint.extra_required_flow,
-                extra_allowed: lint.extra_allowed,
+                extra_required: lint.extra_required.clone(),
+                extra_required_flow: lint.extra_required_flow.clone(),
+                extra_allowed: lint.extra_allowed.clone(),
                 check_keys: lint.check_keys,
             });
         }
@@ -312,6 +312,18 @@ impl Config {
 
     pub(crate) fn has_flow_requirements(&self) -> bool {
         !self.flow_patterns().is_empty()
+    }
+
+    fn requires_plain_quotes(&self, context: RetainedContext) -> bool {
+        let (required, extra) = self
+            .requirements
+            .as_ref()
+            .map_or((self.required, &self.extra_required), |requirements| {
+                (requirements.required, &requirements.extra_required)
+            });
+        required == RequiredMode::Always
+            || !extra.is_empty()
+            || (context.in_flow() && self.has_flow_requirements())
     }
 }
 
@@ -334,6 +346,13 @@ pub(crate) fn check_with_analysis(
     input: crate::text_version::Analysis<'_>,
     cfg: &Config,
 ) -> Vec<Violation> {
+    if cfg.required == RequiredMode::Never
+        && cfg.quote_type == QuoteType::Any
+        && cfg.extra_required.is_empty()
+        && !input.parsed().has_flow_collections
+    {
+        return Vec::new();
+    }
     let buffer = input.text();
     let mut receiver = QuotedStringsReceiver::new(cfg, buffer);
     for (event, span) in input.event_iter() {

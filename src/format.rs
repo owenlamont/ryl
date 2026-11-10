@@ -559,7 +559,9 @@ pub(crate) fn unfixed(
         .chain(kept)
         .collect();
     problems.extend(refused_spacing(input, cfg, &reindented.refused));
-    problems.extend(quote_refusals(input, cfg));
+    if cached.is_none_or(|evidence| evidence.quotes_refused) {
+        problems.extend(quote_refusals(input, cfg));
+    }
     problems.extend(refusals_with_analysis(
         input,
         cfg,
