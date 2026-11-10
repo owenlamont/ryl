@@ -278,6 +278,18 @@ fn implicit_collection_keys_skip_required_quotes() {
 }
 
 #[test]
+fn implicit_collection_key_quote_refusals_are_reported() {
+    for (config, expected) in [
+        (format!("{REQUIRED}check-keys = true\n"), "[a?b]: 'value'\n"),
+        ("[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?']\n".to_owned(), "[a?b]: value\n"),
+    ] {
+        let (_, _, stderr, output) = ryl_on(Some(&config), "[a?b]: value\n", &["format", "--no-cache"]);
+        assert_eq!(output, expected);
+        assert!(stderr.contains("cannot add quotes inside an implicit collection key"), "{stderr}");
+    }
+}
+
+#[test]
 fn formatter_requirements_ignore_lint_fix_filters() {
     formatted(
         "a: text\n",

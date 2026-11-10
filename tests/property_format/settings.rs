@@ -81,7 +81,7 @@ pub fn arb_quote_requirements() -> impl Strategy<Value = String> {
                 "false" => "extra-required = ['\\?', 'secret']\n",
                 _ => "extra-required = ['\\?', 'secret']\nextra-allowed = ['keep']\n",
             };
-            format!("[lint.rules.quoted-strings]\nrequired = {required}\ncheck-keys = {check_keys}\n{patterns}")
+            format!("[lint.rules.quoted-strings]\nrequired = {required}\ncheck-keys = {check_keys}\nextra-required-flow = ['\\?|^:']\n{patterns}")
         } else {
             String::new()
         }

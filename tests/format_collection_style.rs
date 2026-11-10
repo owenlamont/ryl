@@ -1283,6 +1283,10 @@ fn flow_required_quotes_use_final_context_at_the_width_boundary() {
                 "line-length = {width}\n[format]\n{styles}\n[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n"
             ));
             for input in [
+                "key:\n  - a?b\n",
+                "key:\n  - &a a?b\nother: *a\n",
+                "key:\n  a: a?b\n",
+                "key:\n  nested:\n    a: a?b\n",
                 "key:\n  - a?bc\n  - :def\n",
                 "key: [a?bc, :def]\n",
                 "key:\n  ?foo: a?bc\n  :foo: :def\n",
@@ -1303,5 +1307,44 @@ fn flow_required_quotes_use_final_context_at_the_width_boundary() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn flow_conversion_measures_required_quotes_before_selecting_collection_style() {
+    let cfg = config(
+        "line-length = 10\n[format]\nsequence-style = 'flow'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n",
+    );
+    let input = "key:\n  - a?b\n";
+    assert_eq!(format_str(input, &cfg, Path::new("case.yaml"), &[]), input);
+    let markdown = format!("```yaml\n{input}```\n");
+    assert!(
+        ryl::fix::fix_markdown_str(
+            &markdown,
+            Path::new("case.md"),
+            &cfg,
+            Path::new("."),
+            ryl::fix::Rewrite::Format
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn flow_conversion_quotes_explicit_string_tags() {
+    let cfg = config(
+        "[format]\nsequence-style = 'flow'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n",
+    );
+    for (input, expected) in [
+        ("[!!str a?b]\n", "[!!str 'a?b']\n"),
+        ("key:\n  - !!str a?b\n", "key: [!!str 'a?b']\n"),
+    ] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, expected);
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
     }
 }

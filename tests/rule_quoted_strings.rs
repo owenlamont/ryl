@@ -977,3 +977,42 @@ fn flow_requirements_combine_with_required_true_and_consistent_quotes() {
     );
     assert!(quoted_strings::check(&fixed, &rule).is_empty());
 }
+
+#[test]
+fn flow_requirements_quote_explicit_strings_and_leave_other_core_tags_alone() {
+    let input = "[!!str a?b, !!int 1, !!str ordinary]\n";
+    let expected = "[!!str 'a?b', !!int 1, !!str ordinary]\n";
+    for required in ["false", "true", "'only-when-needed'"] {
+        let cfg = YamlLintConfig::from_toml_str(&format!(
+            "[lint.rules.quoted-strings]\nrequired = {required}\nextra-required-flow = ['\\?|^:|^1$']\n"
+        )).unwrap();
+        let rule = Config::resolve(&cfg);
+        assert_eq!(quoted_strings::check(input, &rule).len(), 1);
+        assert_eq!(quoted_strings::fix(input, &rule).as_deref(), Some(expected));
+        assert!(quoted_strings::check(expected, &rule).is_empty());
+        assert!(quoted_strings::fix(expected, &rule).is_none());
+    }
+}
+
+#[test]
+fn flow_requirements_recognize_explicit_string_tag_spellings_and_typed_content() {
+    let cfg = YamlLintConfig::from_toml_str(
+        "[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^true$']\n"
+    ).unwrap();
+    let rule = Config::resolve(&cfg);
+    for (input, expected) in [
+        (
+            "[!<tag:yaml.org,2002:str> a?b]\n",
+            "[!<tag:yaml.org,2002:str> 'a?b']\n",
+        ),
+        (
+            "%TAG !s! tag:yaml.org,2002:s\n---\n[!s!tr a?b]\n",
+            "%TAG !s! tag:yaml.org,2002:s\n---\n[!s!tr 'a?b']\n",
+        ),
+        ("[!!str true]\n", "[!!str 'true']\n"),
+    ] {
+        assert_eq!(quoted_strings::check(input, &rule).len(), 1);
+        assert_eq!(quoted_strings::fix(input, &rule).as_deref(), Some(expected));
+        assert!(quoted_strings::check(expected, &rule).is_empty());
+    }
+}

@@ -573,7 +573,6 @@ pub(crate) fn unfixed(
 
 fn quote_refusals(input: Analysis<'_>, cfg: &YamlLintConfig) -> Vec<LintProblem> {
     if cfg.rule_level(quoted_strings::ID).is_some()
-        && cfg.rule_option_bool(quoted_strings::ID, "check-keys", false)
         && cfg.format().targets().quote_style != QuoteStyleTarget::Preserve
     {
         let style = match cfg.format().targets().quote_style {

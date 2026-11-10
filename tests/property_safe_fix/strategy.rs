@@ -107,6 +107,7 @@ fn arb_scalar() -> impl Strategy<Value = Scalar> {
         1 => arb_bool_spelling().prop_map(Scalar::SingleQuoted),
         1 => arb_bool_spelling().prop_map(Scalar::DoubleQuoted),
         1 => arb_tagged_bool_spelling().prop_map(Scalar::Plain),
+        1 => arb_plain_value().prop_map(|value| Scalar::Plain(format!("!!str {value}"))),
         1 => arb_core_int_edge().prop_map(Scalar::Plain),
         1 => arb_core_int_edge().prop_map(Scalar::SingleQuoted),
         1 => arb_core_int_edge().prop_map(Scalar::DoubleQuoted),

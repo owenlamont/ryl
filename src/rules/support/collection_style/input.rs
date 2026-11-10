@@ -160,6 +160,16 @@ impl<'a> Initial<'a> {
         self
     }
 
+    pub(super) fn flow_spelled(
+        mut self,
+        spelling: &'a quoted_strings::FlowSpellings,
+    ) -> Self {
+        let (_, _, projection) =
+            self.selected.expect("flow candidates have selected edits");
+        self.selected = Some((&spelling.edits, &spelling.styles, projection));
+        self
+    }
+
     pub(super) fn collection(&self, node: usize) -> Collection {
         let site = &self.sites[node];
         Collection {

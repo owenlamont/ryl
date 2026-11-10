@@ -299,8 +299,19 @@ impl Config {
     }
 
     fn requires_flow_quotes(&self, value: &str, context: RetainedContext) -> bool {
-        context.in_flow()
-            && self.extra_required_flow.iter().any(|re| re.is_match(value))
+        context.in_flow() && self.flow_patterns().iter().any(|re| re.is_match(value))
+    }
+
+    fn flow_patterns(&self) -> &[Regex] {
+        self.requirements
+            .as_ref()
+            .map_or(&self.extra_required_flow, |requirements| {
+                &requirements.extra_required_flow
+            })
+    }
+
+    pub(crate) fn has_flow_requirements(&self) -> bool {
+        !self.flow_patterns().is_empty()
     }
 }
 
@@ -863,6 +874,31 @@ pub(crate) trait ConvertedLayout {
     fn forms(&self) -> &crate::rules::support::collection_style::Forms;
     fn generated_key(&self, end: usize) -> bool;
     fn column(&self, start: usize) -> usize;
+}
+
+pub(crate) struct FlowSpellings {
+    pub(crate) edits: Vec<crate::format::layout::PlanEdit>,
+    pub(crate) styles: Styles,
+}
+
+impl FlowSpellings {
+    pub(crate) fn new(replacements: Vec<Replacement>) -> Self {
+        Self {
+            styles: selected_styles(&replacements),
+            edits: replacements
+                .into_iter()
+                .map(|(start, end, spelling)| {
+                    let text = spelling.into_text();
+                    let chars = text.chars().count();
+                    (
+                        start,
+                        end,
+                        crate::format::layout::Replacement::Text { text, chars },
+                    )
+                })
+                .collect(),
+        }
+    }
 }
 
 pub(crate) fn format_replacements<'a>(

@@ -8070,7 +8070,9 @@ extra-required-flow = ['\?|^:']
 
 Patterns match decoded string values. Lint and `check --fix` use the existing
 collection context; `ryl format` uses the final context, including collections
-converted from block to flow. Literal and folded block scalars remain unchanged.
+converted from block to flow. Flow patterns also apply to explicitly tagged strings
+(`!!str`); other core tags remain exempt. Collection width includes the required
+quotes before choosing flow style. Literal and folded block scalars remain unchanged.
 
 `ryl check --fix` rewrites string scalars to use the configured `quote-type` and
 adds or removes quotes to satisfy `required`. The fix is conservative: it
@@ -8091,7 +8093,8 @@ unfixable = ["quoted-strings"]
 wrapped plain scalar lines when adding quotes. `quote-style = "preserve"` freezes
 quoting; `keep-quotes = true` retains optional quotes even when lint forbids them.
 [Conflicting lint rules](https://ryl-docs.pages.dev/formatter/#conflicting-lint-rules) explains warnings
-and remedies. Oversized implicit keys are left plain with a refusal notice.
+and remedies. Quote additions inside implicit collection keys, or past an implicit
+scalar key's length limit, are refused with a notice.
 Scalars inside implicit collection keys never gain quotes.
 
 ## YAML 1.1 values with `required = "only-when-needed"`
