@@ -3844,3 +3844,6 @@ fn workspace_pull_without_open_documents_shows_the_yaml_deprecation() {
         "{warnings:?}"
     );
 }
+
+#[cfg(feature = "schema-network")]
+mod schema;

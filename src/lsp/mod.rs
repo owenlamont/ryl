@@ -9,6 +9,8 @@ pub mod analysis;
 pub mod encoding;
 pub mod hover;
 pub mod rename;
+#[doc(hidden)]
+pub mod schema_preparation;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -94,6 +96,22 @@ pub fn run() -> ExitCode {
 /// Only if serialising ryl's own server capabilities fails, which cannot happen.
 #[must_use]
 pub fn serve(connection: &Connection) -> SessionOutcome {
+    serve_with_schema_env(
+        connection,
+        Arc::new(crate::config::SystemEnv),
+        schema_preparation::Limits::default(),
+    )
+}
+
+/// # Panics
+/// Only if server capabilities cannot serialize.
+#[doc(hidden)]
+#[must_use]
+pub fn serve_with_schema_env(
+    connection: &Connection,
+    env: Arc<dyn crate::config::Env + Send + Sync>,
+    limits: schema_preparation::Limits,
+) -> SessionOutcome {
     // The initialize request is client-controlled, so a malformed one ends the session
     // cleanly rather than panicking.
     let Ok((id, raw_params)) = connection.initialize_start() else {
@@ -139,7 +157,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         serde_json::to_value(result).expect("server capabilities always serialize");
     let _ = connection.initialize_finish(id, result);
 
-    let (settings, settings_warnings) =
+    let (mut settings, settings_warnings) =
         Settings::from_options(params.initialization_options.as_ref());
 
     // `initialize_finish` blocks until the client's `initialized` arrives, so registering a
@@ -150,6 +168,12 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
     }
 
     let (scan_tx, scan_rx) = unbounded();
+    settings.schema = Some(Arc::new(schema_preparation::Session {
+        env,
+        limits,
+        events: scan_tx.clone(),
+        service: std::sync::OnceLock::new(),
+    }));
     let mut server = Server {
         encoding,
         roots: workspace_roots(&params),
@@ -170,6 +194,7 @@ pub fn serve(connection: &Connection) -> SessionOutcome {
         pull: None,
         closed: HashSet::new(),
         revision: 0,
+        schema_config_diagnostics: HashMap::new(),
         scan_tx,
         scan_rx,
     };
@@ -192,6 +217,10 @@ fn server_capabilities(
             TextDocumentSyncKind::INCREMENTAL,
         )),
         code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+        execute_command_provider: Some(lsp_types::ExecuteCommandOptions {
+            commands: vec!["ryl.allowSchemaOrigin".to_owned()],
+            ..Default::default()
+        }),
         document_formatting_provider: Some(OneOf::Left(true)),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         rename_provider: Some(OneOf::Right(RenameOptions {
@@ -362,12 +391,13 @@ struct Document {
 /// Client-provided settings: a config-file path / inline data override (the CLI's
 /// `-c`/`-d`), an on/off toggle (`ryl.enable`) and which files to report. `pub` only so
 /// the free `workspace_scan` is unit-testable.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Settings {
     config_file: Option<PathBuf>,
     config_data: Option<String>,
     enable: bool,
     diagnostic_mode: DiagnosticMode,
+    schema: Option<Arc<schema_preparation::Session>>,
 }
 
 /// ty's `diagnosticMode`: whether pull diagnostics cover only open files, as in ruff,
@@ -380,6 +410,17 @@ enum DiagnosticMode {
     Workspace,
 }
 
+impl std::fmt::Debug for Settings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Settings")
+            .field("config_file", &self.config_file)
+            .field("config_data", &self.config_data)
+            .field("enable", &self.enable)
+            .field("diagnostic_mode", &self.diagnostic_mode)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -387,6 +428,7 @@ impl Default for Settings {
             config_data: None,
             enable: true,
             diagnostic_mode: DiagnosticMode::default(),
+            schema: None,
         }
     }
 }
@@ -497,8 +539,9 @@ struct Server {
     revision: u64,
     /// Scans report back here rather than answering, so the hold-or-respond decision is
     /// made where the session state lives.
-    scan_tx: Sender<ScanResult>,
-    scan_rx: Receiver<ScanResult>,
+    scan_tx: Sender<Event>,
+    scan_rx: Receiver<Event>,
+    schema_config_diagnostics: HashMap<String, lsp_types::Uri>,
 }
 
 struct Worker {
@@ -513,6 +556,15 @@ struct Pull {
     previous: Vec<PreviousResultId>,
     /// Present when the client offered to receive results as they are produced.
     token: Option<ProgressToken>,
+}
+
+enum Event {
+    Scan(ScanResult),
+    Schema,
+    SchemaGrant {
+        origin: String,
+        result: Result<(), String>,
+    },
 }
 
 struct ScanResult {
@@ -531,6 +583,9 @@ impl Server {
         let outcome = self.run_loop(connection);
         // Else a suspended pull is never answered, hanging a client that waits on it.
         self.cancel_pull(connection);
+        if let Some(service) = self.schema_service() {
+            service.shutdown();
+        }
         // Cancel and join in-flight scans so no thread outlives the session (each checks its
         // flag between files, so this returns promptly).
         for worker in self.workers.drain(..) {
@@ -568,13 +623,22 @@ impl Server {
                             }
                             self.handle_notification(connection, notification);
                         }
-                        Message::Response(_) => {}
+                        Message::Response(_) => {},
                     }
                 }
                 recv(scans) -> result => {
                     // `scan_tx` is a field of `self`, so it outlives this loop.
                     let result = result.expect("the scan channel outlives the loop");
-                    self.finish_scan(connection, result);
+                    match result {
+                        Event::Scan(result) => self.finish_scan(connection, result),
+                        Event::Schema => self.schema_ready(connection),
+                        Event::SchemaGrant { origin, result } => {
+                            if let Err(error) = result {
+                                self.report_config_error(connection, &error);
+                            }
+                            self.schema_service().expect("grant has a schema service").allow(&origin);
+                        }
+                    }
                 }
             }
         }
@@ -583,6 +647,10 @@ impl Server {
     fn handle_request(&mut self, connection: &Connection, request: Request) {
         let Request { id, method, params } = request;
         match method.as_str() {
+            "workspace/executeCommand" => {
+                let result = self.schema_command(&params);
+                respond(connection, id, result);
+            }
             "textDocument/codeAction" => {
                 let result = parse::<CodeActionParams>(&params)
                     .and_then(|params| self.code_action(connection, &params));
@@ -653,6 +721,7 @@ impl Server {
             {
                 let uri = params.text_document.uri;
                 self.documents.remove(uri.as_str());
+                self.cancel_unobserved_schemas();
                 if self.delivery == Delivery::Pull
                     && !self.settings.reports_workspace()
                     && let Some(path) = uri_to_path(uri.as_str())
@@ -671,7 +740,8 @@ impl Server {
                             .iter()
                             .any(|event| self.is_config_uri(event.uri.as_str()))
                     });
-                if config_changed {
+                if config_changed || self.schema_service().is_some() {
+                    self.invalidate_schemas(connection);
                     self.handle_config_change(connection);
                 }
                 self.wake(connection);
@@ -684,7 +754,9 @@ impl Server {
                     Settings::from_options(Some(&params.settings));
                 let mode_changed =
                     settings.diagnostic_mode != self.settings.diagnostic_mode;
+                let schema = self.settings.schema.clone();
                 self.settings = settings;
+                self.settings.schema = schema;
                 if self.delivery == Delivery::RegisteredPull && mode_changed {
                     self.client_request(
                         connection,
@@ -698,6 +770,7 @@ impl Server {
                     );
                     self.register_diagnostics(connection);
                 }
+                self.invalidate_schemas(connection);
                 self.handle_config_change(connection);
                 self.report_config_notices(connection, &warnings);
                 self.wake(connection);
@@ -764,7 +837,11 @@ impl Server {
             // empty diagnostics.
             Err(error) => {
                 self.report_config_error(connection, &error);
-                Vec::new()
+                if error.contains("schema") {
+                    config_error_diagnostics(&error)
+                } else {
+                    Vec::new()
+                }
             }
         };
         self.documents.insert(
@@ -922,6 +999,10 @@ impl Server {
         params: &CodeActionParams,
     ) -> Option<CodeActionResponse> {
         let uri = &params.text_document.uri;
+        let approval = self.schema_actions(params);
+        if !approval.is_empty() {
+            return Some(approval);
+        }
         let target = self.resolve(uri.as_str()).ok().flatten()?;
         self.report_config_notices(connection, &target.context.notices);
         let document = self.documents.get(uri.as_str())?;
@@ -1058,7 +1139,7 @@ impl Server {
                     // report, so a pull-only client is not misled into thinking the file is
                     // fine.
                     self.diagnostics_for(uri, &text).unwrap_or_else(|error| {
-                        (vec![config_error_diagnostic(&error)], Vec::new())
+                        (config_error_diagnostics(&error), Vec::new())
                     })
                 });
         self.report_config_notices(connection, &notices);
@@ -1161,7 +1242,7 @@ impl Server {
             let scan = workspace_scan(
                 &roots, &open, &settings, encoding, &previous, &flag, sink,
             );
-            let _ = results.send(ScanResult { id, revision, scan });
+            let _ = results.send(Event::Scan(ScanResult { id, revision, scan }));
         });
         self.workers.push(Worker { cancel, handle });
     }
@@ -1221,6 +1302,7 @@ impl Server {
             return;
         };
         self.cancel_workers();
+        self.cancel_unobserved_schemas();
         send(
             connection,
             Message::Response(Response::new_err(
@@ -1353,11 +1435,24 @@ fn resolve_for_path(
     if !settings.enable {
         return Ok(None);
     }
-    let mut context = discover_config_with(
-        std::slice::from_ref(&path),
-        &settings.overrides(),
-        &ServerEnv,
-    )?;
+    let env = schema_preparation::SchemaEnv::discovery(
+        settings
+            .schema
+            .as_ref()
+            .map_or(&ServerEnv as &dyn crate::config::Env, |session| {
+                session.env.as_ref()
+            }),
+        require_rules,
+    );
+    let mut context =
+        discover_config_with(std::slice::from_ref(&path), &settings.overrides(), &env)?;
+    if context.config.needs_remote_preparation() {
+        context = settings
+            .schema
+            .as_ref()
+            .ok_or("schema remote preparation unavailable")?
+            .request(context)?;
+    }
     if require_rules && !context.config.enables_any_rule() {
         return Ok(None);
     }
@@ -1415,7 +1510,7 @@ fn file_report(
         Ok(Some(target)) => target,
         Ok(None) => return (None, Vec::new()),
         Err(error) => {
-            let items = vec![config_error_diagnostic(&error)];
+            let items = config_error_diagnostics(&error);
             return (file_pull_report(path, None, items, previous_id), Vec::new());
         }
     };
@@ -1668,8 +1763,21 @@ fn config_error_text(error: &str) -> String {
     )
 }
 
-/// An error diagnostic standing in for a config-discovery failure, so a pull request
-/// surfaces it rather than reporting the file as clean.
+fn config_error_diagnostics(error: &str) -> Vec<Diagnostic> {
+    if let Some(origins) = error.strip_prefix("schema origin approval required: ") {
+        origins
+            .split_whitespace()
+            .map(|origin| {
+                config_error_diagnostic(&format!(
+                    "schema origin approval required: {origin}"
+                ))
+            })
+            .collect()
+    } else {
+        vec![config_error_diagnostic(error)]
+    }
+}
+
 fn config_error_diagnostic(error: &str) -> Diagnostic {
     Diagnostic {
         range: Range {

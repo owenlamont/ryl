@@ -59,6 +59,25 @@ YAML and Markdown (embedded YAML) documents are both supported; the source kind 
 from your `[files]` globs just like the CLI. An untitled (unsaved) buffer is linted as YAML,
 with config discovery anchored at the workspace root.
 
+## Remote schema approval
+
+A remote schema association requests access; only launcher grants, the user allowlist,
+or your approval can authorize an origin. Approval diagnostics appear on the config
+and affected open documents at line 1. Use the **Always allow `<origin>`** quick fix
+to save approval, or **Allow once `<origin>`** for the current server session.
+Both actions execute `ryl.allowSchemaOrigin`; the server never opens an approval dialog.
+
+Always allow writes `<user-config-dir>/ryl/allowed-schema-origins` atomically and refuses
+symlinks and non-regular files. A failed save reports a configuration error and still
+grants access for the current session. Persistence runs on the schema worker so requests
+and shutdown stay responsive. `ryl server --offline` or `RYL_OFFLINE=1` disables approval
+actions and network access; previously granted origins can use cached schemas.
+Editor integrations should set offline mode in an untrusted workspace.
+
+Schema preparation uses one worker, processing one queued entry per configuration in order.
+Pending and failed preparations appear as configuration errors. Queued preparations have
+a 65-second deadline from enqueue; timeouts are final. Formatting never prepares schemas.
+
 ## Configuring it from the editor
 
 The server reads optional settings from the client, either in `initializationOptions` at

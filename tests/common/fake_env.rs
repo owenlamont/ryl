@@ -5,6 +5,7 @@ use ryl::config::Env;
 
 #[derive(Clone, Default)]
 pub struct FakeEnv {
+    session_schema_origins: Vec<String>,
     schema_dependencies: Option<ryl::rules::schema::net::Dependencies>,
     cwd: PathBuf,
     files: HashMap<PathBuf, String>,
@@ -16,6 +17,12 @@ pub struct FakeEnv {
 }
 
 impl FakeEnv {
+    #[cfg(feature = "schema-network")]
+    pub fn with_session_schema_origins(mut self, origins: Vec<String>) -> Self {
+        self.session_schema_origins = origins;
+        self
+    }
+
     #[cfg(feature = "schema-network")]
     pub fn with_schema_dependencies(
         mut self,
@@ -92,6 +99,10 @@ impl FakeEnv {
 }
 
 impl Env for FakeEnv {
+    fn session_schema_origins(&self) -> Vec<String> {
+        self.session_schema_origins.clone()
+    }
+
     fn schema_dependencies(&self) -> Option<ryl::rules::schema::net::Dependencies> {
         self.schema_dependencies.clone()
     }

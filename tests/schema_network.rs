@@ -1126,3 +1126,125 @@ fn redirects_without_a_location_are_still_errors() {
         .contains("invalid location")
     );
 }
+
+thread_local! {
+    static RECOVERY_LOOKUPS: std::cell::RefCell<Vec<Box<dyn ryl::rules::schema::net::http::Lookup>>> = std::cell::RefCell::default();
+}
+
+struct ReadyLookup;
+impl ryl::rules::schema::net::http::Lookup for ReadyLookup {
+    fn lookup(&self, _: &str) -> std::io::Result<Vec<std::net::SocketAddr>> {
+        Ok(vec!["8.8.8.8:443".parse().unwrap()])
+    }
+}
+
+#[test]
+fn resolver_recovers_from_one_wedged_lookup_without_accumulating_threads() {
+    use ryl::rules::schema::net::http::{AddressSource, ResolverWorker};
+    let (started, began) = std::sync::mpsc::sync_channel(1);
+    let (release, gate) = std::sync::mpsc::sync_channel(1);
+    let (finished, done) = std::sync::mpsc::sync_channel(1);
+    RECOVERY_LOOKUPS.with(|lookups| {
+        *lookups.borrow_mut() = vec![
+            Box::new(ReadyLookup),
+            Box::new(BlockedLookup {
+                started,
+                release: gate,
+                finished,
+            }),
+        ]
+    });
+    let worker = ResolverWorker::recoverable(|| {
+        RECOVERY_LOOKUPS.with(|lookups| lookups.borrow_mut().pop().unwrap())
+    });
+    assert_eq!(
+        worker
+            .resolve(
+                "blocked",
+                std::time::Instant::now() + Duration::from_millis(50)
+            )
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::TimedOut
+    );
+    began.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(
+        worker
+            .resolve(
+                "healthy",
+                std::time::Instant::now() + Duration::from_secs(1)
+            )
+            .unwrap(),
+        vec!["8.8.8.8:443".parse().unwrap()]
+    );
+    release.send(()).unwrap();
+    drop(worker);
+    done.recv_timeout(Duration::from_secs(2)).unwrap();
+}
+
+#[test]
+fn two_stuck_dns_workers_fail_with_bounded_saturation() {
+    use ryl::rules::schema::net::http::{AddressSource, ResolverWorker};
+    let mut releases = Vec::new();
+    let mut starts = Vec::new();
+    let mut completions = Vec::new();
+    let mut lookups: Vec<Box<dyn ryl::rules::schema::net::http::Lookup>> = Vec::new();
+    for _ in 0..2 {
+        let (started, began) = std::sync::mpsc::sync_channel(1);
+        starts.push(began);
+        let (release, gate) = std::sync::mpsc::sync_channel(1);
+        let (finished, done) = std::sync::mpsc::sync_channel(1);
+        releases.push(release);
+        completions.push(done);
+        lookups.push(Box::new(BlockedLookup {
+            started,
+            release: gate,
+            finished,
+        }));
+    }
+    RECOVERY_LOOKUPS.with(|slot| *slot.borrow_mut() = lookups);
+    let worker = ResolverWorker::recoverable(|| {
+        RECOVERY_LOOKUPS.with(|lookups| lookups.borrow_mut().pop().unwrap())
+    });
+    for _ in 0..2 {
+        assert_eq!(
+            worker
+                .resolve(
+                    "blocked",
+                    std::time::Instant::now() + Duration::from_millis(50)
+                )
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::TimedOut
+        );
+    }
+    assert_eq!(
+        worker
+            .resolve(
+                "saturated",
+                std::time::Instant::now() + Duration::from_secs(1)
+            )
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    for release in releases {
+        release.send(()).unwrap();
+    }
+    drop(worker);
+    for done in completions {
+        done.recv_timeout(Duration::from_secs(2)).unwrap();
+    }
+}
+
+#[test]
+fn invalid_trusted_session_grants_are_rejected() {
+    let env = FakeEnv::new()
+        .with_session_schema_origins(vec!["http://invalid.example.org".to_owned()]);
+    assert!(
+        Network::from_env(&env, BTreeMap::new())
+            .unwrap_err()
+            .to_string()
+            .contains("HTTPS on port 443")
+    );
+}

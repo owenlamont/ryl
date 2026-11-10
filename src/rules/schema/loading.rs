@@ -272,9 +272,6 @@ fn enable_network(
     cfg: &YamlLintConfig,
     envx: &dyn Env,
 ) -> Result<Option<super::net::progress::Progress>, String> {
-    if !envx.remote_schemas() {
-        return Err("remote schemas are not supported by ryl server yet".to_owned());
-    }
     let pins = cfg
         .rule_option(ID, "pins")
         .and_then(YamlOwned::as_mapping)
@@ -298,13 +295,13 @@ pub(crate) fn prepare(
     cfg: &YamlLintConfig,
     base: &Path,
     envx: &dyn Env,
-) -> Result<Option<Arc<Prepared>>, String> {
+) -> Result<super::Preparation, String> {
     let Some(entries) = cfg
         .rule_option(ID, "schemas")
         .and_then(YamlOwned::as_sequence)
         .filter(|entries| !entries.is_empty())
     else {
-        return Ok(None);
+        return Ok(super::Preparation::Ready(None));
     };
     let absolute_base = envx.current_dir().join(base);
     let canonical_base = absolute_base
@@ -321,6 +318,9 @@ pub(crate) fn prepare(
             .or_else(|| entry.as_mapping_get("path").and_then(YamlOwned::as_str))
             .expect("typed schema location");
         let label = remote.map_or_else(|| path.to_owned(), super::net::display_url);
+        if remote.is_some() && !envx.remote_schemas() {
+            return Ok(super::Preparation::NeedsRemotePreparation);
+        }
         if remote.is_some() && network.get().is_none() {
             _progress = enable_network(&network, cfg, envx).map_err(|error| {
                 format!(
@@ -355,6 +355,9 @@ pub(crate) fn prepare(
         };
         let mut result = build();
         if *reader.needs_network.lock().expect("schema network lock") {
+            if !envx.remote_schemas() {
+                return Ok(super::Preparation::NeedsRemotePreparation);
+            }
             let mut retry = loaded.lock().expect("schema reader lock");
             (retry.bytes, retry.resources) = charged;
             drop(retry);
@@ -384,8 +387,8 @@ pub(crate) fn prepare(
         digest.update(&(bytes.len() as u64).to_le_bytes());
         digest.update(bytes);
     }
-    Ok(Some(Arc::new(Prepared {
+    Ok(super::Preparation::Ready(Some(Arc::new(Prepared {
         associations,
         digest: digest.finalize(),
-    })))
+    }))))
 }

@@ -27,6 +27,9 @@ enum Fault {
     Rename,
     Evict,
     Target,
+    LockInspect,
+    LockType,
+    LockOpen,
 }
 
 struct FaultFs {
@@ -70,6 +73,15 @@ impl Write for FaultWriter {
 
 impl FileSystem for FaultFs {
     fn metadata(&self, path: &Path) -> io::Result<std::fs::Metadata> {
+        if path.ends_with("allowed-schema-origins.lock") {
+            match self.fault {
+                Fault::LockInspect => return Err(denied()),
+                Fault::LockType => {
+                    return SystemFileSystem.metadata(path.parent().unwrap());
+                }
+                _ => (),
+            }
+        }
         let phase = self.phase.load(Ordering::Relaxed);
         if phase > 0
             && (self.fault == Fault::BeforeCreate
@@ -88,6 +100,13 @@ impl FileSystem for FaultFs {
             Ok(Box::new(BadReader))
         } else {
             SystemFileSystem.open(path)
+        }
+    }
+    fn open_lock(&self, path: &Path) -> io::Result<std::fs::File> {
+        if self.fault == Fault::LockOpen {
+            Err(denied())
+        } else {
+            SystemFileSystem.open_lock(path)
         }
     }
     fn create_dirs(&self, path: &Path) -> io::Result<()> {
@@ -285,4 +304,191 @@ fn invalid_cache_metadata_and_content_are_misses() {
         assert_eq!(h.network().fetch(ROOT, 100).unwrap(), b"true", "{fault}");
         assert_eq!(h.transport.calls.lock().unwrap().len(), 2, "{fault}");
     }
+}
+
+#[test]
+fn user_allowlist_write_failures_preserve_existing_policy() {
+    for fault in [
+        Fault::LockInspect,
+        Fault::LockType,
+        Fault::LockOpen,
+        Fault::BeforeCreate,
+        Fault::Read,
+        Fault::Create,
+        Fault::Open,
+        Fault::Header,
+        Fault::Rename,
+    ] {
+        let h = Harness::new();
+        let env = h
+            .env
+            .clone()
+            .with_config_dir(h.dir.path().join("user"))
+            .with_schema_dependencies(Dependencies {
+                transport: h.transport.clone(),
+                clock: h.clock.clone(),
+                budget: Arc::default(),
+                filesystem: Arc::new(FaultFs {
+                    fault,
+                    phase: Arc::new(AtomicU8::new(1)),
+                    target: Mutex::new(None),
+                }),
+            });
+        assert!(
+            ryl::rules::schema::net::persist_origin(
+                &env,
+                "https://schemas.example.org"
+            )
+            .is_err(),
+            "{fault:?}"
+        );
+        assert!(
+            !h.dir
+                .path()
+                .join("user/ryl/allowed-schema-origins")
+                .exists()
+        );
+        let parent = h.dir.path().join("user/ryl");
+        if parent.exists() {
+            assert_eq!(
+                std::fs::read_dir(&parent).unwrap().count(),
+                usize::from(parent.join("allowed-schema-origins.lock").exists()),
+                "temporary files cleaned for {fault:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn concurrent_user_grants_wait_for_lock_and_preserve_both_origins() {
+    use ryl::rules::schema::net::persist_origin;
+    use std::time::Duration;
+
+    let h = Harness::new();
+    let parent = h.dir.path().join("user/ryl");
+    std::fs::create_dir_all(&parent).unwrap();
+    let lock =
+        std::fs::File::create(parent.join("allowed-schema-origins.lock")).unwrap();
+    lock.lock().unwrap();
+    let (done, results) = std::sync::mpsc::channel();
+    let gate = Arc::new(std::sync::Barrier::new(3));
+    let workers: Vec<_> = ["https://one.example.org", "https://two.example.org"]
+        .into_iter()
+        .map(|origin| {
+            let env = h.env.clone().with_config_dir(h.dir.path().join("user"));
+            let gate = gate.clone();
+            let done = done.clone();
+            std::thread::spawn(move || {
+                gate.wait();
+                done.send(persist_origin(&env, origin)).unwrap();
+            })
+        })
+        .collect();
+    gate.wait();
+    assert!(results.recv_timeout(Duration::from_millis(50)).is_err());
+    drop(lock);
+    for _ in 0..2 {
+        results
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+    }
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    let text = std::fs::read_to_string(parent.join("allowed-schema-origins")).unwrap();
+    assert!(text.contains("https://one.example.org\n"));
+    assert!(text.contains("https://two.example.org\n"));
+}
+
+#[test]
+fn user_allowlist_appends_canonical_origins_once_and_preserves_line_boundaries() {
+    use crate::common::fake_env::FakeEnv;
+    use ryl::rules::schema::net::persist_origin;
+    assert!(
+        persist_origin(&FakeEnv::new(), "https://schemas.example.org")
+            .unwrap_err()
+            .contains("directory unavailable")
+    );
+    for initial in [
+        "",
+        "https://first.example.org",
+        "https://first.example.org\n",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("ryl");
+        std::fs::create_dir(&parent).unwrap();
+        let path = parent.join("allowed-schema-origins");
+        std::fs::write(&path, initial).unwrap();
+        let env = FakeEnv::new().with_config_dir(dir.path());
+        persist_origin(&env, "https://schemas.example.org").unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text.lines().last(), Some("https://schemas.example.org"));
+        assert_eq!(text.lines().count(), usize::from(!initial.is_empty()) + 1);
+        persist_origin(&env, "https://schemas.example.org").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        for invalid in [
+            "http://schemas.example.org",
+            "https://schemas.example.org/",
+            "https://schemas.example.org/path",
+        ] {
+            assert!(persist_origin(&env, invalid).is_err());
+        }
+    }
+}
+
+#[test]
+fn user_allowlist_refuses_non_regular_files_on_read_and_persist() {
+    use crate::common::fake_env::FakeEnv;
+    use ryl::rules::schema::net::{Network, persist_origin};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ryl/allowed-schema-origins");
+    std::fs::create_dir_all(&path).unwrap();
+    let env = FakeEnv::new()
+        .with_config_dir(dir.path())
+        .with_file(&path, "https://schemas.example.org");
+    assert!(
+        Network::from_env(&env, Default::default())
+            .unwrap_err()
+            .to_string()
+            .contains("regular file")
+    );
+    assert!(
+        persist_origin(&env, "https://schemas.example.org")
+            .unwrap_err()
+            .contains("regular file")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn user_allowlist_fifo_is_rejected_without_opening() {
+    use crate::common::fake_env::FakeEnv;
+    use ryl::config::Env;
+    use ryl::rules::schema::net::{Network, persist_origin};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ryl/allowed-schema-origins");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let env = FakeEnv::new()
+        .with_config_dir(dir.path())
+        .with_exists(&path);
+    assert!(
+        Network::from_env(&env, Default::default())
+            .unwrap_err()
+            .to_string()
+            .contains("regular file")
+    );
+    assert!(
+        persist_origin(&env, "https://schemas.example.org")
+            .unwrap_err()
+            .contains("regular file")
+    );
+    assert!(env.path_exists(&path));
 }

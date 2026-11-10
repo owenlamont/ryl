@@ -90,7 +90,18 @@ Cache keys hash canonical full URLs; verify content hashes and pins on every rea
 Offline never resolves DNS or refreshes timestamps. Refuse symlinks, write with
 create-new temporary files and rename, and evict oldest entries above 256 MiB.
 Resource budgets count cache reads and repeated associations. Network output redacts
-query values; `sanitize_control` also escapes bidi controls. The server refuses remote
-preparation until approval and background-worker support lands.
+query values; `sanitize_control` also escapes bidi controls. The server grants origins
+only from the launcher, user allowlist or explicit session approval. Project settings
+cannot approve access. Prompts and approval actions use canonical origins and redacted,
+sanitised URLs. Denial/dismissal/timeout never fetch. Offline never prompts.
+
+The LSP preparation worker is lazy, bounded and shared with workspace scans. Cancellation
+and enqueue deadlines apply before retrieval; config revisions supersede queued work.
+User allowlist updates create the directory, refuse symlink components and atomically
+rename a create-new temporary file.
+Concurrent allowlist updates serialize through a sibling advisory lock held across the
+read-modify-rename; lock acquisition has a 250 ms deadline and failure retains session access.
+A wedged DNS worker can be replaced once while stuck; at most two resolver threads exist,
+and further saturation fails visibly.
 Transport, resolver, clock and cache filesystem injections are trusted Rust test
 seams; never expose policy bypasses through project configuration or launcher flags.

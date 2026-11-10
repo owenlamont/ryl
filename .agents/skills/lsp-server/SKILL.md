@@ -23,9 +23,12 @@ unit/property testable: `encoding` (position math + `uri_to_path`/`path_to_uri`)
 
 ## Diagnostics
 
-Push diagnostics (`publishDiagnostics`) are gated on `Server::delivery` ==
+Source diagnostics (`publishDiagnostics`) are gated on `Server::delivery` ==
 `Delivery::Push` (`diagnostic_delivery`), so a pull-capable client gets diagnostics
-once via pull, not twice — clients like VS Code merge the two channels.
+once via pull, not twice — clients like VS Code merge the two channels. Remote-origin
+approval errors appear at line 1 of affected open documents and also identify the
+association in a separate config-file diagnostic; config files are outside the YAML
+source pull model.
 
 `Settings::diagnostic_mode` (`diagnosticMode`, after ty) defaults to `openFilesOnly`. A
 client with `textDocument.diagnostic.dynamicRegistration` gets no static
@@ -94,8 +97,32 @@ Resolved per document via `discover_config_with` and `ServerEnv` (full CLI prece
 `workspace/didChangeConfiguration`: `configPath`/`configData`/`enable`, CLI-equivalent
 precedence, plus `diagnosticMode`). `read_setting` reports a mistyped or unknown value via
 `showMessage` and ignores it; `null` counts as unset.
-`ServerEnv` refuses remote schema preparation until approval and background retrieval
-are supported; local schemas retain normal preparation.
+Schema association source text is read by the schema worker before taking its state lock.
+`ServerEnv` returns typed `NeedsRemotePreparation` through the resolved config at the
+first remote resource; local schemas retain normal preparation. `schema_preparation`
+owns a lazy single worker shared by document diagnostics and workspace scans. The
+service keeps one queued entry per config and processes entries in order. Non-config
+watched-file notifications invalidate preparations so local schemas
+are re-read; session grants
+and the HTTP cache survive. Queued
+preparations have a 65-second deadline from enqueue; cancellation and expiry are terminal.
+Newer revisions replace queued
+entries for the same config. Dispatch returns a config-error diagnostic while
+preparation is pending and refreshes diagnostics when work completes. No fetch runs on
+dispatch or under the service state lock. Formatting skips schema preparation.
+
+Unapproved origins produce approval diagnostics with Always allow `<origin>` and
+Allow once `<origin>` quick fixes through `ryl.allowSchemaOrigin`. The optional second
+command argument selects persistence (default true); false grants only session access.
+There are no approval dialogs. Always allow persists on the same worker and returns an
+event for dispatch to apply the session grant; failed saves report a config error and
+still grant session access.
+Allowlist updates hold an exclusive sibling-file advisory lock across read-modify-rename;
+acquisition retries for at most 250 ms before reporting a failure and granting session access.
+Grants come only from launcher flags/environment, the user allowlist and approval commands.
+Offline disables approval actions and networking. `serve_with_schema_env` injects trusted
+test environment/dependencies and deadlines; `tests/lsp_server/schema.rs` executes
+approval commands.
 
 Config-file changes go through `handle_config_change` via a dynamic
 `didChangeWatchedFiles` registration: a push client gets a re-lint+re-push, a pull

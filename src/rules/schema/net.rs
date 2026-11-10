@@ -141,7 +141,6 @@ pub fn redact_message(text: &str) -> String {
         .into_owned()
 }
 
-#[cfg(feature = "schema-network")]
 fn env_flag(env: &dyn Env, key: &str) -> bool {
     env.env_var(key)
         .is_some_and(|value| !value.is_empty() && value != "0")
@@ -202,6 +201,17 @@ impl Clock for SystemClock {
     }
 }
 
+pub trait Policy: Send + Sync {
+    /// # Errors
+    /// Rejects cancelled preparation and records origins awaiting user approval.
+    fn check(&self, url: &Url, granted: bool) -> Result<(), Error>;
+}
+
+#[must_use]
+pub fn offline(env: &dyn Env) -> bool {
+    OPTIONS.get_or_init(Options::default).offline || env_flag(env, "RYL_OFFLINE")
+}
+
 pub trait Transport: Send + Sync {
     /// # Errors
     /// Returns a redacted failure for transport, framing or size errors.
@@ -211,6 +221,7 @@ pub trait Transport: Send + Sync {
 
 pub struct Network {
     grants: BTreeSet<String>,
+    policy: Option<Arc<dyn Policy>>,
     pins: BTreeMap<String, String>,
     cache: Option<PathBuf>,
     offline: bool,
@@ -266,6 +277,9 @@ impl Network {
         for raw in &options.allowed_origins {
             grants.insert(origin(raw)?);
         }
+        for raw in env.session_schema_origins() {
+            grants.insert(origin(&raw)?);
+        }
         if let Some(value) = env.env_var("RYL_SCHEMA_ALLOWED_ORIGINS") {
             for raw in value.split(',').map(str::trim).filter(|s| !s.is_empty()) {
                 grants.insert(origin(raw)?);
@@ -276,6 +290,12 @@ impl Network {
             .map(|p| p.join("ryl/allowed-schema-origins"))
             && env.path_exists(&path)
         {
+            let fs = allowlist_filesystem(env);
+            regular_allowlist(fs.as_ref(), &path).map_err(|_| {
+                Error::Policy(
+                    "cannot read user schema origin allowlist: expected a regular file",
+                )
+            })?;
             let text = env.read_to_string(&path).map_err(|_| {
                 Error::Policy("cannot read user schema origin allowlist")
             })?;
@@ -296,6 +316,7 @@ impl Network {
         }
         Ok(Self {
             grants,
+            policy: env.schema_policy(),
             pins: normalized_pins,
             cache,
             offline: options.offline || env_flag(env, "RYL_OFFLINE"),
@@ -321,11 +342,13 @@ impl Network {
     }
 
     /// # Errors
-    /// Rejects denied origins, resource limits, cache failures and transport failures.
-    pub fn fetch(&self, raw: &str, limit: usize) -> Result<Vec<u8>, Error> {
-        let limit = limit.min(MAX_BYTES);
+    /// Rejects invalid URLs, missing grants and cancelled preparation.
+    pub fn authorize(&self, raw: &str) -> Result<Url, Error> {
         let url = canonical(raw)?;
         let origin = url.origin().ascii_serialization();
+        if let Some(policy) = &self.policy {
+            policy.check(&url, self.grants.contains(&origin))?;
+        }
         if !self.grants.contains(&origin) {
             return Err(Error::at(
                 &url,
@@ -334,6 +357,14 @@ impl Network {
                 ),
             ));
         }
+        Ok(url)
+    }
+
+    /// # Errors
+    /// Rejects denied origins, resource limits, cache failures and transport failures.
+    pub fn fetch(&self, raw: &str, limit: usize) -> Result<Vec<u8>, Error> {
+        let limit = limit.min(MAX_BYTES);
+        let url = self.authorize(raw)?;
         let pin = self.pins.get(url.as_str());
         if let Some((meta, bytes)) = self.read_cache(&url, limit)? {
             let pinned = Self::verify_pin(&url, pin, &bytes);
@@ -528,6 +559,93 @@ impl Network {
     }
 }
 
+fn allowlist_filesystem(env: &dyn Env) -> Arc<dyn cache_io::FileSystem> {
+    env.schema_dependencies().map_or_else(
+        || Arc::new(cache_io::SystemFileSystem) as Arc<dyn cache_io::FileSystem>,
+        |dependencies| dependencies.filesystem,
+    )
+}
+
+fn regular_allowlist(
+    fs: &dyn cache_io::FileSystem,
+    path: &Path,
+) -> std::io::Result<()> {
+    match fs.metadata(path) {
+        Ok(meta) if meta.is_file() => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        _ => Err(std::io::ErrorKind::InvalidInput.into()),
+    }
+}
+
+/// # Errors
+/// Refuses symlinks, non-regular files, invalid origins and failed atomic allowlist updates.
+pub fn persist_origin(env: &dyn Env, raw: &str) -> Result<(), String> {
+    let url = canonical(raw).map_err(|e| e.to_string())?;
+    let origin = url.origin().ascii_serialization();
+    if raw != origin {
+        return Err("schema grant must be a canonical HTTPS origin".to_owned());
+    }
+    let parent = env
+        .config_dir()
+        .ok_or("user config directory unavailable")?
+        .join("ryl");
+    let path = parent.join("allowed-schema-origins");
+    let fs = allowlist_filesystem(env);
+    safe_path(fs.as_ref(), &path)
+        .map_err(|_| "schema allowlist refuses symlinks or unreadable paths")?;
+    regular_allowlist(fs.as_ref(), &path)
+        .map_err(|_| "schema allowlist requires a regular file or missing path")?;
+    fs.create_dirs(&parent)
+        .map_err(|_| "cannot create user schema allowlist directory")?;
+    let lock_path = parent.join("allowed-schema-origins.lock");
+    safe_path(fs.as_ref(), &lock_path)
+        .map_err(|_| "schema allowlist lock requires a regular file")?;
+    regular_allowlist(fs.as_ref(), &lock_path)
+        .map_err(|_| "schema allowlist lock requires a regular file")?;
+    let lock = fs
+        .open_lock(&lock_path)
+        .map_err(|_| "cannot open user schema allowlist lock")?;
+    let deadline = std::time::Instant::now() + Duration::from_millis(250);
+    while lock.try_lock().is_err() {
+        if std::time::Instant::now() >= deadline {
+            return Err("user schema allowlist lock timed out".to_owned());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let mut text = match fs.open(&path).and_then(|mut file| {
+        let mut text = String::new();
+        file.read_to_string(&mut text).map(|_| text)
+    }) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(_) => return Err("cannot read user schema origin allowlist".to_owned()),
+    };
+    if text.lines().any(|line| line.trim() == origin) {
+        return Ok(());
+    }
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&origin);
+    text.push('\n');
+    let temp = parent.join(format!(
+        ".allowed-schema-origins-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let result = (|| {
+        use std::io::Write as _;
+        let mut file = fs.create_new(&temp)?;
+        file.write_all(text.as_bytes())?;
+        drop(file);
+        fs.rename(&temp, &path)
+    })();
+    if result.is_err() {
+        let _ = fs.remove(&temp);
+    }
+    result.map_err(|_| "cannot write user schema origin allowlist".to_owned())
+}
+
 #[derive(Deserialize, Serialize)]
 struct Metadata {
     url: String,
@@ -596,25 +714,81 @@ pub mod http {
         }
     }
 
+    type LookupFactory = fn() -> Box<dyn Lookup>;
+
+    #[derive(Debug)]
+    struct ResolverSlot {
+        sender: mpsc::SyncSender<Job>,
+        busy: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        deadline: Option<std::time::Instant>,
+        handle: std::thread::JoinHandle<()>,
+    }
+
+    #[derive(Debug)]
+    struct ResolverState {
+        slot: ResolverSlot,
+        retired: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl ResolverState {
+        fn check_replacement(&self) -> std::io::Result<()> {
+            if self
+                .retired
+                .as_ref()
+                .is_some_and(|worker| !worker.is_finished())
+            {
+                return Err(std::io::ErrorKind::WouldBlock.into());
+            }
+            Ok(())
+        }
+    }
+
     #[derive(Debug)]
     pub struct ResolverWorker {
-        sender: mpsc::SyncSender<Job>,
+        state: std::sync::Mutex<ResolverState>,
+        factory: Option<LookupFactory>,
     }
     impl ResolverWorker {
         #[must_use]
         pub fn new(lookup: Box<dyn Lookup>) -> Self {
-            let (sender, receiver) = mpsc::sync_channel::<Job>(1);
-            std::thread::spawn(move || run_lookups(receiver, lookup.as_ref()));
-            Self { sender }
+            Self {
+                state: std::sync::Mutex::new(ResolverState {
+                    slot: resolver_slot(lookup),
+                    retired: None,
+                }),
+                factory: None,
+            }
+        }
+
+        #[must_use]
+        pub fn recoverable(factory: LookupFactory) -> Self {
+            Self {
+                factory: Some(factory),
+                ..Self::new(factory())
+            }
         }
     }
-    fn run_lookups(receiver: mpsc::Receiver<Job>, lookup: &dyn Lookup) {
-        for job in receiver {
-            if std::time::Instant::now() >= job.deadline {
-                continue;
+
+    fn resolver_slot(lookup: Box<dyn Lookup>) -> ResolverSlot {
+        let (sender, receiver) = mpsc::sync_channel::<Job>(1);
+        let busy = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let running = busy.clone();
+        let handle = std::thread::spawn(move || {
+            for job in receiver {
+                if std::time::Instant::now() >= job.deadline {
+                    continue;
+                }
+                running.store(true, std::sync::atomic::Ordering::Relaxed);
+                let result = lookup.lookup(&job.host);
+                running.store(false, std::sync::atomic::Ordering::Relaxed);
+                let _ = job.reply.try_send(result);
             }
-            let result = lookup.lookup(&job.host);
-            let _ = job.reply.try_send(result);
+        });
+        ResolverSlot {
+            sender,
+            busy,
+            deadline: None,
+            handle,
         }
     }
 
@@ -625,13 +799,33 @@ pub mod http {
             deadline: std::time::Instant,
         ) -> std::io::Result<Vec<SocketAddr>> {
             let (reply, rx) = mpsc::sync_channel(1);
-            self.sender
-                .try_send(Job {
-                    host: host.to_owned(),
-                    reply,
-                    deadline,
-                })
-                .map_err(|_| std::io::Error::from(std::io::ErrorKind::WouldBlock))?;
+            {
+                let mut state = self.state.lock().expect("resolver state lock");
+                if let Some(factory) = self.factory
+                    && state.slot.busy.load(std::sync::atomic::Ordering::Relaxed)
+                    && state
+                        .slot
+                        .deadline
+                        .is_some_and(|end| end <= std::time::Instant::now())
+                {
+                    state.check_replacement()?;
+                    let old =
+                        std::mem::replace(&mut state.slot, resolver_slot(factory()));
+                    state.retired = Some(old.handle);
+                }
+                state
+                    .slot
+                    .sender
+                    .try_send(Job {
+                        host: host.to_owned(),
+                        reply,
+                        deadline,
+                    })
+                    .map_err(|_| {
+                        std::io::Error::from(std::io::ErrorKind::WouldBlock)
+                    })?;
+                state.slot.deadline = Some(deadline);
+            }
             rx.recv_timeout(
                 deadline.saturating_duration_since(std::time::Instant::now()),
             )
@@ -716,7 +910,9 @@ pub mod http {
                 CheckedResolver::new(
                     WORKER
                         .get_or_init(|| {
-                            std::sync::Arc::new(ResolverWorker::new(Box::new(OsLookup)))
+                            std::sync::Arc::new(ResolverWorker::recoverable(|| {
+                                Box::new(OsLookup)
+                            }))
                         })
                         .clone(),
                 ),

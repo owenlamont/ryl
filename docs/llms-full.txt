@@ -2368,7 +2368,16 @@ comes from `$schema`, defaulting to 2020-12.
 Remote associations require a default-on `schema-network` build. A project requests
 resources; grants come only from the launcher or user allowlist, including offline.
 Every retrieved reference needs a grant for the resolved origin, even after `$id` rebasing.
-`ryl server` currently refuses remote schemas; formatting never retrieves schemas.
+`ryl server` prepares remote schemas in the background. Before accessing an ungranted
+origin, the server reports an approval diagnostic on the affected file and configuration.
+Use **Always allow `<origin>`** or **Allow once `<origin>`** from the diagnostic's quick
+fixes. Allow once lasts for the server session; Always allow atomically updates the user
+allowlist, refusing symlinks and non-regular files. A failed save reports a configuration
+error and still grants access for the session. Workspace settings and project
+configuration cannot grant access.
+
+`server --offline` and `RYL_OFFLINE=1` disable approval actions and all DNS/HTTP access;
+granted origins can still use cached schemas. Formatting never retrieves schemas.
 
 <!-- ryl-config-check: skip -->
 ```toml
@@ -2446,8 +2455,8 @@ does not load lint schemas.
   [Python jsonschema's `best_match` heuristic](https://github.com/python-jsonschema/jsonschema/blob/main/jsonschema/exceptions.py).
   Equally ranked branches retain the summary. Messages mask instance values.
 
-Editor diagnostics use the same engine. Schema-file edits take effect when the
-configuration reloads; schema-file watching, hover and completion are separate work.
+Editor diagnostics use the same engine. Watched schema-file edits invalidate prepared
+schemas and revalidate affected documents. Schema hover and completion are separate work.
 
 Sources: [JSON Schema](https://json-schema.org/specification),
 [YAML 1.2.2](https://yaml.org/spec/1.2.2/).
@@ -4986,6 +4995,25 @@ YAML and Markdown (embedded YAML) documents are both supported; the source kind 
 from your `[files]` globs just like the CLI. An untitled (unsaved) buffer is linted as YAML,
 with config discovery anchored at the workspace root.
 
+## Remote schema approval
+
+A remote schema association requests access; only launcher grants, the user allowlist,
+or your approval can authorize an origin. Approval diagnostics appear on the config
+and affected open documents at line 1. Use the **Always allow `<origin>`** quick fix
+to save approval, or **Allow once `<origin>`** for the current server session.
+Both actions execute `ryl.allowSchemaOrigin`; the server never opens an approval dialog.
+
+Always allow writes `<user-config-dir>/ryl/allowed-schema-origins` atomically and refuses
+symlinks and non-regular files. A failed save reports a configuration error and still
+grants access for the current session. Persistence runs on the schema worker so requests
+and shutdown stay responsive. `ryl server --offline` or `RYL_OFFLINE=1` disables approval
+actions and network access; previously granted origins can use cached schemas.
+Editor integrations should set offline mode in an untrusted workspace.
+
+Schema preparation uses one worker, processing one queued entry per configuration in order.
+Pending and failed preparations appear as configuration errors. Queued preparations have
+a 65-second deadline from enqueue; timeouts are final. Formatting never prepares schemas.
+
 ## Configuring it from the editor
 
 The server reads optional settings from the client, either in `initializationOptions` at
@@ -5517,7 +5545,7 @@ for example:
 Rules check how a document is written and what YAML itself makes of it, such as
 a truthy word, an implicit octal or a merge key overriding a value. They don't
 include built-in application policies. The optional [`schema`](https://ryl-docs.pages.dev/rules/schema/) rule
-checks allowed keys and value ranges against user-supplied local JSON Schemas.
+checks allowed keys and value ranges against user-supplied JSON Schemas.
 Mapping key order is form,
 since YAML gives it no meaning, so `key-ordering` fits.
 
@@ -5532,7 +5560,7 @@ resolved value, comments and anchors. That rules out:
   reprinting formatter if that is what you want; ryl won't become one.
   [`ryl format`](https://ryl-docs.pages.dev/formatter/) edits in place under the same guarantees.
 
-## Local schema validation
+## JSON Schema validation
 
 User-supplied JSON Schemas are in scope. Remote fetching requires independent user
 origin grants; catalogs, in-file schema declarations and built-in dialect policies
@@ -5623,7 +5651,7 @@ flowchart LR
 | **Built-in policies cover general YAML with evidence.** User-supplied local JSON Schemas are supported through the optional `schema` rule; built-in application policies and contested style remain outside the rule set. | Projects choose their application contracts explicitly. | [Scope](https://ryl-docs.pages.dev/scope/), [schema](https://ryl-docs.pages.dev/rules/schema/) |
 | **Schema associations are TOML-only and first-match wins.** Empty associations do no work. | Selection follows configured key-ordering precedence and keeps `ALL` usable. | [schema](https://ryl-docs.pages.dev/rules/schema/) |
 | **Schemas prepare before cache lookup.** Local files stay under the config base directory. All resources share preparation limits and content digests. | Content changes invalidate cached findings. | [schema](https://ryl-docs.pages.dev/rules/schema/) |
-| **Projects request remote schemas; users grant origins.** HTTPS on port 443 only, checked public addresses, no redirects or proxies, bundled TLS roots. Remote roots cannot read files. | Repository configuration cannot authorize network access. The server refuses remote schemas until background approval support exists. | [schema](https://ryl-docs.pages.dev/rules/schema/#remote-schemas) |
+| **Projects request remote schemas; users grant origins.** HTTPS on port 443 only, checked public addresses, no redirects or proxies, bundled TLS roots. Remote roots cannot read files. | Repository configuration cannot authorize network access. The server requests session or persistent user approval and prepares schemas on a bounded background worker. | [schema](https://ryl-docs.pages.dev/rules/schema/#remote-schemas) |
 | **Remote schemas have bounded user caches.** Full-URL hash keys, 24-hour freshness, optional SHA-256 pins, offline reuse and no-cache mode. | Schema identity and integrity remain independent of cache freshness. | [schema](https://ryl-docs.pages.dev/rules/schema/#remote-schemas) |
 | **Schema projection is bounded and expands merges.** Alias findings blame use sites; unsupported values report `cannot validate`. | Application schemas see inherited keys without silently changing unsupported YAML values. | [schema](https://ryl-docs.pages.dev/rules/schema/) |
 | **Ryl-only rules are TOML-only and opt-in.** Merge keys, tags, Unicode line breaks, and block-scalar chomping address portability or clarity without changing yamllint YAML config semantics. | These portability and clarity checks have no yamllint counterpart; TOML opt-in avoids changing YAML compatibility. | [Merge keys](https://github.com/owenlamont/ryl/pull/276), [tags](https://github.com/owenlamont/ryl/pull/272), [line breaks](https://github.com/owenlamont/ryl/pull/270), [chomping](https://github.com/owenlamont/ryl/pull/286) |

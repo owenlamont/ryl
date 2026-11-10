@@ -68,6 +68,12 @@ in CI on contributor branches.
   injection, terminal escape sequences) via crafted file contents or filenames.
 - Schema retrieval without an independent origin grant, private destination access,
   or remote schemas reading local files. See the [schema policy](docs/rules/schema.md#remote-schemas).
+  The language server requires approval before contacting ungranted origins; project
+  configuration and workspace settings cannot grant access. Approval URLs are redacted
+  and sanitised. Offline mode suppresses approval actions and networking. Persistent
+  grants use the user allowlist, refuse symlinks and are written atomically. Remote
+  preparation keeps one entry per config with a single worker and deadlines; a stuck
+  DNS worker has at most one concurrent replacement.
 
 **Out of scope** (generally not treated as vulnerabilities):
 
