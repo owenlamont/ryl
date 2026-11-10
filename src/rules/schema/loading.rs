@@ -61,6 +61,7 @@ struct LocalRetriever {
     needs_network: Arc<Mutex<bool>>,
     failure: Arc<Mutex<Option<String>>>,
     allow_files: bool,
+    dependencies: Option<Arc<Mutex<std::collections::BTreeSet<PathBuf>>>>,
 }
 
 impl LocalRetriever {
@@ -92,6 +93,17 @@ impl LocalRetriever {
                 )
             })?
             .to_string();
+        if let Some(dependencies) = &self.dependencies {
+            dependencies
+                .lock()
+                .expect("schema dependencies lock")
+                .insert(
+                    Url::parse(&identity)
+                        .expect("canonical schema file URI")
+                        .to_file_path()
+                        .expect("canonical schema filesystem path"),
+                );
+        }
         if let Some(bytes) = files.contents.get(&identity) {
             let size = bytes.len();
             if size > remaining {
@@ -173,6 +185,12 @@ impl LocalRetriever {
         let path = url
             .to_file_path()
             .map_err(|()| "invalid schema file reference")?;
+        if let Some(dependencies) = &self.dependencies {
+            dependencies
+                .lock()
+                .expect("schema dependencies lock")
+                .insert(path.clone());
+        }
         self.read(&path).map_err(Into::into)
     }
 }
@@ -291,6 +309,27 @@ fn enable_network(
     Ok(super::net::progress::terminal())
 }
 
+fn record_roots(
+    dependencies: &Mutex<std::collections::BTreeSet<PathBuf>>,
+    entries: &[YamlOwned],
+    base: &Path,
+) -> Result<(), String> {
+    let mut dependencies = dependencies.lock().expect("schema dependencies lock");
+    for path in entries
+        .iter()
+        .filter_map(|entry| entry.as_mapping_get("path").and_then(YamlOwned::as_str))
+    {
+        let (_, uri) = root_location(base, path)?;
+        dependencies.insert(
+            Url::parse(uri.as_str())
+                .expect("root file URI")
+                .to_file_path()
+                .expect("root filesystem path"),
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn prepare(
     cfg: &YamlLintConfig,
     base: &Path,
@@ -307,6 +346,10 @@ pub(crate) fn prepare(
     let canonical_base = absolute_base
         .canonicalize()
         .map_err(|error| format!("invalid config: schema base: {error}"))?;
+    let dependencies = envx.local_schema_dependencies();
+    if let Some(dependencies) = &dependencies {
+        record_roots(dependencies, entries, &canonical_base)?;
+    }
     let mut digest = blake3::Hasher::new();
     let mut associations = Vec::new();
     let loaded = Arc::new(Mutex::new(Files::default()));
@@ -336,6 +379,7 @@ pub(crate) fn prepare(
             needs_network: Arc::default(),
             failure: Arc::default(),
             allow_files: remote.is_none(),
+            dependencies: dependencies.clone(),
         };
         let files: Vec<PathGlob> = entry
             .as_mapping_get("files")

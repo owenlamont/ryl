@@ -101,9 +101,14 @@ Schema association source text is read by the schema worker before taking its st
 `ServerEnv` returns typed `NeedsRemotePreparation` through the resolved config at the
 first remote resource; local schemas retain normal preparation. `schema_preparation`
 owns a lazy single worker shared by document diagnostics and workspace scans. The
-service keeps one queued entry per config and processes entries in order. Non-config
-watched-file notifications invalidate preparations so local schemas
-are re-read; session grants
+service keeps one queued entry per config and processes entries in order. Local schema
+roots and local references (including attempted missing paths, any extension) are recorded
+during preparation and dynamically watched by exact path for create/change/delete.
+Dependency events invalidate preparations and refresh open documents, including local-only
+configs without constructing the network service. Unrelated events only wake workspace
+pulls. Changed `configPath` settings update the config registration. Clients without
+dynamic registration must restart/reopen after schema edits; unsaved schema buffers are
+not overlays. Session grants
 and the HTTP cache survive. Queued
 preparations have a 65-second deadline from enqueue; cancellation and expiry are terminal.
 Newer revisions replace queued

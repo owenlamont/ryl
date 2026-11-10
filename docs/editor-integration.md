@@ -6,9 +6,9 @@ as you type. It is the same lint and fix engine as the CLI, exposed over the pro
 
 A ryl language server is a **linter** provider. It is meant to run *alongside* Red Hat's
 [`yaml-language-server`](https://github.com/redhat-developer/yaml-language-server) (schema
-validation, completion, schema hover), the way Ruff runs alongside Pylance: editors attach
-both and merge their diagnostics. ryl does not do schema validation or completion; its
-hover only explains ryl's own diagnostics.
+completion and schema hover), the way Ruff runs alongside Pylance: editors attach
+both and merge their diagnostics. ryl validates explicitly configured schema associations;
+its hover only explains ryl's own diagnostics.
 
 ## What it provides
 
@@ -22,7 +22,7 @@ hover only explains ryl's own diagnostics.
 | Formatting | `textDocument/formatting` | Runs [`ryl format`](formatter.md) on the document, under the `[format]` table; each YAML region of a Markdown file is formatted on its own |
 | Hover | `textDocument/hover` | The rule and message for a diagnostic under the cursor, with a link to the rules reference |
 | Rename | `textDocument/rename`, `textDocument/prepareRename` | Rename a YAML anchor/alias and every same-name use in its document |
-| File watching | `workspace/didChangeWatchedFiles` | Watches supported config files and `*.yaml`/`*.yml` sources: a config change re-lints open documents (push clients) or asks pull clients to re-pull via `workspace/diagnostic/refresh`; any change resumes a long-polling workspace pull |
+| File watching | `workspace/didChangeWatchedFiles` | Watches configs, YAML sources and exact local schema dependencies: config/schema changes revalidate open documents (push clients) or request `workspace/diagnostic/refresh`; any change resumes a long-polling workspace pull |
 
 The fix-all action applies ryl's whole-file safe fixes; ryl has no per-occurrence "fix just
 this one" action, because its fix engine operates per file (the per-rule fix-all is the
@@ -156,11 +156,18 @@ issue tracker: [owenlamont/ryl-vscode](https://github.com/owenlamont/ryl-vscode)
   correctly even for multi-byte and astral-plane characters.
 - **File watching** covers both the standard config filenames anywhere in the workspace
   (plus an explicit `configPath`) and `*.yaml`/`*.yml` sources, for clients that support
-  dynamic `didChangeWatchedFiles` registration. A config change re-lints open documents;
+  dynamic `didChangeWatchedFiles` registration. Changed `configPath` settings update the
+  registration. Local schema roots and local `$ref` dependencies are watched by exact path,
+  including missing files, symlink targets and files with any extension. Watches are
+  removed when no open document needs them, unless workspace diagnostics are enabled.
+  Creating, saving or deleting a
+  dependency revalidates open documents using local-only or mixed schema configurations:
+  push clients receive diagnostics; pull clients with refresh support receive a refresh
+  request. Unsaved schema buffers are not used. A config change re-lints open documents;
   a source change out of the editor (a `git checkout`, another editor) resumes a
   long-polling workspace pull. Files pulled in via a config's `extends:` are not
   individually watched, so re-open a document to refresh after editing those. A client
-  without the capability simply picks up a change on the next edit or re-open.
+  without the capability should restart the server or reopen documents after schema edits.
 - **Document sync is incremental** — the editor sends only the edited range — but ryl
   re-lints the whole reconstructed document each time (it is fast enough that this is
   invisible).
