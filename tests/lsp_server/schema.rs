@@ -345,6 +345,56 @@ fn schema_hover_empty_value_matches_only_its_insertion_point() {
 }
 
 #[test]
+fn schema_hover_empty_node_properties_keep_the_parser_insertion_point() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"title":"Root","properties":{"name":{"title":"Name"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    for (file, text, column) in [
+        ("tag.yaml", "name: !!str\n", 11),
+        ("anchor.yaml", "name: &a\n", 8),
+        ("both.yaml", "name: &a !!str\n", 14),
+        ("reverse.yaml", "name: !!str &a\n", 14),
+    ] {
+        let uri = file_uri(dir.path(), file);
+        client.did_open(uri.clone(), text);
+        assert!(client.diagnostics().is_empty());
+        let hover = client.hover(&uri, 0, column).unwrap();
+        let range = hover.range.unwrap();
+        assert_eq!(range.start, lsp_types::Position::new(0, column));
+        assert_eq!(range.start, range.end);
+        assert_eq!(hover_text(hover), "Name", "{text:?}");
+        assert_eq!(hover_text(client.hover(&uri, 0, 4).unwrap()), "Root");
+    }
+    client.shutdown();
+}
+
+#[test]
+fn schema_hover_tagged_empty_value_appends_field_annotation_to_diagnostic() {
+    let dir = project(&local_config("schema.json"));
+    std::fs::write(
+        dir.path().join("schema.json"),
+        r#"{"title":"Root","properties":{"name":{"title":"Name","type":"integer"}}}"#,
+    )
+    .unwrap();
+    let (mut client, _) = Client::launch(None, None);
+    let uri = file_uri(dir.path(), "test.yaml");
+    client.did_open(uri.clone(), "name: !!str\n");
+    let diagnostics = client.diagnostics();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].range.start, lsp_types::Position::new(0, 11));
+    let hover = client.hover(&uri, 0, 11).unwrap();
+    assert_eq!(hover.range, Some(diagnostics[0].range));
+    let text = hover_text(hover);
+    assert!(text.starts_with("**ryl: schema**"), "{text}");
+    assert!(text.ends_with("\n\nName"), "{text}");
+    client.shutdown();
+}
+
+#[test]
 fn schema_hover_empty_values_do_not_shadow_later_siblings_or_documents() {
     let dir = project(&format!(
         "[files]\nmarkdown = ['*.md']\n{}",

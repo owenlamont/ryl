@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use jsonschema::Draft;
-use ryl_yaml_parser::{Marker, Span};
+use ryl_yaml_parser::{Event, Marker, ScalarStyle, Span};
 use serde_json::Value;
 
 use super::{Association, projection};
@@ -14,6 +14,15 @@ pub(crate) fn at<'a>(
     position: (usize, usize),
 ) -> Option<([Option<&'a str>; 2], Span)> {
     let version = TextVersion::new(text);
+    let omitted = version
+        .analysis()
+        .event_iter()
+        .filter_map(|(event, span)| {
+            (span.is_empty()
+                && matches!(event, Event::Scalar(_, ScalarStyle::Plain, 0, None)))
+            .then_some(span.start.index())
+        })
+        .collect::<HashSet<_>>();
     let mut events = version.analysis().event_iter().peekable();
     let mut budget = projection::Budget::default();
     loop {
@@ -24,10 +33,12 @@ pub(crate) fn at<'a>(
         let Some((pointer, span)) = projected
             .nodes
             .iter()
-            .chain(&projected.keys)
             .map(|(pointer, span)| {
                 let mut span = *span;
-                if span.is_empty() {
+                if span.is_empty()
+                    && omitted.contains(&span.start.index())
+                    && let Some(key) = projected.keys.get(pointer)
+                {
                     let start = span.start;
                     let offset = marker_byte_offset(start).get();
                     span = if text.as_bytes().get(offset) == Some(&b':') {
@@ -40,13 +51,17 @@ pub(crate) fn at<'a>(
                             .with_byte_offset(Some(offset + 1)),
                         )
                     } else {
-                        Span::empty(
-                            projected.keys.get(pointer).map_or(start, |key| key.end),
-                        )
+                        Span::empty(key.end)
                     };
                 }
                 (pointer, span)
             })
+            .chain(
+                projected
+                    .keys
+                    .iter()
+                    .map(|(pointer, span)| (pointer, *span)),
+            )
             .filter(|(_, span)| {
                 (span.start.line(), span.start.col()) <= position
                     && (position < (span.end.line(), span.end.col())
