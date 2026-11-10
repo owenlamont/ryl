@@ -27,7 +27,6 @@ line-length = "disable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
 octal-values = "disable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.comments]
@@ -52,3 +51,7 @@ indent-sequences = "whatever"
 [lint.rules.merge-keys]
 # Workflow merge keys unsupported: https://github.com/rhysd/actionlint/blob/main/parse.go
 level = "error"
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['[?:]']

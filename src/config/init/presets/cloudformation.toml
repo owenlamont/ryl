@@ -26,7 +26,6 @@ line-length = "disable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
 octal-values = "disable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.comments]
@@ -49,3 +48,7 @@ level = "error"
 [lint.rules.tags]
 # AWS template restrictions: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-formats.html
 forbid-removed-types = true
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['\?|^:']

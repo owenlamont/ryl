@@ -209,6 +209,10 @@ pub(super) fn constrain_keys(
             return true;
         }
         if collection_key {
+            refusals.push(super::Violation {
+                line: key.line(), column: key.col() + 1,
+                message: "cannot add quotes inside an implicit collection key; use an explicit `?` key".to_owned(),
+            });
             return false;
         }
         let key_start = super::marker_byte_offset(key).get();

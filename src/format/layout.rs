@@ -210,7 +210,10 @@ fn prepare_converted<'a>(
                 (&plan.edits, &trailing),
                 &plan.styles,
                 (&plan.layout, plan.targets.candidates()),
-                &block_spellings(input, passes, cache, collections),
+                (
+                    &block_spellings(input, passes, cache, collections),
+                    flow_spellings(input, passes, cache, collections).as_ref(),
+                ),
             ) {
                 drop(plan);
                 prepare_selected(input, passes, cache, config, collections, false, None)
@@ -247,6 +250,7 @@ fn prepare_selected<'a>(
             converted_targets(input, passes, frame, rows, presentation).and_then(
                 |LayoutTargets(plan)| {
                     let trailing = plan.settled_source_edits(passes);
+                    let flow = flow_spellings(input, passes, cache, collections);
                     let native = initially_selected
                         && collections.reconsider(
                             input,
@@ -254,15 +258,18 @@ fn prepare_selected<'a>(
                             (&spellings, &trailing),
                             &plan.styles,
                             (&plan.layout, plan.targets.candidates()),
-                            &block_spellings(input, passes, cache, collections),
+                            (
+                                &block_spellings(input, passes, cache, collections),
+                                flow.as_ref(),
+                            ),
                         );
                     let implicit = collections.close_implicit(
                         input,
                         config,
                         &spellings,
                         &plan.styles,
-                        &plan.layout,
-                        plan.targets.candidates(),
+                        (&plan.layout, plan.targets.candidates()),
+                        flow.as_ref(),
                     );
                     if native || implicit {
                         drop(plan);
@@ -492,17 +499,58 @@ fn block_spellings(
     cache: &mut HashMap<String, Option<bool>>,
     collections: &collection_style::Plan,
 ) -> collection_style::BlockSpellings {
-    let (Some(cfg), Some(layout)) =
-        (passes.quoted_strings.as_ref(), collections.block_layout())
-    else {
-        return collection_style::BlockSpellings::default();
+    collection_style::BlockSpellings::new(
+        collection_spellings(
+            input,
+            passes,
+            cache,
+            collections,
+            collection_style::Form::Block,
+        )
+        .into_iter()
+        .map(|(start, _, spelling)| (start.get(), spelling.into_text().chars().count()))
+        .collect(),
+    )
+}
+
+fn flow_spellings(
+    input: Analysis<'_>,
+    passes: &Passes<'_>,
+    cache: &mut HashMap<String, Option<bool>>,
+    collections: &collection_style::Plan,
+) -> Option<quoted_strings::FlowSpellings> {
+    passes
+        .quoted_strings
+        .as_ref()
+        .filter(|cfg| cfg.has_flow_requirements())?;
+    Some(quoted_strings::FlowSpellings::new(collection_spellings(
+        input,
+        passes,
+        cache,
+        collections,
+        collection_style::Form::Flow,
+    )))
+}
+
+fn collection_spellings(
+    input: Analysis<'_>,
+    passes: &Passes<'_>,
+    cache: &mut HashMap<String, Option<bool>>,
+    collections: &collection_style::Plan,
+    form: collection_style::Form,
+) -> Vec<(BytePos, BytePos, quoted_strings::Spelling)> {
+    let (Some(cfg), Some(layout)) = (
+        passes.quoted_strings.as_ref(),
+        collections.uniform_layout(form),
+    ) else {
+        return Vec::new();
     };
     let guard = Guard::new(input, passes);
     let spaced_colon = colons::Guarantees::new(
         passes.colons,
         Guard::permission(guard.as_deref(), colons::ID),
     );
-    let widths = quoted_strings::format_replacements(
+    quoted_strings::format_replacements(
         input,
         cfg,
         cache,
@@ -517,9 +565,7 @@ fn block_spellings(
             .as_ref()
             .is_none_or(|guard| guard.allows(quoted_strings::ID, *start, *end))
     })
-    .map(|(start, _, spelling)| (start.get(), spelling.into_text().chars().count()))
-    .collect();
-    collection_style::BlockSpellings::new(widths)
+    .collect()
 }
 
 /// Under `ryl format`, whether a trailing comma before an own-line `]` or `}` stays: a
@@ -1901,6 +1947,18 @@ impl DocumentPlan<'_> {
             .map(|at| at + quotes)
             .ok_or(Fallback::ScalarInteraction)
             .and_then(|content| {
+                let content = if style.is_folded() {
+                    let start = starts[line_of(full.start)];
+                    let indent = self.input.text()[start..]
+                        .bytes()
+                        .take_while(|&byte| byte == b' ')
+                        .count();
+                    (self.input.text()[start..full.start].chars().count()
+                        + self.prefix(first))
+                    .saturating_sub(indent)
+                } else {
+                    content
+                };
                 let owner = frozen_owner.unwrap_or_else(|| {
                     self.targets
                         .scalar_owners()

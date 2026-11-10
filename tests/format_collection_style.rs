@@ -1270,3 +1270,110 @@ fn omitted_implicit_keys_allow_independent_collection_conversion() {
         "a:\n- a\n: value\n"
     );
 }
+
+#[test]
+fn flow_required_quotes_use_final_context_at_the_width_boundary() {
+    for width in 10..=30 {
+        for styles in [
+            "sequence-style = 'flow'",
+            "mapping-style = 'flow'",
+            "sequence-style = 'block'\nmapping-style = 'block'",
+        ] {
+            let cfg = config(&format!(
+                "line-length = {width}\n[format]\n{styles}\n[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n"
+            ));
+            for input in [
+                "key:\n  - a?b\n",
+                "key:\n  - &a a?b\nother: *a\n",
+                "key:\n  a: a?b\n",
+                "key:\n  nested:\n    a: a?b\n",
+                "key:\n  - a?bc\n  - :def\n",
+                "key: [a?bc, :def]\n",
+                "key:\n  ?foo: a?bc\n  :foo: :def\n",
+                "key: {?foo: a?bc, :foo: :def}\n",
+            ] {
+                let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+                assert_eq!(
+                    format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+                    output,
+                    "width {width}, {styles}, {input}"
+                );
+                crate::property::reference::check_strict_events(input, &output)
+                    .unwrap();
+                let rule = ryl::rules::quoted_strings::Config::resolve(&cfg);
+                assert!(
+                    ryl::rules::quoted_strings::check(&output, &rule).is_empty(),
+                    "{output}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_conversion_measures_required_quotes_before_selecting_collection_style() {
+    let cfg = config(
+        "line-length = 10\n[format]\nsequence-style = 'flow'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n",
+    );
+    let input = "key:\n  - a?b\n";
+    assert_eq!(format_str(input, &cfg, Path::new("case.yaml"), &[]), input);
+    let markdown = format!("```yaml\n{input}```\n");
+    assert!(
+        ryl::fix::fix_markdown_str(
+            &markdown,
+            Path::new("case.md"),
+            &cfg,
+            Path::new("."),
+            ryl::fix::Rewrite::Format
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn flow_requirements_preserve_empty_tagged_strings() {
+    assert_empty_tagged_flow_unchanged("[!!str ]\n", "[!!str]\n");
+}
+
+#[test]
+fn flow_requirements_preserve_empty_tagged_anchors_and_aliases() {
+    assert_empty_tagged_flow_unchanged("[!!str &a , *a]\n", "[!!str &a, *a]\n");
+    assert_empty_tagged_flow_unchanged("[&a !!str , *a]\n", "[&a !!str, *a]\n");
+}
+
+#[test]
+fn flow_conversion_preserves_empty_tagged_strings() {
+    assert_empty_tagged_flow_unchanged("key:\n  - !!str\n", "key:\n  - !!str\n");
+}
+
+fn assert_empty_tagged_flow_unchanged(input: &str, expected: &str) {
+    let baseline = config("[format]\nsequence-style = 'flow'\n");
+    let cfg = config(
+        "[format]\nsequence-style = 'flow'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['^$']\n",
+    );
+    let path = Path::new("case.yaml");
+    let output = format_str(input, &cfg, path, &[]);
+    assert_eq!(output, expected);
+    assert_eq!(output, format_str(input, &baseline, path, &[]));
+    crate::property::reference::check_strict_events(input, &output).unwrap();
+    assert_eq!(format_str(&output, &cfg, path, &[]), output);
+}
+
+#[test]
+fn flow_conversion_quotes_explicit_string_tags() {
+    let cfg = config(
+        "[format]\nsequence-style = 'flow'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?|^:']\n",
+    );
+    for (input, expected) in [
+        ("[!!str a?b]\n", "[!!str 'a?b']\n"),
+        ("key:\n  - !!str a?b\n", "key: [!!str 'a?b']\n"),
+    ] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, expected);
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+        assert_eq!(
+            format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+            output
+        );
+    }
+}

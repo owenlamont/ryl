@@ -51,6 +51,18 @@ standalone. All allow omitted initial document markers and keep truthy warnings.
 Only Ansible enables octal checks. Presets configure YAML linting and formatting;
 use ecosystem tools for application semantics and schema validation.
 
+All eight ecosystem presets require quotes on strings their readers mishandle in
+flow collections, including mapping keys. Block-context strings keep their existing
+quoting policy. The requirements also apply when formatting converts block to flow;
+keep `quoted-strings` enabled to retain reader compatibility.
+
+| Presets | `extra-required-flow` | Reader compatibility |
+| --- | --- | --- |
+| Kubernetes, Helm, Compose | `['\?\|^:']` | go-yaml v2/v3, including older Compose readers |
+| Ansible, CloudFormation, Home Assistant | `['\?\|^:']` | PyYAML reader families |
+| GitHub Actions | `['[?:]']` | Public runner's YamlDotNet 5.3 reader |
+| GitLab CI | `['^[?:]\|:\?']` | Psych/libyaml |
+
 ## `default` (TOML equivalent)
 
 ```toml
@@ -183,7 +195,6 @@ key-duplicates = "enable"
 key-ordering = "disable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.truthy]
@@ -211,6 +222,10 @@ level = "error"
 comment-spacing = 1
 # ansible-lint compatibility: https://github.com/ansible/ansible-lint/blob/main/src/ansiblelint/data/.yamllint
 brace-spacing = true
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['\?|^:']
 ```
 
 Sources:
@@ -251,7 +266,6 @@ line-length = "disable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
 octal-values = "disable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.comments]
@@ -274,6 +288,10 @@ level = "error"
 [lint.rules.tags]
 # AWS template restrictions: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/template-formats.html
 forbid-removed-types = true
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['\?|^:']
 ```
 
 Sources:
@@ -349,6 +367,7 @@ allow-quoted-quotes = false
 extra-required = ['\{\{|\{%']
 # Apply string guidance to values: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
 check-keys = false
+extra-required-flow = ['\?|^:']
 
 [lint.rules.tags]
 # Registered configuration tags: https://github.com/home-assistant-libs/annotatedyaml/blob/main/src/annotatedyaml/loader.py
@@ -405,7 +424,6 @@ line-length = "enable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
 octal-values = "disable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.comments]
@@ -426,6 +444,10 @@ indent-sequences = "whatever"
 forbid-nan = true
 # JSON conversion rejects nonfinite floats: https://github.com/kubernetes-sigs/yaml/blob/master/yaml.go
 forbid-inf = true
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['\?|^:']
 ```
 
 Sources:
@@ -468,7 +490,6 @@ line-length = "disable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
 octal-values = "disable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.comments]
@@ -493,6 +514,10 @@ indent-sequences = "whatever"
 [lint.rules.merge-keys]
 # Workflow merge keys unsupported: https://github.com/rhysd/actionlint/blob/main/parse.go
 level = "error"
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['[?:]']
 ```
 
 Sources:
@@ -533,7 +558,6 @@ line-length = "enable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
 octal-values = "disable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.comments]
@@ -548,6 +572,10 @@ level = "warning"
 [lint.rules.tags]
 # Compose merge tags: https://docs.docker.com/reference/compose-file/merge/
 allowed-tags = ["!reset", "!override"]
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['\?|^:']
 ```
 
 Sources:
@@ -558,7 +586,8 @@ Sources:
 ## `helm`
 
 Use for Helm `values.yaml` and `Chart.yaml`, excluding templates. String values
-must be quoted, using either quote type; mapping keys are exempt. The values guide
+must be quoted, using either quote type; mapping keys only need reader-required
+flow quotes. The values guide
 calls for quoting strings without prescribing a quote type. Existing quotes are
 preserved by the formatter.
 
@@ -615,6 +644,7 @@ quote-type = "any"
 required = true
 # Quote string values: https://helm.sh/docs/chart_best_practices/values/
 check-keys = false
+extra-required-flow = ['\?|^:']
 ```
 
 Sources:
@@ -658,7 +688,6 @@ line-length = "disable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
 octal-values = "disable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.comments]
@@ -673,6 +702,10 @@ level = "warning"
 [lint.rules.tags]
 # Native reference tag: https://docs.gitlab.com/ci/yaml/yaml_optimization/
 allowed-tags = ["!reference"]
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['^[?:]|:\?']
 ```
 
 Sources:

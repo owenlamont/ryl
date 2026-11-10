@@ -26,7 +26,6 @@ line-length = "enable"
 new-line-at-end-of-file = "enable"
 new-lines = "enable"
 octal-values = "disable"
-quoted-strings = "disable"
 trailing-spaces = "enable"
 
 [lint.rules.comments]
@@ -41,3 +40,7 @@ level = "warning"
 [lint.rules.tags]
 # Compose merge tags: https://docs.docker.com/reference/compose-file/merge/
 allowed-tags = ["!reset", "!override"]
+
+[lint.rules.quoted-strings]
+required = false
+extra-required-flow = ['\?|^:']
