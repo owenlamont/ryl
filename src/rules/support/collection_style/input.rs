@@ -316,9 +316,17 @@ impl<'a> Initial<'a> {
     /// The end of whatever precedes `node`'s properties: its key's `:`, its `-`, or the
     /// line start.
     pub(super) fn lead_start(&self, node: usize) -> usize {
-        self.source.text()[..self.properties_start(node)]
+        let start = self.properties_start(node);
+        let before = self.source.text()[..start]
             .trim_end_matches(super::is_space)
-            .len()
+            .len();
+        if &self.source.text()[self.line_start(before)..before] == "---"
+            && self.line_start(start) > self.line_start(before)
+        {
+            self.line_start(start)
+        } else {
+            before
+        }
     }
 
     pub(super) fn start_of(&self, node: usize) -> usize {
@@ -432,9 +440,7 @@ impl<'a> Initial<'a> {
 
     pub(super) fn spans_lines(&self, node: usize) -> bool {
         let site = &self.sites[node];
-        let starts = self.source.byte_line_starts();
-        starts.partition_point(|&at| at <= site.start)
-            != starts.partition_point(|&at| at < site.end)
+        self.fragment(Boundary(site.start), site.end).multiline()
     }
 
     pub(super) fn outer(&self, node: usize) -> Outer<'a> {

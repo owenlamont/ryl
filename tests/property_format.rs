@@ -821,7 +821,10 @@ proptest! {
 
     #[test]
     fn random_format_config_keeps_the_guarantee(
-        document in arb_document_with_properties(),
+        input in prop_oneof![
+            3 => arb_document_with_properties().prop_map(|document| document.render()),
+            1 => properties::arb_quoted_document(),
+        ],
         table in settings::arb_format_config(),
     ) {
         let cfg = YamlLintConfig::from_toml_str(&table).expect(&table);
@@ -832,7 +835,7 @@ proptest! {
                 ryl::format::format_str(input, &cfg, synthetic_path(), &[])
             }),
         };
-        check_pass(&pass, &document.render()).map_err(TestCaseError::fail)?;
+        check_pass(&pass, &input).map_err(TestCaseError::fail)?;
     }
 
     #[test]

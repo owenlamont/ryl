@@ -452,9 +452,9 @@ collection is judged at
 its own line, and one that must spread spreads its parents too. A sequence entry keeps
 its `[` on the `-` line, re-indented as the `indentation` rule expects; one after a
 second `-` on the line, as in `- - [`, stays as written rather than spread. A comment
-after a collection is left out of the width and rules out the move to the next line. A
-spread collection keeps its `[` and the comment on the key line, so the comment keeps
-its place among the data:
+after a collection is left out of the width and normally prevents a move to the next
+line. A spread collection normally keeps its `[` and the comment on the key line, so
+the comment keeps its place among the data:
 
 ```yaml
 # input and output, sequence-expand = "auto"
@@ -465,9 +465,13 @@ key: [  # note
 ```
 
 A collection that holds a comment stays as written, with a notice on stderr where its
-target rejects its current form. With `*-style = "flow"`, a collection that fits on
-one line keeps its `*-expand` layout, and under `"always"` a block collection stays
-block rather than become a spread flow one.
+target rejects its current form. A trailing comment permits expansion when quote
+normalization leaves the collection on one line. With `*-style = "flow"`, a collection
+that fits on one line keeps its `*-expand` layout, and under `"always"` a block
+collection stays block rather than become a spread flow one.
+
+When expansion moves a collection below a compact mapping's key, the trailing comment
+stays beside the key, keeping the mapping on its dash line.
 
 ## Property order
 

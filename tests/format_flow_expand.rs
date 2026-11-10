@@ -10,6 +10,42 @@ use ryl::format::{format_str, refusals};
 const AUTO: &str = "[format]\nsequence-expand = 'auto'\nmapping-expand = 'auto'\n";
 
 #[test]
+fn added_document_start_keeps_root_collection_geometry_stable() {
+    for (input, expand) in [("[a]\n", "sequence"), ("{k: v}\n", "mapping")] {
+        formats(
+            input,
+            &format!("[format]\ndocument-start = 'add'\n{expand}-expand = 'auto'\n"),
+            &format!("---\n{input}"),
+        );
+    }
+    formats(
+        "[abc]\n",
+        "line-length = 5\n[format]\ndocument-start = 'add'\nsequence-style = 'flow'\n",
+        "---\n[abc]\n",
+    );
+}
+
+#[test]
+fn collapsed_multiline_quotes_allow_commented_collection_expansion() {
+    formats(
+        "{k: \"a\n b\"} # c\n",
+        "[format]\nmapping-expand = 'always'\n",
+        "{  # c\n  k: a b,\n}\n",
+    );
+}
+
+#[test]
+fn commented_collection_expands_below_a_compact_mappings_key() {
+    for scalar in ["\"a\n   b\"", "a b"] {
+        formats(
+            &format!("- k: [{scalar}] # c\n"),
+            "[format]\ndash-on-own-line = true\nsequence-expand = 'always'\n",
+            "- k:  # c\n    [\n      a b,\n    ]\n",
+        );
+    }
+}
+
+#[test]
 fn explicit_key_flow_overflow_uses_the_final_sequence_indent() {
     formats(
         "? a\n: [[a, b], c]\n",
@@ -66,6 +102,7 @@ fn formats(input: &str, toml: &str, expected: &str) {
     let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
     assert_eq!(output, expected, "input {input:?} under {toml:?}");
     crate::property::reference::check_strict_events(input, &output).unwrap();
+    crate::property::representation::check_annotations(input, &output).unwrap();
     assert_eq!(
         format_str(&output, &cfg, Path::new("case.yaml"), &[]),
         output,

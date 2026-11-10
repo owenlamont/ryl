@@ -367,9 +367,7 @@ impl<'a> Planner<'a> {
         let value = node
             .parent()
             .is_some_and(|parent| self.nodes[parent].kind() == Kind::Mapping);
-        // As in prettier, a trailing comment keeps `[` on the key line; the comment stays
-        // on that line, after `[`, so it keeps its place among the data.
-        let hugged = value && trailing;
+        let hugged = value && trailing && place.line == place.base;
         let next_line =
             self.one(index)
                 .filter(|_| value && !hugged)
@@ -382,15 +380,28 @@ impl<'a> Planner<'a> {
                 });
         let fit = self.fit(index, end, next_line);
         // Re-indenting would put entries no deeper than a key after a `-` on its line.
-        if fit == Fit::Expanded
-            && (place.nested_dash
-                || self.joins_dash(index)
-                || hugged && place.line != place.base)
-        {
+        if fit == Fit::Expanded && (place.nested_dash || self.joins_dash(index)) {
             return None;
         }
+        let mut outer = self.initial.outer(index);
+        let mut comment = (trailing && fit != Fit::Inline)
+            .then(|| outer.take_comment())
+            .flatten();
+        if comment.is_some() && outer.ytt_directive() {
+            return None;
+        }
+        let end = if comment.is_some() {
+            self.initial.line_end_of(index)
+        } else {
+            self.initial.end(index)
+        };
         let mut recipe = Recipe::new();
         if fit != Fit::Inline && value && !hugged {
+            // The comment still annotates the mapping's key when its value moves below.
+            if let Some(comment) = comment.take() {
+                recipe.comment_gap(&comment);
+                recipe.copy(comment);
+            }
             recipe.line(place.base + self.indent);
         } else if place.lead {
             recipe.text(" ");
@@ -406,18 +417,6 @@ impl<'a> Planner<'a> {
                 place.base + self.indent * (1 + usize::from(value))
             }
         });
-        let mut outer = self.initial.outer(index);
-        let comment = (trailing && fit == Fit::Expanded)
-            .then(|| outer.take_comment())
-            .flatten();
-        if comment.is_some() && outer.ytt_directive() {
-            return None;
-        }
-        let end = if comment.is_some() {
-            self.initial.line_end_of(index)
-        } else {
-            self.initial.end(index)
-        };
         self.spell(index, (entries, comment), &mut recipe)?;
         let selected = place.edit(end).select(recipe);
         (!selected.written(self.initial.text())).then_some((selected, true))
