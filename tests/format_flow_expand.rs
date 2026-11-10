@@ -10,6 +10,61 @@ use ryl::format::{format_str, refusals};
 const AUTO: &str = "[format]\nsequence-expand = 'auto'\nmapping-expand = 'auto'\n";
 
 #[test]
+fn standalone_value_comments_survive_collapsed_quotes() {
+    for scalar in ["\"a\n    b\"", "a b"] {
+        for expand in ["always", "never"] {
+            formats(
+                &format!("k:\n  [{scalar}] # c\n"),
+                &format!("[format]\nsequence-expand='{expand}'\n"),
+                "k:\n  [a b]  # c\n",
+            );
+        }
+    }
+}
+
+#[test]
+fn removed_inline_document_marker_does_not_defer_expansion() {
+    formats(
+        "--- {k: v}\n",
+        "[format]\ndocument-start='remove'\nmapping-expand='always'\n",
+        "{\n  k: v,\n}\n",
+    );
+    formats(
+        "--- &col [\"a\n    b\"] # c\n",
+        "indent-width=8\nline-length=12\n[format]\ndocument-start='remove'\nsequence-style='flow'\nsequence-expand='always'\n",
+        "&col [  # c\n        a b,\n]\n",
+    );
+}
+
+#[test]
+fn marker_removal_projection_obeys_rule_directives() {
+    for (rule, marker) in [("quoted-strings", ""), ("document-start", "--- ")] {
+        formats(
+            &format!("--- {{k: v}} # ryl disable-line rule:{rule}\n"),
+            "[format]\ndocument-start='remove'\nmapping-expand='always'\n",
+            &format!("{marker}{{  # ryl disable-line rule:{rule}\n  k: v,\n}}\n"),
+        );
+    }
+}
+
+#[test]
+fn standalone_anchor_uses_final_indent_for_flow_eligibility() {
+    for expand in ["preserve", "never", "always"] {
+        formats(
+            "-\n  &col {k: v}\n",
+            &format!(
+                "line-length=12\nindent-width=1\n[format]\nmapping-style='flow'\nmapping-expand='{expand}'\n"
+            ),
+            if expand == "always" {
+                "-\n &col {\n  k: v,\n }\n"
+            } else {
+                "-\n &col {k: v}\n"
+            },
+        );
+    }
+}
+
+#[test]
 fn added_document_start_keeps_root_collection_geometry_stable() {
     for (input, expand) in [("[a]\n", "sequence"), ("{k: v}\n", "mapping")] {
         formats(

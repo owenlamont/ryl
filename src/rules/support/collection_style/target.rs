@@ -346,6 +346,9 @@ impl<'a> Planner<'a> {
         if trailing && self.initial.spans_lines(index) {
             return None;
         }
+        if trailing && self.initial.starts_below(index, place.boundary()) {
+            return None;
+        }
         let properties =
             single(self.initial.properties(place.boundary(), index)).ok()?;
         let start = place.column
@@ -849,6 +852,7 @@ impl<'a> Planner<'a> {
             .map(|parent| self.nodes[parent].kind())
         {
             Some(Kind::Mapping) => place.base + self.body_indent(index),
+            Some(Kind::Sequence) if !place.lead => place.column,
             Some(Kind::Sequence)
                 if self.initial.starts_below(index, place.boundary())
                     || self.nodes[index].kind() == Kind::Sequence

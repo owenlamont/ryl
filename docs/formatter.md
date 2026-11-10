@@ -466,7 +466,8 @@ key: [  # note
 
 A collection that holds a comment stays as written, with a notice on stderr where its
 target rejects its current form. A trailing comment permits expansion when quote
-normalization leaves the collection on one line. With `*-style = "flow"`, a collection
+normalization leaves the collection on one line; a commented value below its key keeps
+that placement. With `*-style = "flow"`, a collection
 that fits on one line keeps its `*-expand` layout, and under `"always"` a block
 collection stays block rather than become a spread flow one.
 
