@@ -236,51 +236,42 @@ impl Builder<'_> {
             merge_key: false,
             ambiguous: false,
         };
-        let anchor;
+        debug_assert!(event.is_node(), "projection consumes node events");
+        let anchor = event.anchor_id().unwrap_or_default();
+        let tag = event.tag();
         let mapping = matches!(event, Event::MappingStart(..));
-        match event {
-            Event::Scalar(raw, style, id, tag) => {
-                anchor = id;
-                self.budget.charge(0, raw.len(), span)?;
-                node.bytes = raw.len();
-                node.merge_key = raw == "<<"
-                    && (style == ScalarStyle::Plain && tag.is_none()
-                        || tag.as_deref().and_then(core_schema_suffix).as_deref()
-                            == Some("merge"));
-                node.value = if node.merge_key && key_context {
-                    Value::String(raw.into_owned())
-                } else {
-                    scalar(raw, style, tag.as_deref(), self.yaml11, span)?
-                };
+        if let Some((raw, style)) = event.scalar() {
+            self.budget.charge(0, raw.len(), span)?;
+            node.bytes = raw.len();
+            node.merge_key = raw == "<<"
+                && (style == ScalarStyle::Plain && tag.is_none()
+                    || tag.and_then(core_schema_suffix).as_deref() == Some("merge"));
+            node.value = if node.merge_key && key_context {
+                Value::String(raw.to_owned())
+            } else {
+                scalar(Cow::Borrowed(raw), style, tag, self.yaml11, span)?
+            };
+        } else {
+            let expected = if mapping { "map" } else { "seq" };
+            if let Some(tag) = tag
+                && !(tag.handle().is_empty() && tag.suffix() == "!")
+                && core_schema_suffix(tag).as_deref() != Some(expected)
+            {
+                return Err(refuse(&format!("tag {}", tag.original()), span));
             }
-            Event::SequenceStart(_, id, tag) | Event::MappingStart(_, id, tag) => {
-                anchor = id;
-                let expected = if mapping { "map" } else { "seq" };
-                if let Some(tag) = tag
-                    && !(tag.handle().is_empty() && tag.suffix() == "!")
-                    && core_schema_suffix(&tag).as_deref() != Some(expected)
-                {
-                    return Err(refuse(&format!("tag {}", tag.original()), span));
+            if mapping {
+                self.mapping(events, depth, &mut node)?;
+            } else {
+                let mut values = Vec::new();
+                while !matches!(events.peek(), Some((Event::SequenceEnd, _))) {
+                    let child = self.node(events, depth + 1, false)?;
+                    node.attach(&child, &format!("/{}", values.len()), self.budget)?;
+                    values.push(child.value);
                 }
-                if mapping {
-                    self.mapping(events, depth, &mut node)?;
-                } else {
-                    let mut values = Vec::new();
-                    while !matches!(events.peek(), Some((Event::SequenceEnd, _))) {
-                        let child = self.node(events, depth + 1, false)?;
-                        node.attach(
-                            &child,
-                            &format!("/{}", values.len()),
-                            self.budget,
-                        )?;
-                        values.push(child.value);
-                    }
-                    node.value = Value::Array(values);
-                }
-                let (_, end) = events.next().expect("parser closes collection");
-                node.span = Span::new(span.start, end.end);
+                node.value = Value::Array(values);
             }
-            _ => return Err(refuse("unexpected node event", span)),
+            let (_, end) = events.next().expect("parser closes collection");
+            node.span = Span::new(span.start, end.end);
         }
         node.nodes.insert(String::new(), node.span);
         if anchor != 0 {
@@ -463,27 +454,24 @@ fn value_bytes(value: &Value) -> usize {
 pub(super) fn document<'a>(
     events: &mut Peekable<impl Iterator<Item = (Event<'a>, Span)>>,
     budget: &mut Budget,
-) -> Result<Option<Projection>, Refusal> {
-    while let Some((event, start)) = events.next() {
-        if let Event::DocumentStart(_, version) = event {
-            let mut builder = Builder {
-                anchors: BTreeMap::new(),
-                start,
-                yaml11: yaml_version::resolves_as_yaml_1_1(
-                    version.map(yaml_version::event_version),
-                ),
-                budget,
-            };
-            let node = builder.node(events, 0, false)?;
-            return Ok(Some(Projection {
-                value: node.value,
-                nodes: node.nodes,
-                keys: node.keys,
-                root: node.span,
-                #[cfg(feature = "lsp")]
-                ambiguous: node.ambiguous,
-            }));
-        }
-    }
-    Ok(None)
+    start: Span,
+    version: Option<ryl_yaml_parser::YamlVersion>,
+) -> Result<Projection, Refusal> {
+    let mut builder = Builder {
+        anchors: BTreeMap::new(),
+        start,
+        yaml11: yaml_version::resolves_as_yaml_1_1(
+            version.map(yaml_version::event_version),
+        ),
+        budget,
+    };
+    let node = builder.node(events, 0, false)?;
+    Ok(Projection {
+        value: node.value,
+        nodes: node.nodes,
+        keys: node.keys,
+        root: node.span,
+        #[cfg(feature = "lsp")]
+        ambiguous: node.ambiguous,
+    })
 }

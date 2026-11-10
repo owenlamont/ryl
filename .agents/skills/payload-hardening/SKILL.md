@@ -58,6 +58,10 @@ multiple_crate_versions`).
 ## Local JSON Schema validation
 
 `rules::schema` prepares validators during config finalization, before cache lookup.
+Opted-in comment directives prepare after decoding, before cache lookup or LSP analysis.
+Their local base is the input directory; permission stays confined to the canonical
+config root. Configured and directive roots share resource/byte accounting across all
+documents and Markdown regions. Validate candidates before recording watchers.
 Root and referenced files use the same canonical-path confinement and bounded reader:
 16 MiB total, 1,024 resources, no UNC paths. Distinct URI aliases
 count separately toward both limits. Regex uses the

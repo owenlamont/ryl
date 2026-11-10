@@ -606,12 +606,31 @@ fn check_yaml_1_1_values(
 fn check_pass(pass: &FormatPass, input: &str) -> Result<String, String> {
     check_invariants(&pass.format, input)
         .and_then(|once| {
+            if pass.cfg.schema_directives()
+                && ryl::rules::schema::document_directives(input)
+                    != ryl::rules::schema::document_directives(&once)
+            {
+                return Err("schema selection changed".to_owned());
+            }
             if pass.cfg.target_version() != TargetVersion::Yaml12 {
                 check_yaml_1_1_preserved(input, &once)?;
             }
             Ok(once)
         })
         .map_err(|violation| format!("pass '{}' on {input:?}: {violation}", pass.name))
+}
+
+#[test]
+fn directive_profile_preserves_spelling_without_changing_zero_config_profiles() {
+    let source = "#$schema: none\nx: 1\n";
+    assert_eq!(
+        (named_pass("format/preview").format)(source),
+        (named_pass("format/default").format)(source)
+    );
+    assert_eq!(
+        (named_pass("format/schema-directives").format)(source),
+        source
+    );
 }
 
 #[test]
@@ -637,6 +656,38 @@ fn omitted_mapping_key_formats_without_indentation_errors() {
         input,
     )
     .unwrap();
+}
+
+#[test]
+fn implicit_collection_key_quote_refusals_survive_a_document_marker() {
+    let input = "[a, {b: c}]: |\n  a";
+    let cfg = YamlLintConfig::from_toml_str("[format]\ndocument-start = 'add'\n[lint.rules.quoted-strings]\nrequired = true\ncheck-keys = true\n").unwrap();
+    let (output, notices) = ryl::fix::rewrite_str(
+        input,
+        &cfg,
+        synthetic_path(),
+        synthetic_base_dir(),
+        ryl::config::SourceKind::Yaml,
+        ryl::fix::Rewrite::Format,
+    );
+    let output = output.unwrap();
+    assert_eq!(output, "---\n[a, {b: c}]: |\n  a\n");
+    assert!(
+        notices
+            .iter()
+            .any(|notice| notice.rule == Some("quoted-strings")
+                && notice.message
+                    == "cannot add quotes inside an implicit collection key; use an explicit `?` key")
+    );
+    let before = lint_str(input, synthetic_path(), &cfg, synthetic_base_dir());
+    let problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
+    assert_eq!(problems.len(), 3);
+    assert!(
+        problems.iter().all(|problem| consistency::refused(
+            input, &output, problem, &notices, &before
+        )),
+        "{problems:?}: {notices:?}"
+    );
 }
 
 #[test]

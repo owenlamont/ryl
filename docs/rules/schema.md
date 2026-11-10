@@ -45,12 +45,61 @@ files = [".github/workflows/*.yml", ".github/workflows/*.yaml"]
 | `path` | Relative schema path, anchored at the config base directory. A config under `.config/` uses the parent directory. Exactly one of `path` or `url` is required. |
 | `url` | HTTPS schema URL on port 443. The user must independently grant the origin. |
 | `pins` | Optional map of full resource URLs to `sha256:<64 hex>` content pins. |
+| `directives` | Default `false`. Enable per-document schema comment selection; the rule must also be enabled. |
 | `files` | Optional path globs with `!` exclusions, like `key-ordering.orders`. Empty or omitted matches every file. |
 | Association order | The first matching entry wins. Unmatched files and an enabled rule without associations are no-ops. |
 
 `--stdin-filename` supplies the matching path for stdin. Anonymous stdin matches
 only associations with empty `files`. Markdown regions match the host filename.
 Normal rule directives, per-file ignores and per-line ignores apply.
+
+## In-file directives
+
+Opt in through TOML; comments never enable rules or grant network access:
+
+```toml
+[lint.rules.schema]
+directives = true
+```
+
+Each YAML document can override its configured association with either header form:
+
+```yaml
+# yaml-language-server: $schema=schemas/app.json
+name: example
+```
+
+The short form is `# $schema: schemas/app.json`. Matching follows Red Hat's
+yaml-language-server: prefixes are case-sensitive, whitespace after `#` is required,
+and values end at whitespace. Quotes, percent signs and environment variables are
+literal; paths containing spaces cannot be expressed. The first recognized modeline
+wins, even when malformed: a missing value falls back to the configured association,
+whereas an unloadable value is an error. `none`, case-insensitively, skips validation
+for that document; `./none` names a file. Inline YAML `$schema` keys remain ordinary data.
+
+Only header comments count, including comments around or on an opening `---`.
+Root tags and anchors keep the header open until node content starts.
+Leading `...` markers discard preceding headers without creating documents.
+Comments after document content belong to that document; comments after `...` can
+start the next header. Strings and block scalar bodies never select schemas.
+Each enabled Markdown region has its own headers and uses the host filename.
+
+Relative paths resolve beside the YAML or Markdown file but must remain inside the
+canonical config root, including through symlinks. Absolute, drive, UNC and root `file:`
+locations are refused. Anonymous stdin and untitled buffers need a filename for local
+paths (`--stdin-filename` on the CLI); granted HTTPS URLs and `none` work without one.
+Root fragments select JSON Pointers or anchors. HTTPS directives use the same grants,
+pins, offline mode and retrieval limits as configured schemas.
+
+Configured schemas still prepare eagerly, including overridden associations; a comment
+cannot hide a broken configuration. Directive loading happens before lint-cache lookup.
+Configured and directive resources share one preparation budget across documents and
+Markdown regions. With directives off, comments incur no discovery scan or loading.
+
+With directives enabled, key-ordering declines sorts that would move modelines,
+including body comments that could become headers, and reports an unfixed notice.
+Comment-spacing fixes preserve active and near-modeline
+spellings. Formatting keeps these text protections without loading schemas.
 
 ## Loading and limits
 
@@ -135,7 +184,7 @@ More than 1,000,000 possible dynamic-reference edges are refused before expansio
 
 Projection is bounded to 1,000,000 nodes, 16 MiB of scalar and pointer storage, and
 128 levels. A file reports at most 100 validation diagnostics plus a truncation note.
-Users with no schema associations do no schema loading or projection. `ryl format`
+Users with no schema associations and directives disabled do no schema loading or projection. `ryl format`
 does not load lint schemas.
 
 ## YAML values and locations

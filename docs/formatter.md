@@ -46,6 +46,8 @@ Every edit `ryl format` makes is checked by property tests to be:
   anchors, aliases, key order and duplicate keys, resolved under the document's YAML
   version.
 - **Comment-safe.** Every comment stays beside the node it annotates.
+  With [schema directives](rules/schema.md#in-file-directives) enabled, comment spacing
+  also preserves active and near-modeline spellings. Schema loading never runs during formatting.
 - **Idempotent.** Formatting formatted output changes nothing.
 
 ### Syntax repairs and file handling

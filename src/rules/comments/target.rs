@@ -57,6 +57,8 @@ impl Target {
             }
         });
         let starting_space = if cfg.require_starting_space()
+            && !(cfg.protect_modelines
+                && crate::rules::schema::directives::near_modeline(model.value()))
             && !(cfg.ignore_shebangs() && model.is_magic())
         {
             let hashes = model.value().bytes().take_while(|&ch| ch == b'#').count();

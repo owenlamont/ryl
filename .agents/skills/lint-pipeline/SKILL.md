@@ -68,6 +68,12 @@ enabled rule runs; `--markdown` forces Markdown.
 
 ## Inline directives
 
+Schema header directives require the schema rule and TOML `directives = true`.
+Prepare them from the decoded input before cache lookup; roots and references contribute
+content digests. Anonymous stdin cannot resolve local directives. Markdown regions select
+independently but share the host's loading budget and diagnostic cap. Formatting skips
+preparation while preserving modeline spelling; key-ordering refuses destructive movement.
+
 `src/directives.rs`: `# ryl disable` / `enable` / `disable-line` (and `# yamllint …`
 aliases) suppress rules for a block or line, mirroring yamllint's grammar
 (`yamllint/linter.py`); only the `# ryl` spelling may share a comment with other `#`

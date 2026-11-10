@@ -408,21 +408,7 @@ pub fn rewrite_files(
             ReadOptions {
                 follow_symlinks: false,
             },
-            |decoded, (path, base_dir, cfg, kind)| {
-                let output = rewrite_checked(
-                    decoded.content(),
-                    cfg,
-                    path,
-                    base_dir,
-                    *kind,
-                    rewrite,
-                    rewrite == Rewrite::Fix,
-                );
-                if let Some(rewritten) = &output.rewritten {
-                    decoded.write(path, rewritten)?;
-                }
-                Ok(output)
-            },
+            |decoded, file| rewrite_file(&decoded, file, rewrite),
             |offset, (mut result, stderr)| {
                 let index = batch.start + offset;
                 let notice_start = stats.notices.len();
@@ -488,12 +474,59 @@ pub fn rewrite_files(
         stats.before = before;
         stats.leading_notices = notices;
         stats.after = check_files(files, &|_, _| {}).0;
+        stats
+            .errors
+            .extend(
+                stats
+                    .after
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, outcome)| {
+                        outcome.as_ref().err().map(|error| (index, error.clone()))
+                    }),
+            );
         for (index, error) in &stats.errors {
             stats.before[*index] = Err(error.clone());
             stats.after[*index] = Err(error.clone());
         }
     }
     stats
+}
+
+fn rewrite_file(
+    decoded: &decoder::DecodedFile,
+    (path, base, cfg, kind): &LintFile,
+    rewrite: Rewrite,
+) -> Result<RewriteOutcome, String> {
+    let cfg = rewrite_schemas(cfg, decoded.content(), path, base, *kind, rewrite)?;
+    let output = rewrite_checked(
+        decoded.content(),
+        &cfg,
+        path,
+        base,
+        *kind,
+        rewrite,
+        rewrite == Rewrite::Fix,
+    );
+    if let Some(rewritten) = &output.rewritten {
+        decoded.write(path, rewritten)?;
+    }
+    Ok(output)
+}
+
+fn rewrite_schemas<'a>(
+    cfg: &'a YamlLintConfig,
+    text: &str,
+    path: &Path,
+    base: &Path,
+    kind: SourceKind,
+    rewrite: Rewrite,
+) -> Result<std::borrow::Cow<'a, YamlLintConfig>, String> {
+    if rewrite == Rewrite::Format {
+        return Ok(std::borrow::Cow::Borrowed(cfg));
+    }
+    cfg.document_schemas(text, Some(path), base, kind, &crate::config::SystemEnv)
+        .map_err(|error| error.to_string())
 }
 
 fn check_files(
@@ -509,17 +542,26 @@ fn check_files(
             follow_symlinks: true,
         },
         |decoded, (path, base_dir, cfg, kind)| {
+            let cfg = cfg
+                .document_schemas(
+                    decoded.content(),
+                    Some(path),
+                    base_dir,
+                    *kind,
+                    &crate::config::SystemEnv,
+                )
+                .map_err(|error| error.to_string())?;
             Ok(match kind {
                 SourceKind::Yaml => lint::lint_str_with_repair_help(
                     decoded.content(),
                     path,
-                    cfg,
+                    &cfg,
                     base_dir,
                 ),
                 SourceKind::Markdown => crate::markdown_embed::lint_markdown_str(
                     decoded.content(),
                     path,
-                    cfg,
+                    &cfg,
                     base_dir,
                 ),
             })
@@ -1243,8 +1285,16 @@ pub fn diff_files<'a>(
             follow_symlinks: false,
         },
         |decoded, (path, base_dir, cfg, kind)| {
+            let cfg = rewrite_schemas(
+                cfg,
+                decoded.content(),
+                path,
+                base_dir,
+                *kind,
+                rewrite,
+            )?;
             Ok(decoded_diff_outcome(
-                &decoded, cfg, path, base_dir, *kind, rewrite,
+                &decoded, &cfg, path, base_dir, *kind, rewrite,
             ))
         },
         |index, (result, stderr)| {

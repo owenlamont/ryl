@@ -46,5 +46,5 @@ resolved value, comments and anchors. That rules out:
 ## JSON Schema validation
 
 User-supplied JSON Schemas are in scope. Remote fetching requires independent user
-origin grants; catalogs, in-file schema declarations and built-in dialect policies
+origin grants. In-file comment directives require explicit TOML opt-in; catalogs and built-in dialect policies
 are outside the current implementation.
