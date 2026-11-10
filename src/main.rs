@@ -2126,13 +2126,13 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
     let mut entries = Vec::new();
     let mut cache_hits = Vec::new();
     let notice = deprecation::file_notice(format.no_warnings);
-    for (path, base_dir, cfg, kind) in &files {
+    for file @ (path, _, cfg, kind) in &files {
         let symlink = std::fs::symlink_metadata(path)
             .is_ok_and(|metadata| metadata.file_type().is_symlink());
         let entry = if format.diff || symlink {
             None
         } else {
-            settings.entry(path, base_dir, cfg, *kind, "format")?
+            settings.entry(file, "format", None)?
         };
         let (entry, bytes) = entry.unzip();
         let hit = entry.as_deref().is_some_and(cache::clean_hit);
@@ -2141,7 +2141,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         }
         cache_hits.push(hit);
         if !hit {
-            pending.push((path.clone(), base_dir.clone(), Arc::clone(cfg), *kind));
+            pending.push(file.clone());
             entries.push(entry);
         }
     }
@@ -2178,9 +2178,8 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
             continue;
         }
         if entry.is_some() {
-            let (path, base_dir, cfg, kind) = &pending[index];
             settings
-                .entry(path, base_dir, cfg, *kind, "format")
+                .entry(&pending[index], "format", None)
                 .and_then(|current| {
                     current
                         .as_ref()
@@ -2471,7 +2470,11 @@ fn lint_files_cached(
                     &ryl::config::SystemEnv,
                 )
                 .map_err(|error| error.to_string())?;
-            let entry = settings.document_entry(file, bytes, &prepared)?;
+            let entry = settings.entry(
+                file,
+                "check",
+                Some((bytes, format!("{prepared:?}"))),
+            )?;
             if let Some(problems) =
                 entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
             {
@@ -2488,7 +2491,7 @@ fn lint_files_cached(
             };
             return Ok((Ok(problems), entry.map(|(path, _)| path)));
         }
-        let entry = settings.entry(path, base_dir, cfg, *kind, "check")?;
+        let entry = settings.entry(file, "check", None)?;
         if let Some(problems) =
             entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
         {

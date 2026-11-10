@@ -1419,16 +1419,7 @@ impl YamlLintConfig {
         base: &Path,
         env: &dyn Env,
     ) -> Result<(), crate::rules::schema::PreparationError> {
-        let prepared = crate::rules::schema::prepare(self, base, env)?;
-        self.apply_schema_preparation(prepared);
-        Ok(())
-    }
-
-    fn apply_schema_preparation(
-        &mut self,
-        prepared: crate::rules::schema::Preparation,
-    ) {
-        match prepared {
+        match crate::rules::schema::prepare(self, base, env)? {
             crate::rules::schema::Preparation::Ready(schema) => {
                 self.resolved.schema = schema;
                 self.resolved.needs_remote_preparation = false;
@@ -1437,6 +1428,7 @@ impl YamlLintConfig {
                 self.resolved.needs_remote_preparation = true;
             }
         }
+        Ok(())
     }
 
     pub(crate) fn finalize(

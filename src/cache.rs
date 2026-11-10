@@ -41,36 +41,8 @@ impl Settings {
 
     pub fn entry(
         &self,
-        path: &Path,
-        base_dir: &Path,
-        cfg: &YamlLintConfig,
-        kind: SourceKind,
+        (path, base_dir, cfg, kind): &ryl::cli_support::LintFile,
         mode: &str,
-    ) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
-        self.entry_with((path, base_dir, cfg, kind, mode), None)
-    }
-
-    pub fn document_entry(
-        &self,
-        file: &ryl::cli_support::LintFile,
-        bytes: Vec<u8>,
-        prepared: &YamlLintConfig,
-    ) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
-        self.entry_with(
-            (&file.0, &file.1, &file.2, file.3, "check"),
-            Some((bytes, format!("{prepared:?}"))),
-        )
-    }
-
-    fn entry_with(
-        &self,
-        (path, base_dir, cfg, kind, mode): (
-            &Path,
-            &Path,
-            &YamlLintConfig,
-            SourceKind,
-            &str,
-        ),
         document: Option<(Vec<u8>, String)>,
     ) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
         if self.disabled {
@@ -85,7 +57,7 @@ impl Settings {
                 } else {
                     self.directory
                         .as_ref()
-                        .map_or(base_dir, |_| self.cwd.as_path())
+                        .map_or(base_dir.as_path(), |_| self.cwd.as_path())
                         .join(root)
                 }
             },
@@ -127,10 +99,10 @@ impl Settings {
             return Ok(None);
         }
         let key = (
-            std::ptr::from_ref::<YamlLintConfig>(cfg) as usize,
-            kind == SourceKind::Markdown,
+            std::ptr::from_ref::<YamlLintConfig>(cfg.as_ref()) as usize,
+            *kind == SourceKind::Markdown,
             mode == "format",
-            base_dir.to_path_buf(),
+            base_dir.clone(),
         );
         let mut prefixes = self.prefixes.lock().expect("cache lock not poisoned");
         let mut hash = prefixes

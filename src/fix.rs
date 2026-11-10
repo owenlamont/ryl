@@ -1285,18 +1285,14 @@ pub fn diff_files<'a>(
             follow_symlinks: false,
         },
         |decoded, (path, base_dir, cfg, kind)| {
-            let cfg = if rewrite == Rewrite::Fix {
-                cfg.document_schemas(
-                    decoded.content(),
-                    Some(path),
-                    base_dir,
-                    *kind,
-                    &crate::config::SystemEnv,
-                )
-                .map_err(|error| error.to_string())?
-            } else {
-                std::borrow::Cow::Borrowed(cfg.as_ref())
-            };
+            let cfg = rewrite_schemas(
+                cfg,
+                decoded.content(),
+                path,
+                base_dir,
+                *kind,
+                rewrite,
+            )?;
             Ok(decoded_diff_outcome(
                 &decoded, &cfg, path, base_dir, *kind, rewrite,
             ))

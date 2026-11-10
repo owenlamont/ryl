@@ -376,57 +376,6 @@ fn enable_network(
     Ok(super::net::progress::terminal())
 }
 
-struct Root<'a> {
-    raw: &'a str,
-    fragment: Option<&'a str>,
-    remote: bool,
-    files: Vec<PathGlob>,
-    base: PathBuf,
-}
-
-impl LocalRetriever {
-    fn prepare_root(
-        &self,
-        root: &Root<'_>,
-        cfg: &YamlLintConfig,
-        env: &dyn Env,
-        progress: &mut Option<super::net::progress::Progress>,
-    ) -> Result<Option<Association>, String> {
-        if root.remote && !env.remote_schemas() {
-            return Ok(None);
-        }
-        if root.remote && self.network.get().is_none() {
-            *progress = enable_network(&self.network, cfg, env)?;
-        }
-        let path = root.raw;
-        let fragment = root.fragment;
-        let build = || {
-            self.compile(path, root.remote, root.files.clone(), &root.base, fragment)
-        };
-        let charged = {
-            let files = self.files.lock().expect("schema reader lock");
-            (files.bytes, files.resources)
-        };
-        let mut result = build();
-        if *self.needs_network.lock().expect("schema network lock") {
-            if !env.remote_schemas() {
-                return Ok(None);
-            }
-            let mut files = self.files.lock().expect("schema reader lock");
-            (files.bytes, files.resources) = charged;
-            drop(files);
-            *progress = enable_network(&self.network, cfg, env)?;
-            *self.needs_network.lock().expect("schema network lock") = false;
-            self.failure.lock().expect("schema error lock").take();
-            result = build();
-        }
-        if let Some(error) = self.failure.lock().expect("schema error lock").take() {
-            result = Err(error);
-        }
-        result.map(Some)
-    }
-}
-
 fn directive_base(
     raw: &str,
     remote: bool,
@@ -453,6 +402,45 @@ fn directive_base(
         .parent()
         .expect("absolute input has a parent")
         .to_owned())
+}
+
+impl LocalRetriever {
+    fn prepare_root(
+        &self,
+        remote: bool,
+        build: impl Fn() -> Result<Association, String>,
+        cfg: &YamlLintConfig,
+        env: &dyn Env,
+        progress: &mut Option<super::net::progress::Progress>,
+    ) -> Result<Option<Association>, String> {
+        if remote && !env.remote_schemas() {
+            return Ok(None);
+        }
+        if remote && self.network.get().is_none() {
+            *progress = enable_network(&self.network, cfg, env)?;
+        }
+        let charged = {
+            let files = self.files.lock().expect("schema reader lock");
+            (files.bytes, files.resources)
+        };
+        let mut result = build();
+        if *self.needs_network.lock().expect("schema network lock") {
+            if !env.remote_schemas() {
+                return Ok(None);
+            }
+            let mut files = self.files.lock().expect("schema reader lock");
+            (files.bytes, files.resources) = charged;
+            drop(files);
+            *progress = enable_network(&self.network, cfg, env)?;
+            *self.needs_network.lock().expect("schema network lock") = false;
+            self.failure.lock().expect("schema error lock").take();
+            result = build();
+        }
+        if let Some(error) = self.failure.lock().expect("schema error lock").take() {
+            result = Err(error);
+        }
+        result.map(Some)
+    }
 }
 
 pub(crate) fn prepare(
@@ -515,8 +503,7 @@ fn prepare_inner(
     location: &std::cell::Cell<(usize, usize)>,
 ) -> Result<super::Preparation, String> {
     let mut sources = sources(cfg).peekable();
-    let request = cfg.schema_request();
-    if sources.peek().is_none() && request.is_none() {
+    if sources.peek().is_none() && cfg.schema_request().is_none() {
         return Ok(super::Preparation::Ready(None));
     }
     let absolute_base = envx.current_dir().join(base);
@@ -542,7 +529,8 @@ fn prepare_inner(
             directive_base(
                 raw,
                 remote,
-                request.and_then(|request| request.path.as_deref()),
+                cfg.schema_request()
+                    .and_then(|request| request.path.as_deref()),
                 envx,
                 &absolute_base,
             )?
@@ -575,19 +563,10 @@ fn prepare_inner(
         } else {
             (raw, None)
         };
+        let build =
+            || reader.compile(path, remote, files.clone(), &resolution_base, fragment);
         let association = reader
-            .prepare_root(
-                &Root {
-                    raw: path,
-                    fragment,
-                    remote,
-                    files,
-                    base: resolution_base,
-                },
-                cfg,
-                envx,
-                &mut progress,
-            )
+            .prepare_root(remote, build, cfg, envx, &mut progress)
             .map_err(|error| {
                 format!(
                     "invalid config: schema '{}': {}",

@@ -79,7 +79,14 @@ struct State {
 }
 
 impl State {
-    fn prune_queue(&mut self) {
+    fn retain_entries(&mut self, mut retain: impl FnMut(&str, &Entry) -> bool) {
+        self.entries.retain(|key, entry| {
+            let keep = retain(key, entry);
+            if !keep {
+                entry.cancel.store(true, Ordering::Relaxed);
+            }
+            keep
+        });
         self.queue.retain(|key| self.entries.contains_key(key));
     }
 }
@@ -155,21 +162,9 @@ impl Service {
                 )),
             };
         }
-        let obsolete: Vec<_> = state
-            .entries
-            .iter()
-            .filter(|(_, entry)| entry.superseded_by(&context, group.as_deref()))
-            .map(|(key, _)| key.clone())
-            .collect();
-        for key in obsolete {
-            state
-                .entries
-                .remove(&key)
-                .expect("existing entry")
-                .cancel
-                .store(true, Ordering::Relaxed);
-            state.queue.retain(|queued| queued != &key);
-        }
+        state.retain_entries(|_, entry| {
+            !entry.superseded_by(&context, group.as_deref())
+        });
         if group.is_some()
             && state
                 .entries
@@ -262,26 +257,16 @@ impl Service {
 
     pub(super) fn cancel_pending(&self) {
         let mut state = self.state.lock().expect("schema service lock");
-        state.entries.retain(|_, entry| {
-            if entry.context.config.schema_request().is_some()
-                || matches!(entry.status, Status::Queued | Status::Running)
-            {
-                entry.cancel.store(true, Ordering::Relaxed);
-                false
-            } else {
-                true
-            }
+        state.retain_entries(|_, entry| {
+            entry.context.config.schema_request().is_none()
+                && !matches!(entry.status, Status::Queued | Status::Running)
         });
         state.queue.clear();
     }
 
     pub(super) fn invalidate(&self) {
         let mut state = self.state.lock().expect("schema service lock");
-        for entry in state.entries.values() {
-            entry.cancel.store(true, Ordering::Relaxed);
-        }
-        state.entries.clear();
-        state.queue.clear();
+        state.retain_entries(|_, _| false);
     }
 
     pub(super) fn shutdown(&self) {
@@ -634,18 +619,13 @@ impl Session {
             .remove(&owner);
         if let Some(service) = self.service.get() {
             let mut state = service.state.lock().expect("schema service lock");
-            state.entries.retain(|_, entry| {
-                let keep = entry
+            state.retain_entries(|_, entry| {
+                entry
                     .context
                     .config
                     .schema_request()
-                    .is_none_or(|request| request.owner != owner);
-                if !keep {
-                    entry.cancel.store(true, Ordering::Relaxed);
-                }
-                keep
+                    .is_none_or(|request| request.owner != owner)
             });
-            state.prune_queue();
         }
     }
 
@@ -722,19 +702,14 @@ impl Session {
             .expect("only directive preparations are observed");
         let key = format!("{}:{:?}", context.base_dir.display(), context.config);
         let mut state = service.state.lock().expect("schema service lock");
-        state.entries.retain(|old, entry| {
-            let obsolete = old != &key
+        state.retain_entries(|old, entry| {
+            !(old != key
                 && entry
                     .context
                     .config
                     .schema_request()
-                    .is_some_and(|current| current.owner == request.owner);
-            if obsolete {
-                entry.cancel.store(true, Ordering::Relaxed);
-            }
-            !obsolete
+                    .is_some_and(|current| current.owner == request.owner))
         });
-        state.prune_queue();
     }
 
     pub(super) fn record_dependencies(
@@ -799,15 +774,10 @@ impl Session {
         }
         if let Some(service) = self.service.get() {
             let mut state = service.state.lock().expect("schema service lock");
-            state.entries.retain(|key, entry| {
-                let retain = entry.context.config.schema_request().is_none()
-                    || service_keys.contains(key);
-                if !retain {
-                    entry.cancel.store(true, Ordering::Relaxed);
-                }
-                retain
+            state.retain_entries(|key, entry| {
+                entry.context.config.schema_request().is_none()
+                    || service_keys.contains(key)
             });
-            state.prune_queue();
             paths.extend(
                 state
                     .entries
