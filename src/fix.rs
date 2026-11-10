@@ -2082,6 +2082,7 @@ pub(crate) struct ReindentEvidence {
     pub(crate) unambiguous: bool,
     /// Whether the plan left every collection in its configured style.
     pub(crate) settled: bool,
+    pub(crate) quotes_refused: bool,
 }
 
 impl ReindentEvidence {
@@ -2101,6 +2102,7 @@ impl ReindentEvidence {
             inconsistent,
             unambiguous,
             settled,
+            quotes_refused: false,
         }
     }
 
@@ -2121,6 +2123,7 @@ impl ReindentEvidence {
     pub(crate) fn is_quiet(&self) -> bool {
         self.unambiguous
             && self.settled
+            && !self.quotes_refused
             && self.kept_dash_lines.is_empty()
             && self
                 .refused

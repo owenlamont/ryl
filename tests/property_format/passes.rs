@@ -148,6 +148,10 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
         .chain([
             toml_pass("fix/ladder-toml", TOML_LADDER, fix),
             toml_pass("format/default", "[format]\n", format),
+            toml_pass("format/required", "[lint.rules.quoted-strings]\nrequired = true\ncheck-keys = true\n", format),
+            toml_pass("format/patterns", "[lint.rules.quoted-strings]\nrequired = 'only-when-needed'\nextra-required = ['\\?', 'secret']\nextra-allowed = ['keep']\ncheck-keys = true\n", format),
+            toml_pass("format/required-double", "[format]\nquote-style = 'double'\n[lint.rules.quoted-strings]\nrequired = true\n", format),
+
             toml_pass("format/remove-document-start", "[format]\ndocument-start = 'remove'\n", format),
             toml_pass("fix/remove-document-start", &TOML_LADDER.replace("document-start = 'enable'", "document-start = { present = false }"), fix),
             toml_pass(

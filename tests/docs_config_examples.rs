@@ -588,9 +588,8 @@ nested: true
 /// block that is not ryl config fails rather than passing unchecked.
 #[test]
 fn format_markers_check_the_formatter_verdict() {
-    let conflicting = "[lint.rules]\nquoted-strings = \"enable\"\n";
-    let compatible =
-        "[lint.rules.quoted-strings]\nquote-type = \"any\"\nrequired = false\n";
+    let conflicting = "[lint.rules.quoted-strings]\nquote-type = \"double\"\n";
+    let compatible = "[lint.rules]\nquoted-strings = \"enable\"\n";
     let rejects_output = "[format]\ndocument-end = \"preserve\"\n\n\
         [lint.rules.document-end]\npresent = true\n";
     let cases = [

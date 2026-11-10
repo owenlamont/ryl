@@ -90,7 +90,14 @@ fixable = ["ALL"]
 unfixable = ["quoted-strings"]
 ```
 
-`ryl format` quotes strings by its own [quote style](../formatter.md#quote-style), set by `[format] quote-style`. This rule's defaults conflict with it; [Conflicting lint rules](../formatter.md#conflicting-lint-rules) lists the options that accept its output.
+`ryl format` imports the enabled rule's quote-presence requirements, including
+`extra-required`, `extra-allowed` and `check-keys`. The formatter's
+[quote style](../formatter.md#quote-style) chooses the quote character and preserves
+wrapped plain scalar lines when adding quotes. `quote-style = "preserve"` freezes
+quoting; `keep-quotes = true` retains optional quotes even when lint forbids them.
+[Conflicting lint rules](../formatter.md#conflicting-lint-rules) explains warnings
+and remedies. Oversized implicit keys are left plain with a refusal notice.
+Scalars inside implicit collection keys never gain quotes.
 
 ## YAML 1.1 values with `required = "only-when-needed"`
 

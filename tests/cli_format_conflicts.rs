@@ -23,7 +23,7 @@ const PADDED_BRACES: &str = "[format]\nbrace-spacing = true\n[lint.rules.braces]
 
 const DOUBLE_LADDER: &str = "[format]\nquote-style = 'double'\n\
     [lint.rules.quoted-strings]\nquote-type = 'double'\nrequired = 'only-when-needed'\n\
-    allow-quoted-quotes = true\n";
+    allow-quoted-quotes = true\nallow-double-quotes-for-escaping = true\n";
 
 /// The `warning: the <rule> lint rule…` lines `ryl format` prints for `config` (TOML when
 /// `toml`, else inline YAML) over two files in each of two directories it covers.
@@ -160,7 +160,6 @@ fn each_rejecting_rule_warns_once_naming_the_target() {
             "brackets",
             "colons",
             "hyphens",
-            "quoted-strings",
             "empty-lines"
         ],
         "{warnings:#?}"
@@ -206,28 +205,17 @@ fn the_escape_exception_must_be_allowed() {
 
 #[test]
 fn the_quoted_strings_warning_names_the_options_for_the_quote_style() {
-    let without = LADDER.replace("allow-quoted-quotes = true\n", "");
-    let warnings = conflicts(&without, true, &[]);
-    assert_eq!(warnings.len(), 1, "{warnings:#?}");
-    assert!(
-        warnings[0].contains(
-            "set its options `quote-type = \"single\"`, `required = \"only-when-needed\"`, \
-             `allow-double-quotes-for-escaping = true`, `allow-quoted-quotes = true`."
-        ),
-        "{}",
-        warnings[0]
-    );
-    let mismatched = format!("[format]\nquote-style = 'double'\n{LADDER}");
-    let warnings = conflicts(&mismatched, true, &[]);
-    assert_eq!(warnings.len(), 1, "{warnings:#?}");
-    assert!(
-        warnings[0].contains(
-            "set its options `quote-type = \"double\"`, `required = \"only-when-needed\"`, \
-             `allow-quoted-quotes = true`."
-        ),
-        "{}",
-        warnings[0]
-    );
+    for config in [
+        LADDER.replace("allow-quoted-quotes = true\n", ""),
+        format!("[format]\nquote-style = 'double'\n{LADDER}"),
+    ] {
+        let warnings = conflicts(&config, true, &[]);
+        assert_eq!(warnings.len(), 1, "{warnings:#?}");
+        assert!(warnings[0].contains("format.quote-style wins"));
+        assert!(warnings[0].contains("lint.rules.quoted-strings.quote-type = \"any\""));
+        assert!(warnings[0].contains("allow-double-quotes-for-escaping = true"));
+        assert!(!warnings[0].contains("required ="));
+    }
 }
 
 #[test]
@@ -265,9 +253,9 @@ fn no_warnings_silences_them_and_check_never_prints_them() {
 }
 
 #[test]
-fn an_unmatched_extra_required_pattern_still_conflicts() {
+fn an_unmatched_extra_required_pattern_is_compatible() {
     let config = format!("{LADDER}extra-required = ['^secret$']\n");
-    assert_eq!(warned_rules(&config, true), ["quoted-strings"]);
+    assert!(warned_rules(&config, true).is_empty());
 }
 
 #[test]
