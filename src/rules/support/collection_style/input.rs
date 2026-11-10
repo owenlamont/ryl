@@ -313,18 +313,16 @@ impl<'a> Initial<'a> {
         }
     }
 
-    /// The leading edit boundary, keeping markers and preceding dash lines outside the edit.
+    /// The leading edit boundary, keeping preceding dash lines outside the edit.
     pub(super) fn lead_start(&self, node: usize) -> usize {
         let start = self.properties_start(node);
         let before = self.source.text()[..start]
             .trim_end_matches(super::is_space)
             .len();
-        if &self.source.text()[self.line_start(before)..before] == "---" {
-            if self.line_start(start) > self.line_start(before) {
-                self.line_start(start)
-            } else {
-                start
-            }
+        if &self.source.text()[self.line_start(before)..before] == "---"
+            && self.line_start(start) > self.line_start(before)
+        {
+            self.line_start(start)
         } else if start < self.sites[node].start
             && self.line_start(start) > self.line_start(before)
             && self.source.text()[..before].ends_with('-')
@@ -379,19 +377,6 @@ impl<'a> Initial<'a> {
     ) -> Placement {
         let before = self.lead_start(node);
         let text = self.source.text();
-        let prefix = text[self.line_start(before)..before].trim_matches([' ', '\t']);
-        let column = if prefix == "---"
-            && self.selected.is_some_and(|(_, _, projection)| {
-                projection.characters(
-                    self.line_start(before),
-                    before,
-                    before - self.line_start(before),
-                ) == 0
-            }) {
-            0
-        } else {
-            column
-        };
         Placement {
             before,
             column,
@@ -400,7 +385,9 @@ impl<'a> Initial<'a> {
             // Re-indenting puts entries after `- - [` no deeper than the inner `-`.
             nested_dash: text[..before].ends_with('-')
                 && self.line_content(before) + 1 != before,
-            lead: !prefix.is_empty() && prefix != "---",
+            lead: !self.source.text()[self.line_start(before)..before]
+                .trim_start_matches([' ', '\t'])
+                .is_empty(),
         }
     }
 

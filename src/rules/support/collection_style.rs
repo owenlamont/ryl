@@ -371,14 +371,13 @@ impl Plan {
             (!directives.disables_any(rule) && !disables_file(source.text()))
                 .then_some(target)
         };
-        let initial = input::Initial::new(source, &sites, &self.comments).selected(
-            edits,
-            styles,
-            &presentation,
-        );
         let planner = target::Planner::new(
             &self.nodes,
-            initial,
+            input::Initial::new(source, &sites, &self.comments).selected(
+                edits,
+                styles,
+                &presentation,
+            ),
             &geometry,
             enabled(cfg.sequences, brackets::ID),
             enabled(cfg.mappings, braces::ID),
@@ -387,6 +386,7 @@ impl Plan {
         )
         .with_protection(&self.protected)
         .with_block_spellings(block);
+        let initial = input::Initial::new(source, &sites, &self.comments);
         let column = |byte| {
             layout
                 .collection_position(byte, targets, &coordinates)

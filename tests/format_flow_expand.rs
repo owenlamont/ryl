@@ -23,28 +23,12 @@ fn standalone_value_comments_survive_collapsed_quotes() {
 }
 
 #[test]
-fn removed_inline_document_marker_does_not_defer_expansion() {
+fn leading_comment_before_inline_document_marker_stays_in_place() {
     formats(
-        "--- {k: v}\n",
-        "[format]\ndocument-start='remove'\nmapping-expand='always'\n",
-        "{\n  k: v,\n}\n",
+        "# c\n--- [a]\n",
+        "[format]\nsequence-expand='always'\n",
+        "# c\n--- [a]\n",
     );
-    formats(
-        "--- &col [\"a\n    b\"] # c\n",
-        "indent-width=8\nline-length=12\n[format]\ndocument-start='remove'\nsequence-style='flow'\nsequence-expand='always'\n",
-        "&col [  # c\n        a b,\n]\n",
-    );
-}
-
-#[test]
-fn marker_removal_projection_obeys_rule_directives() {
-    for (rule, marker) in [("quoted-strings", ""), ("document-start", "--- ")] {
-        formats(
-            &format!("--- {{k: v}} # ryl disable-line rule:{rule}\n"),
-            "[format]\ndocument-start='remove'\nmapping-expand='always'\n",
-            &format!("{marker}{{  # ryl disable-line rule:{rule}\n  k: v,\n}}\n"),
-        );
-    }
 }
 
 #[test]

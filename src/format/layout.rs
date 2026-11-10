@@ -1298,23 +1298,6 @@ impl<'a> DocumentPlan<'a> {
 
     fn settled_source_edits(&self, passes: &Passes<'_>) -> Vec<PlanEdit> {
         let mut edits = self.layout.closed_source_gaps(&self.targets);
-        if let Some(cfg) = passes.document_start {
-            edits.extend(
-                document_start::edits_keeping_magic(
-                    self.input,
-                    cfg,
-                    !self.magic.changed(),
-                )
-                .into_iter()
-                .filter(|(start, end, _)| {
-                    start < end
-                        && self.guard.as_ref().is_none_or(|guard| {
-                            guard.allows(document_start::ID, *start, *end)
-                        })
-                })
-                .map(plan_edit),
-            );
-        }
         if passes.trailing_spaces {
             edits.extend(
                 trailing_spaces::edits_protected(self.input, self.layout.protection())
