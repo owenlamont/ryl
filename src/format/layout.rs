@@ -1873,6 +1873,12 @@ impl DocumentPlan<'_> {
             folded_tail_interacts(self.input, &self.layout, &self.targets)
                 .then(|| self.input.parsed().document_starts.len() - 1);
         let projection = projection::Projection::new(self.input, &self.edits);
+        let kept_dash_lines = if self.layout.kept_dash_lines.is_empty() {
+            Vec::new()
+        } else {
+            self.layout
+                .kept_dash_targets(&self.targets, &self.edits, &self.styles)
+        };
         self.layout
             .converted_foldables()
             .unwrap_or_else(|| {
@@ -1887,9 +1893,7 @@ impl DocumentPlan<'_> {
                     - 1;
                 // Folding would move the comment that keeps this line's dash in place.
                 let projected = self.layout.project_line(line, scalar.content.start);
-                if self
-                    .layout
-                    .kept_dash_lines
+                if kept_dash_lines
                     .iter()
                     .any(|&(kept, _)| kept == projected + 1)
                 {
