@@ -119,7 +119,6 @@ const CONFLICTING: &[(&str, &str, &str, &str)] = &[
         "type = 'unix'",
     ),
     ("", "quoted-strings", QUOTED, "quote-type = 'double'"),
-    ("", "quoted-strings", QUOTED, "required = true"),
     (
         "",
         "quoted-strings",
@@ -128,15 +127,9 @@ const CONFLICTING: &[(&str, &str, &str, &str)] = &[
     ),
     ("", "quoted-strings", QUOTED, "allow-quoted-quotes = false"),
     (
-        "",
-        "quoted-strings",
-        QUOTED,
-        "extra-required = ['^secret$']",
-    ),
-    (
         "[format]\nquote-style = 'double'\n",
         "quoted-strings",
-        "quote-type = 'double'\nrequired = 'only-when-needed'\nallow-quoted-quotes = true\n",
+        "quote-type = 'double'\nrequired = 'only-when-needed'\nallow-quoted-quotes = true\nallow-double-quotes-for-escaping = true\n",
         "quote-type = 'single'",
     ),
 ];
@@ -215,6 +208,18 @@ const UNCONFLICTABLE: &[(&str, &str, &str, &str)] = &[
         "max = 5\n",
         "allow-non-breakable-inline-mappings = false",
         "line-length is never reported",
+    ),
+    (
+        "quoted-strings",
+        "quote-type = 'single'\nallow-quoted-quotes = true\nallow-double-quotes-for-escaping = true\n",
+        "required = true",
+        "required strings receive quotes",
+    ),
+    (
+        "quoted-strings",
+        QUOTED,
+        "extra-required = ['^secret$']",
+        "matching strings receive quotes",
     ),
     (
         "quoted-strings",

@@ -817,11 +817,24 @@ pub fn agreeing_lint(config: &str) -> String {
         LineEndingTarget::Auto => "unix",
     };
     let padding = u8::from(table.brace_spacing);
-    let required = if table.keep_quotes {
+    let required = if cfg.rule_option_bool("quoted-strings", "required", false) {
+        "true"
+    } else if table.keep_quotes {
         "false"
     } else {
         "'only-when-needed'"
     };
+    let (config, presence) = config
+        .split_once("[lint.rules.quoted-strings]")
+        .unwrap_or((config, ""));
+    let presence: String = presence
+        .lines()
+        .filter(|line| {
+            !line.starts_with("required =")
+                && !(required == "false" && line.starts_with("extra-allowed ="))
+        })
+        .map(|line| format!("{line}\n"))
+        .collect();
     let mut lint = format!(
         "{config}\n[lint.rules]\n\
          comments-indentation = 'enable'\ncommas = 'enable'\n\
@@ -838,7 +851,7 @@ pub fn agreeing_lint(config: &str) -> String {
          max-spaces-from-content = {}\nrequire-starting-space = {}\n\
          [lint.rules.empty-lines]\nmax = {}\nmax-start = 0\nmax-end = 0\n\
          [lint.rules.quoted-strings]\nquote-type = '{quote}'\n\
-         required = {required}\nallow-double-quotes-for-escaping = true\n\
+         required = {required}\n{presence}allow-double-quotes-for-escaping = true\n\
          allow-quoted-quotes = true\n\
          [lint.rules.new-lines]\ntype = '{ending}'\n",
         enabled(table.document_start == DocumentStartTarget::Add),
@@ -885,4 +898,13 @@ fn agreeing_lint_accepts_retained_optional_quotes() {
             "{config}: {output}"
         );
     }
+}
+
+#[test]
+fn agreeing_retention_with_patterns_uses_supported_options() {
+    let config = agreeing_lint(
+        "[format]\nkeep-quotes = true\n[lint.rules.quoted-strings]\nrequired = 'only-when-needed'\nextra-required = ['secret']\nextra-allowed = ['keep']\n",
+    );
+    let cfg = YamlLintConfig::from_toml_str(&config).unwrap();
+    assert!(ryl::format::conflicts(&cfg).is_empty());
 }

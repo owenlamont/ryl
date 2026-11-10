@@ -69,6 +69,7 @@ struct DocumentPlan<'a> {
     refused: Vec<indentation::Refusal>,
     inconsistent: Vec<indentation::Violation>,
     guard: Option<Box<Guard>>,
+    quotes_refused: bool,
 }
 
 struct FoldSite {
@@ -113,12 +114,13 @@ fn probe(tracking: &mut PassTracking<'_>, input: Analysis<'_>) -> Result<(), Fal
 
 type Candidate = (String, Vec<&'static str>);
 /// What [`crate::format::unfixed`] reports, on the plan's output lines: each kept dash,
-/// each refused document, each consistent-width violation, and whether every collection
-/// settled in its configured style.
+/// each refused document, each consistent-width violation, whether collections settled,
+/// and whether quotes were refused.
 type Kept = (
     Vec<(usize, usize)>,
     Vec<indentation::Refusal>,
     Vec<(usize, usize)>,
+    bool,
     bool,
 );
 
@@ -508,6 +510,7 @@ fn block_spellings(
         &spaced_colon,
         Some(&layout),
     )
+    .0
     .into_iter()
     .filter(|(start, end, _)| {
         guard
@@ -545,7 +548,7 @@ fn remember(
     tracking: &mut PassTracking<'_>,
     text: &TextVersion<'_>,
     target: Option<indentation::Config>,
-    (kept_dash_lines, refused, inconsistent, settled): Kept,
+    (kept_dash_lines, refused, inconsistent, settled, quotes_refused): Kept,
     unambiguous: bool,
 ) {
     if let (Some(slot), Some(target)) = (tracking.reindented.as_deref_mut(), target) {
@@ -557,6 +560,9 @@ fn remember(
             Some(inconsistent),
             (unambiguous, settled),
         ));
+        slot.as_mut()
+            .expect("evidence was just stored")
+            .quotes_refused = quotes_refused;
     }
 }
 
@@ -567,6 +573,7 @@ struct Presentation {
     rules: Vec<&'static str>,
     guard: Option<Box<Guard>>,
     retained: Option<frame::RetainedRanges>,
+    quotes_refused: bool,
 }
 
 impl Presentation {
@@ -1094,8 +1101,9 @@ impl Presentation {
             passes.colons,
             Guard::permission(guard.as_deref(), colons::ID),
         );
+        let mut quotes_refused = false;
         let result = passes.quoted_strings.as_ref().map_or(Ok(()), |cfg| {
-            let mut next = quoted_strings::format_replacements(
+            let (mut next, refused) = quoted_strings::format_replacements(
                 input,
                 cfg,
                 quotes,
@@ -1103,6 +1111,7 @@ impl Presentation {
                 &spaced_colon,
                 projected.map(|view| view as &dyn quoted_strings::ConvertedLayout),
             );
+            quotes_refused = refused;
             if let Some(guard) = &guard {
                 let mut partial = false;
                 next.retain(|(start, end, _)| {
@@ -1142,6 +1151,7 @@ impl Presentation {
                 rules,
                 guard,
                 retained: projected.map(frame::View::retained_ranges),
+                quotes_refused,
             }
         })
     }
@@ -1233,6 +1243,7 @@ impl<'a> DocumentPlan<'a> {
             magic,
             mut rules,
             guard,
+            quotes_refused,
             ..
         } = presentation;
         if targets.deltas().iter().any(|&delta| delta != 0)
@@ -1280,6 +1291,7 @@ impl<'a> DocumentPlan<'a> {
             refused,
             inconsistent,
             guard,
+            quotes_refused,
         };
         LayoutTargets(plan)
     }
@@ -1539,7 +1551,13 @@ impl DocumentPlan<'_> {
         if self.layout.kept_dash_lines.is_empty()
             && !refused.iter().any(Option::is_some)
         {
-            return Kept::default();
+            return (
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                false,
+                self.quotes_refused,
+            );
         }
         let starts = self.input.byte_line_starts();
         let mut lines = Vec::with_capacity(self.layout.lines.len());
@@ -1618,6 +1636,7 @@ impl DocumentPlan<'_> {
                 .map(|violation| place((violation.line, violation.column)))
                 .collect(),
             false,
+            self.quotes_refused,
         )
     }
 }
@@ -2065,13 +2084,16 @@ fn multiline_edits(
             let prefix: usize = old
                 .chars()
                 .zip(new.chars())
+                .take(old.chars().count().saturating_sub(1))
                 .take_while(|(a, b)| a == b)
                 .map(|(ch, _)| ch.len_utf8())
                 .sum();
+            // Source characters anchor quotes across dash gaps and converted collection boundaries.
             let suffix: usize = old[prefix..]
                 .chars()
                 .rev()
                 .zip(new[prefix..].chars().rev())
+                .take(old[prefix..].chars().count().saturating_sub(1))
                 .take_while(|(a, b)| a == b)
                 .map(|(ch, _)| ch.len_utf8())
                 .sum();

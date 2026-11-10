@@ -16,7 +16,11 @@ use ryl_yaml_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
 const FIRST_WORDS: [&str; 4] = ["aaa", "b", "世界", "é"];
 
-const WORDS: [&str; 26] = [
+const WORDS: [&str; 30] = [
+    "/health?ready=true",
+    "back\\slash",
+    "secret",
+    "keep",
     "aaa",
     "bbbbbbbbbb",
     "-",

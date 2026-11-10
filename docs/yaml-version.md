@@ -284,6 +284,13 @@ rejects every other version, although its README claims most of YAML 1.2.
 
 ## Implications for the `quoted-strings` rule
 
+`ryl format` adds quotes required by an enabled `quoted-strings` rule only to plain
+scalars that resolve to strings under the effective version. Explicit `%YAML`
+directives override `target-version`; an undeclared document targeting 1.1 must
+remain a string under both versions. A plain `true`, `8080` or `null` stays typed.
+Timestamp-shaped text can receive required quotes under explicit YAML 1.2.
+
+
 With `quote-type: double, required: only-when-needed`, ryl considers
 `"yes"` to need quoting because the bareword would parse as a boolean in
 1.1. The safeguard applies unless the document declares `%YAML 1.2` or

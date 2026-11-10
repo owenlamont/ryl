@@ -171,6 +171,13 @@ impl Spelling {
                     .replace('\\', "\\\\")
                     .replace('"', "\\\"")
             ),
+            target::Recipe::PlainMultiline(QuoteStyle::Single) => {
+                quote_value(retained, QuoteStyle::Single)
+            }
+            target::Recipe::PlainMultiline(QuoteStyle::Double) => format!(
+                "\"{}\"",
+                retained.replace('\\', "\\\\").replace('"', "\\\"")
+            ),
         };
         Self(text)
     }

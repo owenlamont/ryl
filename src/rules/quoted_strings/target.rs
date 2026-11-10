@@ -56,6 +56,7 @@ pub(super) struct Eligible<'text>(Scalar<'text>);
 pub(super) enum Recipe {
     Text(String),
     RetainedMultiline(QuoteStyle),
+    PlainMultiline(QuoteStyle),
 }
 
 pub(super) struct Selected(Recipe);
@@ -81,7 +82,8 @@ impl<'text> Eligible<'text> {
             && matches!(
                 style,
                 ScalarStyle::Plain | ScalarStyle::Literal | ScalarStyle::Folded
-            );
+            )
+            && (style != ScalarStyle::Plain || config.requirements.is_none());
         (!keep && !skip_scalar(config, style, &model)).then_some(Self(model))
     }
 }
@@ -104,6 +106,23 @@ impl<'cfg, 'state> Planner<'cfg, 'state> {
         let model = eligible.0;
         let value = model.value();
         let mut facts = facts(self.config, value, initial, placement, cache);
+        if let Some(requirements) = &self.config.requirements
+            && (!model.is_key() || requirements.check_keys)
+        {
+            facts.extra_required = Flag::new(
+                requirements.required == RequiredMode::Always
+                    || requirements
+                        .extra_required
+                        .iter()
+                        .any(|re| re.is_match(value)),
+            );
+            facts.extra_allowed = Flag::new(
+                requirements
+                    .extra_allowed
+                    .iter()
+                    .any(|re| re.is_match(value)),
+            );
+        }
         if placement.colon.adjacent() {
             facts.quotes_needed = Flag::new(true);
         }
@@ -147,14 +166,7 @@ impl<'cfg, 'state> Planner<'cfg, 'state> {
     ) -> Option<Recipe> {
         let value = model.value();
         match facts.style {
-            None => {
-                if facts.extra_required.get() {
-                    let target = self.default_quote_style();
-                    replacement_for_target(value, target).map(Recipe::Text)
-                } else {
-                    None
-                }
-            }
+            None => self.quote_plain(value, facts, initial),
             Some(style_kind) => {
                 if !value.is_empty()
                     && !facts.quotes_needed.get()
@@ -185,6 +197,27 @@ impl<'cfg, 'state> Planner<'cfg, 'state> {
                     None
                 }
             }
+        }
+    }
+
+    fn quote_plain(
+        &mut self,
+        value: &str,
+        facts: ScalarQuoteFacts,
+        initial: Initial<'_>,
+    ) -> Option<Recipe> {
+        if facts.extra_required.get() {
+            let default = self.default_quote_style();
+            let target = self.config.avoid_escapes.map_or(default, |preferred| {
+                ladder_target(preferred, preferred, value, facts)
+            });
+            if self.config.requirements.is_some() && initial.multiline() {
+                Some(Recipe::PlainMultiline(target))
+            } else {
+                replacement_for_target(value, target).map(Recipe::Text)
+            }
+        } else {
+            None
         }
     }
 
@@ -273,11 +306,14 @@ pub(super) fn facts(
             initial.style,
             value,
         )),
-        has_double_quote_escape: Flag::new(if config.avoid_escapes.is_some() {
-            initial.non_quote_escape()
-        } else {
-            initial.any_escape()
-        }),
+        has_double_quote_escape: Flag::new(
+            initial.style == ScalarStyle::DoubleQuoted
+                && if config.avoid_escapes.is_some() {
+                    initial.non_quote_escape()
+                } else {
+                    initial.any_escape()
+                },
+        ),
         extra_required: Flag::new(
             config.extra_required.iter().any(|re| re.is_match(value)),
         ),
