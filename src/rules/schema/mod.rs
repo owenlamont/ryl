@@ -134,7 +134,10 @@ pub(crate) fn check_with_analysis(
     }
     let mut diagnostics = Vec::new();
     let mut budget = projection::Budget::default();
-    let mut events = input.event_iter().peekable();
+    let mut events = input
+        .event_iter()
+        .filter(|(event, _)| !matches!(event, ryl_yaml_parser::Event::Comment(..)))
+        .peekable();
     let mut document = 0;
     while let Some((start, version)) =
         events.by_ref().find_map(|(event, start)| match event {

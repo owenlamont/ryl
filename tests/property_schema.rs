@@ -18,8 +18,12 @@ proptest! {
         headers in prop::collection::vec(prop::sample::select(vec!["# $schema: none", "# yaml-language-server: $schema=./schema.json", "#yaml-language-server: $schema=deny.json", "# yaml-language-server:", "#\u{a0}$schema:\u{a0}none"]), 1..5),
         marker in prop::sample::select(vec!["add", "remove", "preserve"]),
         ending in prop::sample::select(vec!["\n", "\r\n", "\r"]),
+        property in prop::sample::select(vec!["", "!!map\n", "&a\n", "!!map &a\n", "&a !!map\n"]),
+        suffixes in 0..4_usize,
     ) {
-        let input = headers.iter().map(|header| format!("{header}{ending}z:  1{ending}a: 2{ending}")).collect::<Vec<_>>().join(&format!("---{ending}"));
+        let property = property.replace('\n', ending);
+        let documents = headers.iter().map(|header| format!("{property}{header}{ending}z:  1{ending}a: 2{ending}")).collect::<Vec<_>>().join(&format!("---{ending}"));
+        let input = format!("{}{documents}", format!("# $schema: ignored.json{ending}...{ending}").repeat(suffixes));
         let cfg = ryl::config::YamlLintConfig::from_toml_str(&format!("[format]\ndocument-start = '{marker}'\n[lint.rules.schema]\ndirectives = true\n[lint.rules.key-ordering]\n[lint.rules.comments]\n")).unwrap();
         for rewrite in [ryl::fix::Rewrite::Fix, ryl::fix::Rewrite::Format] {
             let output = ryl::fix::rewrite_str(&input, &cfg, Path::new("in.yaml"), Path::new("."), ryl::config::SourceKind::Yaml, rewrite).0.unwrap_or_else(|| input.clone());

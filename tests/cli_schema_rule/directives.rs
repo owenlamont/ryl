@@ -382,6 +382,62 @@ fn first_modeline_and_each_document_own_their_selection() {
 }
 
 #[test]
+fn root_properties_keep_schema_headers_open_in_cli_and_markdown() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture(dir.path(), "[files]\nmarkdown = ['*.md']\n");
+    for property in ["!!map", "&a", "!!map &a", "&a !!map"] {
+        for (schema, expected) in [("deny.json", 1), ("missing.json", 2)] {
+            let source = format!("{property}\n# $schema: {schema}\nx: 1\n");
+            for (name, text) in [
+                ("in.yaml", source.clone()),
+                ("in.md", format!("```yaml\n{source}```\n")),
+            ] {
+                let path = dir.path().join(name);
+                let mut command = ryl(dir.path());
+                command.args(["check", "-", "--stdin-filename"]).arg(&path);
+                let (code, stdout, stderr) =
+                    run_with_stdin(&mut command, text.as_bytes());
+                assert_eq!(code, expected, "{text:?}: {stdout}{stderr}");
+                assert!(command_output(&stdout, &stderr).contains(if expected == 1 {
+                    "False schema"
+                } else {
+                    "missing.json"
+                }));
+            }
+        }
+    }
+}
+
+#[test]
+fn leading_document_suffixes_discard_headers_without_creating_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture(
+        dir.path(),
+        "[[lint.rules.schema.schemas]]\npath = 'deny.json'\n",
+    );
+    for (source, expected) in [
+        ("# $schema: none\n...\n---\nx: 1\n", 1),
+        ("...\n---\n# $schema: none\nx: 1\n", 0),
+        ("# $schema: missing.json\n...\n...\n---\nx: 1\n", 1),
+        (
+            "...\n# $schema: missing.json\n...\n---\n# $schema: none\nx: 1\n",
+            0,
+        ),
+        ("...\n---\n# $schema: none\nx: 1\n...\n...\n---\nx: 2\n", 1),
+    ] {
+        let mut command = ryl(dir.path());
+        command
+            .args(["check", "-", "--stdin-filename"])
+            .arg(dir.path().join("in.yaml"));
+        let (code, stdout, stderr) = run_with_stdin(&mut command, source.as_bytes());
+        assert_eq!(code, expected, "{source:?}: {stdout}{stderr}");
+        if expected == 1 {
+            assert!(command_output(&stdout, &stderr).contains("False schema"));
+        }
+    }
+}
+
+#[test]
 fn local_directives_resolve_beside_input_but_remain_inside_config_root() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = fixture(dir.path(), "");

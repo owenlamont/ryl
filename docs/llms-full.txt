@@ -2380,6 +2380,8 @@ whereas an unloadable value is an error. `none`, case-insensitively, skips valid
 for that document; `./none` names a file. Inline YAML `$schema` keys remain ordinary data.
 
 Only header comments count, including comments around or on an opening `---`.
+Root tags and anchors keep the header open until node content starts.
+Leading `...` markers discard preceding headers without creating documents.
 Comments after document content belong to that document; comments after `...` can
 start the next header. Strings and block scalar bodies never select schemas.
 Each enabled Markdown region has its own headers and uses the host filename.

@@ -84,23 +84,27 @@ pub(crate) fn headers(input: Analysis<'_>) -> Vec<Option<Declaration>> {
     super::record_directive_scan();
     let mut result = vec![None];
     let mut header = true;
-    let mut explicit = false;
+    let mut started = false;
     let mut end_line = None;
     for (span, kind) in input.tokens().iter(input.text()) {
         match kind {
             Kind::StreamStart | Kind::StreamEnd | Kind::Other => {}
             Kind::DocumentEnd => {
+                if started {
+                    result.push(None);
+                } else {
+                    *result.last_mut().expect("header slot") = None;
+                }
                 header = true;
-                explicit = false;
+                started = false;
                 end_line = Some(span.start.line());
-                result.push(None);
             }
             Kind::DocumentStart => {
-                if !header || explicit {
+                if started {
                     result.push(None);
                 }
                 header = true;
-                explicit = true;
+                started = true;
                 end_line = None;
             }
             Kind::Comment { text, .. } => {
@@ -113,7 +117,11 @@ pub(crate) fn headers(input: Analysis<'_>) -> Vec<Option<Declaration>> {
                         Some(declaration(text, span));
                 }
             }
-            _ => header = false,
+            Kind::Tag | Kind::Anchor => started = true,
+            _ => {
+                started = true;
+                header = false;
+            }
         }
     }
     result.truncate(

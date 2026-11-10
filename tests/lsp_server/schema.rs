@@ -13,6 +13,40 @@ const ORIGIN: &str = "https://schemas.example.org";
 const ROOT: &str = "https://schemas.example.org/root.json?secret=hidden";
 
 #[test]
+fn root_properties_and_leading_suffixes_preserve_lsp_schema_selection() {
+    let h = Harness::new("", false);
+    std::fs::write(h.dir.path().join(".ryl.toml"), "[lint.rules.schema]\ndirectives = true\n[[lint.rules.schema.schemas]]\npath = 'deny.json'\n").unwrap();
+    std::fs::write(h.dir.path().join("deny.json"), "false").unwrap();
+    let mut client = h.client(Limits::default());
+    for (index, (text, expected)) in [
+        ("!!map\n# $schema: deny.json\nx: 1\n", "False schema"),
+        ("&a\n# $schema: deny.json\nx: 1\n", "False schema"),
+        ("!!map\n# $schema: missing.json\nx: 1\n", "missing.json"),
+        ("&a\n# $schema: missing.json\nx: 1\n", "missing.json"),
+        ("# $schema: none\n...\n---\nx: 1\n", "False schema"),
+        ("...\n...\n---\n# $schema: none\nx: 1\n", ""),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let uri = file_uri(h.dir.path(), &format!("case{index}.yaml"));
+        client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":text}}));
+        let diagnostics = client.diagnostics();
+        if expected.is_empty() {
+            assert!(diagnostics.is_empty(), "{text:?}: {diagnostics:?}");
+        } else {
+            assert_eq!(diagnostics.len(), 1, "{text:?}: {diagnostics:?}");
+            assert!(
+                diagnostics[0].message.contains(expected),
+                "{text:?}: {diagnostics:?}"
+            );
+        }
+    }
+    assert_eq!(h.calls(), 0);
+    client.shutdown();
+}
+
+#[test]
 fn directive_buffers_keep_separate_unsaved_selections_and_local_watchers() {
     let h = Harness::new("", false);
     std::fs::write(
