@@ -375,13 +375,14 @@ impl Plan {
             (!directives.disables_any(rule) && !disables_file(source.text()))
                 .then_some(target)
         };
+        let initial = input::Initial::new(source, &sites, &self.comments).selected(
+            edits,
+            styles,
+            &presentation,
+        );
         let planner = target::Planner::new(
             &self.nodes,
-            input::Initial::new(source, &sites, &self.comments).selected(
-                edits,
-                styles,
-                &presentation,
-            ),
+            initial,
             &geometry,
             enabled(cfg.sequences, brackets::ID),
             enabled(cfg.mappings, braces::ID),
@@ -391,7 +392,6 @@ impl Plan {
         .with_protection(&self.protected)
         .with_block_spellings(block)
         .with_flow_spellings(flow);
-        let initial = input::Initial::new(source, &sites, &self.comments);
         let column = |byte| {
             layout
                 .collection_position(byte, targets, &coordinates)
@@ -670,6 +670,7 @@ fn placement(
 ) -> input::Placement {
     let before = initial.lead_start(index);
     let base = match nodes[index].parent() {
+        _ if before == initial.properties_start(index) => before,
         // A mapping's column: its `?` or its first key's properties.
         Some(parent) if nodes[parent].kind() == Kind::Mapping => initial
             .properties_start(nodes[parent].children()[0])

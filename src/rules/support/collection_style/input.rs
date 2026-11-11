@@ -323,12 +323,25 @@ impl<'a> Initial<'a> {
         }
     }
 
-    /// The end of whatever precedes `node`'s properties: its key's `:`, its `-`, or the
-    /// line start.
+    /// The leading edit boundary, retaining standalone properties.
     pub(super) fn lead_start(&self, node: usize) -> usize {
-        self.source.text()[..self.properties_start(node)]
+        let start = self.properties_start(node);
+        let before = self.source.text()[..start]
             .trim_end_matches(super::is_space)
-            .len()
+            .len();
+        if start < self.sites[node].start
+            && self.line_start(start) > self.line_start(before)
+        {
+            return start;
+        }
+        self.selected
+            .and_then(|(edits, _, _)| {
+                let index = edits.partition_point(|(_, to, _)| to.get() < before);
+                edits.get(index).filter(|(from, _, replacement)| {
+                    from.get() <= before && replacement.len() == 0
+                })
+            })
+            .map_or(before, |_| start)
     }
 
     pub(super) fn start_of(&self, node: usize) -> usize {
@@ -367,6 +380,10 @@ impl<'a> Initial<'a> {
         self.line_start(self.properties_start(node)) > self.line_start(from.0)
     }
 
+    pub(super) fn opens_below(&self, node: usize, from: Boundary) -> bool {
+        self.line_start(self.sites[node].start) > self.line_start(from.0)
+    }
+
     pub(super) fn placement(
         &self,
         node: usize,
@@ -375,17 +392,17 @@ impl<'a> Initial<'a> {
     ) -> Placement {
         let before = self.lead_start(node);
         let text = self.source.text();
+        let lead = column > line;
         Placement {
             before,
             column,
             base,
             line,
             // Re-indenting puts entries after `- - [` no deeper than the inner `-`.
-            nested_dash: text[..before].ends_with('-')
+            nested_dash: lead
+                && text[..before].ends_with('-')
                 && self.line_content(before) + 1 != before,
-            lead: !self.source.text()[self.line_start(before)..before]
-                .trim_start_matches([' ', '\t'])
-                .is_empty(),
+            lead,
         }
     }
 
@@ -442,9 +459,7 @@ impl<'a> Initial<'a> {
 
     pub(super) fn spans_lines(&self, node: usize) -> bool {
         let site = &self.sites[node];
-        let starts = self.source.byte_line_starts();
-        starts.partition_point(|&at| at <= site.start)
-            != starts.partition_point(|&at| at < site.end)
+        self.fragment(Boundary(site.start), site.end).multiline()
     }
 
     pub(super) fn outer(&self, node: usize) -> Outer<'a> {

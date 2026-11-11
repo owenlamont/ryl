@@ -10,6 +10,84 @@ use ryl::format::{format_str, refusals};
 const AUTO: &str = "[format]\nsequence-expand = 'auto'\nmapping-expand = 'auto'\n";
 
 #[test]
+fn collapsed_quotes_expand_with_their_root_comment_on_the_first_run() {
+    formats(
+        "{k: \"a\n b\"} # c\n",
+        "[format]\nmapping-expand='always'\n",
+        "{  # c\n  k: a b,\n}\n",
+    );
+    formats(
+        "[\"a\n b\"] # c\n",
+        "[format]\nsequence-expand='always'\n",
+        "[  # c\n  a b,\n]\n",
+    );
+}
+
+#[test]
+fn standalone_collection_comments_stay_with_the_value_after_quote_collapse() {
+    for expand in ["always", "never"] {
+        let cfg = format!("[format]\nsequence-expand='{expand}'\n");
+        formats("k:\n  [\"a\n    b\"] # c\n", &cfg, "k:\n  [a b]  # c\n");
+        for property in ["!tag", "&a"] {
+            formats(
+                &format!("- k: {property}\n    [a] # c\n"),
+                &format!("{cfg}dash-on-own-line=true\n"),
+                &format!("-\n  k: {property}\n    [a]  # c\n"),
+            );
+        }
+    }
+}
+
+#[test]
+fn removing_an_inline_document_marker_expands_the_root_on_the_first_run() {
+    formats(
+        "--- {k: v}\n",
+        "[format]\ndocument-start='remove'\nmapping-expand='always'\n",
+        "{\n  k: v,\n}\n",
+    );
+    formats(
+        "# c\n--- [a]\n",
+        "[format]\ndocument-start='remove'\nsequence-expand='always'\n",
+        "# c\n[\n  a,\n]\n",
+    );
+    formats(
+        "# c\n--- [a]\n",
+        "[format]\nsequence-expand='always'\n",
+        "# c\n--- [a]\n",
+    );
+}
+
+#[test]
+fn own_line_properties_measure_flow_fit_at_the_final_indent() {
+    formats(
+        "-\n  &col {k: v}\n",
+        "line-length=12\nindent-width=1\n[format]\nmapping-style='flow'\n",
+        "-\n &col {k: v}\n",
+    );
+    formats(
+        "k:\n  &a [a]\n",
+        "line-length=8\nindent-width=1\n[format]\nsequence-style='flow'\n",
+        "k:\n &a [a]\n",
+    );
+}
+
+#[test]
+fn a_body_below_inline_properties_uses_the_property_lines_indent() {
+    formats(
+        "- &a\n  [[b]]\n",
+        "indent-width=3\nline-length=7\n[format]\nsequence-style='flow'\nsequence-expand='auto'\n",
+        "- &a\n  - [b]\n",
+    );
+}
+
+#[test]
+fn expanded_values_measure_flow_fit_on_their_selected_line() {
+    let config = "indent-width=8\nline-length=10\n[format]\nsequence-style='flow'\nsequence-expand='always'\n";
+    formats(": &a [x]\n", config, ": &a\n        - x\n");
+    formats("k: &a [x] # c\n", config, "k: &a [  # c\n        x,\n ]\n");
+}
+
+#[test]
 fn explicit_key_flow_overflow_uses_the_final_sequence_indent() {
     formats(
         "? a\n: [[a, b], c]\n",
@@ -66,6 +144,7 @@ fn formats(input: &str, toml: &str, expected: &str) {
     let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
     assert_eq!(output, expected, "input {input:?} under {toml:?}");
     crate::property::reference::check_strict_events(input, &output).unwrap();
+    crate::property::representation::check_annotations(input, &output).unwrap();
     assert_eq!(
         format_str(&output, &cfg, Path::new("case.yaml"), &[]),
         output,

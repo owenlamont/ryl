@@ -376,6 +376,10 @@ nested:
     - eta
 ```
 
+Collection layout uses the final scalar spellings, indentation and document markers
+on the first run. Properties on their own line stay there when measuring flow width;
+a trailing comment on a standalone collection stays with that value.
+
 ## Flow line breaks
 
 `sequence-expand` and `mapping-expand` control line breaks inside flow collections:

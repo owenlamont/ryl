@@ -352,19 +352,38 @@ impl<'a> Planner<'a> {
             return None;
         }
         let trailing = self.initial.trailing_comment(index);
-        // Respelling would move a comment trailing a `]` on a later line than its `[`.
-        if trailing && self.initial.spans_lines(index) {
+        // Respelling must keep value comments off their keys and closing comments off their openers.
+        if trailing
+            && (self.initial.spans_lines(index)
+                || self.initial.opens_below(index, place.boundary()))
+        {
             return None;
         }
         let properties =
             single(self.initial.properties(place.boundary(), index)).ok()?;
-        let start = place.column
-            + usize::from(place.lead)
-            + properties.characters()
-            + usize::from(!properties.empty());
-        let end = self.one(index).map(|characters| start + characters);
+        let property_width = properties.characters() + usize::from(!properties.empty());
+        let inline = place.column + usize::from(place.lead) + property_width;
+        let width = self.one(index);
+        let end = width.map(|characters| inline + characters);
+        let value = place.lead
+            && node
+                .parent()
+                .is_some_and(|parent| self.nodes[parent].kind() == Kind::Mapping);
+        // As in prettier, a trailing comment keeps `[` on the key line; the comment stays
+        // on that line, after `[`, so it keeps its place among the data.
+        let hugged = value && trailing;
+        let next_line = width
+            .filter(|_| value && !hugged)
+            .map(|characters| place.base + self.indent + property_width + characters);
+        let fit = self.fit(index, end, next_line);
+        let below = fit != Fit::Inline && value && !hugged;
+        let start = if below {
+            place.base + self.indent + property_width
+        } else {
+            inline
+        };
         if self.target(node.kind()) == Some(CollectionStyleTarget::Flow)
-            && end.is_some_and(|end| end > self.width)
+            && width.is_some_and(|width| start + width > self.width)
         {
             return self
                 .outermost(index, Some(self.body_column(index, place)))
@@ -374,23 +393,6 @@ impl<'a> Planner<'a> {
         if !self.governed(index) {
             return None;
         }
-        let value = node
-            .parent()
-            .is_some_and(|parent| self.nodes[parent].kind() == Kind::Mapping);
-        // As in prettier, a trailing comment keeps `[` on the key line; the comment stays
-        // on that line, after `[`, so it keeps its place among the data.
-        let hugged = value && trailing;
-        let next_line =
-            self.one(index)
-                .filter(|_| value && !hugged)
-                .map(|characters| {
-                    place.base
-                        + self.indent
-                        + properties.characters()
-                        + usize::from(!properties.empty())
-                        + characters
-                });
-        let fit = self.fit(index, end, next_line);
         // Re-indenting would put entries no deeper than a key after a `-` on its line.
         if fit == Fit::Expanded
             && (place.nested_dash
@@ -400,7 +402,7 @@ impl<'a> Planner<'a> {
             return None;
         }
         let mut recipe = Recipe::new();
-        if fit != Fit::Inline && value && !hugged {
+        if below {
             recipe.line(place.base + self.indent);
         } else if place.lead {
             recipe.text(" ");
@@ -858,6 +860,9 @@ impl<'a> Planner<'a> {
     /// The final column a block body converted from the outermost collection `index`
     /// starts at.
     fn body_column(&self, index: usize, place: &Placement) -> usize {
+        if !place.lead {
+            return place.column;
+        }
         match self.nodes[index]
             .parent()
             .map(|parent| self.nodes[parent].kind())

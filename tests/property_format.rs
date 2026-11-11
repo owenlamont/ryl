@@ -736,6 +736,15 @@ proptest! {
     }
 
     #[test]
+    fn collection_layout_uses_final_spellings_and_positions(
+        (input, config) in properties::arb_collection_layout(),
+    ) {
+        let cfg = YamlLintConfig::from_toml_str(&config).unwrap();
+        let format = |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+        check_invariants(&format, &input).map_err(TestCaseError::fail)?;
+    }
+
+    #[test]
     fn quoted_indicator_scalars_keep_their_value(
         value in strategy::arb_quoted_payload(),
         double in any::<bool>(),
