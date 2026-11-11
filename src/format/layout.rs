@@ -707,6 +707,26 @@ impl Presentation {
         Self::pre_scan_view(input, passes, cache, None)
     }
 
+    fn marker_prefix(
+        &mut self,
+        input: Analysis<'_>,
+        config: Option<document_start::Config>,
+    ) {
+        let Some(cfg) = config.filter(|cfg| !cfg.requires_marker()) else {
+            return;
+        };
+        let edits = document_start::edits(input, cfg)
+            .into_iter()
+            .map(|(from, to, text)| {
+                // The final line plan owns newline removal, so this projection retains it.
+                let prefix =
+                    input.text()[from.get()..to.get()].trim_end_matches(['\r', '\n']);
+                (from, BytePos::new(from.get() + prefix.len()), text)
+            })
+            .collect();
+        self.extend(document_start::ID, edits);
+    }
+
     fn pre_scan_view(
         input: Analysis<'_>,
         passes: &Passes<'_>,
@@ -714,6 +734,7 @@ impl Presentation {
         projected: Option<&frame::View<'_, '_>>,
     ) -> Result<Self, Fallback> {
         let mut presentation = Self::quote_view(input, passes, cache, projected)?;
+        presentation.marker_prefix(input, passes.document_start);
         let mut braces = passes
             .braces
             .as_ref()
