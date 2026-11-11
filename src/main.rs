@@ -1859,18 +1859,35 @@ fn run_stdin_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, Str
         return out.finish(&stats, 0);
     }
 
-    let outcome = read_stdin_decoded(&path, Some(kind))?.map(|(content, _)| {
+    let content = read_stdin_decoded(&path, Some(kind))?;
+    let selected = if let Ok((content, _)) = &content
+        && cfg.schema_directives()
+    {
+        cfg.document_schemas(
+            content.content(),
+            args.source.stdin_filename.as_deref(),
+            &base_dir,
+            kind,
+            &ryl::config::SystemEnv,
+        )
+        .map_err(|error| error.to_string())?
+    } else {
+        std::borrow::Cow::Borrowed(&cfg)
+    };
+    let outcome = content.map(|(content, _)| {
         deprecation::record(
             content.content(),
-            &cfg,
+            &selected,
             kind,
             args.lint.compatibility.no_warnings,
         );
         match kind {
             SourceKind::Markdown => {
-                lint_markdown_str(content.content(), &path, &cfg, &base_dir)
+                lint_markdown_str(content.content(), &path, &selected, &base_dir)
             }
-            SourceKind::Yaml => lint_str(content.content(), &path, &cfg, &base_dir),
+            SourceKind::Yaml => {
+                lint_str(content.content(), &path, &selected, &base_dir)
+            }
         }
     });
     let strict = args.lint.compatibility.strict(cfg.strict());
@@ -1965,8 +1982,20 @@ fn stdin_preview<'a>(
     out: &mut PreviewOutput<'a>,
 ) -> Result<DiffStats, String> {
     let (decoded, _) = read_stdin_decoded(path, Some(kind))??;
-    deprecation::record(decoded.content(), cfg, kind, no_warnings);
-    let outcome = decoded_diff_outcome(&decoded, cfg, path, base_dir, kind, rewrite);
+    let cfg = if rewrite == Rewrite::Fix {
+        cfg.document_schemas(
+            decoded.content(),
+            (path != Path::new("<stdin>")).then_some(path),
+            base_dir,
+            kind,
+            &ryl::config::SystemEnv,
+        )
+        .map_err(|error| error.to_string())?
+    } else {
+        std::borrow::Cow::Borrowed(cfg)
+    };
+    deprecation::record(decoded.content(), &cfg, kind, no_warnings);
+    let outcome = decoded_diff_outcome(&decoded, &cfg, path, base_dir, kind, rewrite);
     let mut stats = DiffStats::default();
     stats.record(path, &outcome, out.preview.flag());
     out.push(path, outcome);
@@ -2097,13 +2126,13 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
     let mut entries = Vec::new();
     let mut cache_hits = Vec::new();
     let notice = deprecation::file_notice(format.no_warnings);
-    for (path, base_dir, cfg, kind) in &files {
+    for file @ (path, _, cfg, kind) in &files {
         let symlink = std::fs::symlink_metadata(path)
             .is_ok_and(|metadata| metadata.file_type().is_symlink());
         let entry = if format.diff || symlink {
             None
         } else {
-            settings.entry(path, base_dir, cfg, *kind, "format")?
+            settings.entry(file, "format", None)?
         };
         let (entry, bytes) = entry.unzip();
         let hit = entry.as_deref().is_some_and(cache::clean_hit);
@@ -2112,7 +2141,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         }
         cache_hits.push(hit);
         if !hit {
-            pending.push((path.clone(), base_dir.clone(), Arc::clone(cfg), *kind));
+            pending.push(file.clone());
             entries.push(entry);
         }
     }
@@ -2149,9 +2178,8 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
             continue;
         }
         if entry.is_some() {
-            let (path, base_dir, cfg, kind) = &pending[index];
             settings
-                .entry(path, base_dir, cfg, *kind, "format")
+                .entry(&pending[index], "format", None)
                 .and_then(|current| {
                     current
                         .as_ref()
@@ -2414,7 +2442,56 @@ fn lint_files_cached(
     mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>)),
 ) -> Result<(), String> {
     let compute = |file @ (path, base_dir, cfg, kind): &LintFile| -> Result<_, String> {
-        let entry = settings.entry(path, base_dir, cfg, *kind, "check")?;
+        if cfg.schema_directives() {
+            let bytes = match std::fs::read(path) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    return Ok((
+                        Err(format!("failed to read {}: {error}", path.display())),
+                        None,
+                    ));
+                }
+            };
+            let content = match ryl::decoder::decode_bytes(&bytes) {
+                Ok(content) => content,
+                Err(error) => {
+                    return Ok((
+                        Err(format!("failed to read {}: {error}", path.display())),
+                        None,
+                    ));
+                }
+            };
+            let prepared = cfg
+                .document_schemas(
+                    &content,
+                    Some(path),
+                    base_dir,
+                    *kind,
+                    &ryl::config::SystemEnv,
+                )
+                .map_err(|error| error.to_string())?;
+            let entry = settings.entry(
+                file,
+                "check",
+                Some((bytes, format!("{prepared:?}"))),
+            )?;
+            if let Some(problems) =
+                entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
+            {
+                return Ok((Ok(problems), None));
+            }
+            deprecation::record(&content, cfg, *kind, no_warnings);
+            let problems = match kind {
+                SourceKind::Markdown => {
+                    lint_markdown_str(&content, path, &prepared, base_dir)
+                }
+                SourceKind::Yaml => {
+                    lint_str_with_repair_help(&content, path, &prepared, base_dir)
+                }
+            };
+            return Ok((Ok(problems), entry.map(|(path, _)| path)));
+        }
+        let entry = settings.entry(file, "check", None)?;
         if let Some(problems) =
             entry.as_ref().and_then(|(path, _)| settings.lint_hit(path))
         {

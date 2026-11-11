@@ -86,7 +86,7 @@ for a diagnostic inside a block scalar, where a `#` would be content not a direc
 via `protected_scalar_lines`);
 `textDocument/formatting` (`ryl format` via `rewrite_str`, no enabled rule needed; no range
 formatting); hover (rule + message + docs link for a covered diagnostic, then escaped
-schema title/description from a prepared association);
+schema title/description from the prepared per-document selection);
 anchor/alias `rename` + `prepareRename` (parser scanner tokens, document-scoped, YAML
 only); and INCREMENTAL sync (ranged edits applied via `encoding::offset_at`). The engine
 has no per-occurrence fix; code actions honour `context.only`.
@@ -116,6 +116,11 @@ Newer revisions replace queued
 entries for the same config. Dispatch returns a config-error diagnostic while
 preparation is pending and refreshes diagnostics when work completes. No fetch runs on
 dispatch or under the service state lock. Formatting skips schema preparation.
+Opted-in schema modelines use unsaved document text, per-document headers and the same
+worker/grant boundary. Selections coexist in bounded config groups, tagged with document
+revisions; edits cancel obsolete work and closing releases dependencies. Directive
+errors blame their source headers and never publish separate config diagnostics onto
+the YAML URI. Local candidates are confined before watcher registration.
 
 Unapproved origins produce approval diagnostics with Always allow `<origin>` and
 Allow once `<origin>` quick fixes through `ryl.allowSchemaOrigin`. The optional second
@@ -144,8 +149,9 @@ lints nothing silently; a malformed one lints nothing but is surfaced once via
 Hover reads only `Document::schema_target` and `Document::diagnostics`, refreshed by document
 updates and config/schema invalidation for push and pull clients. Never call config
 discovery or queue preparation from hover. Cache targets only when `schema_for` matches
-during document analysis: glob matching may allocate, so unmatched hover must return
-before matching globs, extracting Markdown or constructing a `TextVersion`.
+or schema directives are enabled during document analysis: glob matching may allocate,
+so unmatched hover must return before matching globs, extracting Markdown or constructing
+a `TextVersion`.
 `rules::schema::hover` hit-tests projection key/value spans and structurally walks the
 prepared registry; validator annotations disappear for invalid instances. Follow only
 literal properties, homogeneous items and static references, carrying draft and `$id`

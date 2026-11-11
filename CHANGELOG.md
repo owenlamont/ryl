@@ -5,6 +5,12 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+### Added
+
+- Opt-in schema header directives: `# yaml-language-server: $schema=...` and
+  `# $schema: ...`, with per-document overrides, `none`, confined file-relative paths
+  and the existing remote-origin grants. Enable with `[lint.rules.schema] directives = true`.
+
 ### Fixed
 
 - The TOML config schema compiles under Ajv strict mode again, so SchemaStore can

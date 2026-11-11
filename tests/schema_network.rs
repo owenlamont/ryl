@@ -107,6 +107,109 @@ const CONFIG: &str =
     "[[lint.rules.schema.schemas]]\nurl = 'https://schemas.example.org/root.json'\n";
 
 #[test]
+fn directive_roots_and_rebased_references_use_existing_grants_and_offline_cache() {
+    use ryl::config::SourceKind;
+    let h = Harness::new();
+    h.resource(ROOT, json!({"$ref":"child.json"}));
+    h.resource(
+        "https://schemas.example.org/child.json",
+        json!({"type":"integer"}),
+    );
+    let ctx = h
+        .prepare("[lint.rules.schema]\ndirectives = true\n")
+        .unwrap();
+    let source = format!("# $schema: {ROOT}\ntext\n");
+    let path = h.dir.path().join("in.yaml");
+    let denied = h.env.clone().with_var("RYL_SCHEMA_ALLOWED_ORIGINS", "");
+    assert!(
+        ctx.config
+            .document_schemas(
+                &source,
+                Some(&path),
+                &ctx.base_dir,
+                SourceKind::Yaml,
+                &denied
+            )
+            .is_err()
+    );
+    assert!(h.transport.calls.lock().unwrap().is_empty());
+    let prepared = ctx
+        .config
+        .document_schemas(
+            &source,
+            Some(&path),
+            &ctx.base_dir,
+            SourceKind::Yaml,
+            &h.env,
+        )
+        .unwrap();
+    assert_eq!(
+        ryl::lint_str(&source, &path, &prepared, &ctx.base_dir).len(),
+        1
+    );
+    let calls = h.transport.calls.lock().unwrap().len();
+    assert_eq!(calls, 2);
+    let offline = h.env.clone().with_var("RYL_OFFLINE", "1");
+    assert!(
+        ctx.config
+            .document_schemas(
+                &source,
+                Some(&path),
+                &ctx.base_dir,
+                SourceKind::Yaml,
+                &offline
+            )
+            .is_ok()
+    );
+    assert_eq!(h.transport.calls.lock().unwrap().len(), calls);
+    for env in [
+        denied.with_var("RYL_OFFLINE", "1"),
+        offline.with_var("RYL_NO_CACHE", "1"),
+    ] {
+        assert!(
+            ctx.config
+                .document_schemas(
+                    &source,
+                    Some(&path),
+                    &ctx.base_dir,
+                    SourceKind::Yaml,
+                    &env
+                )
+                .is_err()
+        );
+    }
+    h.resource(
+        ROOT,
+        json!({"$id":"https://other.example.org/base.json","$ref":"child.json"}),
+    );
+    let uncached = h.env.clone().with_var("RYL_NO_CACHE", "1");
+    let error = ctx
+        .config
+        .document_schemas(
+            &source,
+            Some(&path),
+            &ctx.base_dir,
+            SourceKind::Yaml,
+            &uncached,
+        )
+        .unwrap_err();
+    assert!(error.message.contains("other.example.org"));
+    assert_eq!(h.transport.calls.lock().unwrap().len(), calls + 1);
+    h.resource(ROOT, json!({"$ref":url::Url::from_file_path(h.dir.path().join("secret.json")).unwrap().as_str()}));
+    let error = ctx
+        .config
+        .document_schemas(
+            &source,
+            Some(&path),
+            &ctx.base_dir,
+            SourceKind::Yaml,
+            &uncached,
+        )
+        .unwrap_err();
+    assert!(error.message.contains("cannot read file references"));
+}
+
+#[test]
 fn request_and_origin_grant_are_both_required() {
     let h = Harness::new();
     h.resource(ROOT, json!({"type":"object"}));

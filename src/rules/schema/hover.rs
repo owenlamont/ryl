@@ -1,15 +1,18 @@
 use std::collections::HashSet;
+use std::path::Path;
 
 use jsonschema::Draft;
 use ryl_yaml_parser::{Event, Marker, ScalarStyle, Span};
 use serde_json::Value;
 
-use super::{Association, projection};
+use super::{Association, directives, projection, selected_association};
+use crate::config::YamlLintConfig;
 use crate::rules::support::span_utils::marker_byte_offset;
 use crate::text_version::TextVersion;
 
 pub(crate) fn at<'a>(
-    association: &'a Association,
+    cfg: &'a YamlLintConfig,
+    path: &Path,
     text: &str,
     position: (usize, usize),
 ) -> Option<([Option<&'a str>; 2], Span)> {
@@ -23,14 +26,43 @@ pub(crate) fn at<'a>(
             .then_some(span.start.index())
         })
         .collect::<HashSet<_>>();
-    let mut events = version.analysis().event_iter().peekable();
+    let fallback = cfg.schema_for(path);
+    let headers = cfg
+        .schema_directives()
+        .then(|| directives::headers(version.analysis()));
+    let mut events = version
+        .analysis()
+        .event_iter()
+        .filter(|(event, _)| !matches!(event, Event::Comment(..)))
+        .peekable();
     let mut budget = projection::Budget::default();
-    loop {
-        let projected = match projection::document(&mut events, &mut budget) {
-            Ok(Some(projected)) => projected,
-            Err(_) if !budget.exhausted() => continue,
-            Ok(None) | Err(_) => return None,
+    let mut document = 0;
+    while let Some((start, yaml_version)) =
+        events.by_ref().find_map(|(event, start)| match event {
+            Event::DocumentStart(_, version) => Some((start, version)),
+            _ => None,
+        })
+    {
+        let selected = headers
+            .as_ref()
+            .and_then(|headers| headers.get(document))
+            .and_then(Option::as_ref)
+            .and_then(|header| header.value.as_deref());
+        document += 1;
+        let Some(association) = selected_association(cfg, fallback, selected) else {
+            for (event, _) in events.by_ref() {
+                if matches!(event, Event::DocumentEnd) {
+                    break;
+                }
+            }
+            continue;
         };
+        let projected =
+            match projection::document(&mut events, &mut budget, start, yaml_version) {
+                Ok(projected) => projected,
+                Err(_) if !budget.exhausted() => continue,
+                Err(_) => return None,
+            };
         if projected.ambiguous {
             continue;
         }
@@ -78,6 +110,7 @@ pub(crate) fn at<'a>(
         return lookup(association, pointer, &projected.value)
             .map(|annotations| (annotations, span));
     }
+    None
 }
 
 fn lookup<'a>(

@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::num::{NonZeroU8, NonZeroU16};
 use std::path::{Component, Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::cli_support::lexical_abspath;
 use crate::directives::PerLineRuleApply;
@@ -942,6 +942,95 @@ impl YamlLintConfig {
             .find(|entry| entry.matches(path))
     }
 
+    #[doc(hidden)]
+    pub fn schema_directives(&self) -> bool {
+        self.rule_level("schema").is_some()
+            && self
+                .rule_option("schema", "directives")
+                .and_then(YamlOwned::as_bool)
+                == Some(true)
+    }
+
+    pub(crate) fn schema_directive_for(
+        &self,
+        value: &str,
+    ) -> Option<&crate::rules::schema::Association> {
+        self.resolved.schema.as_ref()?.directives.get(value)
+    }
+
+    pub(crate) fn schema_request(
+        &self,
+    ) -> Option<&crate::rules::schema::directives::Request> {
+        self.resolved.schema_request.as_deref()
+    }
+
+    pub(crate) fn schema_directives_for(
+        &self,
+        path: Option<&Path>,
+        base: &Path,
+    ) -> bool {
+        self.schema_directives()
+            && !path.is_some_and(|path| self.is_rule_ignored("schema", path, base))
+    }
+
+    #[cfg(feature = "lsp")]
+    pub(crate) fn identify_schema_document(
+        &mut self,
+        owner: &Path,
+        revision: Option<i64>,
+        text: &str,
+    ) {
+        let request = self
+            .resolved
+            .schema_request
+            .as_mut()
+            .expect("directive request initialized before identification");
+        let request = Arc::make_mut(request);
+        owner.clone_into(&mut request.owner);
+        request.revision = revision.map(|version| {
+            crate::rules::schema::directives::Revision::new(version, text)
+        });
+    }
+
+    #[cfg(feature = "lsp")]
+    pub(crate) fn schema_usage(&self) -> (usize, usize) {
+        self.resolved
+            .schema
+            .as_ref()
+            .map_or((0, 0), |schema| (schema.bytes, schema.resources))
+    }
+
+    #[doc(hidden)]
+    pub fn document_schemas(
+        &self,
+        text: &str,
+        path: Option<&Path>,
+        base: &Path,
+        kind: SourceKind,
+        env: &dyn Env,
+    ) -> Result<Cow<'_, Self>, crate::rules::schema::PreparationError> {
+        if !self.schema_directives_for(path, base) {
+            return Ok(Cow::Borrowed(self));
+        }
+        let mut prepared = self.clone();
+        prepared.prepare_document_schemas(text, path, base, kind, env)?;
+        Ok(Cow::Owned(prepared))
+    }
+
+    pub(crate) fn prepare_document_schemas(
+        &mut self,
+        text: &str,
+        path: Option<&Path>,
+        base: &Path,
+        kind: SourceKind,
+        env: &dyn Env,
+    ) -> Result<(), crate::rules::schema::PreparationError> {
+        self.resolved.schema_request = Some(Arc::new(
+            crate::rules::schema::directives::request(text, path, self, kind),
+        ));
+        self.prepare_schemas(base, env)
+    }
+
     /// The `per-line-ignores` entries applying to `path`, as virtual-disable-line applies
     /// for the directives builder.
     #[must_use]
@@ -1329,7 +1418,7 @@ impl YamlLintConfig {
         &mut self,
         base: &Path,
         env: &dyn Env,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::rules::schema::PreparationError> {
         match crate::rules::schema::prepare(self, base, env)? {
             crate::rules::schema::Preparation::Ready(schema) => {
                 self.resolved.schema = schema;
@@ -1402,7 +1491,8 @@ impl YamlLintConfig {
         self.build_file_kind_matchers(base_dir);
 
         if envx.prepare_lint_schemas() {
-            self.prepare_schemas(base_dir, envx)?;
+            self.prepare_schemas(base_dir, envx)
+                .map_err(|error| error.to_string())?;
         }
 
         for rule in self.rules.values_mut() {

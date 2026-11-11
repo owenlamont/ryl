@@ -41,11 +41,9 @@ impl Settings {
 
     pub fn entry(
         &self,
-        path: &Path,
-        base_dir: &Path,
-        cfg: &YamlLintConfig,
-        kind: SourceKind,
+        (path, base_dir, cfg, kind): &ryl::cli_support::LintFile,
         mode: &str,
+        document: Option<(Vec<u8>, String)>,
     ) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
         if self.disabled {
             return Ok(None);
@@ -59,7 +57,7 @@ impl Settings {
                 } else {
                     self.directory
                         .as_ref()
-                        .map_or(base_dir, |_| self.cwd.as_path())
+                        .map_or(base_dir.as_path(), |_| self.cwd.as_path())
                         .join(root)
                 }
             },
@@ -82,8 +80,12 @@ impl Settings {
             let _ = fs::remove_file(&probe);
         }
         drop(checked);
-        let Ok(content) = fs::read(path) else {
-            return Ok(None);
+        let (content, prepared) = match document {
+            Some((bytes, prepared)) => (bytes, Some(prepared)),
+            None => match fs::read(path) {
+                Ok(bytes) => (bytes, None),
+                Err(_) => return Ok(None),
+            },
         };
         if mode == "format"
             && (path.as_os_str().to_str().is_none()
@@ -97,10 +99,10 @@ impl Settings {
             return Ok(None);
         }
         let key = (
-            std::ptr::from_ref::<YamlLintConfig>(cfg) as usize,
-            kind == SourceKind::Markdown,
+            std::ptr::from_ref::<YamlLintConfig>(cfg.as_ref()) as usize,
+            *kind == SourceKind::Markdown,
             mode == "format",
-            base_dir.to_path_buf(),
+            base_dir.clone(),
         );
         let mut prefixes = self.prefixes.lock().expect("cache lock not poisoned");
         let mut hash = prefixes
@@ -125,6 +127,9 @@ impl Settings {
             })
             .clone();
         drop(prefixes);
+        if let Some(prepared) = prepared {
+            hash.update(prepared.as_bytes());
+        }
         hash.update(path.as_os_str().as_encoded_bytes());
         hash.update(&[0]);
         hash.update(&content);

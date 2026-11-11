@@ -173,19 +173,22 @@ enum BuildError {
 }
 
 impl Graph {
-    fn build(registry: &Registry<'_>, uri: Uri<String>) -> Result<Self, BuildError> {
-        let root = registry.resolver(uri).lookup("#").and_then(|root| {
-            let (value, resolver, draft) = root.into_inner();
-            resolver
-                .in_subresource(draft.create_resource_ref(value))
-                .map(|resolver| {
-                    (
-                        (value, resolver, draft, "#".to_owned()),
-                        None::<(usize, Kind)>,
-                        false,
-                    )
-                })
-        });
+    fn build(registry: &Registry<'_>, uri: &Uri<String>) -> Result<Self, BuildError> {
+        let root = registry
+            .resolver(uri.clone())
+            .lookup(uri.as_str())
+            .and_then(|root| {
+                let (value, resolver, draft) = root.into_inner();
+                resolver
+                    .in_subresource(draft.create_resource_ref(value))
+                    .map(|resolver| {
+                        (
+                            (value, resolver, draft, "#".to_owned()),
+                            None::<(usize, Kind)>,
+                            false,
+                        )
+                    })
+            });
         let mut graph = Self::default();
         let mut indices = HashMap::new();
         let mut pending = vec![root];
@@ -456,7 +459,7 @@ impl Graph {
     }
 }
 
-pub(super) fn check(registry: &Registry<'_>, uri: Uri<String>) -> Result<(), String> {
+pub(super) fn check(registry: &Registry<'_>, uri: &Uri<String>) -> Result<(), String> {
     let graph = Graph::build(registry, uri).map_err(|e| e.to_string())?;
     let weight = graph.weight();
     if weight > MAX_WEIGHT {

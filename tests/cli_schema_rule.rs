@@ -7,6 +7,8 @@ use serde_json::{Value, json};
 
 use crate::common::cli::{run, run_with_stdin, ryl};
 
+mod directives;
+
 pub(crate) fn config(dir: &Path, schema: &Value) -> ryl::config::ConfigContext {
     fs::write(dir.join("schema.json"), schema.to_string()).unwrap();
     fs::write(
@@ -42,6 +44,25 @@ fn alias_diagnostics_blame_the_use_site() {
         "base: &base {x: 1}\ncopy: *base\n",
     );
     assert_eq!((hits[0].line, hits[0].column), (2, 7));
+}
+
+#[test]
+fn truncated_mapping_refuses_a_missing_key_without_panicking() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = config(dir.path(), &json!(true));
+    let hits =
+        ryl::rules::schema::check("a: 1\nb", &ctx.config, &dir.path().join("in.yaml"));
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].message, "cannot validate: incomplete YAML document");
+}
+
+#[test]
+fn presentation_comments_do_not_become_schema_nodes() {
+    let hits = findings(
+        &json!({"const":{"items":[1,2]}}),
+        "# header\nitems:\n  # first\n  - 1\n  # second\n  - 2\n# end\n",
+    );
+    assert!(hits.is_empty(), "{hits:?}");
 }
 
 #[test]
