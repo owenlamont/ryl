@@ -203,9 +203,10 @@ pub(crate) fn select(
                 let path = child_path(&mut walker);
                 let context = walker.begin_node();
                 if context.key_root() {
-                    if let Some(key) = walker.current_mapping_mut() {
-                        *key = Some(value.into_owned());
-                    }
+                    let key = walker
+                        .current_mapping_mut()
+                        .expect("a key root belongs to a mapping");
+                    *key = Some(value.into_owned());
                 } else if !context.active()
                     && let Some(entry) = entries
                         .iter()
