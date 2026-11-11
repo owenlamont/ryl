@@ -21,6 +21,7 @@ use crate::rules::{
 use crate::text_version::{Analysis, TextVersion};
 
 pub(crate) mod directives;
+pub(crate) mod expression;
 pub(crate) mod layout;
 mod prose;
 
@@ -58,11 +59,6 @@ impl Passes<'static> {
         let line_ending = line_ending(cfg, content);
         let indent = indent_width(cfg);
         let brace_padding = i64::from(table.brace_spacing);
-        let quote_style = match table.quote_style {
-            QuoteStyleTarget::Single => Some(quoted_strings::QuoteStyle::Single),
-            QuoteStyleTarget::Double => Some(quoted_strings::QuoteStyle::Double),
-            QuoteStyleTarget::Preserve => None,
-        };
         let indentation = on(indentation::ID).then(|| {
             let target = indentation_target(cfg, indent);
             if cfg.indent_width().is_none() {
@@ -116,13 +112,7 @@ impl Passes<'static> {
                     .into_owned(),
                 )
             }),
-            quoted_strings: quote_style.filter(|_| on(quoted_strings::ID)).map(
-                |style| {
-                    quoted_strings::Config::ladder(style, cfg.target_version())
-                        .with_keep_quotes(table.keep_quotes)
-                        .with_requirements(cfg)
-                },
-            ),
+            quoted_strings: on(quoted_strings::ID).then(|| quote_config(cfg)).flatten(),
             trailing_spaces: on(trailing_spaces::ID),
             document_start: (table.document_start != DocumentStartTarget::Preserve
                 && on(document_start::ID))
@@ -142,6 +132,7 @@ impl Passes<'static> {
             schema_dependent_values: None,
             key_ordering: None,
             yaml_directive: None,
+            prose: Vec::new(),
             line_length: ((table.fold_long_lines.unwrap_or(false)
                 || table.prose_wrap == Some(ProseWrap::Always))
                 && on(line_length::ID))
@@ -154,6 +145,20 @@ impl Passes<'static> {
             per_line: Vec::new(),
         }
     }
+}
+
+fn quote_config(cfg: &YamlLintConfig) -> Option<quoted_strings::Config> {
+    let table = cfg.format().targets();
+    let style = match table.quote_style {
+        QuoteStyleTarget::Single => quoted_strings::QuoteStyle::Single,
+        QuoteStyleTarget::Double => quoted_strings::QuoteStyle::Double,
+        QuoteStyleTarget::Preserve => return None,
+    };
+    Some(
+        quoted_strings::Config::ladder(style, cfg.target_version())
+            .with_keep_quotes(table.keep_quotes)
+            .with_requirements(cfg),
+    )
 }
 
 fn collection_style_config(
@@ -341,7 +346,12 @@ fn format_tracked(
 ) -> TextVersion<'static> {
     let _recording =
         layout::stats::Recording::start(path, input.len(), tracking.strict_input);
-    let passes = Passes::format(cfg, input, skip);
+    let mut passes = Passes::format(cfg, input, skip);
+    if passes.line_length.is_some()
+        && cfg.format().targets().prose_wrap == Some(ProseWrap::Always)
+    {
+        passes.prose = cfg.prose_for(path);
+    }
     let mut source = TextVersion::new(input);
     let prefetched = std::mem::take(&mut parsed.prefetched);
     if prefetched {

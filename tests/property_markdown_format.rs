@@ -318,7 +318,7 @@ proptest! {
         table in settings::arb_format_config(),
     ) {
         run_invariants(&markdown)?;
-        let cfg = ryl::config::YamlLintConfig::from_toml_str(&table).expect(&table);
+        let cfg = crate::common::format_config::load(&table);
         check_config(&markdown, &table, &cfg)?;
     }
 }

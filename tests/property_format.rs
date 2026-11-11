@@ -787,6 +787,34 @@ proptest! {
     }
 
     #[test]
+    fn expression_preferences_keep_values_and_reach_a_fixed_point(
+        expression in fold::arb_expression(),
+        root in any::<bool>(),
+        style in 0..4u8,
+        width in 1..100u16,
+        quote in prop::sample::select(vec!["single", "double", "preserve"]),
+        keep_quotes in any::<bool>(),
+        newline in prop::sample::select(vec!["\n", "\r\n"]),
+    ) {
+        let mut scalar = String::new();
+        match style {
+            0 => scalar = expression.clone(),
+            1 => ast::Scalar::SingleQuoted(expression.clone()).render(&mut scalar),
+            2 => ast::Scalar::DoubleQuoted(expression.clone()).render(&mut scalar),
+            _ => scalar = format!(">-\n  {expression}"),
+        }
+        let prefix = if root { "" } else { "expression: " };
+        let input = format!("{prefix}{scalar}\n").replace('\n', newline);
+        let entries = crate::format_expression::ENTRY.replace("$.expression", if root { "$" } else { "$.expression" });
+        let table = format!("line-length = {width}\n[format]\nprose-wrap = 'always'\nquote-style = '{quote}'\nkeep-quotes = {keep_quotes}\n{entries}");
+        let cfg = crate::common::format_config::load(&table);
+        let format = |input: &str| ryl::format::format_str(input, &cfg, synthetic_path(), &[]);
+        check_invariants(&format, &input).map_err(TestCaseError::fail)?;
+        let output = format(&input);
+        reference::check_strict_events(&input, &output).map_err(TestCaseError::fail)?;
+    }
+
+    #[test]
     fn collection_layout_uses_final_spellings_and_positions(
         (input, config) in properties::arb_collection_layout(),
     ) {
@@ -884,7 +912,7 @@ proptest! {
         document in arb_document_with_properties(),
         table in settings::arb_format_config(),
     ) {
-        let cfg = YamlLintConfig::from_toml_str(&table).expect(&table);
+        let cfg = crate::common::format_config::load(&table);
         let pass = FormatPass {
             name: table,
             cfg: cfg.clone(),
@@ -960,7 +988,7 @@ proptest! {
         table in settings::arb_format_config(),
     ) {
         let agreeing = consistency::agreeing_lint(&table);
-        let cfg = YamlLintConfig::from_toml_str(&agreeing).expect(&agreeing);
+        let cfg = crate::common::format_config::load(&agreeing);
         let input = document.render();
         let (formatted, refusals) = ryl::fix::rewrite_str(
             &input, &cfg, synthetic_path(), synthetic_base_dir(),
@@ -980,7 +1008,7 @@ proptest! {
             "[lint.rules.colons]\nmax-spaces-before = 0\nmax-spaces-after = 1",
             "[lint.rules.colons]\nmax-spaces-before = 0\nmax-spaces-after = 0",
         );
-        let cfg = YamlLintConfig::from_toml_str(&disagreeing).expect(&disagreeing);
+        let cfg = crate::common::format_config::load(&disagreeing);
         let mut problems = lint_str(&output, synthetic_path(), &cfg, synthetic_base_dir());
         let before = lint_str(&input, synthetic_path(), &cfg, synthetic_base_dir());
         problems.retain(|problem| !consistency::content_whitespace(&output, problem.rule, problem.line, problem.column) && !consistency::closing_comma(&output, problem.rule, problem.line, problem.column) && !consistency::refused(&input, &output, problem, &refusals, &before));
@@ -2986,7 +3014,7 @@ proptest! {
         let input = format!("#{}{newline}{body}", "padding ".repeat(131_073));
         let serial = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
         let parallel = rayon::ThreadPoolBuilder::new().num_threads(2).build().unwrap();
-        let cfg = YamlLintConfig::from_toml_str(&settings).unwrap();
+        let cfg = crate::common::format_config::load(&settings);
         let format = || ryl::format::format_str(&input, &cfg, synthetic_path(), &[]);
         let expected = serial.install(format);
         let actual = parallel.install(format);

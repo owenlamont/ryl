@@ -134,6 +134,9 @@ pub struct FormatTable {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(extend("default" = "preserve"))]
     pub prose_wrap: Option<ProseWrap>,
+    /// First-match scalar wrapping preferences; active only with `prose-wrap = "always"`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub prose: Vec<ProseEntry>,
     /// Whether to pad the inside of a non-empty flow mapping's braces with one space.
     pub brace_spacing: bool,
     /// Opt in to unstable style changes before a minor release promotes them to stable.
@@ -170,6 +173,7 @@ impl Default for FormatTable {
             document_end: MarkerTarget::Preserve,
             fold_long_lines: None,
             prose_wrap: None,
+            prose: Vec::new(),
             brace_spacing: false,
             preview: false,
             comment_spacing: NonZeroU8::new(2).expect("2 is non-zero"),
@@ -184,6 +188,22 @@ impl Default for FormatTable {
             dash_on_own_line: false,
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct ProseEntry {
+    /// File globs relative to the config directory; `!` excludes.
+    #[schemars(length(min = 1))]
+    pub files: Vec<String>,
+    /// `JSONPath` subset: `$`, `.name`, `['name']`, `[*]`, `.*`.
+    pub path: String,
+    /// Literal tokens before which an existing single space may become a line break.
+    #[schemars(length(min = 1))]
+    pub break_before: Vec<String>,
+    /// Regex matches in decoded scalar content are opaque to wrapping.
+    #[serde(default)]
+    pub protected_patterns: Vec<String>,
 }
 
 #[derive(
@@ -1638,6 +1658,9 @@ pub(crate) fn format_keys(input: &str, pyproject: bool) -> BTreeSet<String> {
 /// Returns an error if the typed TOML config violates semantic rules not captured by
 /// deserialization alone.
 pub fn validate_toml_config(config: &TomlConfig) -> Result<(), String> {
+    if let Some(format) = &config.format {
+        validation::validate_prose(&format.prose)?;
+    }
     if config.format.as_ref().is_some_and(|format| {
         format.fold_long_lines.is_some() && format.prose_wrap.is_some()
     }) {

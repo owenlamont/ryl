@@ -1889,7 +1889,13 @@ impl DocumentPlan<'_> {
         &mut self,
         cfg: crate::rules::line_length::Fold,
         reindents: bool,
+        prose: &[std::sync::Arc<crate::format::expression::Preference>],
     ) -> Result<(), Fallback> {
+        let selected = if prose.is_empty() {
+            Vec::new()
+        } else {
+            crate::format::expression::select(self.input, prose)
+        };
         let before_indent =
             folded_tail_interacts(self.input, &self.layout, &self.targets)
                 .then(|| self.input.parsed().document_starts.len() - 1);
@@ -1924,9 +1930,14 @@ impl DocumentPlan<'_> {
                     || (!self.targets.refused().is_empty()
                         && self.layout.frozen(self.targets.refused(), line)))
                 .then(|| scalar.owner.map_or(0, |(_, column)| column));
+                let preference = selected
+                    .partition_point(|(range, _)| range.start <= scalar.content.start)
+                    .checked_sub(1)
+                    .and_then(|index| selected.get(index))
+                    .filter(|(range, _)| range.contains(&scalar.content.start))
+                    .map(|(_, entry)| entry.clone());
                 self.plan_scalar_fold(
-                    scalar.content,
-                    scalar.style,
+                    scalar,
                     frozen_owner,
                     cfg,
                     &projection,
@@ -1938,6 +1949,7 @@ impl DocumentPlan<'_> {
                             - 1
                             == document
                     }),
+                    preference,
                 )
             })
             .map(|()| self.folds.sort_by_key(|site| (site.line, site.byte)))
@@ -1945,13 +1957,15 @@ impl DocumentPlan<'_> {
 
     fn plan_scalar_fold(
         &mut self,
-        range: std::ops::Range<usize>,
-        style: quoted_strings::LayoutStyle,
+        scalar: crate::rules::line_length::fold::FoldableScalar,
         frozen_owner: Option<usize>,
         cfg: crate::rules::line_length::Fold,
         projection: &projection::Projection,
         before_indent: bool,
+        preference: Option<crate::format::expression::Selected>,
     ) -> Result<(), Fallback> {
+        let range = scalar.content;
+        let style = scalar.style;
         let starts = self.input.byte_line_starts();
         let line_of = |byte| {
             starts
@@ -2002,6 +2016,7 @@ impl DocumentPlan<'_> {
                     .map(|line| self.prefix(line))
                     .filter(|&prefix| prefix > 0);
                 let candidate = folding::ScalarCandidate {
+                    preference,
                     style,
                     first,
                     last,
@@ -2009,7 +2024,7 @@ impl DocumentPlan<'_> {
                     owner,
                     existing,
                 };
-                let Some(target) = candidate.settle(cfg) else {
+                let Some(mut target) = candidate.settle(cfg) else {
                     return Ok(());
                 };
                 let directive =
@@ -2029,7 +2044,7 @@ impl DocumentPlan<'_> {
                     full,
                 };
                 (first..=last).try_for_each(|index| {
-                    self.plan_fold_line(index, &site, &target, projection)
+                    self.plan_fold_line(index, &site, &mut target, projection)
                 })
             })
     }
@@ -2038,7 +2053,7 @@ impl DocumentPlan<'_> {
         &mut self,
         index: usize,
         site: &FoldSite,
-        target: &folding::ScalarTarget,
+        target: &mut folding::ScalarTarget,
         projection: &projection::Projection,
     ) -> Result<(), Fallback> {
         let line = self.layout.geometry(index, &self.targets);
@@ -2628,7 +2643,8 @@ impl<'a> LineTargets<'a> {
         passes
             .line_length
             .map_or(Ok(()), |cfg| {
-                self.0.plan_folds(cfg, passes.indentation.is_some())
+                self.0
+                    .plan_folds(cfg, passes.indentation.is_some(), &passes.prose)
             })
             .map(|()| {
                 if !self.0.folds.is_empty() {

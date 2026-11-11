@@ -1,5 +1,4 @@
 use crate::format::layout::pieces::Piece;
-use std::ops::Range;
 
 pub(in crate::format::layout) struct SelectedLine<'a> {
     parts: Vec<Piece<'a>>,
@@ -20,10 +19,7 @@ impl<'a> SelectedLine<'a> {
             + self.bom.len()
             + self.parts.iter().map(|part| part.len()).sum::<usize>()
     }
-    pub(super) fn scalar_characters(
-        &self,
-        scalar: Range<usize>,
-    ) -> impl Iterator<Item = (usize, char)> + '_ {
+    pub(super) fn characters(&self) -> impl Iterator<Item = (usize, char)> + '_ {
         let mut byte = 0;
         self.bom
             .chars()
@@ -32,7 +28,7 @@ impl<'a> SelectedLine<'a> {
             .map(move |ch| {
                 let at = byte;
                 byte += ch.len_utf8();
-                (at, if scalar.contains(&at) { ch } else { '\0' })
+                (at, ch)
             })
     }
 }

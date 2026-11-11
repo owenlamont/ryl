@@ -271,6 +271,12 @@ linting only. Unset, `max` is 80, `spaces` is `"consistent"`, and `ryl format` u
 width 2. Set `indent-width` to preserve another width. A YAML config cannot set
 these top-level keys.
 
+For selected expression-like scalars, TOML-only
+[`[[format.prose]]`](../formatter.md#expression-wrapping) entries configure
+`files`, `path`, `break-before` tokens and optional `protected-patterns` regexes.
+Entries apply only with `[format] prose-wrap = "always"`; the first file/path
+match wins.
+
 ```toml
 line-length = 100
 indent-width = 4

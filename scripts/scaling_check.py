@@ -284,6 +284,22 @@ def series(binary: str) -> Iterator[Series]:
             config=f"[format]\nprose-wrap = '{mode}'\nquote-style = 'preserve'\n",
         )
     yield Series(
+        name="format expression protected spans",
+        command=(binary, "format", "--no-cache"),
+        inputs=sized(
+            lambda size_bytes: (
+                "expression: >-\n  "
+                + " && ".join(['x == "a && b"'] * max(1, size_bytes // 17))
+                + "\n"
+            )
+        ),
+        config=(
+            'line-length = 65535\n[format]\nprose-wrap = "always"\n'
+            '[[format.prose]]\nfiles = ["*"]\npath = "$.expression"\n'
+            'break-before = ["&&"]\nprotected-patterns = [\'"[^"]*"\']\n'
+        ),
+    )
+    yield Series(
         name="format keep-quotes double",
         command=(binary, "format", "--no-cache"),
         inputs=sized(

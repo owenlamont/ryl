@@ -65,6 +65,12 @@ pub fn arb_format_config() -> impl Strategy<Value = String> {
                 )
             },
         )
+        .prop_flat_map(|config| (Just(config), any::<bool>()))
+        .prop_map(|(config, expressions)| {
+            if expressions && config.contains("prose-wrap = 'always'") {
+                format!("{config}[[format.prose]]\nfiles = ['*.yaml']\npath = '$.*'\nbreak-before = ['&&', '||']\nprotected-patterns = ['\"[^\"]*\"']\n")
+            } else { config }
+        })
         .prop_flat_map(|config| (Just(config), arb_quote_requirements()))
         .prop_map(|(config, requirements)| format!("{config}{requirements}"))
 }

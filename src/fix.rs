@@ -1997,6 +1997,7 @@ pub(crate) struct Passes<'a> {
     pub(crate) key_ordering: Option<key_ordering::Config>,
     pub(crate) yaml_directive: Option<yaml_directive::Config>,
     pub(crate) line_length: Option<line_length::Fold>,
+    pub(crate) prose: Vec<std::sync::Arc<crate::format::expression::Preference>>,
     pub(crate) collection_style: Option<collection_style::Config>,
     /// Config `per-line-ignores` for this file; re-applied on each guarded re-parse since a
     /// structural fixer can shift which line a regex matches.
@@ -2113,6 +2114,7 @@ impl<'a> Passes<'a> {
             yaml_directive: on(yaml_directive::ID)
                 .then(|| yaml_directive::Config::resolve(cfg)),
             line_length: None,
+            prose: Vec::new(),
             collection_style: None,
             per_line: cfg.per_line_applies(path),
         }

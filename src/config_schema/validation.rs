@@ -8,6 +8,38 @@ use super::{
 };
 use crate::rules::support::key_path;
 
+pub(super) fn validate_prose(entries: &[super::ProseEntry]) -> Result<(), String> {
+    for entry in entries {
+        let invalid = |problem| format!("invalid config: format.prose {problem}");
+        if entry.files.is_empty() || entry.break_before.is_empty() {
+            return Err(invalid(
+                "requires non-empty files and break-before lists".to_owned(),
+            ));
+        }
+        for glob in &entry.files {
+            Glob::new(glob.strip_prefix('!').unwrap_or(glob))
+                .map_err(|err| invalid(format!("invalid files glob: {err}")))?;
+        }
+        key_path::parse(&entry.path).map_err(invalid)?;
+        if entry
+            .break_before
+            .iter()
+            .any(|token| token.is_empty() || token.chars().any(char::is_whitespace))
+        {
+            return Err(invalid(
+                "break-before tokens must be non-empty and contain no whitespace"
+                    .to_owned(),
+            ));
+        }
+        for pattern in &entry.protected_patterns {
+            Regex::new(pattern).map_err(|err| {
+                invalid(format!("invalid protected-patterns regex: {err}"))
+            })?;
+        }
+    }
+    Ok(())
+}
+
 /// Validate `per-line-ignores` entries: each needs at least one of `regex`/`path`, a
 /// non-empty `rules` list, and valid `regex`/`path` patterns. Validating the patterns here
 /// (the single fallible step) lets the runtime matcher build infallibly.

@@ -172,6 +172,7 @@ static PASSES: LazyLock<Vec<FormatPass>> = LazyLock::new(|| {
             ),
             toml_pass("format/prose-preserve", "[format]\nprose-wrap = 'preserve'\nkeep-quotes = true\n", format),
             toml_pass("format/prose-always", "line-length = 20\n[format]\nprose-wrap = 'always'\nkeep-quotes = true\n", format),
+            toml_pass("format/prose-expression", "line-length = 20\n[format]\nprose-wrap = 'always'\nkeep-quotes = true\n[[format.prose]]\nfiles = ['*.yaml']\npath = '$.*'\nbreak-before = ['&&', '||']\nprotected-patterns = ['\"[^\"]*\"', \"'[^']*'\"]\n", format),
             toml_pass("format/prose-never", "[format]\nprose-wrap = 'never'\nkeep-quotes = true\n", format),
             toml_pass(
                 "format/quote-double",
