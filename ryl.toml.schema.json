@@ -1798,6 +1798,12 @@
       "additionalProperties": false,
       "description": "Common rule fields plus rule-specific options.",
       "properties": {
+        "directives": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "ignore": {
           "anyOf": [
             {

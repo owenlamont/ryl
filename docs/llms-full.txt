@@ -1575,8 +1575,9 @@ already exists.
 
 Use the TOML-only [`schema`](https://ryl-docs.pages.dev/rules/schema/) rule to associate local JSON Schemas
 with file globs. The first matching association wins. Remote schemas require
-[independent origin grants](https://ryl-docs.pages.dev/rules/schema/#remote-schemas). Catalogs and in-file
-schema declarations are not supported. Normal ryl directives suppress findings.
+[independent origin grants](https://ryl-docs.pages.dev/rules/schema/#remote-schemas). Opt into Red Hat's two
+[schema comment forms](https://ryl-docs.pages.dev/rules/schema/#in-file-directives) with `directives = true`.
+Inline `$schema` data keys and catalogs do not select schemas. Normal ryl directives suppress findings.
 
 ---
 
@@ -2376,12 +2377,61 @@ files = [".github/workflows/*.yml", ".github/workflows/*.yaml"]
 | `path` | Relative schema path, anchored at the config base directory. A config under `.config/` uses the parent directory. Exactly one of `path` or `url` is required. |
 | `url` | HTTPS schema URL on port 443. The user must independently grant the origin. |
 | `pins` | Optional map of full resource URLs to `sha256:<64 hex>` content pins. |
+| `directives` | Default `false`. Enable per-document schema comment selection; the rule must also be enabled. |
 | `files` | Optional path globs with `!` exclusions, like `key-ordering.orders`. Empty or omitted matches every file. |
 | Association order | The first matching entry wins. Unmatched files and an enabled rule without associations are no-ops. |
 
 `--stdin-filename` supplies the matching path for stdin. Anonymous stdin matches
 only associations with empty `files`. Markdown regions match the host filename.
 Normal rule directives, per-file ignores and per-line ignores apply.
+
+## In-file directives
+
+Opt in through TOML; comments never enable rules or grant network access:
+
+```toml
+[lint.rules.schema]
+directives = true
+```
+
+Each YAML document can override its configured association with either header form:
+
+```yaml
+# yaml-language-server: $schema=schemas/app.json
+name: example
+```
+
+The short form is `# $schema: schemas/app.json`. Matching follows Red Hat's
+yaml-language-server: prefixes are case-sensitive, whitespace after `#` is required,
+and values end at whitespace. Quotes, percent signs and environment variables are
+literal; paths containing spaces cannot be expressed. The first recognized modeline
+wins, even when malformed: a missing value falls back to the configured association,
+whereas an unloadable value is an error. `none`, case-insensitively, skips validation
+for that document; `./none` names a file. Inline YAML `$schema` keys remain ordinary data.
+
+Only header comments count, including comments around or on an opening `---`.
+Root tags and anchors keep the header open until node content starts.
+Leading `...` markers discard preceding headers without creating documents.
+Comments after document content belong to that document; comments after `...` can
+start the next header. Strings and block scalar bodies never select schemas.
+Each enabled Markdown region has its own headers and uses the host filename.
+
+Relative paths resolve beside the YAML or Markdown file but must remain inside the
+canonical config root, including through symlinks. Absolute, drive, UNC and root `file:`
+locations are refused. Anonymous stdin and untitled buffers need a filename for local
+paths (`--stdin-filename` on the CLI); granted HTTPS URLs and `none` work without one.
+Root fragments select JSON Pointers or anchors. HTTPS directives use the same grants,
+pins, offline mode and retrieval limits as configured schemas.
+
+Configured schemas still prepare eagerly, including overridden associations; a comment
+cannot hide a broken configuration. Directive loading happens before lint-cache lookup.
+Configured and directive resources share one preparation budget across documents and
+Markdown regions. With directives off, comments incur no discovery scan or loading.
+
+With directives enabled, key-ordering declines sorts that would move modelines,
+including body comments that could become headers, and reports an unfixed notice.
+Comment-spacing fixes preserve active and near-modeline
+spellings. Formatting keeps these text protections without loading schemas.
 
 ## Loading and limits
 
@@ -2466,7 +2516,7 @@ More than 1,000,000 possible dynamic-reference edges are refused before expansio
 
 Projection is bounded to 1,000,000 nodes, 16 MiB of scalar and pointer storage, and
 128 levels. A file reports at most 100 validation diagnostics plus a truncation note.
-Users with no schema associations do no schema loading or projection. `ryl format`
+Users with no schema associations and directives disabled do no schema loading or projection. `ryl format`
 does not load lint schemas.
 
 ## YAML values and locations
@@ -2550,6 +2600,8 @@ Every edit `ryl format` makes is checked by property tests to be:
   anchors, aliases, key order and duplicate keys, resolved under the document's YAML
   version.
 - **Comment-safe.** Every comment stays beside the node it annotates.
+  With [schema directives](https://ryl-docs.pages.dev/rules/schema/#in-file-directives) enabled, comment spacing
+  also preserves active and near-modeline spellings. Schema loading never runs during formatting.
 - **Idempotent.** Formatting formatted output changes nothing.
 
 ### Syntax repairs and file handling
@@ -5058,8 +5110,9 @@ as you type. It is the same lint and fix engine as the CLI, exposed over the pro
 A ryl language server is a **linter** provider. It is meant to run *alongside* Red Hat's
 [`yaml-language-server`](https://github.com/redhat-developer/yaml-language-server) (schema
 completion), the way Ruff runs alongside Pylance: editors attach both and merge their
-diagnostics. ryl validates explicitly configured schema associations and shows their
-titles and descriptions on hover, alongside diagnostic explanations.
+diagnostics. ryl validates configured associations and opted-in
+[schema header directives](https://ryl-docs.pages.dev/rules/schema/#in-file-directives) and shows schema titles
+and descriptions on hover, alongside diagnostic explanations.
 
 ## What it provides
 
@@ -5125,7 +5178,11 @@ and shutdown stay responsive. `ryl server --offline` or `RYL_OFFLINE=1` disables
 actions and network access; previously granted origins can use cached schemas.
 Editor integrations should set offline mode in an untrusted workspace.
 
-Schema preparation uses one worker, processing one queued entry per configuration in order.
+Schema preparation uses one worker. Directive selections from unsaved buffers coexist
+within bounded configuration groups; edits supersede obsolete selections and closing
+documents releases their dependencies. Directive errors point to the source header;
+approval emits one diagnostic per origin at the corresponding header with the same quick
+fixes, without publishing config diagnostics onto the YAML URI.
 Pending and failed preparations appear as configuration errors. Queued preparations have
 a 65-second deadline from enqueue; timeouts are final. Formatting never prepares schemas.
 
@@ -5685,7 +5742,7 @@ resolved value, comments and anchors. That rules out:
 ## JSON Schema validation
 
 User-supplied JSON Schemas are in scope. Remote fetching requires independent user
-origin grants; catalogs, in-file schema declarations and built-in dialect policies
+origin grants. In-file comment directives require explicit TOML opt-in; catalogs and built-in dialect policies
 are outside the current implementation.
 
 ---
@@ -5771,7 +5828,7 @@ flowchart LR
 | --- | --- | --- |
 | **Rules report every problem they find, even where yamllint reports fewer.** | Fail loudly: a problem ryl detects is reported, never hidden. Complete diagnostics matter more than matching yamllint's output count. | Maintainer decision |
 | **Built-in policies cover general YAML with evidence.** User-supplied local JSON Schemas are supported through the optional `schema` rule; built-in application policies and contested style remain outside the rule set. | Projects choose their application contracts explicitly. | [Scope](https://ryl-docs.pages.dev/scope/), [schema](https://ryl-docs.pages.dev/rules/schema/) |
-| **Schema associations are TOML-only and first-match wins.** Empty associations do no work. | Selection follows configured key-ordering precedence and keeps `ALL` usable. | [schema](https://ryl-docs.pages.dev/rules/schema/) |
+| **Schema configuration is TOML-only.** Opted-in header directives override the first matching association; `none` skips that document. Empty associations without directive opt-in do no work. | Comments cannot enable rules or grant network access; `ALL` stays usable. | [schema](https://ryl-docs.pages.dev/rules/schema/) |
 | **Schemas prepare before cache lookup.** Local files stay under the config base directory. All resources share preparation limits and content digests. | Content changes invalidate cached findings. | [schema](https://ryl-docs.pages.dev/rules/schema/) |
 | **Projects request remote schemas; users grant origins.** HTTPS on port 443 only, checked public addresses, no redirects or proxies, bundled TLS roots. Remote roots cannot read files. | Repository configuration cannot authorize network access. The server requests session or persistent user approval and prepares schemas on a bounded background worker. | [schema](https://ryl-docs.pages.dev/rules/schema/#remote-schemas) |
 | **Remote schemas have bounded user caches.** Full-URL hash keys, 24-hour freshness, optional SHA-256 pins, offline reuse and no-cache mode. | Schema identity and integrity remain independent of cache freshness. | [schema](https://ryl-docs.pages.dev/rules/schema/#remote-schemas) |

@@ -7,12 +7,9 @@ use jsonschema::{Retrieve, Uri};
 use serde_json::Value;
 use url::Url;
 
-use super::{Association, ID, Prepared};
+use super::{Association, ID, MAX_SCHEMA_BYTES, MAX_SCHEMA_RESOURCES, Prepared};
 use crate::config::{Env, PathGlob, YamlLintConfig};
 use crate::yaml_dom::YamlOwned;
-
-const MAX_SCHEMA_BYTES: usize = 16 * 1024 * 1024;
-const MAX_SCHEMA_RESOURCES: usize = 1024;
 
 #[derive(Debug, thiserror::Error)]
 enum ReadError {
@@ -53,6 +50,19 @@ struct Files {
     resources: usize,
 }
 
+impl Files {
+    fn digest(&self) -> blake3::Hash {
+        let mut digest = blake3::Hasher::new();
+        for (name, bytes) in &self.contents {
+            digest.update(&(name.len() as u64).to_le_bytes());
+            digest.update(name.as_bytes());
+            digest.update(&(bytes.len() as u64).to_le_bytes());
+            digest.update(bytes);
+        }
+        digest.finalize()
+    }
+}
+
 #[derive(Clone)]
 struct LocalRetriever {
     base: PathBuf,
@@ -64,12 +74,62 @@ struct LocalRetriever {
     dependencies: Option<Arc<Mutex<std::collections::BTreeSet<PathBuf>>>>,
 }
 
+fn local_path(path: &Path) -> PathBuf {
+    Url::from_file_path(path)
+        .expect("schema paths originate from file URIs")
+        .to_file_path()
+        .expect("schema file URI has a filesystem path")
+}
+
 impl LocalRetriever {
-    fn read(&self, path: &Path) -> Result<Value, ReadError> {
-        let path = path.canonicalize().map_err(|source| ReadError::Io {
-            path: path.to_owned(),
+    fn track(&self, path: &Path) -> Result<(), ReadError> {
+        let path = local_path(path);
+        let mut ancestor = path.as_path();
+        while let Err(source) = std::fs::symlink_metadata(ancestor) {
+            if source.kind() != std::io::ErrorKind::NotFound {
+                return Err(ReadError::Io {
+                    path: ancestor.to_owned(),
+                    source,
+                });
+            }
+            ancestor = ancestor
+                .parent()
+                .expect("absolute candidates reach an existing filesystem root");
+        }
+        let canonical = ancestor.canonicalize().map_err(|source| ReadError::Io {
+            path: ancestor.to_owned(),
             source,
         })?;
+        if !canonical.starts_with(&self.base) {
+            return Err(ReadError::Escape);
+        }
+        let normalized = crate::cli_support::lexical_abspath(&path);
+        if !normalized.starts_with(local_path(&self.base)) {
+            return Err(ReadError::Escape);
+        }
+        self.dependencies
+            .as_ref()
+            .expect("only dependency observers track missing paths")
+            .lock()
+            .expect("schema dependencies lock")
+            .insert(normalized);
+        Ok(())
+    }
+
+    fn read(&self, path: &Path) -> Result<Value, ReadError> {
+        let candidate = local_path(path);
+        let path = match candidate.canonicalize() {
+            Ok(path) => path,
+            Err(source) => {
+                if self.dependencies.is_some() {
+                    self.track(&candidate)?;
+                }
+                return Err(ReadError::Io {
+                    path: candidate,
+                    source,
+                });
+            }
+        };
         if !path.starts_with(&self.base) {
             return Err(ReadError::Escape);
         }
@@ -93,16 +153,15 @@ impl LocalRetriever {
                 )
             })?
             .to_string();
+        let display_path = local_path(&path);
         if let Some(dependencies) = &self.dependencies {
-            dependencies
-                .lock()
-                .expect("schema dependencies lock")
-                .insert(
-                    Url::parse(&identity)
-                        .expect("canonical schema file URI")
-                        .to_file_path()
-                        .expect("canonical schema filesystem path"),
-                );
+            let mut dependencies =
+                dependencies.lock().expect("schema dependencies lock");
+            let candidate = crate::cli_support::lexical_abspath(&candidate);
+            if candidate.starts_with(local_path(&self.base)) {
+                dependencies.insert(candidate);
+            }
+            dependencies.insert(display_path.clone());
         }
         if let Some(bytes) = files.contents.get(&identity) {
             let size = bytes.len();
@@ -119,7 +178,7 @@ impl LocalRetriever {
         std::fs::File::open(&path)
             .and_then(|file| file.take((remaining + 1) as u64).read_to_end(&mut bytes))
             .map_err(|source| ReadError::Io {
-                path: path.clone(),
+                path: display_path.clone(),
                 source,
             })?;
         if bytes.len() > remaining {
@@ -127,7 +186,7 @@ impl LocalRetriever {
         }
         let value =
             serde_json::from_slice(&bytes).map_err(|source| ReadError::Json {
-                path: path.clone(),
+                path: display_path,
                 source,
             })?;
         files.bytes += bytes.len();
@@ -185,12 +244,6 @@ impl LocalRetriever {
         let path = url
             .to_file_path()
             .map_err(|()| "invalid schema file reference")?;
-        if let Some(dependencies) = &self.dependencies {
-            dependencies
-                .lock()
-                .expect("schema dependencies lock")
-                .insert(path.clone());
-        }
         self.read(&path).map_err(Into::into)
     }
 }
@@ -201,6 +254,8 @@ impl LocalRetriever {
         path: &str,
         remote: bool,
         files: Vec<PathGlob>,
+        resolution_base: &Path,
+        fragment: Option<&str>,
     ) -> Result<Association, String> {
         let (schema, uri) = if remote {
             let schema = self.remote(path).map_err(|error| error.to_string())?;
@@ -210,7 +265,7 @@ impl LocalRetriever {
                 .map_err(|_| "invalid schema URI".to_owned())?;
             (schema, uri)
         } else {
-            let (root, uri) = root_location(&self.base, path)?;
+            let (root, uri) = root_location(resolution_base, path)?;
             (self.read(&root).map_err(|error| error.to_string())?, uri)
         };
         let registry = jsonschema::Registry::new()
@@ -218,9 +273,28 @@ impl LocalRetriever {
             .add(uri.as_str(), schema.clone())
             .and_then(jsonschema::RegistryBuilder::prepare)
             .map_err(|error| error.to_string())?;
-        super::complexity::check(&registry, uri.clone())?;
+        super::complexity::check(&registry, &uri)?;
+        let (schema, base) = if let Some(fragment) = fragment {
+            let target = format!("{uri}#{fragment}");
+            super::complexity::check(
+                &registry,
+                &jsonschema::uri::from_str(&target)
+                    .map_err(|error| error.to_string())?,
+            )?;
+            // An unused wrapper URI retains the subschema's dialect and reference scope.
+            let mut base = "urn:ryl:schema-selection:0".to_owned();
+            while registry.contains_resource(&base) {
+                base.push(':');
+            }
+            (
+                serde_json::json!({"$ref":target}),
+                std::borrow::Cow::Owned(base),
+            )
+        } else {
+            (schema, std::borrow::Cow::Borrowed(uri.as_str()))
+        };
         let validator = jsonschema::options()
-            .with_base_uri(uri.as_str())
+            .with_base_uri(base)
             .with_registry(&registry)
             .with_retriever(self.clone())
             .with_pattern_options(
@@ -260,6 +334,7 @@ fn root_location(base: &Path, path: &str) -> Result<(PathBuf, Uri<String>), Stri
             Component::Normal(_) | Component::CurDir | Component::ParentDir
         )
     }) || path.starts_with('\\')
+        || path.as_bytes().get(1) == Some(&b':')
     {
         return Err(
             "schema root path must be relative to config base directory".to_owned()
@@ -271,6 +346,7 @@ fn root_location(base: &Path, path: &str) -> Result<(PathBuf, Uri<String>), Stri
     #[cfg(not(unix))]
     let uri = Url::from_file_path(&root)
         .map_err(|()| "schema path cannot be represented as a file URI")?;
+    let uri = Url::parse(uri.as_str()).expect("file URL normalizes dot segments");
     // WHATWG file paths leave these characters unescaped, unlike RFC 3986 URI paths.
     let uri = uri
         .as_str()
@@ -309,80 +385,178 @@ fn enable_network(
     Ok(super::net::progress::terminal())
 }
 
-fn record_roots(
-    dependencies: &Mutex<std::collections::BTreeSet<PathBuf>>,
-    entries: &[YamlOwned],
+fn directive_base(
+    raw: &str,
+    remote: bool,
+    path: Option<&Path>,
+    env: &dyn Env,
     base: &Path,
-) -> Result<(), String> {
-    let mut dependencies = dependencies.lock().expect("schema dependencies lock");
-    for path in entries
-        .iter()
-        .filter_map(|entry| entry.as_mapping_get("path").and_then(YamlOwned::as_str))
-    {
-        let (_, uri) = root_location(base, path)?;
-        dependencies.insert(
-            Url::parse(uri.as_str())
-                .expect("root file URI")
-                .to_file_path()
-                .expect("root filesystem path"),
-        );
+) -> Result<PathBuf, String> {
+    if remote {
+        if !raw
+            .get(..6)
+            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https:"))
+        {
+            return Err(
+                "schema directive root must be a relative path or HTTPS URL".to_owned()
+            );
+        }
+        return Ok(base.to_owned());
     }
-    Ok(())
+    let path =
+        path.ok_or("local schema directive requires a filename; use --stdin-filename")?;
+    Ok(env
+        .current_dir()
+        .join(path)
+        .parent()
+        .expect("absolute input has a parent")
+        .to_owned())
+}
+
+impl LocalRetriever {
+    fn prepare_root(
+        &self,
+        remote: bool,
+        build: impl Fn() -> Result<Association, String>,
+        cfg: &YamlLintConfig,
+        env: &dyn Env,
+        progress: &mut Option<super::net::progress::Progress>,
+    ) -> Result<Option<Association>, String> {
+        if remote && !env.remote_schemas() {
+            return Ok(None);
+        }
+        if remote && self.network.get().is_none() {
+            *progress = enable_network(&self.network, cfg, env)?;
+        }
+        let charged = {
+            let files = self.files.lock().expect("schema reader lock");
+            (files.bytes, files.resources)
+        };
+        let mut result = build();
+        if *self.needs_network.lock().expect("schema network lock") {
+            if !env.remote_schemas() {
+                return Ok(None);
+            }
+            let mut files = self.files.lock().expect("schema reader lock");
+            (files.bytes, files.resources) = charged;
+            drop(files);
+            *progress = enable_network(&self.network, cfg, env)?;
+            *self.needs_network.lock().expect("schema network lock") = false;
+            self.failure.lock().expect("schema error lock").take();
+            result = build();
+        }
+        if let Some(error) = self.failure.lock().expect("schema error lock").take() {
+            result = Err(error);
+        }
+        result.map(Some)
+    }
 }
 
 pub(crate) fn prepare(
     cfg: &YamlLintConfig,
     base: &Path,
     envx: &dyn Env,
-) -> Result<super::Preparation, String> {
-    let Some(entries) = cfg
+) -> Result<super::Preparation, super::PreparationError> {
+    let location = std::cell::Cell::new((1, 1));
+    prepare_inner(cfg, base, envx, &location).map_err(|message| {
+        super::PreparationError {
+            line: location.get().0,
+            column: location.get().1,
+            message,
+        }
+    })
+}
+
+fn sources(
+    cfg: &YamlLintConfig,
+) -> impl Iterator<
+    Item = (
+        &str,
+        bool,
+        Option<&YamlOwned>,
+        Option<&super::directives::Declaration>,
+    ),
+> {
+    let configured = cfg
         .rule_option(ID, "schemas")
         .and_then(YamlOwned::as_sequence)
-        .filter(|entries| !entries.is_empty())
-    else {
+        .into_iter()
+        .flatten()
+        .map(|entry| {
+            let remote = entry.as_mapping_get("url").and_then(YamlOwned::as_str);
+            let path = remote
+                .or_else(|| entry.as_mapping_get("path").and_then(YamlOwned::as_str))
+                .expect("typed schema location");
+            (path, remote.is_some(), Some(entry), None)
+        });
+    let declared = cfg
+        .schema_request()
+        .into_iter()
+        .flat_map(|request| request.declarations.iter())
+        .filter_map(|declaration| {
+            declaration
+                .value
+                .as_deref()
+                .filter(|value| !value.eq_ignore_ascii_case("none"))
+                .map(|value| {
+                    (value, Url::parse(value).is_ok(), None, Some(declaration))
+                })
+        });
+    configured.chain(declared)
+}
+
+fn prepare_inner(
+    cfg: &YamlLintConfig,
+    base: &Path,
+    envx: &dyn Env,
+    location: &std::cell::Cell<(usize, usize)>,
+) -> Result<super::Preparation, String> {
+    let mut sources = sources(cfg).peekable();
+    if sources.peek().is_none() && cfg.schema_request().is_none() {
         return Ok(super::Preparation::Ready(None));
-    };
+    }
     let absolute_base = envx.current_dir().join(base);
     let canonical_base = absolute_base
         .canonicalize()
         .map_err(|error| format!("invalid config: schema base: {error}"))?;
     let dependencies = envx.local_schema_dependencies();
-    if let Some(dependencies) = &dependencies {
-        record_roots(dependencies, entries, &canonical_base)?;
-    }
-    let mut digest = blake3::Hasher::new();
     let mut associations = Vec::new();
+    let mut directives = BTreeMap::new();
     let loaded = Arc::new(Mutex::new(Files::default()));
     let network = Arc::new(OnceLock::new());
-    let mut _progress = None;
-    for entry in entries {
-        let remote = entry.as_mapping_get("url").and_then(YamlOwned::as_str);
-        let path = remote
-            .or_else(|| entry.as_mapping_get("path").and_then(YamlOwned::as_str))
-            .expect("typed schema location");
-        let label = remote.map_or_else(|| path.to_owned(), super::net::display_url);
-        if remote.is_some() && !envx.remote_schemas() {
-            return Ok(super::Preparation::NeedsRemotePreparation);
+    let mut progress = None;
+    for (raw, remote, entry, declaration) in sources {
+        if declaration.is_some() && directives.contains_key(raw) {
+            continue;
         }
-        if remote.is_some() && network.get().is_none() {
-            _progress = enable_network(&network, cfg, envx).map_err(|error| {
-                format!(
-                    "invalid config: schema '{label}': {}",
-                    super::net::redact_message(&error)
-                )
-            })?;
-        }
+        location.set(
+            declaration
+                .map_or((1, 1), |declaration| (declaration.line, declaration.column)),
+        );
+        let label = remote.then(|| super::net::display_url(raw));
+        let resolution_base = if declaration.is_some() {
+            directive_base(
+                raw,
+                remote,
+                cfg.schema_request()
+                    .and_then(|request| request.path.as_deref()),
+                envx,
+                &absolute_base,
+            )?
+        } else {
+            canonical_base.clone()
+        };
         let reader = LocalRetriever {
             base: canonical_base.clone(),
             files: Arc::clone(&loaded),
             network: Arc::clone(&network),
             needs_network: Arc::default(),
             failure: Arc::default(),
-            allow_files: remote.is_none(),
+            allow_files: !remote,
             dependencies: dependencies.clone(),
         };
         let files: Vec<PathGlob> = entry
-            .as_mapping_get("files")
+            .and_then(|entry| entry.as_mapping_get("files"))
             .and_then(YamlOwned::as_sequence)
             .into_iter()
             .flatten()
@@ -392,47 +566,38 @@ pub(crate) fn prepare(
                     .expect("validated schema files glob")
             })
             .collect();
-        let build = || reader.compile(path, remote.is_some(), files.clone());
-        let charged = {
-            let loaded = loaded.lock().expect("schema reader lock");
-            (loaded.bytes, loaded.resources)
+        let (path, fragment) = if remote || declaration.is_some() {
+            raw.split_once('#')
+                .map_or((raw, None), |(path, fragment)| (path, Some(fragment)))
+        } else {
+            (raw, None)
         };
-        let mut result = build();
-        if *reader.needs_network.lock().expect("schema network lock") {
-            if !envx.remote_schemas() {
-                return Ok(super::Preparation::NeedsRemotePreparation);
-            }
-            let mut retry = loaded.lock().expect("schema reader lock");
-            (retry.bytes, retry.resources) = charged;
-            drop(retry);
-            _progress = enable_network(&network, cfg, envx).map_err(|error| {
+        let build =
+            || reader.compile(path, remote, files.clone(), &resolution_base, fragment);
+        let association = reader
+            .prepare_root(remote, build, cfg, envx, &mut progress)
+            .map_err(|error| {
                 format!(
-                    "invalid config: schema '{label}': {}",
+                    "invalid config: schema '{}': {}",
+                    label.as_deref().unwrap_or(raw),
                     super::net::redact_message(&error)
                 )
             })?;
-            *reader.needs_network.lock().expect("schema network lock") = false;
-            reader.failure.lock().expect("schema error lock").take();
-            result = build();
+        let Some(association) = association else {
+            return Ok(super::Preparation::NeedsRemotePreparation);
+        };
+        if declaration.is_some() {
+            directives.insert(raw.to_owned(), association);
+        } else {
+            associations.push(association);
         }
-        if let Some(error) = reader.failure.lock().expect("schema error lock").take() {
-            result = Err(error);
-        }
-        associations.push(result.map_err(|error| {
-            format!(
-                "invalid config: schema '{label}': {}",
-                super::net::redact_message(&error)
-            )
-        })?);
     }
-    for (name, bytes) in &loaded.lock().expect("schema reader lock").contents {
-        digest.update(&(name.len() as u64).to_le_bytes());
-        digest.update(name.as_bytes());
-        digest.update(&(bytes.len() as u64).to_le_bytes());
-        digest.update(bytes);
-    }
+    let usage = loaded.lock().expect("schema reader lock");
     Ok(super::Preparation::Ready(Some(Arc::new(Prepared {
         associations,
-        digest: digest.finalize(),
+        directives,
+        digest: usage.digest(),
+        bytes: usage.bytes,
+        resources: usage.resources,
     }))))
 }

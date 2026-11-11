@@ -95,6 +95,7 @@ impl RetainedPrefix {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
+    protect_modelines: bool,
     require_starting_space: bool,
     ignore_shebangs: bool,
     min_spaces_from_content: Option<usize>,
@@ -111,6 +112,7 @@ impl Config {
             |key, default| usize::try_from(cfg.rule_option_int(ID, key, default)).ok();
 
         Self {
+            protect_modelines: cfg.schema_directives(),
             require_starting_space,
             ignore_shebangs,
             min_spaces_from_content: spacing("min-spaces-from-content", 2),
@@ -122,11 +124,17 @@ impl Config {
     #[must_use]
     pub const fn exact_gap(spaces: usize, require_starting_space: bool) -> Self {
         Self {
+            protect_modelines: false,
             require_starting_space,
             ignore_shebangs: true,
             min_spaces_from_content: Some(spaces),
             max_spaces_from_content: Some(spaces),
         }
+    }
+
+    pub(crate) fn protecting_modelines(mut self, enabled: bool) -> Self {
+        self.protect_modelines = enabled;
+        self
     }
 
     const fn require_starting_space(&self) -> bool {

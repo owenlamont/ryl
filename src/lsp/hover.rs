@@ -78,9 +78,6 @@ pub(super) fn schema(
     position: Position,
     encoding: PositionEncoding,
 ) -> Option<(String, Option<lsp_types::Range>)> {
-    let association = config
-        .schema_for(path)
-        .expect("cached schema target has an association");
     let original = text;
     let bom = text.starts_with('\u{feff}');
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
@@ -138,7 +135,7 @@ pub(super) fn schema(
         .chars()
         .count();
     let (annotations, span) =
-        crate::rules::schema::hover::at(association, body, (line + 1, column))?;
+        crate::rules::schema::hover::at(config, path, body, (line + 1, column))?;
     let mut value = String::new();
     for annotation in annotations.into_iter().flatten() {
         if !value.is_empty() {

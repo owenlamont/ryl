@@ -76,10 +76,13 @@ impl Passes<'static> {
             preserve_events: true,
             directive_scope: crate::directives::Scope::Format,
             new_lines: on(new_lines::ID).then_some(line_ending),
-            comments: on(comments::ID).then_some(comments::Config::exact_gap(
-                usize::from(table.comment_spacing.get()),
-                table.comment_starting_space == MarkerTarget::Add,
-            )),
+            comments: on(comments::ID).then_some(
+                comments::Config::exact_gap(
+                    usize::from(table.comment_spacing.get()),
+                    table.comment_starting_space == MarkerTarget::Add,
+                )
+                .protecting_modelines(cfg.schema_directives()),
+            ),
             indentation,
             repair_indentation: Some(
                 indentation.unwrap_or_else(|| indentation_target(cfg, indent)),

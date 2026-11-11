@@ -38,7 +38,11 @@ static LOADED: LazyLock<(TempDir, Vec<YamlLintConfig>)> = LazyLock::new(|| {
     let dir = TempDir::new().expect("tempdir");
     let configs = CONFIGS.iter().enumerate().map(|(index, toml)| {
         let file = dir.path().join(format!("{index}.toml"));
-        std::fs::write(&file, toml).expect("write config");
+        std::fs::write(
+            &file,
+            format!("{toml}\n[rules.schema]\ndirectives = true\n"),
+        )
+        .expect("write config");
         let overrides = Overrides {
             config_file: Some(file),
             config_data: None,
@@ -99,6 +103,8 @@ fn arb_entry(map: BoxedStrategy<Map>) -> impl Strategy<Value = Entry> {
                 1 => Just("# ryl disable rule:truthy"),
                 1 => Just("# ryl disable-line rule:truthy"),
                 1 => Just("#@overlay/match missing_ok=True"),
+                1 => Just("# $schema: none"),
+                1 => Just("# yaml-language-server:"),
             ],
         ),
         prop_oneof![
@@ -272,6 +278,7 @@ proptest! {
         for cfg in &LOADED.1 {
             let path = Path::new("synthetic.yaml");
             let fixed = apply_safe_fixes(&input, cfg, path, Path::new("."));
+            prop_assert_eq!(ryl::rules::schema::document_directives(&input), ryl::rules::schema::document_directives(&fixed), "schema selection changed");
             prop_assert_eq!(
                 apply_safe_fixes(&fixed, cfg, path, Path::new(".")),
                 fixed.clone(),

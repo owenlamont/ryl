@@ -181,6 +181,7 @@ pub fn serve_with_schema_env(
         events: scan_tx.clone(),
         service: std::sync::OnceLock::new(),
         dependencies: std::sync::OnceLock::new(),
+        revisions: std::sync::OnceLock::new(),
     }));
     let mut server = Server {
         encoding,
@@ -840,23 +841,34 @@ impl Server {
         version: i32,
         text: String,
     ) {
-        let mut target = None;
-        let diagnostics = match self.resolve(uri.as_str()) {
-            Ok(resolved) => {
-                target = resolved;
-                let diagnostics = target.as_ref().map_or_else(Vec::new, |target| {
-                    analysis::diagnostics(
-                        &text,
-                        &target.path,
-                        &target.context.config,
-                        &target.context.base_dir,
-                        target.kind,
-                        self.encoding,
-                    )
-                });
+        self.settings
+            .schema
+            .as_ref()
+            .expect("schema session")
+            .update_revision(uri.as_str(), version);
+        self.documents.insert(
+            uri.as_str().to_string(),
+            Document {
+                uri: uri.clone(),
+                version,
+                text,
+                schema_target: None,
+                diagnostics: Vec::new(),
+            },
+        );
+        let text = &self.documents[uri.as_str()].text;
+        let diagnostics = match self.diagnostics_for(uri.as_str(), text) {
+            Ok((diagnostics, target)) => {
                 if let Some(target) = &target {
                     self.report_config_notices(connection, &target.context.notices);
                 }
+                self.documents
+                    .get_mut(uri.as_str())
+                    .expect("stored document")
+                    .schema_target = target.filter(|target| {
+                    target.context.config.schema_for(&target.path).is_some()
+                        || target.context.config.schema_directives()
+                });
                 diagnostics
             }
             // A broken config disables linting silently; tell the user once, then publish
@@ -870,18 +882,12 @@ impl Server {
                 }
             }
         };
-        self.documents.insert(
-            uri.as_str().to_string(),
-            Document {
-                uri: uri.clone(),
-                version,
-                text,
-                schema_target: target.filter(|target| {
-                    target.context.config.schema_for(&target.path).is_some()
-                }),
-                diagnostics: diagnostics.clone(),
-            },
-        );
+
+        self.documents
+            .get_mut(uri.as_str())
+            .expect("stored document")
+            .diagnostics
+            .clone_from(&diagnostics);
         self.push(connection, uri, Some(version), diagnostics);
     }
 
@@ -1172,9 +1178,17 @@ impl Server {
                     // Surface a config failure as an error diagnostic, not an empty (clean)
                     // report, so a pull-only client is not misled into thinking the file is
                     // fine.
-                    self.diagnostics_for(uri, &text).unwrap_or_else(|error| {
-                        (config_error_diagnostics(&error), Vec::new())
-                    })
+                    self.diagnostics_for(uri, &text).map_or_else(
+                        |error| (config_error_diagnostics(&error), Vec::new()),
+                        |(items, target)| {
+                            (
+                                items,
+                                target.map_or_else(Vec::new, |target| {
+                                    target.context.notices
+                                }),
+                            )
+                        },
+                    )
                 });
         self.report_config_notices(connection, &notices);
         let result_id = analysis::result_id(&items);
@@ -1378,24 +1392,61 @@ impl Server {
         crate::decoder::read_file(&path).ok()
     }
 
-    /// Diagnostics for `text` against `uri`'s config, plus the config's notices; `Err` on
+    /// Diagnostics for `text` against `uri`'s config, plus the prepared target; `Err` on
     /// a config failure (callers decide whether to surface it).
     fn diagnostics_for(
         &self,
         uri: &str,
         text: &str,
-    ) -> Result<(Vec<Diagnostic>, Vec<String>), String> {
+    ) -> Result<(Vec<Diagnostic>, Option<Target>), String> {
         Ok(match self.resolve(uri)? {
-            Some(target) => {
-                let diagnostics = analysis::diagnostics(
-                    text,
-                    &target.path,
-                    &target.context.config,
+            Some(mut target) => {
+                let revision = self
+                    .documents
+                    .get(uri)
+                    .map(|document| i64::from(document.version));
+                if target.context.config.schema_directives_for(
+                    self.uri_path(uri).1.then_some(target.path.as_path()),
                     &target.context.base_dir,
-                    target.kind,
-                    self.encoding,
-                );
-                (diagnostics, target.context.notices)
+                ) {
+                    self.settings
+                        .schema
+                        .as_ref()
+                        .expect("schema session")
+                        .register_revision(
+                            if self.uri_path(uri).1 {
+                                target.path.as_path()
+                            } else {
+                                Path::new(uri)
+                            },
+                            revision,
+                            text,
+                        );
+                }
+                let diagnostics = if let Err(error) = prepare_target(
+                    &mut target,
+                    text,
+                    self.uri_path(uri).1,
+                    (Path::new(uri), revision),
+                    &self.settings,
+                ) {
+                    schema_error_diagnostics(
+                        text,
+                        &error,
+                        &target.context.config,
+                        self.encoding,
+                    )
+                } else {
+                    analysis::diagnostics(
+                        text,
+                        &target.path,
+                        &target.context.config,
+                        &target.context.base_dir,
+                        target.kind,
+                        self.encoding,
+                    )
+                };
+                (diagnostics, Some(target))
             }
             None => Default::default(),
         })
@@ -1456,6 +1507,86 @@ struct Target {
     kind: SourceKind,
 }
 
+fn schema_error_diagnostics(
+    text: &str,
+    error: &crate::rules::schema::PreparationError,
+    config: &crate::config::YamlLintConfig,
+    encoding: PositionEncoding,
+) -> Vec<Diagnostic> {
+    let lines = crate::rules::support::line_syntax::line_contents(text);
+    config_error_diagnostics(&error.message)
+        .into_iter()
+        .map(|mut diagnostic| {
+            let declaration = config.schema_request().and_then(|request| {
+                request.declarations.iter().find(|declaration| {
+                    declaration
+                        .value
+                        .as_deref()
+                        .and_then(|value| url::Url::parse(value).ok())
+                        .is_some_and(|url| {
+                            diagnostic.message
+                                == config_error_text(&format!(
+                                    "schema origin approval required: {}",
+                                    url.origin().ascii_serialization()
+                                ))
+                        })
+                })
+            });
+            let (line, column) =
+                declaration.map_or((error.line, error.column), |d| (d.line, d.column));
+            diagnostic.range = encoding::problem_range(
+                &lines,
+                line,
+                column + usize::from(line == 1 && text.starts_with('\u{feff}')),
+                encoding,
+            );
+            diagnostic
+        })
+        .collect()
+}
+
+fn prepare_target(
+    target: &mut Target,
+    text: &str,
+    is_file: bool,
+    (owner, revision): (&Path, Option<i64>),
+    settings: &Settings,
+) -> Result<(), crate::rules::schema::PreparationError> {
+    let path = is_file.then_some(target.path.as_path());
+    if !target
+        .context
+        .config
+        .schema_directives_for(path, &target.context.base_dir)
+    {
+        return Ok(());
+    }
+    let session = settings.schema.as_ref().expect("schema session");
+    let owner = if is_file {
+        target.path.as_path()
+    } else {
+        owner
+    };
+    let env = schema_preparation::SchemaEnv::discovery(session.env.as_ref(), true);
+    let generation = session.generation.load(Ordering::Relaxed);
+    let result = target.context.config.prepare_document_schemas(
+        text.strip_prefix('\u{feff}').unwrap_or(text),
+        path,
+        &target.context.base_dir,
+        target.kind,
+        &env,
+    );
+    target
+        .context
+        .config
+        .identify_schema_document(owner, revision, text);
+    if let Some(context) =
+        session.finish_document(&target.context, &env, generation, result)?
+    {
+        target.context = context;
+    }
+    Ok(())
+}
+
 /// Resolve config + source kind for an already-decoded path, layering `settings` onto
 /// CLI-precedence discovery. `require_rules` gates on the config enabling at least one rule
 /// (true for linting/fixing; false for rename and formatting). Free (no `&self`) so a
@@ -1484,7 +1615,12 @@ fn resolve_for_path(
         .map_or(0, |session| session.generation.load(Ordering::Relaxed));
     let context =
         discover_config_with(std::slice::from_ref(&path), &settings.overrides(), &env);
-    if require_rules && let Some(session) = &settings.schema {
+    if require_rules
+        && let Some(session) = &settings.schema
+        && !context
+            .as_ref()
+            .is_ok_and(|context| context.config.schema_directives())
+    {
         session.record_dependencies(
             path.clone(),
             &env,
@@ -1553,7 +1689,7 @@ fn file_report(
     previous: &PreviousIds,
 ) -> (Option<WorkspaceDocumentDiagnosticReport>, Vec<String>) {
     let previous_id = previous.get(path).map(|(_, id)| id.as_str());
-    let target = match resolve_for_path(path.to_path_buf(), true, true, settings) {
+    let mut target = match resolve_for_path(path.to_path_buf(), true, true, settings) {
         Ok(Some(target)) => target,
         Ok(None) => return (None, Vec::new()),
         Err(error) => {
@@ -1568,14 +1704,20 @@ fn file_report(
             .map(|text| (text, None)),
     };
     let report = text_and_version.and_then(|(text, version)| {
-        let items = analysis::diagnostics(
-            &text,
-            &target.path,
-            &target.context.config,
-            &target.context.base_dir,
-            target.kind,
-            encoding,
-        );
+        let items = if let Err(error) =
+            prepare_target(&mut target, &text, true, (path, version), settings)
+        {
+            schema_error_diagnostics(&text, &error, &target.context.config, encoding)
+        } else {
+            analysis::diagnostics(
+                &text,
+                &target.path,
+                &target.context.config,
+                &target.context.base_dir,
+                target.kind,
+                encoding,
+            )
+        };
         file_pull_report(path, version, items, previous_id)
     });
     (report, target.context.notices)

@@ -26,6 +26,7 @@ pub const ID: &str = "key-ordering";
 
 #[derive(Debug, Clone)]
 pub struct Config {
+    protect_modelines: bool,
     ignored: Vec<Regex>,
     comparator: Comparator,
     orders: Vec<KeyOrder>,
@@ -88,6 +89,7 @@ impl Config {
             .map_or_else(Comparator::codepoint, Comparator::with_locale);
 
         Self {
+            protect_modelines: cfg.schema_directives(),
             ignored,
             comparator,
             orders: cfg.key_orders_for(path),
@@ -366,7 +368,8 @@ pub(crate) fn fix_with_analysis(
     let buffer = input.text();
     let layout = Layout::with_analysis(input)?;
     let directives = Directives::parse_per_line_with_analysis(input, per_line);
-    let sorts: Vec<(usize, Vec<usize>)> = plans(&layout, cfg, &directives)
+    let pinned = pinned_modelines(input, cfg);
+    let sorts: Vec<(usize, Vec<usize>)> = plans(&layout, cfg, &directives, &pinned)
         .into_iter()
         .filter_map(|plan| Some((plan.mapping, plan.order.ok()?)))
         .collect();
@@ -402,7 +405,8 @@ pub(crate) fn unfixed_with_analysis(
         return Vec::new();
     };
     let directives = Directives::parse_per_line_with_analysis(input, per_line);
-    plans(&layout, cfg, &directives)
+    let pinned = pinned_modelines(input, cfg);
+    plans(&layout, cfg, &directives, &pinned)
         .into_iter()
         .map(|plan| Violation {
             line: plan.line + 1,
@@ -423,7 +427,19 @@ struct Plan {
     order: Result<Vec<usize>, &'static str>,
 }
 
-fn plans(layout: &Layout<'_>, cfg: &Config, directives: &Directives) -> Vec<Plan> {
+fn pinned_modelines(input: Analysis<'_>, cfg: &Config) -> Vec<usize> {
+    if !cfg.protect_modelines {
+        return Vec::new();
+    }
+    crate::rules::schema::directives::modeline_lines(input)
+}
+
+fn plans(
+    layout: &Layout<'_>,
+    cfg: &Config,
+    directives: &Directives,
+    pinned: &[usize],
+) -> Vec<Plan> {
     let mut plans = Vec::new();
     for (index, mapping) in layout.mappings.iter().enumerate() {
         let order = cfg.order(&mapping.path);
@@ -446,7 +462,15 @@ fn plans(layout: &Layout<'_>, cfg: &Config, directives: &Directives) -> Vec<Plan
                 mapping: index,
                 line: entry.key_line,
                 column: entry.key_col,
-                order: sort(layout, mapping, order, directives),
+                order: if mapping.entries.iter().any(|entry| {
+                    pinned
+                        .iter()
+                        .any(|line| (entry.start..=entry.end).contains(line))
+                }) {
+                    Err("schema modelines must stay attached to their document")
+                } else {
+                    sort(layout, mapping, order, directives)
+                },
             });
         }
     }

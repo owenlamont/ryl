@@ -26,7 +26,9 @@ pub fn lint_markdown_str(
             .retain(|problem| !problem.rule.is_some_and(|id| suppressed.contains(&id)));
         problems
     });
-    if problems.len() > schema::MAX_DIAGNOSTICS && cfg.schema_for(path).is_some() {
+    if problems.len() > schema::MAX_DIAGNOSTICS
+        && (cfg.schema_for(path).is_some() || cfg.schema_directives())
+    {
         cap_schema_problems(&mut problems);
     }
     problems
@@ -105,7 +107,7 @@ pub(crate) fn in_host(
 /// chars(content)`: indent, blockquote markers, CRLF normalisation alike), added back to
 /// each diagnostic column so positions point into the host document. Per-line, so a ragged
 /// block (a line dedented less than the fence) stays correct. Always 0 for front matter.
-fn stripped_indents(markdown: &str, region: &EmbeddedRegion) -> Vec<usize> {
+pub(crate) fn stripped_indents(markdown: &str, region: &EmbeddedRegion) -> Vec<usize> {
     markdown[region.raw_span.clone()]
         .split('\n')
         .zip(region.content.split('\n'))

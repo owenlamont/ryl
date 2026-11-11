@@ -143,7 +143,10 @@ extra-required-flow = ['\\?|^:|^$']
 ";
 
 const COMMENTS_TOML_VARIANTS: &[(&str, &str)] = &[
-    ("best-practice-toml", "[rules.comments]\n"),
+    (
+        "best-practice-toml",
+        "[rules.comments]\n[rules.schema]\ndirectives = true\n",
+    ),
     (
         "comments-exact-spacing-toml",
         "[rules.comments]\nmin-spaces-from-content = 2\nmax-spaces-from-content = 2\n",

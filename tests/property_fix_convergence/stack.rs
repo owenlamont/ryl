@@ -208,6 +208,9 @@ fn arb_filler() -> impl Strategy<Value = Filler> {
                 8 => "[a-z][a-z0-9 ]{0,6}",
                 1 => "@[a-z][a-z0-9 ]{0,6}",
                 1 => "yamllint disable-line rule:line-length",
+                1 => "\\$schema: none",
+                1 => "yaml-language-server: \\$schema=./schema.json",
+                1 => "yaml-language-server:",
             ],
         )
             .prop_map(|(indent, spaces_after_hash, text)| Filler::Comment {

@@ -7,8 +7,9 @@ as you type. It is the same lint and fix engine as the CLI, exposed over the pro
 A ryl language server is a **linter** provider. It is meant to run *alongside* Red Hat's
 [`yaml-language-server`](https://github.com/redhat-developer/yaml-language-server) (schema
 completion), the way Ruff runs alongside Pylance: editors attach both and merge their
-diagnostics. ryl validates explicitly configured schema associations and shows their
-titles and descriptions on hover, alongside diagnostic explanations.
+diagnostics. ryl validates configured associations and opted-in
+[schema header directives](rules/schema.md#in-file-directives) and shows schema titles
+and descriptions on hover, alongside diagnostic explanations.
 
 ## What it provides
 
@@ -74,7 +75,11 @@ and shutdown stay responsive. `ryl server --offline` or `RYL_OFFLINE=1` disables
 actions and network access; previously granted origins can use cached schemas.
 Editor integrations should set offline mode in an untrusted workspace.
 
-Schema preparation uses one worker, processing one queued entry per configuration in order.
+Schema preparation uses one worker. Directive selections from unsaved buffers coexist
+within bounded configuration groups; edits supersede obsolete selections and closing
+documents releases their dependencies. Directive errors point to the source header;
+approval emits one diagnostic per origin at the corresponding header with the same quick
+fixes, without publishing config diagnostics onto the YAML URI.
 Pending and failed preparations appear as configuration errors. Queued preparations have
 a 65-second deadline from enqueue; timeouts are final. Formatting never prepares schemas.
 
