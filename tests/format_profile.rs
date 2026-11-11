@@ -79,6 +79,7 @@ fn the_configuration_example_and_key_table_show_every_default() {
             .unwrap_or(false)
             .into(),
     );
+    format.insert("prose".into(), toml::Value::Array(Vec::new()));
     assert_eq!(table, format);
 }
 

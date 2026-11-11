@@ -259,6 +259,13 @@
           "default": "preserve",
           "description": "Order of a node's anchor and tag; `preserve` leaves each as written."
         },
+        "prose": {
+          "description": "First-match scalar wrapping preferences; active only with `prose-wrap = \"always\"`.",
+          "items": {
+            "$ref": "#/$defs/ProseEntry"
+          },
+          "type": "array"
+        },
         "prose-wrap": {
           "anyOf": [
             {
@@ -613,6 +620,45 @@
           "type": "string"
         }
       ]
+    },
+    "ProseEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "break-before": {
+          "description": "Literal tokens before which an existing single space may become a line break.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "files": {
+          "description": "File globs relative to the config directory; `!` excludes.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "path": {
+          "description": "`JSONPath` subset: `$`, `.name`, `['name']`, `[*]`, `.*`.",
+          "type": "string"
+        },
+        "protected-patterns": {
+          "default": [],
+          "description": "Regex matches in decoded scalar content are opaque to wrapping.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "files",
+        "path",
+        "break-before"
+      ],
+      "type": "object"
     },
     "ProseWrap": {
       "enum": [

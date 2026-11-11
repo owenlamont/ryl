@@ -16,7 +16,7 @@ use ryl_yaml_parser::{ScalarStyle, Scanner, StrInput, TokenType};
 
 const FIRST_WORDS: [&str; 4] = ["aaa", "b", "世界", "é"];
 
-const WORDS: [&str; 30] = [
+const WORDS: [&str; 34] = [
     "/health?ready=true",
     "back\\slash",
     "secret",
@@ -47,6 +47,10 @@ const WORDS: [&str; 30] = [
     "世界",
     "🦀",
     "x#",
+    "&&",
+    "||",
+    "\"x && y\"",
+    "'x || y'",
 ];
 
 const SINGLE_QUOTED_WORDS: [&str; 10] = [
@@ -229,6 +233,35 @@ pub fn arb_fold_document() -> impl Strategy<Value = String> {
         prop_oneof![Just("\n"), Just("\r\n"), Just("\r")],
     )
         .prop_map(|(text, newline)| text.replace('\n', newline))
+}
+
+pub fn arb_expression() -> impl Strategy<Value = String> {
+    prop::collection::vec(
+        (
+            prop::sample::select(vec!["a", "🦀", "long_name"]),
+            prop::sample::select(vec![
+                "true",
+                "'x && y'",
+                "\"x || y\"",
+                "\"x\\\" && y\"",
+                "'unmatched",
+                "a&&b",
+                "a  && b",
+                "a\t|| b",
+            ]),
+        ),
+        1..=5,
+    )
+    .prop_flat_map(|clauses| {
+        (Just(clauses), prop::sample::select(vec![" && ", " || "]))
+    })
+    .prop_map(|(clauses, operator)| {
+        clauses
+            .into_iter()
+            .map(|(left, right)| format!("{left} == {right}"))
+            .collect::<Vec<_>>()
+            .join(operator)
+    })
 }
 
 fn line_lengths(text: &str) -> Vec<usize> {

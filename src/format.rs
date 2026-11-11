@@ -21,6 +21,7 @@ use crate::rules::{
 use crate::text_version::{Analysis, TextVersion};
 
 pub(crate) mod directives;
+pub(crate) mod expression;
 pub(crate) mod layout;
 mod prose;
 
@@ -139,6 +140,7 @@ impl Passes<'static> {
             schema_dependent_values: None,
             key_ordering: None,
             yaml_directive: None,
+            prose: Vec::new(),
             line_length: ((table.fold_long_lines.unwrap_or(false)
                 || table.prose_wrap == Some(ProseWrap::Always))
                 && on(line_length::ID))
@@ -338,7 +340,12 @@ fn format_tracked(
 ) -> TextVersion<'static> {
     let _recording =
         layout::stats::Recording::start(path, input.len(), tracking.strict_input);
-    let passes = Passes::format(cfg, input, skip);
+    let mut passes = Passes::format(cfg, input, skip);
+    if passes.line_length.is_some()
+        && cfg.format().targets().prose_wrap == Some(ProseWrap::Always)
+    {
+        passes.prose = cfg.prose_for(path);
+    }
     let mut source = TextVersion::new(input);
     let prefetched = std::mem::take(&mut parsed.prefetched);
     if prefetched {

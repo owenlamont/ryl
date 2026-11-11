@@ -14,6 +14,7 @@ use crate::rules::line_length::Fold;
 use crate::rules::line_length::fold::breaks_from_chars;
 
 pub(super) struct ScalarCandidate {
+    pub(super) preference: Option<crate::format::expression::Selected>,
     pub(super) style: LayoutStyle,
     pub(super) first: usize,
     pub(super) last: usize,
@@ -23,6 +24,7 @@ pub(super) struct ScalarCandidate {
 }
 
 pub(super) struct ScalarTarget {
+    preference: Option<crate::format::expression::Selected>,
     style: LayoutStyle,
     first: usize,
     last: usize,
@@ -49,7 +51,7 @@ pub(super) struct Line<'a> {
     pub(super) directive_tail: bool,
 }
 
-pub(super) struct AllowedLine(Geometry);
+pub(super) struct AllowedLine(Geometry, bool);
 
 pub(super) struct Tail {
     pub(super) ends_in_break: bool,
@@ -76,6 +78,7 @@ impl ScalarCandidate {
             return None;
         }
         Some(ScalarTarget {
+            preference: self.preference,
             style: self.style,
             first: self.first,
             last: self.last,
@@ -97,17 +100,18 @@ impl ScalarTarget {
     }
 
     pub(super) fn allow_line(&self, line: Geometry) -> Option<AllowedLine> {
-        (line.allowed
+        let allowed = line.allowed
             && !(line.index == self.last && line.guarded_directive_tail)
             && (!self.style.is_folded()
-                || (line.prefix == self.indent && line.content == Content::Text)))
-            .then_some(AllowedLine(line))
+                || (line.prefix == self.indent && line.content == Content::Text));
+        (allowed || self.preference.is_some()).then_some(AllowedLine(line, allowed))
     }
 
     pub(super) fn plan_line(
-        &self,
+        &mut self,
         line: Line<'_>,
     ) -> Result<impl Iterator<Item = FoldBreak> + use<>, Fallback> {
+        let allowed = line.geometry.1;
         let geometry = line.geometry.0;
         let length = line.content.bytes();
         let start = if self.style.is_folded() {
@@ -123,19 +127,32 @@ impl ScalarTarget {
             Ok(length)
         };
         end.map(|end| {
-            // Byte length bounds character length, so short lines need no character walk.
+            let preferred = self.preference.as_mut().map(|preference| {
+                let text: String =
+                    line.content.characters().map(|(_, ch)| ch).collect();
+                preference.boundaries(&text, &(start..end), self.style)
+            });
+            // Byte length bounds character length, so short lines cannot need new breaks.
             let width = usize::from(self.width).saturating_sub(
                 geometry.retained_prefix.saturating_sub(geometry.prefix),
             );
-            let breaks = if length <= width
+            let breaks = if !allowed
+                || length <= width
                 || (geometry.index == self.last
                     && !line.ends_in_break
                     && line.directive_tail)
             {
                 Vec::new()
             } else {
-                let chars = line.content.scalar_characters(start..end);
-                breaks_from_chars(chars, &(start..end), self.style, self.indent, width)
+                let chars = line.content.characters();
+                breaks_from_chars(
+                    chars,
+                    &(start..end),
+                    self.style,
+                    self.indent,
+                    width,
+                    preferred.as_deref(),
+                )
             };
             let line = geometry.index;
             let indent = self.indent;

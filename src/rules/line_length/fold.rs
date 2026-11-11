@@ -128,9 +128,10 @@ pub(crate) fn breaks_from_chars(
     style: LayoutStyle,
     indent: usize,
     width: usize,
+    preferred: Option<&[usize]>,
 ) -> Vec<usize> {
     let chars: Vec<(usize, char)> = chars.collect();
-    let candidates: Vec<(usize, usize)> = chars
+    let mut candidates: Vec<(usize, usize)> = chars
         .windows(3)
         .enumerate()
         .filter(|(index, window)| {
@@ -152,12 +153,16 @@ pub(crate) fn breaks_from_chars(
         })
         .map(|(column, window)| (window[1].0, column + 1))
         .collect();
+    if let Some(boundaries) = preferred {
+        candidates.retain(|(byte, _)| boundaries.binary_search(byte).is_ok());
+    }
+    let minimum = preferred.map_or(indent, |_| 0);
     let mut rest = candidates.as_slice();
     let (mut origin, mut base) = (0, 0);
     let mut out = Vec::new();
     while base + chars.len() - origin > width {
         let column = |at: usize| base + at - origin;
-        let Some(first) = rest.iter().position(|(_, at)| column(*at) >= indent) else {
+        let Some(first) = rest.iter().position(|(_, at)| column(*at) >= minimum) else {
             break;
         };
         let eligible = &rest[first..];

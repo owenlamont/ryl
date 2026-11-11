@@ -292,6 +292,7 @@ pub struct YamlLintConfig {
     per_line_ignores: Vec<NormalizedPerLineIgnore>,
     per_line_ignore_matchers: Vec<PerLineIgnoreMatcher>,
     key_orders: Vec<(Vec<PathGlob>, KeyOrder)>,
+    prose: Vec<std::sync::Arc<crate::format::expression::Preference>>,
     rule_names: Vec<String>,
     rules: std::collections::BTreeMap<String, RuleConfig>,
     yaml_file_patterns: Vec<String>,
@@ -682,6 +683,7 @@ impl Default for YamlLintConfig {
             per_line_ignores: Vec::new(),
             per_line_ignore_matchers: Vec::new(),
             key_orders: Vec::new(),
+            prose: Vec::new(),
             rule_names: Vec::new(),
             rules: std::collections::BTreeMap::new(),
             yaml_file_patterns: DEFAULT_YAML_FILE_PATTERNS
@@ -927,6 +929,17 @@ impl YamlLintConfig {
             .iter()
             .filter(|(globs, _)| selects(globs))
             .map(|(_, order)| order.clone())
+            .collect()
+    }
+
+    pub(crate) fn prose_for(
+        &self,
+        path: &Path,
+    ) -> Vec<std::sync::Arc<crate::format::expression::Preference>> {
+        self.prose
+            .iter()
+            .filter(|entry| entry.matches_file(path))
+            .cloned()
             .collect()
     }
 
@@ -1400,6 +1413,19 @@ impl YamlLintConfig {
         .collect();
 
         self.build_file_kind_matchers(base_dir);
+        self.prose = self
+            .format
+            .targets()
+            .prose
+            .iter()
+            .map(|entry| {
+                std::sync::Arc::new(crate::format::expression::Preference::new(
+                    entry,
+                    base_dir,
+                    self.path_case.is_insensitive(),
+                ))
+            })
+            .collect();
 
         if envx.prepare_lint_schemas() {
             self.prepare_schemas(base_dir, envx)?;

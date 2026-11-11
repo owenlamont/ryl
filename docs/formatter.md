@@ -141,6 +141,7 @@ No single setting converts block collections to flow with one entry per line:
 | `document-start` | `"preserve"` | `"add"`, `"preserve"`, `"remove"` | Add missing `---` markers, preserve markers, or remove the first optional marker. |
 | `document-end` | `"preserve"` | `"add"`, `"preserve"` | Whether to add a missing `...` document end marker. |
 | `prose-wrap` | `"preserve"` | `"preserve"`, `"always"`, `"never"` | Preferred for new configs: preserve breaks, join and wrap paragraphs, or join without wrapping. See [Long lines](#long-lines). |
+| `prose` | `[]` | Array of tables | Scoped token boundaries and protected regex spans, active only with `prose-wrap = "always"`. See [Expression wrapping](#expression-wrapping). |
 | `fold-long-lines` | `false` | `true`, `false` | Legacy split-only folding at single spaces; cannot be combined with `prose-wrap`, even when false. |
 | `brace-spacing` | `false` | `true`, `false` | Whether to write one space inside non-empty flow mapping braces, `{ a: 1 }`. Empty braces and brackets stay unpadded. |
 | `comment-spacing` | `2` | `1` to `255` | Exact number of spaces between content and an inline comment. |
@@ -275,6 +276,50 @@ message: >
 message: >
   hello world
 ```
+
+### Expression wrapping
+
+Under `prose-wrap = "always"`, TOML-only `[[format.prose]]` entries select
+scalars by file and mapping path:
+
+```toml
+line-length = 60
+[format]
+prose-wrap = "always"
+
+[[format.prose]]
+files = ["*.yaml"]
+path = "$.expression"
+break-before = ["&&", "||"]
+protected-patterns = ['"([^"\\]|\\.)*"', "'([^'\\\\]|\\\\.)*'"]
+```
+
+The first entry matching both `files` and `path` wins; entries never merge.
+`files` uses [file glob matching](rules/key-ordering.md#custom-orders), including
+`!` exclusions. `path` uses the same selector subset as custom key ordering:
+`$`, `.name`, `['name']`, `[*]` and `.*`. Empty file/token lists, empty or
+whitespace-bearing tokens, invalid globs, selectors and regexes are config errors
+(exit `2`). `protected-patterns` defaults to an empty list.
+
+Only existing YAML-foldable single spaces before a configured token can break.
+The last fitting boundary wins; an overlong clause stays whole. Tabs and double
+spaces never become break points. Short expressions join normally; folded
+scalars keep their header and chomping mode:
+
+```yaml
+expression: >-
+  has(object.spec.securityContext)
+  && object.spec.securityContext.runAsNonRoot == true
+  && object.spec.securityContext.runAsUser >= 1000
+```
+
+Protected regex matches describe the text forms your expressions use, after YAML
+quote decoding. Ryl has no embedded-language parser or built-in literal grammar.
+Raw/triple quotes, comments and malformed literals need additional patterns or
+suppression; ryl cannot prove your patterns cover every literal. Paragraphs,
+more-indented content and YAML escapes retain the ordinary prose safety rules.
+Other prose policies and `ryl check --fix` ignore the preferences. Without entries,
+formatting performs no expression selection, regex matching or decoding.
 
 ### Legacy line folding
 
