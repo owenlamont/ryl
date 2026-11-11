@@ -468,6 +468,7 @@ pub fn arb_document_start_removal() -> impl Strategy<Value = String> {
             "--- |\n  value\n",
             "--- !tag value\n",
             "--- &a [value, *a]\n",
+            "--- {k: value}\n",
             "--- # comment\na: value\n",
             "---\na: value\n---\nb: 2\n",
             "---\n---\na: value\n",
@@ -489,5 +490,46 @@ pub fn arb_document_start_removal() -> impl Strategy<Value = String> {
             } else {
                 input
             }
+        })
+}
+
+pub fn arb_collection_layout() -> impl Strategy<Value = (String, String)> {
+    (
+        "[a-z]{1,4}",
+        any::<bool>(),
+        any::<bool>(),
+        prop::sample::select(vec!["", "!tag ", "&a "]),
+        0usize..4,
+    )
+        .prop_map(|(word, mapping, crlf, property, family)| {
+            let value = if family == 0 { format!("\"a\n {word}\"") } else { word };
+            let (kind, collection) = if mapping {
+                ("mapping", format!("{{k: {value}}}"))
+            } else {
+                ("sequence", format!("[{value}]"))
+            };
+            let (input, config) = match family {
+                0 => (
+                    format!("{property}{collection} # c\n"),
+                    format!("[format]\n{kind}-expand='always'\n"),
+                ),
+                1 => (
+                    format!("--- {property}{collection}\n"),
+                    format!("[format]\ndocument-start='remove'\n{kind}-expand='always'\n"),
+                ),
+                2 => (
+                    format!("-\n  {property}{collection}\n"),
+                    format!(
+                        "indent-width=1\nline-length={}\n[format]\n{kind}-style='flow'\n",
+                        property.len() + collection.len() + 1,
+                    ),
+                ),
+                _ => (
+                    format!(": {property}{collection}\n"),
+                    format!("indent-width=8\nline-length=10\n[format]\n{kind}-style='flow'\n{kind}-expand='always'\n"),
+                ),
+            };
+            let input = if crlf { input.replace('\n', "\r\n") } else { input };
+            (input, config)
         })
 }
