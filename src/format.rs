@@ -59,11 +59,6 @@ impl Passes<'static> {
         let line_ending = line_ending(cfg, content);
         let indent = indent_width(cfg);
         let brace_padding = i64::from(table.brace_spacing);
-        let quote_style = match table.quote_style {
-            QuoteStyleTarget::Single => Some(quoted_strings::QuoteStyle::Single),
-            QuoteStyleTarget::Double => Some(quoted_strings::QuoteStyle::Double),
-            QuoteStyleTarget::Preserve => None,
-        };
         let indentation = on(indentation::ID).then(|| {
             let target = indentation_target(cfg, indent);
             if cfg.indent_width().is_none() {
@@ -117,13 +112,7 @@ impl Passes<'static> {
                     .into_owned(),
                 )
             }),
-            quoted_strings: quote_style.filter(|_| on(quoted_strings::ID)).map(
-                |style| {
-                    quoted_strings::Config::ladder(style, cfg.target_version())
-                        .with_keep_quotes(table.keep_quotes)
-                        .with_requirements(cfg)
-                },
-            ),
+            quoted_strings: on(quoted_strings::ID).then(|| quote_config(cfg)).flatten(),
             trailing_spaces: on(trailing_spaces::ID),
             document_start: (table.document_start != DocumentStartTarget::Preserve
                 && on(document_start::ID))
@@ -156,6 +145,20 @@ impl Passes<'static> {
             per_line: Vec::new(),
         }
     }
+}
+
+fn quote_config(cfg: &YamlLintConfig) -> Option<quoted_strings::Config> {
+    let table = cfg.format().targets();
+    let style = match table.quote_style {
+        QuoteStyleTarget::Single => quoted_strings::QuoteStyle::Single,
+        QuoteStyleTarget::Double => quoted_strings::QuoteStyle::Double,
+        QuoteStyleTarget::Preserve => return None,
+    };
+    Some(
+        quoted_strings::Config::ladder(style, cfg.target_version())
+            .with_keep_quotes(table.keep_quotes)
+            .with_requirements(cfg),
+    )
 }
 
 fn collection_style_config(
