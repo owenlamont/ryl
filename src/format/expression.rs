@@ -44,16 +44,7 @@ impl Preference {
     }
 
     pub(crate) fn matches_file(&self, path: &Path) -> bool {
-        self.files
-            .iter()
-            .filter(|glob| glob.negated)
-            .all(|glob| glob.matches(path))
-            && (self.files.iter().all(|glob| glob.negated)
-                || self
-                    .files
-                    .iter()
-                    .filter(|glob| !glob.negated)
-                    .any(|glob| glob.matches(path)))
+        PathGlob::selects(&self.files, path)
     }
 }
 

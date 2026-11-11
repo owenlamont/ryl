@@ -65,14 +65,33 @@ pub trait Env {
     fn case_insensitive_paths(&self) -> bool {
         CASE_INSENSITIVE_PATHS
     }
-    fn current_dir(&self) -> PathBuf;
-    fn config_dir(&self) -> Option<PathBuf>;
-    fn home_dir(&self) -> Option<PathBuf>;
+    fn current_dir(&self) -> PathBuf {
+        process_cwd().to_path_buf()
+    }
+    fn config_dir(&self) -> Option<PathBuf> {
+        env::var("XDG_CONFIG_HOME")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(dirs_next::config_dir)
+    }
+    fn home_dir(&self) -> Option<PathBuf> {
+        dirs_next::home_dir()
+    }
     /// # Errors
     /// Returns an error string when the file cannot be read.
-    fn read_to_string(&self, p: &Path) -> Result<String, String>;
-    fn path_exists(&self, p: &Path) -> bool;
-    fn env_var(&self, key: &str) -> Option<String>;
+    fn read_to_string(&self, p: &Path) -> Result<String, String> {
+        let bytes = fs::read(p).map_err(|err| {
+            format!("failed to read config file {}: {err}", p.display())
+        })?;
+        decoder::decode_bytes(&bytes)
+            .map_err(|err| format!("failed to read config file {}: {err}", p.display()))
+    }
+    fn path_exists(&self, p: &Path) -> bool {
+        p.exists()
+    }
+    fn env_var(&self, key: &str) -> Option<String> {
+        env::var(key).ok()
+    }
 }
 
 /// Read once: ryl never changes directory, and matching runs once per file.
@@ -93,47 +112,11 @@ impl Env for ServerEnv {
     fn remote_schemas(&self) -> bool {
         false
     }
-    fn current_dir(&self) -> PathBuf {
-        SystemEnv.current_dir()
-    }
-    fn config_dir(&self) -> Option<PathBuf> {
-        SystemEnv.config_dir()
-    }
-    fn home_dir(&self) -> Option<PathBuf> {
-        SystemEnv.home_dir()
-    }
-    fn read_to_string(&self, path: &Path) -> Result<String, String> {
-        SystemEnv.read_to_string(path)
-    }
-    fn path_exists(&self, path: &Path) -> bool {
-        SystemEnv.path_exists(path)
-    }
-    fn env_var(&self, key: &str) -> Option<String> {
-        SystemEnv.env_var(key)
-    }
 }
 
 impl Env for FormatEnv {
     fn prepare_lint_schemas(&self) -> bool {
         false
-    }
-    fn current_dir(&self) -> PathBuf {
-        SystemEnv.current_dir()
-    }
-    fn config_dir(&self) -> Option<PathBuf> {
-        SystemEnv.config_dir()
-    }
-    fn home_dir(&self) -> Option<PathBuf> {
-        SystemEnv.home_dir()
-    }
-    fn read_to_string(&self, path: &Path) -> Result<String, String> {
-        SystemEnv.read_to_string(path)
-    }
-    fn path_exists(&self, path: &Path) -> bool {
-        SystemEnv.path_exists(path)
-    }
-    fn env_var(&self, key: &str) -> Option<String> {
-        SystemEnv.env_var(key)
     }
 }
 
@@ -201,53 +184,13 @@ pub(crate) fn path_has_name(
     })
 }
 
-impl Env for SystemEnv {
-    fn current_dir(&self) -> PathBuf {
-        process_cwd().to_path_buf()
-    }
-    fn config_dir(&self) -> Option<PathBuf> {
-        env::var("XDG_CONFIG_HOME")
-            .ok()
-            .map(PathBuf::from)
-            .or_else(dirs_next::config_dir)
-    }
-    fn home_dir(&self) -> Option<PathBuf> {
-        dirs_next::home_dir()
-    }
-    fn read_to_string(&self, p: &Path) -> Result<String, String> {
-        let bytes = match fs::read(p) {
-            Ok(data) => data,
-            Err(err) => {
-                return Err(format!(
-                    "failed to read config file {}: {err}",
-                    p.display()
-                ));
-            }
-        };
-        match decoder::decode_bytes(&bytes) {
-            Ok(text) => Ok(text),
-            Err(err) => {
-                Err(format!("failed to read config file {}: {err}", p.display()))
-            }
-        }
-    }
-    fn path_exists(&self, p: &Path) -> bool {
-        p.exists()
-    }
-    fn env_var(&self, key: &str) -> Option<String> {
-        env::var(key).ok()
-    }
-}
+impl Env for SystemEnv {}
 
 struct ClosureEnv<'a> {
     get: &'a dyn Fn(&str) -> Option<String>,
 }
 
 impl Env for ClosureEnv<'_> {
-    fn current_dir(&self) -> PathBuf {
-        SystemEnv.current_dir()
-    }
-
     fn config_dir(&self) -> Option<PathBuf> {
         // Resolve purely from the injected XDG_CONFIG_HOME so this test env stays hermetic
         // and never reads the real config dir (SystemEnv adds the platform-native fallback).
@@ -259,14 +202,6 @@ impl Env for ClosureEnv<'_> {
             .or_else(|| (self.get)("USERPROFILE"))
             .map(PathBuf::from)
             .or_else(|| SystemEnv.home_dir())
-    }
-
-    fn read_to_string(&self, p: &Path) -> Result<String, String> {
-        SystemEnv.read_to_string(p)
-    }
-
-    fn path_exists(&self, p: &Path) -> bool {
-        SystemEnv.path_exists(p)
     }
 
     fn env_var(&self, key: &str) -> Option<String> {
@@ -391,6 +326,15 @@ pub(crate) struct PathGlob {
 }
 
 impl PathGlob {
+    pub(crate) fn selects(globs: &[Self], path: &Path) -> bool {
+        (globs.iter().all(|glob| glob.negated)
+            || globs.iter().any(|glob| !glob.negated && glob.matches(path)))
+            && globs
+                .iter()
+                .filter(|glob| glob.negated)
+                .all(|glob| glob.matches(path))
+    }
+
     /// `base_dir` resolves against the cwd, as walked and CLI paths do.
     pub(crate) fn new(
         pattern: &str,
@@ -919,15 +863,9 @@ impl YamlLintConfig {
     /// `key-ordering`'s `orders` entries whose `files` match `path`, in config order.
     #[must_use]
     pub(crate) fn key_orders_for(&self, path: &Path) -> Vec<KeyOrder> {
-        let selects = |globs: &[PathGlob]| {
-            let (excludes, includes): (Vec<_>, Vec<_>) =
-                globs.iter().partition(|glob| glob.negated);
-            (includes.is_empty() || includes.iter().any(|glob| glob.matches(path)))
-                && excludes.iter().all(|glob| glob.matches(path))
-        };
         self.key_orders
             .iter()
-            .filter(|(globs, _)| selects(globs))
+            .filter(|(globs, _)| PathGlob::selects(globs, path))
             .map(|(_, order)| order.clone())
             .collect()
     }
