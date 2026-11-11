@@ -243,14 +243,27 @@ fn validate_document(
             _ => None,
         }
         .unwrap_or_else(|| projected.span(&pointer));
-        let message = if matches!(
-            error.kind(),
+        let message = match error.kind() {
+            ValidationErrorKind::Contains => {
+                "array items do not satisfy the `contains` constraints".to_owned()
+            }
+            ValidationErrorKind::MinItems { limit } => format!(
+                "value has fewer than {limit} item{}",
+                if *limit == 1 { "" } else { "s" }
+            ),
+            ValidationErrorKind::MinProperties { limit } => format!(
+                "value has fewer than {limit} {}",
+                if *limit == 1 {
+                    "property"
+                } else {
+                    "properties"
+                }
+            ),
             ValidationErrorKind::RegexEngineFailure { .. }
-                | ValidationErrorKind::BacktrackLimitExceeded { .. }
-        ) {
-            format!("cannot validate: {}", error.masked())
-        } else {
-            error.masked().to_string()
+            | ValidationErrorKind::BacktrackLimitExceeded { .. } => {
+                format!("cannot validate: {}", error.masked())
+            }
+            _ => error.masked().to_string(),
         };
         diagnostics.push(Violation::at(span, message));
     }

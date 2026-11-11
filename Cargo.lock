@@ -1562,6 +1562,7 @@ dependencies = [
  "pulldown-cmark",
  "quick-xml",
  "rayon",
+ "referencing",
  "regex",
  "rustls",
  "ryl-yaml-parser",
