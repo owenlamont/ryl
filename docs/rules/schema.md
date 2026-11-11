@@ -176,6 +176,8 @@ branches is also refused; distinct literal properties and disjoint object/array
 paths are accepted. Repeated recursive tuple items are conservatively refused.
 Drafts 04, 06 and 07 ignore keywords beside `$ref` during validation and complexity
 screening. Unreferenced definitions are conservatively screened in newer drafts.
+Bundled metaschemas for all supported drafts resolve offline and undergo the same
+complexity screening as other referenced schemas.
 Draft 2019-09 `$recursiveRef` follows the validator's resource-root lookup even
 when the reference contains a fragment. Dynamic references include all matching anchors as possible targets; this conservative
 screen can refuse schemas whose runtime scopes would select fewer targets. Only
@@ -209,6 +211,8 @@ does not load lint schemas.
 - `oneOf` and `anyOf` findings select the most relevant branch error using
   [Python jsonschema's `best_match` heuristic](https://github.com/python-jsonschema/jsonschema/blob/main/jsonschema/exceptions.py).
   Equally ranked branches retain the summary. Messages mask instance values.
+- `contains`, `minContains` and `maxContains` failures report
+  "array items do not satisfy the `contains` constraints" at the array's start.
 
 Editor diagnostics use the same engine. Watched schema-file edits invalidate prepared
 schemas and revalidate affected documents. Schema completion is separate work.

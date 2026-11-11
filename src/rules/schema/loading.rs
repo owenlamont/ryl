@@ -268,9 +268,9 @@ impl LocalRetriever {
             let (root, uri) = root_location(resolution_base, path)?;
             (self.read(&root).map_err(|error| error.to_string())?, uri)
         };
-        let registry = jsonschema::Registry::new()
-            .retriever(self.clone())
+        let registry = referencing::SPECIFICATIONS
             .add(uri.as_str(), schema.clone())
+            .map(|builder| builder.retriever(self.clone()))
             .and_then(jsonschema::RegistryBuilder::prepare)
             .map_err(|error| error.to_string())?;
         super::complexity::check(&registry, &uri)?;
