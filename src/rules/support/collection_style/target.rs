@@ -863,12 +863,12 @@ impl<'a> Planner<'a> {
         if !place.lead {
             return place.column;
         }
-        match self.nodes[index]
+        let parent = self.nodes[index]
             .parent()
-            .map(|parent| self.nodes[parent].kind())
-        {
-            Some(Kind::Mapping) => place.base + self.body_indent(index),
-            Some(Kind::Sequence)
+            .expect("a collection after a key or dash has a parent");
+        match self.nodes[parent].kind() {
+            Kind::Mapping => place.base + self.body_indent(index),
+            Kind::Sequence
                 if self.initial.starts_below(index, place.boundary())
                     || self.nodes[index].kind() == Kind::Sequence
                         && !self.initial.outer(index).prefix().compact()
@@ -877,8 +877,7 @@ impl<'a> Planner<'a> {
             {
                 place.column - 1 + self.indent
             }
-            Some(_) => self.item_column(index, place.column - 1),
-            None => 0,
+            _ => self.item_column(index, place.column - 1),
         }
     }
 
