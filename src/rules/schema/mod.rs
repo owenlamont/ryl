@@ -85,16 +85,7 @@ pub(crate) struct Association {
 
 impl Association {
     pub(crate) fn matches(&self, path: &Path) -> bool {
-        (self.files.iter().all(|glob| glob.negated)
-            || self
-                .files
-                .iter()
-                .any(|glob| !glob.negated && glob.matches(path)))
-            && self
-                .files
-                .iter()
-                .filter(|glob| glob.negated)
-                .all(|glob| glob.matches(path))
+        PathGlob::selects(&self.files, path)
     }
 }
 

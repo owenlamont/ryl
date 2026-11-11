@@ -43,7 +43,10 @@ fn alias_diagnostics_blame_the_use_site() {
         &json!({"properties":{"copy":{"type":"string"}}}),
         "base: &base {x: 1}\ncopy: *base\n",
     );
+    assert_eq!(hits.len(), 1, "{hits:?}");
     assert_eq!((hits[0].line, hits[0].column), (2, 7));
+    assert_eq!(hits[0].rule, Some("schema"));
+    assert_eq!(hits[0].message, "value is not of type \"string\"");
 }
 
 #[test]
@@ -72,8 +75,14 @@ fn escaped_pointers_and_additional_properties_blame_keys() {
         "a/b~c: nope\nextra: 1\n",
     );
     assert_eq!(hits.len(), 2);
-    assert!(hits.iter().any(|hit| (hit.line, hit.column) == (1, 8)));
-    assert!(hits.iter().any(|hit| (hit.line, hit.column) == (2, 1)));
+    assert_eq!((hits[0].line, hits[0].column), (1, 8));
+    assert_eq!(hits[0].message, "value is not of type \"integer\"");
+    assert_eq!((hits[1].line, hits[1].column), (2, 1));
+    assert_eq!(
+        hits[1].message,
+        "Additional properties are not allowed ('extra' was unexpected)"
+    );
+    assert!(hits.iter().all(|hit| hit.rule == Some("schema")));
 }
 
 #[test]
@@ -380,6 +389,18 @@ fn first_matching_association_wins_with_negated_globs() {
             .arg(dir.path().join(".ryl.toml"))
             .arg(dir.path().join(name)));
         assert_eq!(result.0, expected, "{result:?}");
+        assert!(result.1.is_empty(), "{result:?}");
+        assert_eq!(
+            result
+                .2
+                .matches("False schema does not allow value")
+                .count(),
+            usize::from(expected == 1),
+            "{result:?}"
+        );
+        if expected == 0 {
+            assert!(result.2.is_empty(), "{result:?}");
+        }
     }
 }
 
