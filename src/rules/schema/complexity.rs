@@ -23,10 +23,26 @@ struct Edge {
     kind: Kind,
 }
 
+#[derive(Clone, Copy)]
+enum Member<'a> {
+    None,
+    Name(&'a str),
+    Index(usize),
+}
+
+enum Location<'a> {
+    Root(String),
+    Child {
+        parent: usize,
+        keyword: &'a str,
+        member: Member<'a>,
+    },
+}
+
 #[derive(Default)]
-struct Graph {
+struct Graph<'a> {
     edges: Vec<Vec<Edge>>,
-    locations: Vec<String>,
+    locations: Vec<Location<'a>>,
 }
 
 #[derive(Default)]
@@ -85,7 +101,7 @@ impl Dynamic {
     }
 }
 
-fn children(value: &Value, draft: Draft) -> Vec<(String, &Value, Kind)> {
+fn children(value: &Value, draft: Draft) -> Vec<(&str, Member<'_>, &Value, Kind)> {
     let mut children = Vec::new();
     let Some(object) = value.as_object() else {
         return children;
@@ -107,8 +123,8 @@ fn children(value: &Value, draft: Draft) -> Vec<(String, &Value, Kind)> {
             | "unevaluatedItems" => Kind::Array,
             _ => Kind::Same,
         };
-        let mut push = |suffix: String, child| {
-            children.push((suffix, child, kind));
+        let mut push = |member, child| {
+            children.push((key.as_str(), member, child, kind));
         };
         match key.as_str() {
             "$defs" | "definitions" | "properties" | "patternProperties"
@@ -119,13 +135,7 @@ fn children(value: &Value, draft: Draft) -> Vec<(String, &Value, Kind)> {
                     .flatten()
                     .filter(|(_, child)| child.is_object() || child.is_boolean())
                 {
-                    push(
-                        format!(
-                            "/{key}/{}",
-                            name.replace('~', "~0").replace('/', "~1")
-                        ),
-                        child,
-                    );
+                    push(Member::Name(name), child);
                 }
             }
             "allOf" | "anyOf" | "oneOf" | "prefixItems" | "items"
@@ -134,7 +144,7 @@ fn children(value: &Value, draft: Draft) -> Vec<(String, &Value, Kind)> {
                 for (index, child) in
                     value.as_array().expect("array keyword").iter().enumerate()
                 {
-                    push(format!("/{key}/{index}"), child);
+                    push(Member::Index(index), child);
                 }
             }
             "items"
@@ -151,7 +161,7 @@ fn children(value: &Value, draft: Draft) -> Vec<(String, &Value, Kind)> {
             | "contentSchema"
                 if value.is_object() || value.is_boolean() =>
             {
-                push(format!("/{key}"), value);
+                push(Member::None, value);
             }
             _ => {}
         }
@@ -160,7 +170,7 @@ fn children(value: &Value, draft: Draft) -> Vec<(String, &Value, Kind)> {
         .subresources_of(value)
         .map(std::ptr::from_ref)
         .collect::<std::collections::HashSet<_>>();
-    children.retain(|(_, child, _)| active.contains(&std::ptr::from_ref(*child)));
+    children.retain(|(_, _, child, _)| active.contains(&std::ptr::from_ref(*child)));
     children
 }
 
@@ -172,15 +182,51 @@ enum BuildError {
     Complexity(String),
 }
 
-impl Graph {
-    fn build(registry: &Registry<'_>, uri: &Uri<String>) -> Result<Self, BuildError> {
+impl<'a> Graph<'a> {
+    fn location(&self, mut node: usize) -> String {
+        let mut parts = Vec::new();
+        let mut label = loop {
+            match &self.locations[node] {
+                Location::Root(value) => break value.clone(),
+                Location::Child {
+                    parent,
+                    keyword,
+                    member,
+                } => {
+                    parts.push((*keyword, *member));
+                    node = *parent;
+                }
+            }
+        };
+        for (keyword, member) in parts.into_iter().rev() {
+            label.push('/');
+            label.push_str(keyword);
+            match member {
+                Member::None => {}
+                Member::Name(name) => {
+                    label.push('/');
+                    label.push_str(&name.replace('~', "~0").replace('/', "~1"));
+                }
+                Member::Index(index) => {
+                    label.push('/');
+                    label.push_str(&index.to_string());
+                }
+            }
+        }
+        label
+    }
+
+    fn build(
+        registry: &'a Registry<'_>,
+        uri: &Uri<String>,
+    ) -> Result<Self, BuildError> {
         let root = registry
             .resolver(uri.clone())
             .lookup(uri.as_str())
             .map(|root| {
                 let (value, resolver, draft) = root.into_inner();
                 (
-                    (value, resolver, draft, "#".to_owned()),
+                    (value, resolver, draft, Location::Root("#".to_owned())),
                     None::<(usize, Kind)>,
                     false,
                 )
@@ -194,7 +240,7 @@ impl Graph {
             if referenced {
                 pending.push(resolver.lookup("#").map(|root| {
                     let (value, resolver, draft) = root.into_inner();
-                    let location = resolver.base_uri().to_string();
+                    let location = Location::Root(resolver.base_uri().to_string());
                     ((value, resolver, draft, location), None, false)
                 }));
             }
@@ -202,7 +248,7 @@ impl Graph {
             let source = *indices.entry(std::ptr::from_ref(value)).or_insert(next);
             if source == next {
                 graph.edges.push(Vec::new());
-                graph.locations.push(location.clone());
+                graph.locations.push(location);
             }
             if let Some((parent, kind)) = origin {
                 graph.edges[parent].push(Edge {
@@ -214,9 +260,13 @@ impl Graph {
                 continue;
             }
             dynamic.record(value, draft, source);
-            for (suffix, child, kind) in children(value, draft) {
+            for (keyword, member, child, kind) in children(value, draft) {
                 let draft = draft.detect(child);
-                let child_location = format!("{location}{suffix}");
+                let child_location = Location::Child {
+                    parent: source,
+                    keyword,
+                    member,
+                };
                 pending.push(
                     resolver
                         .in_subresource(draft.create_resource_ref(child))
@@ -253,7 +303,7 @@ impl Graph {
                     let (child, scope, draft) = resolved.into_inner();
                     let kind = dynamic.reference(source, keyword, fragment, child);
                     (
-                        (child, scope, draft, reference.to_owned()),
+                        (child, scope, draft, Location::Root(reference.to_owned())),
                         Some((source, kind)),
                         true,
                     )
@@ -434,7 +484,7 @@ impl Graph {
             }
         }
         if let Some(node) = incoming.iter().position(|&count| count != 0) {
-            return Err(format!("non-descending cycle at {}", self.locations[node]));
+            return Err(format!("non-descending cycle at {}", self.location(node)));
         }
         let mut masks = vec![0; self.edges.len()];
         for node in order.into_iter().rev() {
@@ -447,7 +497,7 @@ impl Graph {
             if self.overlaps(node, &components, &masks) {
                 return Err(format!(
                     "overlapping recursive branches at {}",
-                    self.locations[node]
+                    self.location(node)
                 ));
             }
         }

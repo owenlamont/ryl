@@ -176,7 +176,13 @@ impl LocalRetriever {
         }
         let mut bytes = Vec::new();
         std::fs::File::open(&path)
-            .and_then(|file| file.take((remaining + 1) as u64).read_to_end(&mut bytes))
+            .and_then(|file| {
+                let capacity = file
+                    .metadata()
+                    .map_or(0, |metadata| metadata.len().min((remaining + 1) as u64));
+                bytes.reserve(usize::try_from(capacity).expect("bounded schema size"));
+                file.take((remaining + 1) as u64).read_to_end(&mut bytes)
+            })
             .map_err(|source| ReadError::Io {
                 path: display_path.clone(),
                 source,
@@ -268,8 +274,9 @@ impl LocalRetriever {
             let (root, uri) = root_location(resolution_base, path)?;
             (self.read(&root).map_err(|error| error.to_string())?, uri)
         };
+        let schema = Arc::new(schema);
         let registry = referencing::SPECIFICATIONS
-            .add(uri.as_str(), schema.clone())
+            .add(uri.as_str(), Arc::clone(&schema))
             .map(|builder| builder.retriever(self.clone()))
             .and_then(jsonschema::RegistryBuilder::prepare)
             .map_err(|error| error.to_string())?;
@@ -287,7 +294,7 @@ impl LocalRetriever {
                 base.push(':');
             }
             (
-                serde_json::json!({"$ref":target}),
+                Arc::new(serde_json::json!({"$ref":target})),
                 std::borrow::Cow::Owned(base),
             )
         } else {

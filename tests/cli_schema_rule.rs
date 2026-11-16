@@ -1323,6 +1323,29 @@ fn expanded_reference_dag_is_refused_before_validation() {
 }
 
 #[test]
+fn recursive_refusal_locations_preserve_schema_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    config(dir.path(), &json!(true));
+    for (schema, location) in [
+        (
+            json!({"properties":{"a~/b":{"$ref":"#/properties/a~0~1b"}}}),
+            "#/properties/a~0~1b",
+        ),
+        (
+            json!({"$schema":"http://json-schema.org/draft-07/schema#","items":[true,{"$ref":"#/items/1"}]}),
+            "#/items/1",
+        ),
+        (json!({"items":{"$ref":"#/items"}}), "#/items"),
+    ] {
+        fs::write(dir.path().join("schema.json"), schema.to_string()).unwrap();
+        failure(
+            dir.path(),
+            &format!("schema too complex: non-descending cycle at {location}\n"),
+        );
+    }
+}
+
+#[test]
 fn recursive_cycles_and_overlapping_branches_are_refused() {
     let dir = tempfile::tempdir().unwrap();
     config(dir.path(), &json!(true));
