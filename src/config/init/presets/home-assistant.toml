@@ -47,8 +47,8 @@ min-spaces-from-content = 1
 forbid = "non-empty"
 
 [lint.rules.quoted-strings]
-# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
-quote-type = "double"
+quote-type = "any"
+allow-double-quotes-for-escaping = true
 # Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
 required = false
 # Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md

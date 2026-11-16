@@ -9,6 +9,227 @@ use crate::property::reference::check_values;
 
 const REQUIRED: &str = "[lint.rules.quoted-strings]\nrequired = true\n";
 
+#[test]
+fn retained_plain_flow_requirements_are_not_quote_style_conflicts() {
+    let config = "[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['^a$']\n";
+    let cfg = YamlLintConfig::from_toml_str(config).unwrap();
+    assert!(conflicts(&cfg).is_empty());
+    let (code, _, stderr, output) =
+        ryl_on(Some(config), "v: [a]\n", &["format", "--no-cache"]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stderr.is_empty(), "{stderr}");
+    assert_eq!(output, "v: [a]\n");
+    assert!(!lint_str(&output, Path::new("a.yaml"), &cfg, Path::new("")).is_empty());
+}
+
+#[test]
+fn block_target_keeps_compatibility_plain_flow_values_and_converts_siblings() {
+    let config = "[format]\nmapping-style = 'block'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required = ['\\?']\n";
+    let cfg = YamlLintConfig::from_toml_str(config).unwrap();
+    let input = "held: {key: a?b}\nchanged: {key: word}\nouter: {held: {key: a?b}, changed: word}\n";
+    let expected = "held: {key: a?b}\nchanged:\n  key: word\nouter:\n  held: {key: a?b}\n  changed: word\n";
+    assert_eq!(format_str(input, &cfg, Path::new("a.yaml"), &[]), expected);
+    assert_eq!(
+        format_str(expected, &cfg, Path::new("a.yaml"), &[]),
+        expected
+    );
+    check_values(input, expected).unwrap();
+}
+
+#[test]
+fn block_target_keeps_compatibility_plain_flow_keys() {
+    let config = "[format]\nmapping-style = 'block'\n[lint.rules.quoted-strings]\nrequired = false\ncheck-keys = true\nextra-required = ['\\?']\n";
+    let cfg = YamlLintConfig::from_toml_str(config).unwrap();
+    let input = "held: {a?b: word}\nchanged: {key: word}\n";
+    let expected = "held: {a?b: word}\nchanged:\n  key: word\n";
+    assert_eq!(format_str(input, &cfg, Path::new("a.yaml"), &[]), expected);
+    assert_eq!(
+        format_str(expected, &cfg, Path::new("a.yaml"), &[]),
+        expected
+    );
+    check_values(input, expected).unwrap();
+}
+
+#[test]
+fn helm_block_target_keeps_existing_plain_flow_url() {
+    let config = ryl::config::init::Preset::Helm.toml().replacen(
+        "[format]\n",
+        "[format]\nsequence-style = 'block'\n",
+        1,
+    );
+    let cfg = YamlLintConfig::from_toml_str(&config).unwrap();
+    let input = "v: [/health?ready=true]\nother: [plain]\n";
+    let expected = "v: [/health?ready=true]\nother:\n  - 'plain'\n";
+    assert_eq!(
+        format_str(input, &cfg, Path::new("values.yaml"), &[]),
+        expected
+    );
+    assert_eq!(
+        format_str(expected, &cfg, Path::new("values.yaml"), &[]),
+        expected
+    );
+    check_values(input, expected).unwrap();
+}
+
+#[test]
+fn block_target_retains_nested_implicit_flow_mapping() {
+    let cfg = YamlLintConfig::from_toml_str("[format]\nsequence-style = 'block'\nmapping-style = 'block'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required = ['\\?']\n").unwrap();
+    let input = "items: [key: a?b, {other: a?b}]\nplain: [word]\n";
+    let expected = "items:\n  - {key: a?b}\n  - {other: a?b}\nplain:\n  - word\n";
+    assert_eq!(format_str(input, &cfg, Path::new("a.yaml"), &[]), expected);
+    assert_eq!(
+        format_str(expected, &cfg, Path::new("a.yaml"), &[]),
+        expected
+    );
+    check_values(input, expected).unwrap();
+}
+
+#[test]
+fn retained_implicit_flow_mapping_expands_on_the_first_format() {
+    let cfg = YamlLintConfig::from_toml_str("[format]\nsequence-style = 'block'\nmapping-style = 'block'\nmapping-expand = 'always'\n[lint.rules.quoted-strings]\nrequired = false\ncheck-keys = true\nextra-required = ['\\?|^:']\n").unwrap();
+    for pair in [
+        "key: a?b",
+        "key: ?foo",
+        "?foo: value",
+        "key: :foo",
+        ":foo: value",
+    ] {
+        let input = format!("items: [{pair}]\n");
+        let expected = format!("items:\n  - {{\n    {pair},\n   }}\n");
+        let output = format_str(&input, &cfg, Path::new("a.yaml"), &[]);
+        assert_eq!(output, expected);
+        assert_eq!(format_str(&output, &cfg, Path::new("a.yaml"), &[]), output);
+        check_values(&input, &output).unwrap();
+    }
+}
+
+#[test]
+fn retained_implicit_mapping_after_compact_dashes_stays_valid() {
+    let cfg = YamlLintConfig::from_toml_str("line-length = 18\n[format]\nsequence-style = 'block'\nmapping-style = 'block'\nsequence-expand = 'auto'\nmapping-expand = 'always'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required = ['\\?']\n").unwrap();
+    let input = "v: [[key: a?b], [plain]]\n";
+    let output = format_str(input, &cfg, Path::new("a.yaml"), &[]);
+    check_values(input, &output).unwrap();
+    assert_eq!(format_str(&output, &cfg, Path::new("a.yaml"), &[]), output);
+    assert!(output.ends_with("  - - plain\n"), "{output}");
+}
+
+#[test]
+fn retained_flow_width_fallback_still_expands() {
+    let cfg = YamlLintConfig::from_toml_str("line-length = 10\n[format]\nsequence-style = 'flow'\nsequence-expand = 'always'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required = ['\\?']\n").unwrap();
+    let input = "items: [long?word]\n";
+    let expected = "items:\n  [\n    long?word,\n  ]\n";
+    assert_eq!(format_str(input, &cfg, Path::new("a.yaml"), &[]), expected);
+    assert_eq!(
+        format_str(expected, &cfg, Path::new("a.yaml"), &[]),
+        expected
+    );
+    check_values(input, expected).unwrap();
+}
+
+#[test]
+fn explicit_string_tag_without_block_requirement_can_convert() {
+    formatted(
+        "v: [!!str a?b]\n",
+        "[format]\nsequence-style = 'block'\n[lint.rules.quoted-strings]\nrequired = true\nextra-required-flow = ['\\?']\n",
+        "v:\n  - !!str a?b\n",
+    );
+}
+
+#[test]
+fn multiline_implicit_flow_refusal_still_converts_siblings() {
+    let cfg = YamlLintConfig::from_toml_str("[format]\nsequence-style = 'block'\nmapping-style = 'block'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required = ['\\?']\n").unwrap();
+    let input = "items: [key: a?b\n  tail]\nother: [word]\n";
+    let expected = "items: [key: a?b\n  tail]\nother:\n  - word\n";
+    assert_eq!(format_str(input, &cfg, Path::new("a.yaml"), &[]), expected);
+    assert_eq!(
+        format_str(expected, &cfg, Path::new("a.yaml"), &[]),
+        expected
+    );
+    check_values(input, expected).unwrap();
+}
+
+#[test]
+fn width_fallback_retains_compatibility_plain_flow() {
+    let cfg = YamlLintConfig::from_toml_str("line-length = 10\n[format]\nsequence-style = 'flow'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required = ['\\?']\n").unwrap();
+    let input = "items: [long?word]\nother: [longword]\n";
+    let output = format_str(input, &cfg, Path::new("a.yaml"), &[]);
+    assert!(output.starts_with("items: [long?word]\n"), "{output}");
+    assert!(output.ends_with("other:\n  - longword\n"), "{output}");
+    assert_eq!(format_str(&output, &cfg, Path::new("a.yaml"), &[]), output);
+    check_values(input, &output).unwrap();
+}
+
+#[test]
+fn retained_flow_still_honors_line_break_targets() {
+    let cfg = YamlLintConfig::from_toml_str("[format]\nsequence-style = 'block'\nsequence-expand = 'always'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required = ['\\?']\n").unwrap();
+    let input = "items: [a?b, plain]\n";
+    let output = format_str(input, &cfg, Path::new("a.yaml"), &[]);
+    assert_eq!(output, "items:\n  [\n    a?b,\n    plain,\n  ]\n");
+    assert_eq!(format_str(&output, &cfg, Path::new("a.yaml"), &[]), output);
+    check_values(input, &output).unwrap();
+}
+
+#[test]
+fn flow_key_without_block_quote_requirement_can_convert() {
+    let cfg = YamlLintConfig::from_toml_str("[format]\nmapping-style = 'block'\n[lint.rules.quoted-strings]\nrequired = true\ncheck-keys = false\nextra-required-flow = ['\\?']\n").unwrap();
+    let input = "v: {a?b: word}\n";
+    let expected = "v:\n  a?b: 'word'\n";
+    assert_eq!(format_str(input, &cfg, Path::new("a.yaml"), &[]), expected);
+    assert_eq!(
+        format_str(expected, &cfg, Path::new("a.yaml"), &[]),
+        expected
+    );
+    check_values(input, expected).unwrap();
+}
+
+#[test]
+fn retained_flow_keeps_line_quote_suppression_attached() {
+    let cfg = YamlLintConfig::from_toml_str("[format]\nsequence-style = 'block'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required = ['\\?']\n").unwrap();
+    let input = "items: [a?b]  # ryl disable-line rule:quoted-strings\n";
+    assert_eq!(format_str(input, &cfg, Path::new("a.yaml"), &[]), input);
+}
+
+#[test]
+fn typed_flow_scalars_do_not_block_collection_conversion() {
+    formatted(
+        "v: [1, !!int 1, !!str 1]\n",
+        "[format]\nsequence-style = 'block'\n[lint.rules.quoted-strings]\nrequired = false\nextra-required = ['1']\n",
+        "v:\n  - 1\n  - !!int 1\n  - !!str 1\n",
+    );
+}
+
+#[test]
+fn compatibility_patterns_preserve_plain_flow_and_protect_block_conversion() {
+    for option in ["extra-required", "extra-required-flow"] {
+        for value in ["?x", "?a:b", ":foo", "a?b", "/health?ready=true"] {
+            let config = format!(
+                "[format]\nsequence-style = 'flow'\nmapping-style = 'flow'\n[lint.rules.quoted-strings]\nrequired = false\ncheck-keys = true\n{option} = ['\\?|^:']\n"
+            );
+            let cfg = YamlLintConfig::from_toml_str(&config).unwrap();
+            for input in [format!("v: [{value}]\n"), format!("v: {{{value}: y}}\n")] {
+                assert_eq!(format_str(&input, &cfg, Path::new("a.yaml"), &[]), input);
+                assert_eq!(
+                    ryl::fix::apply_safe_fixes(
+                        &input,
+                        &cfg,
+                        Path::new("a.yaml"),
+                        Path::new("")
+                    ),
+                    input
+                );
+                assert!(
+                    !lint_str(&input, Path::new("a.yaml"), &cfg, Path::new(""))
+                        .is_empty()
+                );
+            }
+            let input = format!("v:\n  - {value}\n");
+            let output = format_str(&input, &cfg, Path::new("a.yaml"), &[]);
+            assert_eq!(output, format!("v: ['{value}']\n"));
+            assert_eq!(format_str(&output, &cfg, Path::new("a.yaml"), &[]), output);
+        }
+    }
+}
+
 fn formatted(input: &str, config: &str, expected: &str) {
     let cfg = YamlLintConfig::from_toml_str(config).unwrap();
     let output = format_str(input, &cfg, Path::new("a.yaml"), &[]);
@@ -28,15 +249,14 @@ fn flow_only_requirements_still_normalize_block_quotes() {
 }
 
 #[test]
-fn extra_required_quotes_flow_url() {
+fn extra_required_preserves_plain_flow_url() {
     for required in ["false", "'only-when-needed'"] {
-        formatted(
-            "args: [/health?ready=true]\n",
-            &format!(
+        let cfg = YamlLintConfig::from_toml_str(&format!(
                 "[lint.rules.quoted-strings]\nrequired = {required}\nextra-required = ['\\?']\n"
-            ),
-            "args: ['/health?ready=true']\n",
-        );
+            )).unwrap();
+        let input = "args: [/health?ready=true]\n";
+        assert_eq!(format_str(input, &cfg, Path::new("a.yaml"), &[]), input);
+        assert!(!lint_str(input, Path::new("a.yaml"), &cfg, Path::new("")).is_empty());
     }
 }
 
@@ -294,7 +514,7 @@ fn implicit_collection_key_quote_refusals_are_reported() {
     ] {
         let (_, _, stderr, output) = ryl_on(Some(&config), "[a?b]: value\n", &["format", "--no-cache"]);
         assert_eq!(output, expected);
-        assert!(stderr.contains("cannot add quotes inside an implicit collection key"), "{stderr}");
+        assert_eq!(stderr.contains("cannot add quotes inside an implicit collection key"), config.contains("required = true"), "{stderr}");
     }
 }
 

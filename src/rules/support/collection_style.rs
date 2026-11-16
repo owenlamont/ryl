@@ -16,7 +16,7 @@ use crate::config_schema::{CollectionStyleTarget, ExpandTarget};
 use crate::directives::disables_file;
 use crate::lint::{LintProblem, Severity};
 use crate::rules::support::span_utils::BytePos;
-use crate::rules::{braces, brackets, indentation};
+use crate::rules::{braces, brackets, indentation, quoted_strings};
 use crate::text_version::Analysis;
 use crate::text_version::model::NodeKind as Kind;
 
@@ -198,6 +198,7 @@ pub(crate) struct Plan {
     pending: Vec<usize>,
     comments: crate::rules::comments::Attachments,
     protected: Vec<bool>,
+    retained_flow: Vec<bool>,
 }
 
 impl Plan {
@@ -301,7 +302,7 @@ impl Plan {
             .iter()
             .all(|finding| finding.refused.is_none())
             && self.sites.iter().enumerate().all(|(index, site)| {
-                if self.protected[index] {
+                if self.protected[index] || self.retained_flow[index] {
                     return true;
                 }
                 let target = match self.nodes[index].kind() {
@@ -390,8 +391,8 @@ impl Plan {
             cfg.shape,
         )
         .with_protection(&self.protected)
-        .with_block_spellings(block)
-        .with_flow_spellings(flow);
+        .with_retained_flow(&self.retained_flow)
+        .with_spellings(block, flow);
         let column = |byte| {
             layout
                 .collection_position(byte, targets, &coordinates)
@@ -481,6 +482,7 @@ impl Plan {
             cfg.shape,
         )
         .with_protection(&self.protected)
+        .with_retained_flow(&self.retained_flow)
         .with_flow_spellings(flow);
         let mut replacements = std::collections::HashMap::new();
         for part in self.selections().flat_map(Selected::fragments) {
@@ -549,15 +551,16 @@ pub(crate) fn settled(
     cfg: Config,
     indent: Option<&indentation::Config>,
 ) -> Plan {
-    settled_with_view(input, cfg, indent).0
+    settled_with_view(input, cfg, indent, None).0
 }
 
 pub(crate) fn settled_with_view<'a>(
     input: Analysis<'a>,
     cfg: Config,
     indent: Option<&indentation::Config>,
+    quotes: Option<&quoted_strings::Config>,
 ) -> (Plan, Option<crate::format::layout::frame::FrameRows<'a>>) {
-    let mut plan = select(input, cfg);
+    let mut plan = select(input, cfg, quotes);
     let view = skip_reindent_dependent(
         input,
         &mut plan,
@@ -567,7 +570,11 @@ pub(crate) fn settled_with_view<'a>(
     (plan, view)
 }
 
-pub(crate) fn select(input: Analysis<'_>, cfg: Config) -> Plan {
+fn select(
+    input: Analysis<'_>,
+    cfg: Config,
+    quotes: Option<&quoted_strings::Config>,
+) -> Plan {
     let buffer = input.text();
     if !cfg.restyles() {
         return Plan::default();
@@ -596,6 +603,7 @@ pub(crate) fn select(input: Analysis<'_>, cfg: Config) -> Plan {
         comments,
     } = input::observe(input);
     let protected = protected_nodes(input, &sites);
+    let retained_flow = retained_flow_collections(input, quotes, &nodes, &sites);
     let geometry = indentation::CollectionGeometry::default();
     let planner = target::Planner::new(
         &nodes,
@@ -606,7 +614,8 @@ pub(crate) fn select(input: Analysis<'_>, cfg: Config) -> Plan {
         (usize::from(cfg.indent), usize::from(cfg.width)),
         cfg.shape,
     )
-    .with_protection(&protected);
+    .with_protection(&protected)
+    .with_retained_flow(&retained_flow);
     let mut recipes = Vec::new();
     let mut findings = Vec::new();
     for (index, node) in nodes.iter().enumerate() {
@@ -658,7 +667,31 @@ pub(crate) fn select(input: Analysis<'_>, cfg: Config) -> Plan {
         pending,
         comments,
         protected,
+        retained_flow,
     }
+}
+
+fn retained_flow_collections(
+    input: Analysis<'_>,
+    quotes: Option<&quoted_strings::Config>,
+    nodes: &[crate::text_version::model::Node],
+    sites: &[input::Site],
+) -> Vec<bool> {
+    let mut collections = vec![false; nodes.len()];
+    if let Some(quotes) = quotes {
+        let retained = quoted_strings::retained_flow_scalars(input, quotes);
+        for (node, site) in nodes.iter().zip(sites) {
+            if node.kind() == Kind::Scalar
+                && retained.binary_search(&site.start).is_ok()
+            {
+                let parent = node
+                    .parent()
+                    .expect("retained flow scalars have collection parents");
+                collections[parent] = true;
+            }
+        }
+    }
+    collections
 }
 
 /// Where the outermost collection `index` sits, given each byte's final `column`.

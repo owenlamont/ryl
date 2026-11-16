@@ -14,7 +14,10 @@ use super::strategy::arb_quoted_payload;
 
 const TAGS: [&str; 3] = ["!!str", "!local", "!"];
 
-const ESCAPED: [(bool, &str); 19] = [
+const ESCAPED: [(bool, &str); 22] = [
+    (false, "?foo"),
+    (false, ":foo"),
+    (true, ":?foo"),
     (false, "a?b"),
     (false, "/health?ready=true"),
     (false, "secret"),

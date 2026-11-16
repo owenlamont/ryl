@@ -137,6 +137,7 @@ fn prepare_candidate(
             input,
             cfg,
             passes.indentation.as_ref(),
+            passes.quoted_strings.as_ref(),
         );
         if collections.has_candidates() {
             return prepare_converted(

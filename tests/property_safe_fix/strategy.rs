@@ -22,8 +22,16 @@ fn arb_multibyte_char() -> impl Strategy<Value = char> {
 fn arb_plain_value() -> impl Strategy<Value = String> {
     prop_oneof![
         "[a-z][a-z0-9_']{0,6}",
-        prop::sample::select(vec!["/health?ready=true", "a?b", ":foo", "a:?b"])
-            .prop_map(str::to_owned),
+        prop::sample::select(vec![
+            "/health?ready=true",
+            "a?b",
+            "?foo",
+            "?a:b",
+            ":foo",
+            ":?foo",
+            "a:?b"
+        ])
+        .prop_map(str::to_owned),
     ]
 }
 

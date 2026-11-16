@@ -45,3 +45,6 @@ allowed-tags = ["!reference"]
 [lint.rules.quoted-strings]
 required = false
 extra-required-flow = ['^[?:]|:\?']
+
+[format]
+keep-quotes = true

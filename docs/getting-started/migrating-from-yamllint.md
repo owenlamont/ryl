@@ -247,12 +247,21 @@ YAML 1.2.2 §7.3.3, productions 126–130, permits `/health?ready=true`, `?foo`
 and `:foo` as flow plain strings, but some application readers reject or misread
 them. The reference parser reports `+SEQ []`, `=VAL :/health?ready=true`, `-SEQ`
 for the URL sequence, and `=VAL :?foo` for the question-prefixed string.
-Ryl quotes matching strings without changing block-context expression wrapping.
+Ryl quotes matching block strings when converting to flow without changing
+block-context expression wrapping.
 
 ryl reads yamllint configs and directives, but behaves differently in a small number
 of places. Each difference is deliberate: ryl follows the YAML 1.2.2 specification and
 its reference parser, reports a problem rather than ignoring it, or avoids repeated
 output. The complete list:
+
+### Existing plain flow strings under compatibility patterns
+
+Compatibility quote patterns are diagnostic-only for already-plain flow strings
+and keys: both `ryl format` and `ryl check --fix` retain their original bytes.
+For `[?x]`, YAML 1.2.2 production 126 and the reference parser yield `=VAL :?x`;
+legacy readers can instead load a mapping, so adding quotes changes their value.
+Block strings converted to flow still receive compatibility quotes.
 
 ### Rules with no yamllint equivalent
 

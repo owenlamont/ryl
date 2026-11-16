@@ -314,6 +314,35 @@ impl Config {
         !self.flow_patterns().is_empty()
     }
 
+    fn compatibility_quotes(&self, value: &str) -> bool {
+        let extra = self
+            .requirements
+            .as_ref()
+            .map_or(&self.extra_required, |requirements| {
+                &requirements.extra_required
+            });
+        extra
+            .iter()
+            .chain(self.flow_patterns())
+            .any(|pattern| pattern.is_match(value))
+    }
+
+    fn block_quotes(&self, model: &ScalarModel<'_>) -> bool {
+        let (required, extra, keys) = self.requirements.as_ref().map_or(
+            (self.required, &self.extra_required, self.check_keys),
+            |requirements| {
+                (
+                    requirements.required,
+                    &requirements.extra_required,
+                    requirements.check_keys,
+                )
+            },
+        );
+        (!model.is_key() || keys)
+            && (required == RequiredMode::Always
+                || extra.iter().any(|pattern| pattern.is_match(model.value())))
+    }
+
     fn requires_plain_quotes(&self, context: RetainedContext) -> bool {
         let (required, extra) = self
             .requirements
@@ -895,6 +924,36 @@ pub(crate) trait ConvertedLayout {
     fn column(&self, start: usize) -> usize;
 }
 
+pub(crate) fn retained_flow_scalars(
+    input: crate::text_version::Analysis<'_>,
+    cfg: &Config,
+) -> Vec<usize> {
+    let mut state = FixState::new(cfg, input.text());
+    let mut retained = Vec::new();
+    for (event, span) in input.event_iter() {
+        state.visit_event(event, &span, |state, style, value, tag, span| {
+            let context = state.walker.begin_node();
+            let model =
+                scalar_model(value, tag, context.active(), state.current_readers);
+            if style == ScalarStyle::Plain
+                && state.context().in_flow()
+                && cfg.compatibility_quotes(value)
+                && cfg.block_quotes(&model)
+                && !target::skip_scalar(
+                    cfg,
+                    style,
+                    &model,
+                    RetainedContext::from_style(StructureStyle::Block),
+                )
+            {
+                retained.push(marker_byte_offset(span.start).get());
+            }
+            state.walker.finish_node(context);
+        });
+    }
+    retained
+}
+
 pub(crate) struct FlowSpellings {
     pub(crate) edits: Vec<crate::format::layout::PlanEdit>,
     pub(crate) styles: Styles,
@@ -942,7 +1001,14 @@ pub(crate) fn format_replacements<'a>(
     fixer.format = format;
     fixer.settle = true;
     if let Some(frame) = frame {
-        for (event, span) in frame.forms().events(input) {
+        let mut source = FixState::new(cfg, input.text());
+        for ((original, _), (event, span)) in
+            input.event_iter().zip(frame.forms().events(input))
+        {
+            source.visit_event(original, &span, |source, _, _, _, _| {
+                fixer.state.source_context = Some(source.context());
+                source.skip_node();
+            });
             fixer.on_event(event, span);
         }
     } else {
@@ -1084,6 +1150,7 @@ struct FixState<'cfg> {
     plain_scalar_cache: HashMap<String, Option<bool>>,
     spaced_colon: Option<&'cfg colons::Guarantees<'cfg>>,
     projected: Option<&'cfg dyn ConvertedLayout>,
+    source_context: Option<RetainedContext>,
 }
 
 impl<'cfg> FixState<'cfg> {
@@ -1196,6 +1263,7 @@ impl<'cfg> FixState<'cfg> {
             plain_scalar_cache: HashMap::new(),
             spaced_colon: None,
             projected: None,
+            source_context: None,
         }
     }
 
@@ -1290,8 +1358,14 @@ impl<'cfg> FixState<'cfg> {
         mode: target::Mode,
     ) -> Option<Replacement> {
         let active_key = model.is_key();
-        let eligible =
-            target::Eligible::new(self.config, model, style, mode, self.context())?;
+        let eligible = target::Eligible::new(
+            self.config,
+            model,
+            style,
+            mode,
+            self.context(),
+            self.source_context.unwrap_or_else(|| self.context()),
+        )?;
         let (start, end) = scalar_source_bounds(self.buffer, style, span);
         let initial = if style == ScalarStyle::Plain {
             target::Initial::new(style, &self.buffer[start.get()..end.get()])

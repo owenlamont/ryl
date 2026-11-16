@@ -22,6 +22,7 @@ pub(super) struct Planner<'a> {
     block: Option<&'a BlockSpellings>,
     protected: &'a [bool],
     flow: Option<&'a quoted_strings::FlowSpellings>,
+    retained_flow: &'a [bool],
 }
 
 /// Where a flow collection's line breaks go.
@@ -76,14 +77,17 @@ impl<'a> Planner<'a> {
             block: None,
             protected: &[],
             flow: None,
+            retained_flow: &[],
         }
     }
 
-    pub(super) const fn with_block_spellings(
+    pub(super) const fn with_spellings(
         mut self,
         block: &'a BlockSpellings,
+        flow: Option<&'a quoted_strings::FlowSpellings>,
     ) -> Self {
         self.block = Some(block);
+        self.flow = flow;
         self
     }
 
@@ -102,6 +106,15 @@ impl<'a> Planner<'a> {
 
     fn allowed(&self, index: usize) -> bool {
         self.protected.get(index).is_none_or(|protected| !protected)
+    }
+
+    pub(super) const fn with_retained_flow(mut self, retained: &'a [bool]) -> Self {
+        self.retained_flow = retained;
+        self
+    }
+
+    fn keeps_flow(&self, index: usize) -> bool {
+        self.retained_flow.get(index).copied().unwrap_or(false)
     }
 
     /// The width of `key`, copied from `pos`, once its mapping is in block style.
@@ -151,7 +164,8 @@ impl<'a> Planner<'a> {
         }
         let governed = self.expand_target(node.kind()) != ExpandTarget::Preserve
             || node.children().iter().any(|&child| facts[child].governed);
-        let width = (self.initial.collection(index).braced()
+        let width = ((self.initial.collection(index).braced()
+            || self.keeps_flow(index))
             && !node.children().is_empty())
         .then(|| self.measure_entries(index, facts))
         .flatten();
@@ -164,7 +178,11 @@ impl<'a> Planner<'a> {
         let step = 1 + usize::from(mapping);
         let mut characters = 2 * (node.children().len() / step)
             + if mapping { 2 * self.shape.padding } else { 0 };
-        let mut pos = self.initial.open(index);
+        let mut pos = if self.initial.collection(index).braced() {
+            self.initial.open(index)
+        } else {
+            self.initial.start(index)
+        };
         for members in node.children().chunks(step) {
             characters += match *members {
                 [key, value] => self.measure_pair(key, value, pos, facts)?,
@@ -195,7 +213,7 @@ impl<'a> Planner<'a> {
         if matches!(kind, Kind::Sequence | Kind::Mapping) {
             return None;
         }
-        let key_text = self.copy(key, pos).ok()?;
+        let key_text = single(self.initial.entry(pos, key)).ok()?;
         let key_width = key_text.characters()
             + usize::from(self.key_needs_separator(key, &key_text));
         let gap = self.initial.key_gap(key);
@@ -231,7 +249,7 @@ impl<'a> Planner<'a> {
         if !self.initial.collection(index).braced()
             || self.nodes[index].children().is_empty()
         {
-            let fragment = self.copy(index, pos).ok()?;
+            let fragment = single(self.initial.entry(pos, index)).ok()?;
             return Some(
                 fragment.characters() + usize::from(value && !fragment.empty()),
             );
@@ -306,6 +324,9 @@ impl<'a> Planner<'a> {
             && match self.target(node.kind()) {
                 Some(CollectionStyleTarget::Flow) => true,
                 Some(CollectionStyleTarget::Preserve) => self.governed(index),
+                Some(CollectionStyleTarget::Block) if self.keeps_flow(index) => {
+                    self.governed(index)
+                }
                 _ => false,
             }
     }
@@ -383,6 +404,7 @@ impl<'a> Planner<'a> {
             inline
         };
         if self.target(node.kind()) == Some(CollectionStyleTarget::Flow)
+            && !self.keeps_flow(index)
             && width.is_some_and(|width| start + width > self.width)
         {
             return self
@@ -463,7 +485,11 @@ impl<'a> Planner<'a> {
         if entries.is_none() {
             recipe.flow_gap(index, container);
         }
-        let mut pos = self.initial.open(index);
+        let mut pos = if self.initial.collection(index).braced() {
+            self.initial.open(index)
+        } else {
+            self.initial.start(index)
+        };
         for (entry, members) in
             node.children().chunks(1 + usize::from(mapping)).enumerate()
         {
@@ -517,7 +543,7 @@ impl<'a> Planner<'a> {
         if matches!(kind, Kind::Sequence | Kind::Mapping) {
             return None;
         }
-        let key_text = self.copy(key, pos).ok()?;
+        let key_text = single(self.initial.entry(pos, key)).ok()?;
         let separator = self.key_needs_separator(key, &key_text);
         let width = key_text.characters() + usize::from(separator);
         recipe.structure(Structure::Key(key));
@@ -568,19 +594,14 @@ impl<'a> Planner<'a> {
         member: Member,
         recipe: &mut Recipe,
     ) -> Option<()> {
-        let Member {
-            entries,
-            prefix,
-            value,
-            comma,
-        } = member;
+        let Member { entries, value, .. } = member;
         if let Some((key, pair_value)) = self.implicit_pair(index) {
             return self.pair(key, pair_value, pos, entries, recipe);
         }
         if !self.initial.collection(index).braced()
             || self.nodes[index].children().is_empty()
         {
-            let fragment = self.copy(index, pos).ok()?;
+            let fragment = single(self.initial.entry(pos, index)).ok()?;
             if !value {
                 recipe.copy(fragment);
             } else if !fragment.empty() {
@@ -588,6 +609,22 @@ impl<'a> Planner<'a> {
             }
             return Some(());
         }
+        self.collection_member(index, pos, member, recipe)
+    }
+
+    fn collection_member(
+        &self,
+        index: usize,
+        pos: Boundary,
+        member: Member,
+        recipe: &mut Recipe,
+    ) -> Option<()> {
+        let Member {
+            entries,
+            prefix,
+            value,
+            comma,
+        } = member;
         let properties = single(self.initial.properties(pos, index)).ok()?;
         let props = properties.characters() + usize::from(!properties.empty());
         let fit = entries.map_or(Fit::Inline, |column| {
@@ -626,6 +663,7 @@ impl<'a> Planner<'a> {
 
     fn to_block(&self, index: usize) -> bool {
         self.allowed(index)
+            && !self.keeps_flow(index)
             && self.initial.collection(index).braced()
             && !self.nodes[index].children().is_empty()
             && self.target(self.nodes[index].kind())
@@ -931,7 +969,9 @@ impl<'a> Planner<'a> {
     /// Whether the `flow` collection `index`, starting at `column`, overflows on one
     /// line.
     fn splits(&self, index: usize, column: usize) -> bool {
-        self.target(self.nodes[index].kind()) == Some(CollectionStyleTarget::Flow)
+        !self.keeps_flow(index)
+            && self.target(self.nodes[index].kind())
+                == Some(CollectionStyleTarget::Flow)
             && self
                 .one(index)
                 .is_some_and(|characters| column + characters > self.width)
@@ -1025,7 +1065,7 @@ impl<'a> Planner<'a> {
                     recipe.line(col);
                 }
                 recipe.structure(Structure::Entry(child));
-                recipe.text("- ");
+                recipe.text("-");
                 let compact = entry == 0
                     && node.parent().is_some_and(|parent| {
                         self.nodes[parent].kind() == Kind::Sequence
@@ -1111,7 +1151,35 @@ impl<'a> Planner<'a> {
     ) -> Result<(), &'static str> {
         let site = self.initial.collection(index);
         let col = self.item_column(index, dash);
+        let separate = compact
+            && site.flow()
+            && !site.braced()
+            && self.keeps_flow(index)
+            && self.expands(
+                index,
+                self.one(index).map(|width| self.at(dash) + 2 + width),
+            );
+        if separate {
+            recipe.line(col);
+        } else {
+            recipe.text(" ");
+        }
         if site.flow() && !site.braced() {
+            if self.keeps_flow(index) {
+                return self
+                    .collection_member(
+                        index,
+                        pos,
+                        Member {
+                            entries: Some(self.at(if separate { col } else { dash })),
+                            prefix: 2 * usize::from(!separate),
+                            value: false,
+                            comma: false,
+                        },
+                        recipe,
+                    )
+                    .ok_or("an entry spans lines");
+            }
             return self.block(index, pos, col, recipe);
         }
         let start = self.at(dash) + 2 + self.initial.property_width(pos, index);

@@ -96,6 +96,12 @@ converted from block to flow. Flow patterns also apply to explicitly tagged stri
 quotes before choosing flow style. Literal and folded block scalars remain unchanged.
 Empty explicitly tagged scalars are exempt from flow patterns, including with anchors.
 
+Both rewrite commands leave already-plain flow strings and keys unchanged when
+`extra-required` or `extra-required-flow` would add compatibility quotes. Lint still
+reports the missing quotes. For example, `[?x]` stays `[?x]`: legacy readers may
+load a mapping before quoting and a string afterward. Strings converted from block
+to flow still gain the required quotes.
+
 `ryl check --fix` rewrites string scalars to use the configured `quote-type` and
 adds or removes quotes to satisfy `required`. The fix is conservative: it
 only changes scalars where the corrected form parses to the same value as

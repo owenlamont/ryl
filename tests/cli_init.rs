@@ -388,11 +388,7 @@ fn reader_presets_only_add_flow_quote_requirements() {
             "{}",
             preset.name()
         );
-        let fixed = ryl::rules::quoted_strings::fix(input, &rule).unwrap();
-        assert!(
-            ryl::rules::quoted_strings::check(&fixed, &rule).is_empty(),
-            "{fixed}"
-        );
+        assert!(ryl::rules::quoted_strings::fix(input, &rule).is_none());
         if !matches!(preset, Preset::Helm) {
             assert!(
                 ryl::rules::quoted_strings::check(
@@ -405,4 +401,60 @@ fn reader_presets_only_add_flow_quote_requirements() {
             );
         }
     }
+}
+
+#[test]
+fn kubernetes_preserves_existing_plain_flow_question_items_and_keys() {
+    for input in ["v: [?x]\n", "v: {?x: y}\n"] {
+        for args in [
+            vec!["format", "--no-cache"],
+            vec!["check", "--fix", "--no-cache"],
+        ] {
+            let (code, stdout, stderr, output) = crate::common::cli::ryl_on(
+                Some(Preset::Kubernetes.toml()),
+                input,
+                &args,
+            );
+            assert_eq!(output, input, "{stderr}");
+            if args[0] == "check" {
+                assert_eq!(code, 1, "{stdout} {stderr}");
+                assert!(
+                    format!("{stdout}{stderr}").contains("quoted-strings"),
+                    "{stdout} {stderr}"
+                );
+            } else {
+                assert_eq!(code, 0, "{stderr}");
+            }
+        }
+    }
+}
+
+#[test]
+fn gitlab_stock_format_keeps_colon_string_quotes() {
+    let (code, _, stderr, output) = crate::common::cli::ryl_on(
+        Some(Preset::GitlabCi.toml()),
+        "v: \":foo\"\n",
+        &["format", "--no-cache"],
+    );
+    assert_eq!(code, 0, "{stderr}");
+    assert_eq!(output, "v: ':foo'\n");
+}
+
+#[test]
+fn home_assistant_init_formats_without_config_warning() {
+    let dir = tempdir().unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(dir.path()).args([
+        "init",
+        "--preset",
+        "home-assistant",
+    ]));
+    assert_eq!(code, 0, "{stderr}");
+    fs::write(dir.path().join("a.yaml"), "v: plain\n").unwrap();
+    let (code, _, stderr) = run(ryl(dir.path()).current_dir(dir.path()).args([
+        "format",
+        "--no-cache",
+        "a.yaml",
+    ]));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stderr.is_empty(), "{stderr}");
 }
