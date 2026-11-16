@@ -167,7 +167,7 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/charliermarsh/ruff-pre-commit"
-rev = "v0.17.3"
+rev = "v0.17.4"
 hooks = [
   {
     id = "ruff-check",
@@ -194,7 +194,7 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/owenlamont/ryl-pre-commit"
-rev = "v0.28.0"
+rev = "v0.29.0"
 hooks = [
   { id = "ryl-check", args = ["--fix"] },
   { id = "ryl-check-markdown", args = ["--fix"] },
@@ -204,7 +204,7 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/adhtruong/mirrors-typos"
-rev = "v1.51.1"
+rev = "v1.52.0"
 hooks = [
   {
     id = "typos",
@@ -214,7 +214,7 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/woodruffw/zizmor-pre-commit"
-rev = "v1.31.1"
+rev = "v1.32.0"
 hooks = [
   {
     id = "zizmor",
