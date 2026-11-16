@@ -396,8 +396,8 @@ impl<'a> Planner<'a> {
         let next_line = width
             .filter(|_| value && !hugged)
             .map(|characters| place.base + self.indent + property_width + characters);
-        let fit = self.fit(index, end, next_line);
-        let below = fit != Fit::Inline && value && !hugged;
+        let mut fit = self.fit(index, end, next_line);
+        let mut below = fit != Fit::Inline && value && !hugged;
         let start = if below {
             place.base + self.indent + property_width
         } else {
@@ -407,17 +407,24 @@ impl<'a> Planner<'a> {
             && !self.keeps_flow(index)
             && width.is_some_and(|width| start + width > self.width)
         {
-            return self
-                .outermost(index, Some(self.body_column(index, place)))
-                .ok()
-                .map(|block| (block, false));
-        }
-        if !self.governed(index) {
+            if value
+                && self.expand_target(node.kind()) == ExpandTarget::Preserve
+                && end.is_some_and(|end| end <= self.width)
+            {
+                fit = Fit::Inline;
+                below = false;
+            } else {
+                return self
+                    .outermost(index, Some(self.body_column(index, place)))
+                    .ok()
+                    .map(|block| (block, false));
+            }
+        } else if !self.governed(index) {
             return None;
         }
-        // Re-indenting would put entries no deeper than a key after a `-` on its line.
         if fit == Fit::Expanded
             && (place.nested_dash
+                || place.inline_marker
                 || self.joins_dash(index)
                 || hugged && place.line != place.base)
         {
@@ -701,7 +708,7 @@ impl<'a> Planner<'a> {
         })
     }
 
-    pub(super) fn flowed(&self, index: usize) -> Option<Selected> {
+    pub(super) fn flowed(&self, index: usize, place: &Placement) -> Option<Selected> {
         let node = &self.nodes[index];
         if self.initial.collection(index).flow()
             || node.parent().is_none()
@@ -719,18 +726,41 @@ impl<'a> Planner<'a> {
         if !site.clear() {
             return None;
         }
-        let (body, characters) = self.flow_body(index, true)?;
-        let mut recipe = Recipe::new();
-        recipe.text(" ");
-        recipe.append(body);
-        {
-            let width = self
-                .geometry
-                .width(site.position(), characters + 1)
-                .characters();
-            width <= self.width && !site.indicators().widened()
+        if site.indicators().widened() {
+            return None;
         }
-        .then(|| site.edit().select(recipe))
+        let (body, characters) = self.flow_body(index, true)?;
+        let width = self
+            .geometry
+            .width(site.position(), characters + 1)
+            .characters();
+        let mut recipe = Recipe::new();
+        let mut edit = site.edit();
+        if width <= self.width {
+            recipe.text(" ");
+        } else if self.expand_target(node.kind()) == ExpandTarget::Auto
+            && place.lead
+            && self.nodes[node.parent().expect("a flow candidate has a parent")].kind()
+                == Kind::Mapping
+        {
+            let properties =
+                single(self.initial.properties(place.boundary(), index)).ok()?;
+            let property_width =
+                properties.characters() + usize::from(!properties.empty());
+            if place.base + self.indent + property_width + characters > self.width {
+                return None;
+            }
+            edit = place.edit(self.initial.end(*last));
+            recipe.line(place.base + self.indent);
+            if !properties.empty() {
+                recipe.copy(properties);
+                recipe.text(" ");
+            }
+        } else {
+            return None;
+        }
+        recipe.append(body);
+        Some(edit.select(recipe))
     }
 
     pub(super) fn implicit_body(&self, index: usize, column: usize) -> Option<Recipe> {
@@ -899,7 +929,7 @@ impl<'a> Planner<'a> {
     /// starts at.
     fn body_column(&self, index: usize, place: &Placement) -> usize {
         if !place.lead {
-            return place.column;
+            return place.line;
         }
         let parent = self.nodes[index]
             .parent()
@@ -966,15 +996,25 @@ impl<'a> Planner<'a> {
         }
     }
 
-    /// Whether the `flow` collection `index`, starting at `column`, overflows on one
-    /// line.
-    fn splits(&self, index: usize, column: usize) -> bool {
+    /// Whether the `flow` collection `index` overflows at its selected inline or
+    /// next-line position.
+    fn splits(&self, index: usize, column: usize, next_line: Option<usize>) -> bool {
         !self.keeps_flow(index)
             && self.target(self.nodes[index].kind())
                 == Some(CollectionStyleTarget::Flow)
-            && self
-                .one(index)
-                .is_some_and(|characters| column + characters > self.width)
+            && self.one(index).is_some_and(|characters| {
+                let fit = self.fit(
+                    index,
+                    Some(column + characters),
+                    next_line.map(|start| start + characters),
+                );
+                let start = if fit == Fit::Inline || !self.respaced(index) {
+                    column
+                } else {
+                    next_line.unwrap_or(column)
+                };
+                start + characters > self.width
+            })
     }
 
     pub(super) fn outermost(
@@ -1183,7 +1223,7 @@ impl<'a> Planner<'a> {
             return self.block(index, pos, col, recipe);
         }
         let start = self.at(dash) + 2 + self.initial.property_width(pos, index);
-        if !self.to_block(index) && !self.splits(index, start) {
+        if !self.to_block(index) && !self.splits(index, start, None) {
             if !self.respaced(index) {
                 recipe.copy(self.copy(index, pos)?);
             } else if compact
@@ -1222,10 +1262,12 @@ impl<'a> Planner<'a> {
         (col, colon): (usize, usize),
         recipe: &mut Recipe,
     ) -> Result<(), &'static str> {
+        let property_width = self.initial.property_width(pos, index);
         if !self.to_block(index)
             && !self.splits(
                 index,
-                self.at(colon) + 1 + self.initial.property_width(pos, index),
+                self.at(colon) + 1 + property_width,
+                Some(self.at(col) + self.indent + property_width),
             )
         {
             if self.respaced(index) {

@@ -54,6 +54,7 @@ pub(super) struct Placement {
     pub(super) line: usize,
     pub(super) lead: bool,
     pub(super) nested_dash: bool,
+    pub(super) inline_marker: bool,
 }
 
 impl Placement {
@@ -329,8 +330,9 @@ impl<'a> Initial<'a> {
         let before = self.source.text()[..start]
             .trim_end_matches(super::is_space)
             .len();
-        if start < self.sites[node].start
-            && self.line_start(start) > self.line_start(before)
+        if self.comments.touches(before)
+            || start < self.sites[node].start
+                && self.line_start(start) > self.line_start(before)
         {
             return start;
         }
@@ -387,17 +389,19 @@ impl<'a> Initial<'a> {
     pub(super) fn placement(
         &self,
         node: usize,
+        before: usize,
         column: usize,
         (base, line): (usize, usize),
+        inline_marker: bool,
     ) -> Placement {
-        let before = self.lead_start(node);
         let text = self.source.text();
-        let lead = column > line;
+        let lead = before != self.properties_start(node) && column > line;
         Placement {
             before,
             column,
             base,
             line,
+            inline_marker,
             // Re-indenting puts entries after `- - [` no deeper than the inner `-`.
             nested_dash: lead
                 && text[..before].ends_with('-')
