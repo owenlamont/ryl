@@ -12,11 +12,11 @@ fn unknown_rule_name_is_rejected() {
         &[],
         &Overrides {
             config_file: None,
-            config_data: Some("rules:\n  not-a-real-rule: enable\n".into()),
+            config_data: Some("rules:\n  zzzzzzzz: enable\n".into()),
         },
     )
     .expect_err("an unknown rule name must be rejected");
-    assert_eq!(err, "invalid config: no such rule: \"not-a-real-rule\"");
+    assert_eq!(err, "invalid config: no such rule: \"zzzzzzzz\"");
 
     let td = tempdir().unwrap();
     let cfg = td.path().join(".ryl.toml");

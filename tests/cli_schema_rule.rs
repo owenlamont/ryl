@@ -477,7 +477,7 @@ fn documents_are_validated_independently_including_empty_documents() {
 }
 
 #[test]
-fn projection_bounds_aliases_bytes_and_depth() {
+fn projection_refusals_name_the_exceeded_budget_and_limit() {
     let mut aliases = String::from("a0: &a0 [x, x, x, x, x, x, x, x, x, x]\n");
     for i in 1..8 {
         aliases.push_str(&format!(
@@ -488,19 +488,19 @@ fn projection_bounds_aliases_bytes_and_depth() {
     assert!(
         findings(&json!(true), &aliases)[0]
             .message
-            .contains("resource limit")
+            .contains("storage bytes (limit 16777216)")
     );
     let large = format!("{}\n", "x".repeat(16 * 1024 * 1024 + 1));
     assert!(
         findings(&json!(true), &large)[0]
             .message
-            .contains("resource limit")
+            .contains("storage bytes (limit 16777216)")
     );
     let deep = format!("{}0{}\n", "[".repeat(130), "]".repeat(130));
     assert!(
         findings(&json!(true), &deep)[0]
             .message
-            .contains("depth limit")
+            .contains("depth limit (limit 128)")
     );
 }
 
@@ -1046,8 +1046,13 @@ fn projection_budget_bounds_each_kind_of_allocation() {
         ("node count", format!("[{}~]\n", "~,".repeat(1_000_000))),
     ] {
         let hits = findings(&json!(true), &yaml);
+        let expected = if allocation == "node count" {
+            "node count (limit 1000000)"
+        } else {
+            "storage bytes (limit 16777216)"
+        };
         assert!(
-            hits[0].message.contains("resource limit"),
+            hits[0].message.contains(expected),
             "{allocation}: {:?}",
             hits[0]
         );

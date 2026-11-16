@@ -32,6 +32,28 @@ pub use crate::config_schema::{
     FixRuleName as FixRule, RuleLevel, SourceVersion, TargetVersion, UnsafeFixConfig,
 };
 
+#[doc(hidden)]
+/// # Panics
+/// Panics if `value` is a recognized rule selector.
+#[must_use]
+pub fn unknown_rule_error(value: &str) -> String {
+    use clap::builder::{PossibleValuesParser, TypedValueParser};
+    use clap::error::{ContextKind, ContextValue};
+
+    let message = format!("no such rule: \"{value}\"");
+    let parser = PossibleValuesParser::new(crate::rules::ALL_RULE_IDS);
+    let error = parser
+        .parse_ref(&clap::Command::new("ryl"), None, value.as_ref())
+        .expect_err("rule name was already rejected");
+    if let Some(ContextValue::String(suggestion)) =
+        error.get(ContextKind::SuggestedValue)
+    {
+        format!("{message}; did you mean '{suggestion}'?")
+    } else {
+        message
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind {
     Yaml,
@@ -964,7 +986,19 @@ impl YamlLintConfig {
             return Ok(Cow::Borrowed(self));
         }
         let mut prepared = self.clone();
-        prepared.prepare_document_schemas(text, path, base, kind, env)?;
+        prepared
+            .prepare_document_schemas(text, path, base, kind, env)
+            .map_err(|mut error| {
+                let label = path.map_or_else(
+                    || "<stdin>".to_owned(),
+                    |path| path.display().to_string(),
+                );
+                error.message = format!(
+                    "{label}:{}:{}: {}",
+                    error.line, error.column, error.message
+                );
+                error
+            })?;
         Ok(Cow::Owned(prepared))
     }
 
@@ -1396,7 +1430,7 @@ impl YamlLintConfig {
             .iter()
             .find(|name| !crate::rules::ALL_RULE_IDS.contains(&name.as_str()))
         {
-            return Err(format!("invalid config: no such rule: \"{unknown}\""));
+            return Err(format!("invalid config: {}", unknown_rule_error(unknown)));
         }
         let notice = self.resolve_rule_conflicts(self.yaml_directive_from_all)?;
 

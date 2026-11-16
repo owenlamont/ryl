@@ -131,7 +131,21 @@ fn offline_cli_reads_cache_but_no_cache_disables_both_cache_families() {
         ],
     );
     assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("offline cache"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("schema cache reads are disabled"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("remove --no-cache"), "{stderr}");
+    let output = crate::common::cli::ryl(dir.path())
+        .args(["check", "--help"])
+        .output()
+        .unwrap();
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        help.contains("both the file result cache and the schema cache"),
+        "{help}"
+    );
 }
 
 #[cfg(feature = "lsp")]

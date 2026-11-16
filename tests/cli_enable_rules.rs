@@ -209,6 +209,26 @@ fn enable_flag_limits_fix_to_the_selected_rules() {
 }
 
 #[test]
+fn unknown_rule_ids_suggest_the_closest_match_in_cli_and_configs() {
+    for args in [
+        vec!["--enable", "key-duplicats"],
+        vec!["--disable", "key-duplicats"],
+        vec!["-d", "[lint.rules]\nkey-duplicats = 'enable'\n"],
+        vec!["-d", "rules:\n  key-duplicats: enable\n"],
+    ] {
+        let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .arg("check")
+            .args(args)
+            .arg("x.yaml"));
+        assert_eq!(code, 2, "{stderr}");
+        assert!(
+            stderr.contains("did you mean 'key-duplicates'?"),
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
 fn enable_flag_rejects_unknown_ids_and_lowercase_all() {
     for bad in ["nope", "all", "truthy,nope"] {
         let (code, _, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))

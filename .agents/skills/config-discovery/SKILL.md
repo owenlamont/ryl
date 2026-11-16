@@ -85,8 +85,9 @@ Chart.yaml only), or `gitlab-ci`. Ecosystem presets are not YAML `extends:` name
 
 Both via `YamlLintConfig::enables_any_rule`; `main::no_rules_error(config_found)` picks
 the message. The `default`/`relaxed`/`empty` presets stay available via `extends:`
-(deprecated YAML only); both errors suggest `ryl init` to write a TOML preset or
-`--enable ALL`. Migration actions (`--migrate-configs`, `--migrate-user-config`,
+(deprecated YAML only); missing-config errors suggest `ryl init` to write a TOML preset,
+while empty-config errors suggest enabling a rule in the existing configuration.
+Both suggest `--enable ALL`. Migration actions (`--migrate-configs`, `--migrate-user-config`,
 `--migrate-directives`) and `--list-files` are exempt.
 
 Formatter source configurations are read only by explicit migration actions;

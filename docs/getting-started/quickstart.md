@@ -62,7 +62,8 @@ project](#configure-for-your-project) below).
 | `--disable <RULES>` | Subtract lint rules after config and `--enable`; comma-separated IDs or `ALL`; once per command |
 | `--exclude <GLOBS>` | Replace config exclusions, including `exclude-from-file`; comma-separated gitignore-style globs relative to the current directory; once per command |
 
-Unknown rule IDs exit `2`. `check` also exits `2` when the final selection enables
+Unknown rule IDs exit `2`, with a closest-match suggestion for likely typos in flags
+or configuration. `check` also exits `2` when the final selection enables
 no lint rules.
 `--disable` alone never enables rules. Both flags work with `check --fix` and
 `check --diff`, and with the deprecated bare invocation. `--exclude` also applies
@@ -134,8 +135,8 @@ cases exit `2` rather than silently linting nothing:
   run `ryl init`, or pass `--enable ALL`.
 - **A configuration that enables no rules** (`rules: {}`, an empty
   `[lint.rules]`/`[tool.ryl]`, or one disabling everything), or a selection emptied
-  by `--disable`. Enable at
-  least one rule, run `ryl init`, or pass `--enable ALL`.
+  by `--disable`. Enable at least one rule in the existing configuration, or pass
+  `--enable ALL`.
 
 ## Apply auto-fixes
 

@@ -93,6 +93,7 @@ pins, offline mode and retrieval limits as configured schemas.
 
 Configured schemas still prepare eagerly, including overridden associations; a comment
 cannot hide a broken configuration. Directive loading happens before lint-cache lookup.
+Directive loading errors name the host file and the directive's line and column.
 Configured and directive resources share one preparation budget across documents and
 Markdown regions. With directives off, comments incur no discovery scan or loading.
 
@@ -158,6 +159,9 @@ ryl check --schema-allow-origin https://schemas.example.org app.yaml
 | `RYL_SCHEMA_CACHE_DIR` | Override the user schema cache (`<user-cache-dir>/ryl/schemas/v1`). |
 | `--no-progress` | Suppress schema download messages on stderr. |
 
+Offline failures distinguish a cache miss from disabled cache reads and suggest removing
+`--offline` to fetch a missing schema or removing `--no-cache` to read a cached schema.
+
 Only public destinations are accepted. Redirects, proxies, userinfo, encoded response
 bodies and private/reserved IP addresses are refused. DNS checks the complete answer
 before connecting, including mixed public/private answers. TLS uses bundled webpki roots.
@@ -185,7 +189,8 @@ applicators and references active in the schema draft contribute to the screen.
 More than 1,000,000 possible dynamic-reference edges are refused before expansion.
 
 Projection is bounded to 1,000,000 nodes, 16 MiB of scalar and pointer storage, and
-128 levels. A file reports at most 100 validation diagnostics plus a truncation note.
+128 levels. Projection refusals name the exceeded budget and limit.
+A file reports at most 100 validation diagnostics plus a truncation note.
 Users with no schema associations and directives disabled do no schema loading or projection. `ryl format`
 does not load lint schemas.
 

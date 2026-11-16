@@ -382,7 +382,12 @@ impl Network {
             }
         }
         if self.offline {
-            return Err(Error::at(&url, "schema not available in offline cache"));
+            let message = if self.cache.is_none() {
+                "schema unavailable offline: schema cache reads are disabled; remove --no-cache or unset RYL_NO_CACHE"
+            } else {
+                "schema not available in offline cache; run without --offline or RYL_OFFLINE to fetch it"
+            };
+            return Err(Error::at(&url, message));
         }
         let mut budget = self
             .dependencies
