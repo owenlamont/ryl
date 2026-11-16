@@ -176,7 +176,11 @@ impl LocalRetriever {
         }
         let mut bytes = Vec::new();
         std::fs::File::open(&path)
-            .and_then(|file| file.take((remaining + 1) as u64).read_to_end(&mut bytes))
+            .and_then(|file| {
+                let capacity = file.metadata()?.len().min((remaining + 1) as u64);
+                bytes.reserve(usize::try_from(capacity).expect("bounded schema size"));
+                file.take((remaining + 1) as u64).read_to_end(&mut bytes)
+            })
             .map_err(|source| ReadError::Io {
                 path: display_path.clone(),
                 source,
