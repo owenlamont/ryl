@@ -406,13 +406,13 @@ impl Plan {
                 .document_starts
                 .partition_point(|&line| line < site.line)
                 .saturating_sub(1);
-            let refused = targets.refused.get(document).is_some_and(Option::is_some);
-            let restyled = if let Some(recipe) = planner.flowed(index) {
+            let place = placement(&self.nodes, &initial, index, column);
+            let restyled = if let Some(recipe) = planner.flowed(index, &place) {
                 Some((recipe, true))
-            } else if refused {
+            } else if targets.refused.get(document).is_some_and(Option::is_some) {
                 None
             } else {
-                planner.placed(index, &placement(&self.nodes, &initial, index, column))
+                planner.placed(index, &place)
             };
             if let Some((recipe, to_flow)) = restyled {
                 let finding = self.findings.len();
@@ -701,7 +701,10 @@ fn placement(
     index: usize,
     column: impl Fn(usize) -> usize,
 ) -> input::Placement {
-    let before = initial.lead_start(index);
+    let before = nodes[index].parent().map_or_else(
+        || initial.properties_start(index),
+        |_| initial.lead_start(index),
+    );
     let base = match nodes[index].parent() {
         _ if before == initial.properties_start(index) => before,
         // A mapping's column: its `?` or its first key's properties.
@@ -711,7 +714,15 @@ fn placement(
         _ => initial.line_content(before),
     };
     let line = column(initial.line_content(before));
-    initial.placement(index, column(before), (column(base), line))
+    let final_column = column(before);
+    let inline_marker = nodes[index].parent().is_none() && final_column > line;
+    initial.placement(
+        index,
+        before,
+        final_column,
+        (column(base), line),
+        inline_marker,
+    )
 }
 
 fn changes_style(

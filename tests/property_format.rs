@@ -42,6 +42,184 @@ use representation::{
 };
 
 #[test]
+fn auto_flow_keeps_collection_properties_on_separate_lines() {
+    for (kind, width, input) in [
+        ("sequence", 5, "a: &x\n  !!seq\n  - b\n"),
+        ("mapping", 8, "a: &x\n  !!map\n  b: c\n"),
+    ] {
+        let cfg = crate::common::format_config::load(&format!(
+            "line-length={width}\n[format]\n{kind}-style='flow'\n{kind}-expand='auto'\n",
+        ));
+        let format =
+            |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+        reference::check_strict_events(input, input).unwrap();
+        assert_eq!(check_invariants(&format, input).unwrap(), input);
+    }
+}
+
+#[test]
+fn auto_flow_counts_and_places_properties_below_the_key() {
+    for (kind, narrow, wide, flow, block, expected) in [
+        (
+            "sequence",
+            5,
+            8,
+            "a: &x [b]\n",
+            "a: &x\n  - b\n",
+            "a:\n  &x [b]\n",
+        ),
+        (
+            "mapping",
+            8,
+            11,
+            "a: &x {b: c}\n",
+            "a: &x\n  b: c\n",
+            "a:\n  &x {b: c}\n",
+        ),
+    ] {
+        for (width, expected) in [(narrow, block), (wide, expected)] {
+            let cfg = crate::common::format_config::load(&format!(
+                "line-length={width}\n[format]\n{kind}-style='flow'\n{kind}-expand='auto'\n",
+            ));
+            let format =
+                |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+            for input in [flow, block] {
+                assert_eq!(check_invariants(&format, input).unwrap(), expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn auto_flow_converts_block_values_below_the_key_when_inline_overflows() {
+    for (kind, width, flow, block, expected) in [
+        ("sequence", 5, "a: [b]\n", "a:\n  - b\n", "a:\n  [b]\n"),
+        (
+            "mapping",
+            8,
+            "a: {b: c}\n",
+            "a:\n  b: c\n",
+            "a:\n  {b: c}\n",
+        ),
+    ] {
+        let cfg = crate::common::format_config::load(&format!(
+            "line-length={width}\n[format]\n{kind}-style='flow'\n{kind}-expand='auto'\n",
+        ));
+        let format =
+            |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+        for input in [flow, block] {
+            assert_eq!(check_invariants(&format, input).unwrap(), expected);
+        }
+    }
+}
+
+#[test]
+fn preserved_flow_collapses_before_an_overflow_fallback() {
+    for (kind, width, input, inline, block) in [
+        ("sequence", 6, "a: [b\n ]\n", "a: [b]\n", "a:\n    - b\n"),
+        (
+            "mapping",
+            9,
+            "a: {b: c\n }\n",
+            "a: {b: c}\n",
+            "a:\n    b: c\n",
+        ),
+    ] {
+        for (width, expected) in
+            [(width - 1, block), (width, inline), (width + 1, input)]
+        {
+            let cfg = crate::common::format_config::load(&format!(
+                "indent-width=4\nline-length={width}\n[format]\n{kind}-style='flow'\n",
+            ));
+            let format =
+                |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+            assert_eq!(check_invariants(&format, input).unwrap(), expected);
+        }
+    }
+}
+
+#[test]
+fn copied_multiline_flow_keeps_the_parent_conversion_refusal() {
+    let cfg = crate::common::format_config::load(
+        "indent-width=4\nline-length=6\n[format]\nsequence-style='flow'\nmapping-style='block'\n",
+    );
+    let format =
+        |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+    let input = "{a: [\n b,\n]}\n";
+    check_invariants(&format, input).unwrap();
+    assert_eq!(format(input), "{a: [\n    b\n]}\n");
+}
+
+#[test]
+fn preserved_inline_marker_keeps_the_root_flow_collection_compact() {
+    let cfg =
+        crate::common::format_config::load("[format]\nsequence-expand='always'\n");
+    let format =
+        |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+    let input = "--- [a]\n";
+    check_invariants(&format, input).unwrap();
+    assert_eq!(format(input), input);
+}
+
+#[test]
+fn quoted_marker_in_a_root_collection_keeps_its_value_after_a_directive() {
+    for pass in format_passes() {
+        check_pass(pass, "%YAML 1.1\n---\n['---']\n").unwrap();
+    }
+}
+
+#[test]
+fn root_collection_conversion_keeps_the_preceding_comment() {
+    for pass in format_passes() {
+        check_pass(pass, "# c\n[a]\n").unwrap();
+    }
+}
+
+#[test]
+fn nested_expanded_flow_uses_its_final_column_for_overflow() {
+    let cfg = crate::common::format_config::load(
+        "indent-width=4\nline-length=6\n[format]\nsequence-style='flow'\nmapping-style='block'\nsequence-expand='always'\n",
+    );
+    let format =
+        |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+    check_invariants(&format, "{a: [b]}\n").unwrap();
+    assert_eq!(format("{a: [b]}\n"), "a:\n    - b\n");
+}
+
+#[test]
+fn large_mixed_collection_epochs_settle_before_parallel_emission() {
+    let cfg = crate::common::format_config::load(
+        "indent-width=4\nline-length=6\n[format]\nsequence-style='flow'\nmapping-style='block'\nsequence-expand='always'\n",
+    );
+    let padding = format!("# {}\r", "x".repeat(1_048_576));
+    let input = format!("{padding}{{a: [b]}}\r");
+    let expected = format!("{}a:\n    - b\n", padding.replace('\r', "\n"));
+    for threads in [1, 2] {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+        let format = |text: &str| {
+            pool.install(|| ryl::format::format_str(text, &cfg, synthetic_path(), &[]))
+        };
+        assert_eq!(format(&input), expected);
+        assert_eq!(format(&expected), expected);
+    }
+}
+
+#[test]
+fn collection_below_a_sequence_comment_uses_its_own_column() {
+    let cfg = crate::common::format_config::load(
+        "line-length=8\n[format]\nsequence-style='flow'\nmapping-style='block'\n",
+    );
+    let format =
+        |text: &str| ryl::format::format_str(text, &cfg, synthetic_path(), &[]);
+    let input = "-\n  # x\n  {a: [b]}\n";
+    check_invariants(&format, input).unwrap();
+    assert_eq!(format(input), "-\n  # x\n  a: [b]\n");
+}
+
+#[test]
 fn folded_crlf_whitespace_tail_seed_keeps_the_reference_value() {
     let input = "a: >\r\n  a\r\n\r\n\r\n    \r\n\r\n\r\n\r\n";
     let output = "a: >\n  a\n\n\n    \n";
