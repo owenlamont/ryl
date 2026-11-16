@@ -9,6 +9,117 @@ use crate::common::cli::{run, run_with_stdin, ryl};
 
 mod directives;
 
+#[test]
+fn schema_legacy_builtin_metaschema_refs_validate_offline() {
+    for draft in ["04", "06", "07"] {
+        let dir = tempfile::tempdir().unwrap();
+        let meta = format!("http://json-schema.org/draft-{draft}/schema#");
+        config(dir.path(), &json!({"$schema":meta,"$ref":meta}));
+        for (yaml, code) in [("{}\n", 0), ("title: []\n", 1)] {
+            let input = dir.path().join("in.yaml");
+            fs::write(&input, yaml).unwrap();
+            let mut cmd = ryl(dir.path());
+            cmd.args(["check", "--offline", "--no-cache", "-c"])
+                .arg(dir.path().join(".ryl.toml"))
+                .arg(&input);
+            let (actual, stdout, stderr) = run(&mut cmd);
+            assert_eq!(actual, code, "draft {draft}, {yaml}: {stdout}{stderr}");
+            if code == 1 {
+                assert!(stderr.contains("1:8"), "{stderr}");
+                assert!(stderr.contains("value is not of type"), "{stderr}");
+            }
+        }
+    }
+}
+
+#[test]
+fn schema_modern_builtin_metaschema_refs_keep_complexity_screening() {
+    for draft in ["2019-09", "2020-12"] {
+        let dir = tempfile::tempdir().unwrap();
+        let meta = format!("https://json-schema.org/draft/{draft}/schema");
+        fs::write(
+            dir.path().join("schema.json"),
+            json!({"$schema":meta,"$ref":meta}).to_string(),
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join(".ryl.toml"),
+            "[[lint.rules.schema.schemas]]\npath = 'schema.json'\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("in.yaml"), "{}\n").unwrap();
+        let mut cmd = ryl(dir.path());
+        cmd.args(["check", "--offline", "--no-cache", "-c"])
+            .arg(dir.path().join(".ryl.toml"))
+            .arg(dir.path().join("in.yaml"));
+        let (code, stdout, stderr) = run(&mut cmd);
+        assert_eq!(code, 2, "{draft}: {stdout}{stderr}");
+        assert!(
+            stderr.contains("overlapping recursive branches"),
+            "{draft}: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn schema_contains_failure_has_grammatical_masked_message() {
+    for (schema, yaml, message) in [
+        (
+            json!({"contains":{"const":1}}),
+            "[2]\n",
+            "array items do not satisfy the `contains` constraints",
+        ),
+        (
+            json!({"contains":{"const":1},"minContains":2}),
+            "[1]\n",
+            "array items do not satisfy the `contains` constraints",
+        ),
+        (
+            json!({"contains":{"const":1},"maxContains":1}),
+            "[1, 1]\n",
+            "array items do not satisfy the `contains` constraints",
+        ),
+        (json!({"minItems":1}), "[]\n", "value has fewer than 1 item"),
+        (
+            json!({"minItems":2}),
+            "[]\n",
+            "value has fewer than 2 items",
+        ),
+        (
+            json!({"minProperties":1}),
+            "{}\n",
+            "value has fewer than 1 property",
+        ),
+        (
+            json!({"minProperties":2}),
+            "{}\n",
+            "value has fewer than 2 properties",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        config(dir.path(), &schema);
+        fs::write(dir.path().join("in.yaml"), yaml).unwrap();
+        let mut cmd = ryl(dir.path());
+        cmd.args(["check", "--offline", "--no-cache", "-c"])
+            .arg(dir.path().join(".ryl.toml"))
+            .arg(dir.path().join("in.yaml"));
+        let (code, stdout, stderr) = run(&mut cmd);
+        assert_eq!(code, 1, "{schema}: {stdout}{stderr}");
+        assert!(
+            format!("{stdout}{stderr}").contains("1:1"),
+            "{stdout}{stderr}"
+        );
+        assert!(
+            format!("{stdout}{stderr}").contains(message),
+            "{stdout}{stderr}"
+        );
+        let hits = findings(&schema, yaml);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].message, message);
+        assert_eq!((hits[0].line, hits[0].column), (1, 1));
+    }
+}
+
 pub(crate) fn config(dir: &Path, schema: &Value) -> ryl::config::ConfigContext {
     fs::write(dir.join("schema.json"), schema.to_string()).unwrap();
     fs::write(
