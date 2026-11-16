@@ -59,7 +59,7 @@ const OUTPUT_INFALLIBLE: &str =
     "writing diagnostics to an in-memory buffer cannot fail";
 
 const NO_RULES_ENABLED_ERROR: &str = "error: configuration enables no rules, so nothing would be linted; enable at \
-     least one rule, run 'ryl init' to write a starter config, or pass '--enable ALL'";
+     least one rule in the existing configuration, or pass '--enable ALL'";
 
 const NO_CONFIG_ERROR: &str = "error: no configuration found and ryl enables no rules by default; create a \
      config that enables rules, run 'ryl init' to write a starter config, or pass '--enable ALL'";
@@ -564,7 +564,7 @@ struct SourceArgs {
     )]
     exclude: Option<Vec<String>>,
 
-    /// Disable the on-disk result cache
+    /// Disable reads and writes for both the file result cache and the schema cache
     #[arg(long = "no-cache", default_value_t = false)]
     no_cache: bool,
 
@@ -637,7 +637,7 @@ fn parse_rule_selector(value: &str) -> Result<&'static str, String> {
     std::iter::once("ALL")
         .chain(ALL_RULE_IDS)
         .find(|id| *id == value)
-        .ok_or_else(|| format!("no such rule: \"{value}\""))
+        .ok_or_else(|| ryl::config::unknown_rule_error(value))
 }
 
 fn cli_config_flags(args: &LintArgs) -> CliConfigFlags {

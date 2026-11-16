@@ -7,14 +7,17 @@ use crate::common;
 use common::cli::{run, run_with_stdin};
 
 #[test]
-fn stdin_with_no_enabled_rules_errors() {
+fn empty_config_recovery_suggests_editing_or_enable_without_init() {
+    let dir = tempdir().unwrap();
+    let config = dir.path().join(".ryl.toml");
+    fs::write(&config, "[lint.rules]\n").unwrap();
     let exe = env!("CARGO_BIN_EXE_ryl");
     let (code, _stdout, stderr) = run_with_stdin(
         Command::new(exe)
             .arg("check")
             .arg("-")
-            .arg("-d")
-            .arg("rules: {}\n"),
+            .arg("-c")
+            .arg(&config),
         b"key: value\n",
     );
     assert_eq!(
@@ -22,6 +25,9 @@ fn stdin_with_no_enabled_rules_errors() {
         "stdin lint with no enabled rules must error: {stderr}"
     );
     assert!(stderr.contains("enables no rules"), "{stderr}");
+    assert!(stderr.contains("in the existing configuration"), "{stderr}");
+    assert!(stderr.contains("--enable ALL"), "{stderr}");
+    assert!(!stderr.contains("ryl init"), "{stderr}");
 }
 
 #[test]

@@ -1,5 +1,5 @@
 [default]
-extend-ignore-re = ['\bcaf\\xe9\b']
+extend-ignore-re = ['\bcaf\\xe9\b', 'key-duplicats\b']
 
 [files]
 extend-exclude = [

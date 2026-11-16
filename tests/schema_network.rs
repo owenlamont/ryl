@@ -1103,7 +1103,7 @@ fn no_cache_environment_disables_schema_cache_even_offline() {
             .fetch(ROOT, 100)
             .unwrap_err()
             .to_string()
-            .contains("offline cache")
+            .contains("schema cache reads are disabled; remove --no-cache or unset RYL_NO_CACHE")
     );
 }
 

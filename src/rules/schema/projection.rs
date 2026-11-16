@@ -34,8 +34,11 @@ impl Budget {
     ) -> Result<(), Refusal> {
         self.nodes = self.nodes.saturating_add(nodes);
         self.bytes = self.bytes.saturating_add(bytes);
-        if self.exhausted() {
-            return Err(refuse("projection resource limit exceeded", span));
+        if self.nodes > MAX_NODES {
+            return Err(refuse_limit("node count", MAX_NODES, span));
+        }
+        if self.bytes > MAX_BYTES {
+            return Err(refuse_limit("storage bytes", MAX_BYTES, span));
         }
         Ok(())
     }
@@ -51,6 +54,15 @@ fn refuse(reason: &str, span: Span) -> Refusal {
         reason: reason.to_owned(),
         span: Box::new(span),
     }
+}
+
+fn refuse_limit(budget: &str, limit: usize, span: Span) -> Refusal {
+    refuse(
+        &format!(
+            "projection resource limit exceeded: {budget} (limit {limit}); see https://ryl-docs.pages.dev/rules/schema/"
+        ),
+        span,
+    )
 }
 
 #[derive(Clone)]
@@ -205,7 +217,7 @@ impl Builder<'_> {
             .ok_or_else(|| refuse("incomplete YAML document", self.start))?;
         self.budget.charge(1, 0, span)?;
         if depth > MAX_DEPTH {
-            return Err(refuse("projection depth limit exceeded", span));
+            return Err(refuse_limit("depth limit", MAX_DEPTH, span));
         }
         if let Event::Alias(id) = event {
             let anchor = self
@@ -214,7 +226,7 @@ impl Builder<'_> {
                 .ok_or_else(|| refuse("unresolved alias", span))?;
             self.budget.charge(anchor.size, anchor.bytes, span)?;
             if depth + anchor.depth > MAX_DEPTH {
-                return Err(refuse("projection depth limit exceeded", span));
+                return Err(refuse_limit("depth limit", MAX_DEPTH, span));
             }
             let mut node = anchor.clone();
             node.ambiguous = true;

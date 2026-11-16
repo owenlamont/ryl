@@ -71,6 +71,28 @@ fn inactive_directives_do_not_scan_or_consult_the_environment() {
 }
 
 #[test]
+fn directive_loading_errors_name_the_host_and_directive_line() {
+    let dir = tempfile::tempdir().unwrap();
+    fixture(dir.path(), "");
+    for (name, text, line) in [
+        ("broken.yaml", "\n# $schema: missing.json\nx: 1\n", 2),
+        (
+            "broken.md",
+            "text\n\n```yaml\n# $schema: missing.json\nx: 1\n```\n",
+            4,
+        ),
+    ] {
+        let path = dir.path().join(name);
+        fs::write(&path, text).unwrap();
+        let (status, _, stderr) =
+            run(ryl(dir.path()).args(["check", "--markdown"]).arg(&path));
+        assert_eq!(status, 2, "{stderr}");
+        assert!(stderr.contains(&format!("{name}:{line}:1:")), "{stderr}");
+        assert!(stderr.contains("missing.json"), "{stderr}");
+    }
+}
+
+#[test]
 fn ignored_directives_do_not_prepare_and_invalid_overrides_do_not_fall_back() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = fixture(
