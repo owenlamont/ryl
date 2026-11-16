@@ -56,6 +56,14 @@ flow collections, including mapping keys. Block-context strings keep their exist
 quoting policy. The requirements also apply when formatting converts block to flow;
 keep `quoted-strings` enabled to retain reader compatibility.
 
+Already-plain flow strings and keys keep their bytes under compatibility patterns;
+lint reports missing quotes for the user to decide. Quoting `[?x]` can change a
+legacy reader's mapping into a string.
+
+A flow collection stays in flow when conversion to block would require quoting a
+retained plain string or key. Other collections still follow the configured style;
+the exception also covers width-driven conversions.
+
 | Presets | `extra-required-flow` | Reader compatibility |
 | --- | --- | --- |
 | Kubernetes, Helm, Compose | `['\?\|^:']` | go-yaml v2/v3, including older Compose readers |
@@ -357,8 +365,8 @@ min-spaces-from-content = 1
 forbid = "non-empty"
 
 [lint.rules.quoted-strings]
-# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
-quote-type = "double"
+quote-type = "any"
+allow-double-quotes-for-escaping = true
 # Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
 required = false
 # Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
@@ -658,6 +666,10 @@ Sources:
 
 Use for GitLab CI pipelines, including the native `!reference` tag.
 
+Existing quotes are retained so `v: ":foo"` remains a String in Ruby/Psych.
+Known limit: converting block `- :foo` to flow with `sequence-style = "flow"`
+quotes the scalar; Psych then reads a String instead of a Symbol.
+
 ```toml
 # GitLab CI pipelines
 [files]
@@ -706,6 +718,9 @@ allowed-tags = ["!reference"]
 [lint.rules.quoted-strings]
 required = false
 extra-required-flow = ['^[?:]|:\?']
+
+[format]
+keep-quotes = true
 ```
 
 Sources:

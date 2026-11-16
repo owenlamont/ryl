@@ -92,6 +92,12 @@ pub fn refused(
         || unchanged_quoted_scalar(input, output, problem, before)
         || unchanged_boundary(input, output, problem, before);
     if unchanged_problem
+        && problem.rule == Some("quoted-strings")
+        && retained_plain_flow(output, problem)
+    {
+        return true;
+    }
+    if unchanged_problem
         && notices.iter().any(|notice| {
             notice.message
                 == "cannot format this file safely: block scalar value may change"
@@ -123,6 +129,25 @@ pub fn refused(
                     _ => false,
                 })
     })
+}
+
+fn retained_plain_flow(output: &str, problem: &ryl::lint::LintProblem) -> bool {
+    let mut depth = 0;
+    for token in Scanner::new(StrInput::new(output)).map_while(Result::ok) {
+        let (span, kind) = token.into_parts();
+        match kind {
+            TokenType::FlowSequenceStart | TokenType::FlowMappingStart => depth += 1,
+            TokenType::FlowSequenceEnd | TokenType::FlowMappingEnd => depth -= 1,
+            TokenType::Scalar(style, _)
+                if (span.start.line(), span.start.col() + 1)
+                    == (problem.line, problem.column) =>
+            {
+                return depth > 0 && style == ScalarStyle::Plain;
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 fn unchanged_fragment(
@@ -535,6 +560,43 @@ fn quote_refusal_mapping_requires_the_same_scalar_value_style_and_diagnostic() {
     let mut changed = problem.clone();
     changed.message.push_str(" changed");
     assert!(!unchanged_quoted_scalar(input, output, &changed, &before));
+}
+
+#[test]
+fn retained_plain_flow_refusal_requires_the_same_diagnostic_and_value() {
+    let cfg = YamlLintConfig::from_toml_str("[lint.rules.quoted-strings]\nrequired = false\nextra-required-flow = ['\\?']\n").unwrap();
+    let lint = |text: &str| {
+        ryl::lint::lint_str(
+            text,
+            crate::property::config::synthetic_path(),
+            &cfg,
+            crate::property::config::synthetic_base_dir(),
+        )
+    };
+    let input = "v: [a?b]\n";
+    let output = "v:\n  [a?b]\n";
+    let before = lint(input);
+    let problem = lint(output)
+        .into_iter()
+        .find(|problem| problem.rule == Some("quoted-strings"))
+        .unwrap();
+    assert!(refused(input, output, &problem, &[], &before));
+    assert!(!refused(input, output, &problem, &[], &[]));
+    let changed = "v:\n  [a?c]\n";
+    let problem = lint(changed)
+        .into_iter()
+        .find(|problem| problem.rule == Some("quoted-strings"))
+        .unwrap();
+    assert!(!refused(input, changed, &problem, &[], &before));
+    let block = "v:\n  - a?b\n";
+    assert!(!retained_plain_flow(
+        block,
+        &ryl::lint::LintProblem {
+            line: 2,
+            column: 5,
+            ..problem
+        }
+    ));
 }
 
 #[test]

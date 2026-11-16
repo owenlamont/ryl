@@ -206,8 +206,12 @@ from the `[format]` table over `format::FORMAT_RULE_IDS`, independently of lint 
 fixability and path ignores, so a zero-config run formats. The enabled `quoted-strings`
 rule contributes only quote-presence requirements (`required`, patterns and key scope);
 formatter `quote-style` still chooses characters. Preserve freezes quoting; keep-quotes
-wins over optional-quote removal. Incompatible choices warn with remedies. Plain-to-quoted
-multiline recipes retain physical lines without quoted-source unescaping. Quote growth
+wins over optional-quote removal. Incompatible choices warn with remedies.
+Already-plain flow scalars retain their spelling under compatibility patterns; a
+collection stays in flow if converting to block would require quoting one of those
+scalars, including width-driven conversions.
+Plain-to-quoted multiline recipes retain physical lines without quoted-source
+unescaping. Quote growth
 that would exceed an implicit key's length limit is refused and reported.
 Inline directives are honoured by both. A YAML config gets the `[format]` defaults.
 

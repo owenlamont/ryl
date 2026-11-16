@@ -736,6 +736,7 @@ pub fn conflicts(cfg: &YamlLintConfig) -> Vec<String> {
                 )
             })
         })
+        .filter(|warning| !warning.is_empty())
         .collect()
 }
 
@@ -766,9 +767,20 @@ fn quote_conflict(
     consistent: Option<&str>,
 ) -> String {
     let lint = quoted_strings::Config::resolve(cfg);
+    let quoted = |text: &str, violation: &quoted_strings::Violation| {
+        text.lines()
+            .nth(violation.line - 1)
+            .and_then(|line| line.chars().nth(violation.column - 1))
+            .is_some_and(|ch| matches!(ch, '\'' | '"'))
+    };
     let mut violations = quoted_strings::check(formatted, &lint);
+    violations.retain(|violation| quoted(formatted, violation));
     if let Some(probe) = consistent {
-        violations.extend(quoted_strings::check(probe, &lint));
+        violations.extend(
+            quoted_strings::check(probe, &lint)
+                .into_iter()
+                .filter(|violation| quoted(probe, violation)),
+        );
     }
     let mut reasons = Vec::new();
     let redundant = violations

@@ -79,7 +79,15 @@ impl<'text> Eligible<'text> {
         style: ScalarStyle,
         mode: Mode,
         context: crate::rules::support::collection_style::RetainedContext,
+        source_context: crate::rules::support::collection_style::RetainedContext,
     ) -> Option<Self> {
+        // Compatibility quoting can change an already-plain flow scalar's legacy-reader value.
+        if style == ScalarStyle::Plain
+            && source_context.in_flow()
+            && config.compatibility_quotes(model.value())
+        {
+            return None;
+        }
         let keep = matches!(mode, Mode::Format)
             && matches!(
                 style,

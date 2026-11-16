@@ -609,8 +609,18 @@ extra-required = ['\?']
 # before
 args: [/health?ready=true]
 # after
-args: ['/health?ready=true']
+args: [/health?ready=true]
 ```
+
+Existing plain flow strings and keys retain their bytes when only `extra-required`
+or `extra-required-flow` would add compatibility quotes. Some readers interpret a
+leading `?` differently after quoting; lint still reports missing quotes for the
+user to decide. Block strings converted to flow still receive compatibility quotes.
+
+If converting a flow collection to block would require quoting one of those retained
+plain strings or keys, the collection stays in flow. Other collections still follow
+the configured style. The same protection applies to width-driven flow-to-block
+changes, keeping repeated formatting stable.
 
 Only strings under the effective YAML version receive quotes: booleans, numbers,
 nulls and YAML 1.1 timestamps stay typed. Explicit version directives override

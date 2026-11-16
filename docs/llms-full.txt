@@ -946,12 +946,21 @@ YAML 1.2.2 §7.3.3, productions 126–130, permits `/health?ready=true`, `?foo`
 and `:foo` as flow plain strings, but some application readers reject or misread
 them. The reference parser reports `+SEQ []`, `=VAL :/health?ready=true`, `-SEQ`
 for the URL sequence, and `=VAL :?foo` for the question-prefixed string.
-Ryl quotes matching strings without changing block-context expression wrapping.
+Ryl quotes matching block strings when converting to flow without changing
+block-context expression wrapping.
 
 ryl reads yamllint configs and directives, but behaves differently in a small number
 of places. Each difference is deliberate: ryl follows the YAML 1.2.2 specification and
 its reference parser, reports a problem rather than ignoring it, or avoids repeated
 output. The complete list:
+
+### Existing plain flow strings under compatibility patterns
+
+Compatibility quote patterns are diagnostic-only for already-plain flow strings
+and keys: both `ryl format` and `ryl check --fix` retain their original bytes.
+For `[?x]`, YAML 1.2.2 production 126 and the reference parser yield `=VAL :?x`;
+legacy readers can instead load a mapping, so adding quotes changes their value.
+Block strings converted to flow still receive compatibility quotes.
 
 ### Rules with no yamllint equivalent
 
@@ -3167,8 +3176,18 @@ extra-required = ['\?']
 # before
 args: [/health?ready=true]
 # after
-args: ['/health?ready=true']
+args: [/health?ready=true]
 ```
+
+Existing plain flow strings and keys retain their bytes when only `extra-required`
+or `extra-required-flow` would add compatibility quotes. Some readers interpret a
+leading `?` differently after quoting; lint still reports missing quotes for the
+user to decide. Block strings converted to flow still receive compatibility quotes.
+
+If converting a flow collection to block would require quoting one of those retained
+plain strings or keys, the collection stays in flow. Other collections still follow
+the configured style. The same protection applies to width-driven flow-to-block
+changes, keeping repeated formatting stable.
 
 Only strings under the effective YAML version receive quotes: booleans, numbers,
 nulls and YAML 1.1 timestamps stay typed. Explicit version directives override
@@ -3454,6 +3473,14 @@ All eight ecosystem presets require quotes on strings their readers mishandle in
 flow collections, including mapping keys. Block-context strings keep their existing
 quoting policy. The requirements also apply when formatting converts block to flow;
 keep `quoted-strings` enabled to retain reader compatibility.
+
+Already-plain flow strings and keys keep their bytes under compatibility patterns;
+lint reports missing quotes for the user to decide. Quoting `[?x]` can change a
+legacy reader's mapping into a string.
+
+A flow collection stays in flow when conversion to block would require quoting a
+retained plain string or key. Other collections still follow the configured style;
+the exception also covers width-driven conversions.
 
 | Presets | `extra-required-flow` | Reader compatibility |
 | --- | --- | --- |
@@ -3756,8 +3783,8 @@ min-spaces-from-content = 1
 forbid = "non-empty"
 
 [lint.rules.quoted-strings]
-# Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
-quote-type = "double"
+quote-type = "any"
+allow-double-quotes-for-escaping = true
 # Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
 required = false
 # Home Assistant YAML style: https://github.com/home-assistant/developers.home-assistant/blob/master/docs/documenting/yaml-style-guide.md
@@ -4057,6 +4084,10 @@ Sources:
 
 Use for GitLab CI pipelines, including the native `!reference` tag.
 
+Existing quotes are retained so `v: ":foo"` remains a String in Ruby/Psych.
+Known limit: converting block `- :foo` to flow with `sequence-style = "flow"`
+quotes the scalar; Psych then reads a String instead of a Symbol.
+
 ```toml
 # GitLab CI pipelines
 [files]
@@ -4105,6 +4136,9 @@ allowed-tags = ["!reference"]
 [lint.rules.quoted-strings]
 required = false
 extra-required-flow = ['^[?:]|:\?']
+
+[format]
+keep-quotes = true
 ```
 
 Sources:
@@ -8203,6 +8237,12 @@ converted from block to flow. Flow patterns also apply to explicitly tagged stri
 (`!!str`); other core tags remain exempt. Collection width includes the required
 quotes before choosing flow style. Literal and folded block scalars remain unchanged.
 Empty explicitly tagged scalars are exempt from flow patterns, including with anchors.
+
+Both rewrite commands leave already-plain flow strings and keys unchanged when
+`extra-required` or `extra-required-flow` would add compatibility quotes. Lint still
+reports the missing quotes. For example, `[?x]` stays `[?x]`: legacy readers may
+load a mapping before quoting and a string afterward. Strings converted from block
+to flow still gain the required quotes.
 
 `ryl check --fix` rewrites string scalars to use the configured `quote-type` and
 adds or removes quotes to satisfy `required`. The fix is conservative: it
