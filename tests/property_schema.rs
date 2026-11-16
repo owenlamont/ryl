@@ -357,7 +357,7 @@ proptest! {
     ) {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(format!("{name}[1].json")), "false").unwrap();
-        let schema = json!({keyword:[{"$ref":format!("{name}%5B1%5D.json")},{"type":"string"}]});
+        let schema = json!({"$id":format!("nested/{name}.json"),keyword:[{"$ref":format!("../{name}%5B1%5D.json")},{"type":"string"}]});
         let ctx = crate::cli_schema_rule::config(dir.path(), &schema);
         let hits = ryl::rules::schema::check("{}\n", &ctx.config, Path::new("in.yaml"));
         prop_assert_eq!(hits.len(), 1);

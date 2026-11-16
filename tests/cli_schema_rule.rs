@@ -10,6 +10,36 @@ use crate::common::cli::{run, run_with_stdin, ryl};
 mod directives;
 
 #[test]
+fn schema_identifiers_scope_local_and_cross_file_references_once() {
+    for schema in [
+        json!({"$id":"nested/base.json","$defs":{"name":{"type":"string"}},"properties":{"name":{"$ref":"#/$defs/name"}}}),
+        json!({"$id":"nested/base.json","properties":{"name":{"$ref":"name.json"}}}),
+        json!({"$id":"https://example.com/nested/base.json","$defs":{"name":{"type":"string"}},"properties":{"name":{"$ref":"#/$defs/name"}}}),
+        json!({"properties":{"name":{"$id":"nested/child.json","$defs":{"value":{"type":"string"}},"$ref":"#/$defs/value"}}}),
+        json!({"$schema":"http://json-schema.org/draft-07/schema#","$id":"nested/base.json","definitions":{"name":{"type":"string"}},"properties":{"name":{"$ref":"#/definitions/name"}}}),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("nested")).unwrap();
+        fs::write(dir.path().join("nested/name.json"), r#"{"type":"string"}"#).unwrap();
+        let _ = config(dir.path(), &schema);
+        for (yaml, code) in [("name: text\n", 0), ("name: 1\n", 1)] {
+            fs::write(dir.path().join("in.yaml"), yaml).unwrap();
+            let (status, stdout, stderr) = run(ryl(dir.path())
+                .arg("check")
+                .arg("-c")
+                .arg(dir.path().join(".ryl.toml"))
+                .arg(dir.path().join("in.yaml")));
+            assert_eq!(status, code, "{schema}: {stdout}{stderr}");
+            if code == 1 {
+                let output = format!("{stdout}{stderr}");
+                assert!(output.contains("schema"), "{output}");
+                assert!(output.contains("value is not of type"), "{output}");
+            }
+        }
+    }
+}
+
+#[test]
 fn schema_legacy_builtin_metaschema_refs_validate_offline() {
     for draft in ["04", "06", "07"] {
         let dir = tempfile::tempdir().unwrap();

@@ -124,9 +124,6 @@ fn lookup<'a>(
         .lookup("#")
         .expect("prepared registry contains the root");
     let (mut value, mut resolver, mut draft) = root.into_inner();
-    resolver = resolver
-        .in_subresource(draft.create_resource_ref(value))
-        .expect("prepared root has a valid scope");
     let tokens = pointer
         .split('/')
         .skip(1)
