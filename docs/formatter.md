@@ -403,7 +403,10 @@ the scalar header.
 
 With `"flow"`, a block collection of scalars and aliases that is not the document root
 becomes one flow line, such as `items: [one, two]`, when it holds no comment and the
-line fits `line-length`. Block scalars, multi-line or empty entries, and plain scalars
+line fits `line-length`. With `sequence-expand = "auto"` or `mapping-expand = "auto"`,
+the flow line can fit beside or below its mapping key: at `line-length = 5`,
+both `a: [b]` and a block sequence under `a` become `a:` followed by `  [b]`.
+Block scalars, multi-line or empty entries, and plain scalars
 holding `,[]{}` or starting with `:` or `?` keep it block. A flow collection whose one
 line would not fit `line-length` becomes block, and each collection nested in it is
 then judged the same way at its new position:
@@ -437,6 +440,10 @@ a trailing comment on a standalone collection stays with that value.
 | `"never"` | One line |
 | `"always"` | One entry per line |
 | `"auto"` | First layout below that fits `line-length` |
+
+With `sequence-style = "flow"` or `mapping-style = "flow"`, width handling can
+override `"preserve"`: if the expanded placement would overflow but the collection
+fits inline beside its key, the overflow fallback emits inline flow on the first run.
 
 `"auto"` tries, in order:
 

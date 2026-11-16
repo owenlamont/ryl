@@ -502,14 +502,22 @@ pub fn arb_collection_layout() -> impl Strategy<Value = (String, String)> {
         any::<bool>(),
         any::<bool>(),
         prop::sample::select(vec!["", "!tag ", "&a "]),
-        0usize..4,
+        0usize..9,
+        any::<bool>(),
+        prop::sample::select(vec!["preserve", "auto", "always", "never"]),
     )
-        .prop_map(|(word, mapping, crlf, property, family)| {
+        .prop_map(|(word, mapping, crlf, property, family, spread, expand)| {
             let value = if family == 0 { format!("\"a\n {word}\"") } else { word };
-            let (kind, collection) = if mapping {
-                ("mapping", format!("{{k: {value}}}"))
+            let (kind, collection) = match (mapping, family == 6 && spread || family == 8) {
+                (true, true) => ("mapping", format!("{{\n k: {value}\n }}")),
+                (true, false) => ("mapping", format!("{{k: {value}}}")),
+                (false, true) => ("sequence", format!("[\n {value}\n ]")),
+                (false, false) => ("sequence", format!("[{value}]")),
+            };
+            let (outer, other) = if mapping {
+                (format!("[{property}{collection}]"), "sequence")
             } else {
-                ("sequence", format!("[{value}]"))
+                (format!("{{a: {property}{collection}}}"), "mapping")
             };
             let (input, config) = match family {
                 0 => (
@@ -527,9 +535,29 @@ pub fn arb_collection_layout() -> impl Strategy<Value = (String, String)> {
                         property.len() + collection.len() + 1,
                     ),
                 ),
-                _ => (
+                3 => (
                     format!(": {property}{collection}\n"),
                     format!("indent-width=8\nline-length=10\n[format]\n{kind}-style='flow'\n{kind}-expand='always'\n"),
+                ),
+                4 => (
+                    format!("# c\n{property}{collection}\n"),
+                    format!("[format]\n{kind}-style='block'\n{kind}-expand='always'\n"),
+                ),
+                5 => (
+                    format!("-\n  # c\n  {outer}\n"),
+                    format!("line-length=8\n[format]\n{kind}-style='flow'\n{other}-style='block'\n"),
+                ),
+                6 => (
+                    format!("{outer}\n"),
+                    format!("indent-width=4\nline-length=6\n[format]\n{kind}-style='flow'\n{kind}-expand='{expand}'\n{other}-style='block'\n"),
+                ),
+                7 => (
+                    format!("--- {property}{collection}\n"),
+                    format!("[format]\n{kind}-expand='always'\n"),
+                ),
+                _ => (
+                    format!("a: {property}{collection}\n"),
+                    format!("indent-width=4\nline-length={}\n[format]\n{kind}-style='flow'\n", 3 + property.len() + value.len() + if mapping { 5 } else { 2 }),
                 ),
             };
             let input = if crlf { input.replace('\n', "\r\n") } else { input };
