@@ -870,6 +870,24 @@ fn schema_hover_follows_unambiguous_structure_even_for_invalid_values() {
             "Root scope",
         ),
         (
+            json!({"$id":"https://example.com/nested/base.json","$defs":{"name":{"title":"Absolute scope"}},"properties":{"name":{"$ref":"#/$defs/name"}}}),
+            "name: x\n",
+            vec![(0, 0)],
+            "Absolute scope",
+        ),
+        (
+            json!({"properties":{"name":{"$id":"nested/child.json","$defs":{"value":{"title":"Child scope"}},"$ref":"#/$defs/value"}}}),
+            "name: x\n",
+            vec![(0, 0)],
+            "Child scope",
+        ),
+        (
+            json!({"$schema":"http://json-schema.org/draft-07/schema#","$id":"nested/base.json","definitions":{"name":{"title":"Draft 7 scope"}},"properties":{"name":{"$ref":"#/definitions/name"}}}),
+            "name: x\n",
+            vec![(0, 0)],
+            "Draft 7 scope",
+        ),
+        (
             json!({"properties":{"a/b~c":{"description":"Escaped pointer"}}}),
             "a/b~c: x\n",
             vec![(0, 0)],
@@ -1274,36 +1292,37 @@ fn legacy_resource_hover(target: Value, expected: &str) {
 
 #[test]
 fn schema_hover_uses_prepared_external_refs_and_id_scopes() {
-    let dir = project(&local_config("schema.json"));
-    std::fs::write(
-        dir.path().join("schema.json"),
+    for schema in [
         r#"{"properties":{"name":{"$id":"nested/scope.json","$ref":"../child.json"}}}"#,
-    )
-    .unwrap();
-    std::fs::write(
-        dir.path().join("child.json"),
-        r#"{"description":"External"}"#,
-    )
-    .unwrap();
-    let (mut client, _) = Client::launch_with(None, None, true, None, true, None);
-    let uri = file_uri(dir.path(), "test.yaml");
-    client.did_open(uri.clone(), "name: x\n");
-    let _ = client.diagnostics();
-    std::fs::remove_file(dir.path().join("child.json")).unwrap();
-    assert_eq!(
-        hover_text(client.hover(&uri, 0, 0).unwrap()),
-        "External",
-        "hover does not read schema files"
-    );
-    std::fs::write(
-        dir.path().join("child.json"),
-        r#"{"description":"Updated"}"#,
-    )
-    .unwrap();
-    changed_schema(&client, dir.path(), "child.json", 2);
-    let _ = client.diagnostics();
-    assert_eq!(hover_text(client.hover(&uri, 0, 0).unwrap()), "Updated");
-    client.shutdown();
+        r#"{"$id":"nested/base.json","properties":{"name":{"$ref":"../child.json"}}}"#,
+    ] {
+        let dir = project(&local_config("schema.json"));
+        std::fs::write(dir.path().join("schema.json"), schema).unwrap();
+        std::fs::write(
+            dir.path().join("child.json"),
+            r#"{"description":"External"}"#,
+        )
+        .unwrap();
+        let (mut client, _) = Client::launch_with(None, None, true, None, true, None);
+        let uri = file_uri(dir.path(), "test.yaml");
+        client.did_open(uri.clone(), "name: x\n");
+        let _ = client.diagnostics();
+        std::fs::remove_file(dir.path().join("child.json")).unwrap();
+        assert_eq!(
+            hover_text(client.hover(&uri, 0, 0).unwrap()),
+            "External",
+            "hover does not read schema files"
+        );
+        std::fs::write(
+            dir.path().join("child.json"),
+            r#"{"description":"Updated"}"#,
+        )
+        .unwrap();
+        changed_schema(&client, dir.path(), "child.json", 2);
+        let _ = client.diagnostics();
+        assert_eq!(hover_text(client.hover(&uri, 0, 0).unwrap()), "Updated");
+        client.shutdown();
+    }
 }
 
 #[test]

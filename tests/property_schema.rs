@@ -92,18 +92,27 @@ fn check_overlap(source: &str) {
 }
 
 fn check_spans(source: &str) {
-    static CONFIG: LazyLock<(tempfile::TempDir, ryl::config::YamlLintConfig)> =
+    static CONFIGS: LazyLock<Vec<(tempfile::TempDir, ryl::config::YamlLintConfig)>> =
         LazyLock::new(|| {
-            let dir = tempfile::tempdir().unwrap();
-            let ctx = crate::cli_schema_rule::config(
-                dir.path(),
-                &json!({"additionalProperties":{"type":"string"},"items":{"type":"integer"}}),
-            );
-            (dir, ctx.config)
+            let schemas = [
+                json!({"additionalProperties":{"type":"string"},"items":{"type":"integer"}}),
+                json!({"contains":{"const":1},"minItems":2,"minProperties":2}),
+            ].into_iter().chain(["04", "06", "07"].map(|draft| {
+                let meta = format!("http://json-schema.org/draft-{draft}/schema#");
+                json!({"$schema":meta,"$ref":meta})
+            }));
+            schemas
+                .map(|schema| {
+                    let dir = tempfile::tempdir().unwrap();
+                    let ctx = crate::cli_schema_rule::config(dir.path(), &schema);
+                    (dir, ctx.config)
+                })
+                .collect()
         });
-    let hits = ryl::rules::schema::check(source, &CONFIG.1, Path::new("in.yaml"));
+    let hits = CONFIGS.iter().flat_map(|(_, config)| {
+        ryl::rules::schema::check(source, config, Path::new("in.yaml"))
+    });
     let spans = hits
-        .into_iter()
         .map(|hit| crate::property::check_harness::Span {
             rule: "schema",
             line: hit.line,
@@ -348,7 +357,7 @@ proptest! {
     ) {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(format!("{name}[1].json")), "false").unwrap();
-        let schema = json!({keyword:[{"$ref":format!("{name}%5B1%5D.json")},{"type":"string"}]});
+        let schema = json!({"$id":format!("nested/{name}.json"),keyword:[{"$ref":format!("../{name}%5B1%5D.json")},{"type":"string"}]});
         let ctx = crate::cli_schema_rule::config(dir.path(), &schema);
         let hits = ryl::rules::schema::check("{}\n", &ctx.config, Path::new("in.yaml"));
         prop_assert_eq!(hits.len(), 1);

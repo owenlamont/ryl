@@ -177,17 +177,13 @@ impl Graph {
         let root = registry
             .resolver(uri.clone())
             .lookup(uri.as_str())
-            .and_then(|root| {
+            .map(|root| {
                 let (value, resolver, draft) = root.into_inner();
-                resolver
-                    .in_subresource(draft.create_resource_ref(value))
-                    .map(|resolver| {
-                        (
-                            (value, resolver, draft, "#".to_owned()),
-                            None::<(usize, Kind)>,
-                            false,
-                        )
-                    })
+                (
+                    (value, resolver, draft, "#".to_owned()),
+                    None::<(usize, Kind)>,
+                    false,
+                )
             });
         let mut graph = Self::default();
         let mut indices = HashMap::new();

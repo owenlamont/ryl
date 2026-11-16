@@ -9,6 +9,147 @@ use crate::common::cli::{run, run_with_stdin, ryl};
 
 mod directives;
 
+#[test]
+fn schema_identifiers_scope_local_and_cross_file_references_once() {
+    for schema in [
+        json!({"$id":"nested/base.json","$defs":{"name":{"type":"string"}},"properties":{"name":{"$ref":"#/$defs/name"}}}),
+        json!({"$id":"nested/base.json","properties":{"name":{"$ref":"name.json"}}}),
+        json!({"$id":"https://example.com/nested/base.json","$defs":{"name":{"type":"string"}},"properties":{"name":{"$ref":"#/$defs/name"}}}),
+        json!({"properties":{"name":{"$id":"nested/child.json","$defs":{"value":{"type":"string"}},"$ref":"#/$defs/value"}}}),
+        json!({"$schema":"http://json-schema.org/draft-07/schema#","$id":"nested/base.json","definitions":{"name":{"type":"string"}},"properties":{"name":{"$ref":"#/definitions/name"}}}),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("nested")).unwrap();
+        fs::write(dir.path().join("nested/name.json"), r#"{"type":"string"}"#).unwrap();
+        let _ = config(dir.path(), &schema);
+        for (yaml, code) in [("name: text\n", 0), ("name: 1\n", 1)] {
+            fs::write(dir.path().join("in.yaml"), yaml).unwrap();
+            let (status, stdout, stderr) = run(ryl(dir.path())
+                .arg("check")
+                .arg("-c")
+                .arg(dir.path().join(".ryl.toml"))
+                .arg(dir.path().join("in.yaml")));
+            assert_eq!(status, code, "{schema}: {stdout}{stderr}");
+            if code == 1 {
+                let output = format!("{stdout}{stderr}");
+                assert!(output.contains("schema"), "{output}");
+                assert!(output.contains("value is not of type"), "{output}");
+            }
+        }
+    }
+}
+
+#[test]
+fn schema_legacy_builtin_metaschema_refs_validate_offline() {
+    for draft in ["04", "06", "07"] {
+        let dir = tempfile::tempdir().unwrap();
+        let meta = format!("http://json-schema.org/draft-{draft}/schema#");
+        config(dir.path(), &json!({"$schema":meta,"$ref":meta}));
+        for (yaml, code) in [("{}\n", 0), ("title: []\n", 1)] {
+            let input = dir.path().join("in.yaml");
+            fs::write(&input, yaml).unwrap();
+            let mut cmd = ryl(dir.path());
+            cmd.args(["check", "--offline", "--no-cache", "-c"])
+                .arg(dir.path().join(".ryl.toml"))
+                .arg(&input);
+            let (actual, stdout, stderr) = run(&mut cmd);
+            assert_eq!(actual, code, "draft {draft}, {yaml}: {stdout}{stderr}");
+            if code == 1 {
+                assert!(stderr.contains("1:8"), "{stderr}");
+                assert!(stderr.contains("value is not of type"), "{stderr}");
+            }
+        }
+    }
+}
+
+#[test]
+fn schema_modern_builtin_metaschema_refs_keep_complexity_screening() {
+    for draft in ["2019-09", "2020-12"] {
+        let dir = tempfile::tempdir().unwrap();
+        let meta = format!("https://json-schema.org/draft/{draft}/schema");
+        fs::write(
+            dir.path().join("schema.json"),
+            json!({"$schema":meta,"$ref":meta}).to_string(),
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join(".ryl.toml"),
+            "[[lint.rules.schema.schemas]]\npath = 'schema.json'\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("in.yaml"), "{}\n").unwrap();
+        let mut cmd = ryl(dir.path());
+        cmd.args(["check", "--offline", "--no-cache", "-c"])
+            .arg(dir.path().join(".ryl.toml"))
+            .arg(dir.path().join("in.yaml"));
+        let (code, stdout, stderr) = run(&mut cmd);
+        assert_eq!(code, 2, "{draft}: {stdout}{stderr}");
+        assert!(
+            stderr.contains("overlapping recursive branches"),
+            "{draft}: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn schema_contains_failure_has_grammatical_masked_message() {
+    for (schema, yaml, message) in [
+        (
+            json!({"contains":{"const":1}}),
+            "[2]\n",
+            "array items do not satisfy the `contains` constraints",
+        ),
+        (
+            json!({"contains":{"const":1},"minContains":2}),
+            "[1]\n",
+            "array items do not satisfy the `contains` constraints",
+        ),
+        (
+            json!({"contains":{"const":1},"maxContains":1}),
+            "[1, 1]\n",
+            "array items do not satisfy the `contains` constraints",
+        ),
+        (json!({"minItems":1}), "[]\n", "value has fewer than 1 item"),
+        (
+            json!({"minItems":2}),
+            "[]\n",
+            "value has fewer than 2 items",
+        ),
+        (
+            json!({"minProperties":1}),
+            "{}\n",
+            "value has fewer than 1 property",
+        ),
+        (
+            json!({"minProperties":2}),
+            "{}\n",
+            "value has fewer than 2 properties",
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        config(dir.path(), &schema);
+        fs::write(dir.path().join("in.yaml"), yaml).unwrap();
+        let mut cmd = ryl(dir.path());
+        cmd.args(["check", "--offline", "--no-cache", "-c"])
+            .arg(dir.path().join(".ryl.toml"))
+            .arg(dir.path().join("in.yaml"));
+        let (code, stdout, stderr) = run(&mut cmd);
+        assert_eq!(code, 1, "{schema}: {stdout}{stderr}");
+        assert!(
+            format!("{stdout}{stderr}").contains("1:1"),
+            "{stdout}{stderr}"
+        );
+        assert!(
+            format!("{stdout}{stderr}").contains(message),
+            "{stdout}{stderr}"
+        );
+        let hits = findings(&schema, yaml);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].message, message);
+        assert_eq!((hits[0].line, hits[0].column), (1, 1));
+    }
+}
+
 pub(crate) fn config(dir: &Path, schema: &Value) -> ryl::config::ConfigContext {
     fs::write(dir.join("schema.json"), schema.to_string()).unwrap();
     fs::write(
@@ -43,7 +184,10 @@ fn alias_diagnostics_blame_the_use_site() {
         &json!({"properties":{"copy":{"type":"string"}}}),
         "base: &base {x: 1}\ncopy: *base\n",
     );
+    assert_eq!(hits.len(), 1, "{hits:?}");
     assert_eq!((hits[0].line, hits[0].column), (2, 7));
+    assert_eq!(hits[0].rule, Some("schema"));
+    assert_eq!(hits[0].message, "value is not of type \"string\"");
 }
 
 #[test]
@@ -72,8 +216,14 @@ fn escaped_pointers_and_additional_properties_blame_keys() {
         "a/b~c: nope\nextra: 1\n",
     );
     assert_eq!(hits.len(), 2);
-    assert!(hits.iter().any(|hit| (hit.line, hit.column) == (1, 8)));
-    assert!(hits.iter().any(|hit| (hit.line, hit.column) == (2, 1)));
+    assert_eq!((hits[0].line, hits[0].column), (1, 8));
+    assert_eq!(hits[0].message, "value is not of type \"integer\"");
+    assert_eq!((hits[1].line, hits[1].column), (2, 1));
+    assert_eq!(
+        hits[1].message,
+        "Additional properties are not allowed ('extra' was unexpected)"
+    );
+    assert!(hits.iter().all(|hit| hit.rule == Some("schema")));
 }
 
 #[test]
@@ -380,6 +530,18 @@ fn first_matching_association_wins_with_negated_globs() {
             .arg(dir.path().join(".ryl.toml"))
             .arg(dir.path().join(name)));
         assert_eq!(result.0, expected, "{result:?}");
+        assert!(result.1.is_empty(), "{result:?}");
+        assert_eq!(
+            result
+                .2
+                .matches("False schema does not allow value")
+                .count(),
+            usize::from(expected == 1),
+            "{result:?}"
+        );
+        if expected == 0 {
+            assert!(result.2.is_empty(), "{result:?}");
+        }
     }
 }
 
