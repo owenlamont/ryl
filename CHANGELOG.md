@@ -13,6 +13,8 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ### Fixed
 
+- Relative root schema `$id` values resolve once during validation and LSP hover
+  with jsonschema 0.61.2.
 - The TOML config schema compiles under Ajv strict mode again, so SchemaStore can
   take the 0.29.0 schema (`prose-wrap` and `fold-long-lines` exclusivity).
 
