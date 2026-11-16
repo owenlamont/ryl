@@ -713,17 +713,21 @@ property-order='anchor-first'
 #[test]
 fn large_document_empty_property_keys_preserve_offsets() {
     // More than 1 MiB enables separate parallel event and lexical scans.
-    let input = format!(
-        "#{}\r\nprefix: é\r\nmap: {{ !!str &empty : {{'': x}} }}\r\n",
-        "padding ".repeat(131_073),
-    );
+    let padding = "padding ".repeat(131_073);
+    let tail = "prefix: é\r\nmap: { !!str &empty : {'': x} }\r\n";
+    let input = format!("#{padding}\r\n{tail}");
     let settings =
         "[format]\nmapping-expand = 'always'\nproperty-order = 'anchor-first'\n";
-    preserves_formatted_values(&input, settings);
     let cfg = YamlLintConfig::from_toml_str(settings).unwrap();
     let output = format_str(&input, &cfg, Path::new("case.yaml"), &[]);
-    assert_ne!(output, input);
-    assert!(output.ends_with("prefix: é\nmap:\n  {\n    &empty !!str :\n      {\n        '': x,\n      },\n  }\n"), "{output:?}");
+    let expected_tail = "prefix: é\nmap:\n  {\n    &empty !!str :\n      {\n        '': x,\n      },\n  }\n";
+    assert_eq!(output, format!("# {}\n{expected_tail}", padding.trim_end()));
+    // The reference parser exceeds its timeout on the padding comment.
+    crate::property::reference::check_strict_events(tail, expected_tail).unwrap();
+    assert_eq!(
+        format_str(&output, &cfg, Path::new("case.yaml"), &[]),
+        output
+    );
 }
 
 #[test]

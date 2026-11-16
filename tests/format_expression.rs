@@ -216,19 +216,43 @@ fn first_matching_file_and_scalar_selector_wins_without_merging() {
 
 #[test]
 fn invalid_expression_configuration_is_rejected_on_load() {
-    for entry in [
-        "files = []\npath = '$'\nbreak-before = ['&&']",
-        "files = ['[']\npath = '$'\nbreak-before = ['&&']",
-        "files = ['*']\npath = '$..x'\nbreak-before = ['&&']",
-        "files = ['*']\npath = '$'\nbreak-before = []",
-        "files = ['*']\npath = '$'\nbreak-before = ['']",
-        "files = ['*']\npath = '$'\nbreak-before = ['a b']",
-        "files = ['*']\npath = '$'\nbreak-before = ['&&']\nprotected-patterns = ['[']",
+    for (entry, reason) in [
+        (
+            "files = []\npath = '$'\nbreak-before = ['&&']",
+            "requires non-empty files and break-before lists",
+        ),
+        (
+            "files = ['[']\npath = '$'\nbreak-before = ['&&']",
+            "invalid files glob:",
+        ),
+        (
+            "files = ['*']\npath = '$..x'\nbreak-before = ['&&']",
+            "descendant segments (`..`) are not supported",
+        ),
+        (
+            "files = ['*']\npath = '$'\nbreak-before = []",
+            "requires non-empty files and break-before lists",
+        ),
+        (
+            "files = ['*']\npath = '$'\nbreak-before = ['']",
+            "break-before tokens must be non-empty and contain no whitespace",
+        ),
+        (
+            "files = ['*']\npath = '$'\nbreak-before = ['a b']",
+            "break-before tokens must be non-empty and contain no whitespace",
+        ),
+        (
+            "files = ['*']\npath = '$'\nbreak-before = ['&&']\nprotected-patterns = ['[']",
+            "invalid protected-patterns regex:",
+        ),
     ] {
         let error =
             YamlLintConfig::from_toml_str(&format!("[[format.prose]]\n{entry}\n"))
                 .unwrap_err();
-        assert!(error.contains("format.prose"), "{error}");
+        assert!(
+            error.starts_with(&format!("invalid config: format.prose {reason}")),
+            "{error}"
+        );
     }
     assert!(YamlLintConfig::from_yaml_str("format:\n  prose: []\n").is_err());
     let (code, _, error, _) = crate::common::cli::ryl_on(
