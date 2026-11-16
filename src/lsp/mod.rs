@@ -871,8 +871,6 @@ impl Server {
                 });
                 diagnostics
             }
-            // A broken config disables linting silently; tell the user once, then publish
-            // empty diagnostics.
             Err(error) => {
                 self.report_config_error(connection, &error);
                 if error.contains("schema") {

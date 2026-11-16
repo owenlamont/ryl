@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use ryl::config::{
-    Env, FormatEnv, Overrides, SystemEnv, discover_config_with, discover_per_file_with,
+    Env, FormatEnv, Overrides, ServerEnv, SystemEnv, discover_config_with,
+    discover_per_file_with,
 };
 use tempfile::tempdir;
 
@@ -320,8 +321,22 @@ fn system_env_read_invalid_encoding_reports_error() {
 }
 
 #[test]
-fn format_env_uses_the_system_home() {
-    assert_eq!(FormatEnv.home_dir(), SystemEnv.home_dir());
+fn format_and_server_env_keep_system_io_with_distinct_schema_policies() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    std::fs::write(&path, "[format]\n").unwrap();
+    for env in [&FormatEnv as &dyn Env, &ServerEnv] {
+        assert_eq!(env.home_dir(), SystemEnv.home_dir());
+        assert_eq!(env.config_dir(), SystemEnv.config_dir());
+        assert_eq!(env.current_dir(), SystemEnv.current_dir());
+        assert_eq!(env.env_var("PATH"), SystemEnv.env_var("PATH"));
+        assert!(env.path_exists(&path));
+        assert_eq!(env.read_to_string(&path).unwrap(), "[format]\n");
+    }
+    assert!(!FormatEnv.prepare_lint_schemas());
+    assert!(FormatEnv.remote_schemas());
+    assert!(ServerEnv.prepare_lint_schemas());
+    assert!(!ServerEnv.remote_schemas());
 }
 
 #[test]
