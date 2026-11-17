@@ -5,18 +5,40 @@ summarize user-visible changes from the tagged commits and published release rec
 
 ## Unreleased
 
+## v0.30.0
+
 ### Added
 
-- Opt-in schema header directives: `# yaml-language-server: $schema=...` and
-  `# $schema: ...`, with per-document overrides, `none`, confined file-relative paths
-  and the existing remote-origin grants. Enable with `[lint.rules.schema] directives = true`.
+- `ryl init` creates `.ryl.toml`, with ten presets available through
+  `--preset`.
+- TOML-only `schema` validates YAML against local JSON Schemas or HTTPS resources behind
+  user origin grants, with content pins and `--offline` cache support.
+- Opt-in schema headers (`# yaml-language-server: $schema=...` and `# $schema: ...`)
+  select schemas per document; `none` skips validation.
+- The language server offers remote-origin approval actions, watches local schema
+  dependencies, and shows schema titles and descriptions on hover.
+- `[format] prose` selects expression break points and protected spans when
+  `prose-wrap = "always"`.
+- `anchors` gains `forbid-aliases` to reject alias use.
+- Notices emit GitHub annotations under GitHub Actions.
+
+### Changed
+
+- Formatting adds quotes required by enabled `quoted-strings` settings, except under
+  `quote-style = "preserve"`.
+- Formatting quotes strings that flow-context readers reject, preserving values in
+  Kubernetes, Helm and Compose presets.
 
 ### Fixed
 
-- Relative root schema `$id` values resolve once during validation and LSP hover
-  with jsonschema 0.61.2.
-- The TOML config schema compiles under Ajv strict mode again, so SchemaStore can
-  take the 0.29.0 schema (`prose-wrap` and `fold-long-lines` exclusivity).
+- Expression wrapping no longer panics on blank folded values after multibyte keys.
+- Collection layout and scalar folding settle on the first format run, including nested
+  sequences and reshaped dashes.
+- The Home Assistant preset formats without a quote-style conflict warning.
+- Relative root schema `$id` values resolve once, and bundled legacy metaschema
+  references validate offline.
+- Schema failures and CLI recovery messages explain actionable next steps.
+- The TOML config schema compiles under Ajv strict mode again.
 
 ## v0.29.0
 

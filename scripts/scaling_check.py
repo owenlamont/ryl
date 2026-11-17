@@ -35,6 +35,9 @@ MIB: Final = 1024 * 1024
 _MARKDOWN_BLOCK_BYTES: Final = 2048
 _FILES_PER_DIRECTORY: Final = 500
 _COUNT_FILE_BYTES: Final = 1500
+_OPTION_CONTEXT: Final = {
+    ("comments", "max-spaces-from-content"): "min-spaces-from-content = 1\n"
+}
 app = typer.Typer(
     add_completion=False, context_settings={"help_option_names": ["-h", "--help"]}
 )
@@ -225,7 +228,8 @@ def series(binary: str) -> Iterator[Series]:
                 name=f"rule {rule} {option}={toml_value(value)}",
                 command=(*check, "--enable", rule),
                 inputs=dense,
-                config=f"[lint.rules.{rule}]\n{option} = {toml_value(value)}\n",
+                config=f"[lint.rules.{rule}]\n{option} = {toml_value(value)}\n"
+                + _OPTION_CONTEXT.get((rule, option), ""),
             )
     every_rule = "\n".join(DENSE.values())
     families = {

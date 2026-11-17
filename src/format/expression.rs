@@ -199,6 +199,7 @@ pub(crate) fn select(
                         .expect("a key root belongs to a mapping");
                     *key = Some(value.into_owned());
                 } else if !context.active()
+                    && !value.trim().is_empty()
                     && let Some(entry) = entries
                         .iter()
                         .find(|entry| key_path::matches(&entry.path, &path))

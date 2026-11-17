@@ -176,6 +176,25 @@ fn astral_key_prefix_keeps_byte_positions_aligned() {
 }
 
 #[test]
+fn empty_folded_values_after_multibyte_keys_skip_expression_matching() {
+    let cfg = crate::common::format_config::load(&format!(
+        "[format]\nprose-wrap = 'always'\n{}",
+        ENTRY.replace("$.expression", "$.*")
+    ));
+    for input in ["🦀: >\n", "🦀: >+\n\n"] {
+        let output = format_str(input, &cfg, Path::new("case.yaml"), &[]);
+        assert_eq!(output, input);
+        crate::property::reference::check_strict_events(input, &output).unwrap();
+    }
+}
+
+#[test]
+fn suppressed_quoted_line_keeps_spaces_absent_from_its_folded_value() {
+    let input = "# ryl disable rule:line-length\nexpression: \"x  \n  y\"\n";
+    assert_format(input, input, 20);
+}
+
+#[test]
 fn crlf_chomping_paragraphs_and_more_indented_content_survive() {
     let cfg = crate::common::format_config::load(&format!(
         "line-length = 12\n[format]\nprose-wrap = 'always'\nline-ending = 'cr-lf'\n{ENTRY}"

@@ -70,11 +70,11 @@ release binary on the runner, verifies its checksum and runs `ryl check .`:
 ```yaml
 - uses: actions/checkout@v7
 - name: Check YAML lint
-  uses: owenlamont/ryl-action@v0.29.0
+  uses: owenlamont/ryl-action@v0.30.0
   with:
     args: check .
 - name: Check YAML formatting
-  uses: owenlamont/ryl-action@v0.29.0
+  uses: owenlamont/ryl-action@v0.30.0
   with:
     args: format --check .
 ```

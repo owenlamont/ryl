@@ -333,6 +333,16 @@ settings such as `key-ordering` `orders`. Deterministic siblings pin empty-confi
 billion-laughs, and rich-valid cases. When a rule gains a config-compiled regex or typed
 option, add its key(s) to `CATALOG` in `strategy.rs`.
 
+## Property Tests For Schema Validation
+
+`tests/property_schema.rs` compares JSON-compatible projection with the shared YAML
+DOM generator and checks diagnostic spans with the rule-checker generator. Separate
+properties exercise versioned merges, scalar tags, alternative-schema failures and
+schema-header selection across lint fixes and formatting. Extend the relevant generator
+when changing projection or directive handling, and retain a named deterministic witness.
+Run `cargo test --test integration property_schema::`; failures persist in
+`target/proptest-regressions/property_schema.txt`.
+
 ## Scaling Check
 
 `uv run --no-project scripts/scaling_check.py` times the release binary on growing

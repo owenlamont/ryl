@@ -169,8 +169,8 @@ user skills; `.agents/skills/` is in-repo contributor tooling and is never publi
   together). The `lychee` hook (an online link check of docs) installs itself from the
   `owenlamont/lychee-pre-commit` mirror; bump its `rev` in `prek.toml`.
 - Node (CI pins 24.15.0) runs the YAML reference parser the formatter property suites
-  check values against; fetch it with `git submodule update --init
-  tests/yaml-reference-parser`.
+  check values against. Run `git submodule update --init` before workspace tests to
+  fetch both the reference parser and the parser crate's pinned YAML test-suite data.
 - `gh` will be available in most, but not all environments to inspect GitHub.
 - Linters/tests may write outside the workspace (e.g. `~/.cache/prek`); if sandboxed,
   request permission escalation for `prek`/`cargo test`/coverage. Allow ≥1-minute

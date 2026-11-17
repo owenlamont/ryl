@@ -1,5 +1,5 @@
 //! Guards the published `skills/ryl/SKILL.md` against CLI drift: every long flag
-//! (`--name`) the skill teaches must still exist in `ryl --help`, so a renamed or
+//! (`--name`) the skill teaches must still exist in root or init help, so a renamed or
 //! removed flag fails the build instead of silently rotting the agent skill.
 
 use std::collections::BTreeSet;
@@ -39,14 +39,17 @@ fn skill_flags_still_exist_in_help() {
     }
 
     let text = std::fs::read_to_string(&skill).expect("SKILL.md should be readable");
-    let help = Command::new(env!("CARGO_BIN_EXE_ryl"))
-        .arg("--help")
-        .output()
-        .expect("`ryl --help` should run");
-    let help = String::from_utf8(help.stdout).expect("--help output should be UTF-8");
-
     let skill_flags = long_flags(&text);
-    let help_flags = long_flags(&help);
+    let mut help_flags = BTreeSet::new();
+    for arguments in [&["--help"][..], &["init", "--help"][..]] {
+        let help = Command::new(env!("CARGO_BIN_EXE_ryl"))
+            .args(arguments)
+            .output()
+            .expect("CLI help should run");
+        assert!(help.status.success(), "help failed for {arguments:?}");
+        let help = String::from_utf8(help.stdout).expect("help output should be UTF-8");
+        help_flags.extend(long_flags(&help));
+    }
     let missing: Vec<&String> = skill_flags.difference(&help_flags).collect();
     assert!(
         missing.is_empty(),

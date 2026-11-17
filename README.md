@@ -71,11 +71,14 @@ and Homebrew builds with its own Rust where it has no prebuilt bottle.
 In GitHub Actions, use [ryl-action](https://github.com/marketplace/actions/ryl-action):
 
 ```yaml
-- uses: owenlamont/ryl-action@v0.29.0
+- uses: owenlamont/ryl-action@v0.30.0
 ```
 
 ## Status and scope
 
+- Validate YAML with project-supplied [JSON Schemas](docs/rules/schema.md), using
+  local files or HTTPS resources behind user origin grants. Optional schema headers
+  select schemas per document; `--offline` uses cached resources only.
 - Import static Prettier, yamlfmt, dprint pretty_yaml or yamlfix settings with
   `ryl --migrate-configs --migrate-from prettier`. Add `--migrate-write` to apply;
   opt into suppression-comment conversion separately with `--migrate-directives`.
@@ -172,21 +175,22 @@ Median of 10 runs; peak RSS is the median of 3 more:
 
 | Input | ryl | yamlfmt | dprint + pretty_yaml | Prettier |
 | --- | ---: | ---: | ---: | ---: |
-| 1 KiB file | 2.1 ms, 9.0 MiB | 2.6 ms, 5.1 MiB | 6.0 ms, 17 MiB | 104 ms, 64 MiB |
-| 16 KiB file | 3.1 ms, 9.5 MiB | 3.8 ms, 6.1 MiB | 9.0 ms, 17 MiB | 146 ms, 80 MiB |
-| 0.9 MiB file | 65 ms, 24 MiB | 127 ms, 72 MiB | 0.51 s, 38 MiB | 1.20 s, 368 MiB |
-| 9.4 MiB file | 0.82 s, 170 MiB | 1.22 s, 652 MiB | 4.87 s, 241 MiB | 9.61 s, 1.8 GiB |
-| 1,000 files | 25 ms, 16 MiB | 232 ms, 17 MiB | 125 ms, 23 MiB | 3.48 s, 248 MiB |
-| 10,000 files | 222 ms, 27 MiB | 2.09 s, 94 MiB | 1.26 s, 45 MiB | 29.4 s, 290 MiB |
+| 1 KiB file | 2.3 ms, 12 MiB | 2.4 ms, 5.6 MiB | 6.1 ms, 17 MiB | 102 ms, 62 MiB |
+| 16 KiB file | 3.3 ms, 12 MiB | 3.8 ms, 6.5 MiB | 9.2 ms, 17 MiB | 151 ms, 79 MiB |
+| 0.9 MiB file | 66 ms, 27 MiB | 131 ms, 72 MiB | 524 ms, 38 MiB | 1.24 s, 370 MiB |
+| 9.4 MiB file | 821 ms, 174 MiB | 1.21 s, 645 MiB | 4.82 s, 240 MiB | 9.68 s, 1.9 GiB |
+| 1,000 files | 32 ms, 20 MiB | 260 ms, 18 MiB | 130 ms, 24 MiB | 3.56 s, 272 MiB |
+| 10,000 files | 309 ms, 31 MiB | 2.31 s, 96 MiB | 1.27 s, 45 MiB | 29.7 s, 285 MiB |
 
 | Lint, `extends: default` | 1 KiB | 9.4 MiB | 1,000 files | 10,000 files |
 | --- | ---: | ---: | ---: | ---: |
-| ryl | 2.2 ms | 0.51 s | 19 ms | 162 ms |
-| yamllint | 68 ms | 30.0 s | 5.25 s | 50.5 s |
+| ryl | 2.3 ms | 0.513 s | 22 ms | 0.171 s |
+| yamllint | 67 ms | 30 s | 5.34 s | 49.6 s |
 
 ryl formats faster than the other three at every size and file count, under all
-three profiles. yamlfmt uses less memory up to 16 KiB and up to 100 files (5.1–10.6 MiB
-against ryl's 9.0–11.5 MiB).
+three profiles (39 format comparisons). Under max common work, yamlfmt uses less
+memory through the 256 KiB size point and through 1,000 files; the 256 KiB result
+is close (14.4 MiB against ryl's 14.5 MiB).
 
 Profiles and what they cannot equalise:
 
@@ -196,18 +200,17 @@ Profiles and what they cannot equalise:
   `max-blank-lines = 1`, `comment-spacing = 1`, `comment-starting-space =
   "preserve"`, `brace-spacing = true`; yamlfmt `retain_line_breaks_single`, double quotes,
   `pad_line_comments: 1`, `trim_trailing_whitespace`; dprint and Prettier defaults.
-  Pairwise identical lines are 95–98%. The rest: ryl's double quote style also
+  Pairwise identical lines are 95–99%. The rest: ryl's double quote style also
   removes quotes no value needs, yamlfmt drops `---`, dprint keeps inline comment
   alignment, and dprint and Prettier wrap long strings at 80 columns.
 - **Defaults**: each tool with no configuration, so each does different work.
 - **Lint**: yamllint reads `extends: default` and ryl reads the TOML that
   `ryl --migrate-configs` writes from the same file. On the benchmark inputs they
-  share 87,479 diagnostics. yamllint alone reports 233: 128 `trailing-spaces` and
-  `empty-lines` inside block scalars, 73 `braces` and `commas` inside Jinja `{{ }}`,
-  18 `comments` on `#cloud-config`, 11 `comments-indentation` in files without a
-  final newline, and 3 others the migration guide lists. ryl alone reports 8: 5
-  `comments` after a block scalar header, and 3 from the same tab and end-of-file
-  differences.
+  share 87,521 diagnostics. yamllint alone reports 255: 155 `trailing-spaces`,
+  56 `braces`, 28 `comments`, 9 `comments-indentation`, 4 `line-length`, and one
+  each for `empty-lines`, `indentation` and syntax. ryl alone reports 18:
+  17 `comments` and one syntax diagnostic with a repair hint. These are diagnostic
+  comparisons, so differently worded reports at the same location can count separately.
 
 Every run gets a fresh copy of its inputs and an empty cache directory, with
 ryl's and Prettier's caches off and dprint's incremental mode off; dprint keeps
@@ -219,10 +222,10 @@ Each size point is a different file, so content varies along that axis.
 
 | Tool | Version |
 | --- | --- |
-| ryl | 0.28.0 |
+| ryl | 0.30.0 |
 | yamllint | 1.38.0 |
 | yamlfmt | 0.21.0 |
-| Prettier | 3.9.10 |
+| Prettier | 3.10.1 |
 | dprint + pretty_yaml | 0.64.3 + 0.6.0 |
 
 The [benchmark script](scripts/benchmark_yaml_tools.py) reruns everything and draws
