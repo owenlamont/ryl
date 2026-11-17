@@ -130,6 +130,10 @@ jobs:
     strategy:
       matrix:
         target: [x86_64, aarch64, armv7, i686, ppc64le, s390x]
+    env:
+      # The manylinux2014 cross image's GCC 4.8.5 leaves __ARM_ARCH undefined on aarch64,
+      # which ring's assembly requires; maturin-action passes CFLAGS* into its container.
+      CFLAGS_aarch64_unknown_linux_gnu: -D__ARM_ARCH=8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       # QEMU-emulated manylinux builds flake transiently; retry once before failing.
