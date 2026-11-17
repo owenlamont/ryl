@@ -165,32 +165,25 @@ jobs:
 
           python3 - <<'PY'
           import json
+          import re
+          import textwrap
           from pathlib import Path
 
           catalog_path = Path("src/api/json/catalog.json")
-          catalog = json.loads(catalog_path.read_text())
+          text = catalog_path.read_text()
           entry = {
               "name": "ryl",
               "description": "ryl, a fast YAML linter written in Rust",
               "fileMatch": ["ryl.toml", ".ryl.toml"],
               "url": "https://www.schemastore.org/ryl.json",
           }
-          schemas = [
-              schema
-              for schema in catalog["schemas"]
-              if schema.get("url") != entry["url"] and schema.get("name") != entry["name"]
-          ]
-          insert_after = next(
-              (
-                  index + 1
-                  for index, schema in enumerate(schemas)
-                  if schema.get("name") == "rustfmt"
-              ),
-              len(schemas),
-          )
-          schemas.insert(insert_after, entry)
-          catalog["schemas"] = schemas
-          catalog_path.write_text(json.dumps(catalog, indent=2, ensure_ascii=False) + "\n")
+          # Edit ryl's entry in place: re-serialising the catalog rewrites other entries' escapes.
+          block = re.search(r'\n    \{\n      "name": "ryl",\n.*?\n    \}', text, re.DOTALL)
+          if block is None:
+              raise SystemExit("ryl's entry is missing from catalog.json")
+          if json.loads(block[0]) != entry:
+              replacement = "\n" + textwrap.indent(json.dumps(entry, indent=2, ensure_ascii=False), "    ")
+              catalog_path.write_text(text[: block.start()] + replacement + text[block.end() :])
           PY
 
           npx prettier --write \
