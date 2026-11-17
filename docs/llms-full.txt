@@ -78,11 +78,11 @@ release binary on the runner, verifies its checksum and runs `ryl check .`:
 ```yaml
 - uses: actions/checkout@v7
 - name: Check YAML lint
-  uses: owenlamont/ryl-action@v0.29.0
+  uses: owenlamont/ryl-action@v0.30.0
   with:
     args: check .
 - name: Check YAML formatting
-  uses: owenlamont/ryl-action@v0.29.0
+  uses: owenlamont/ryl-action@v0.30.0
   with:
     args: format --check .
 ```
@@ -669,6 +669,14 @@ silence all warnings; formatting passes still run. For syntax repair and encoded
 diff exit codes, use
 the [formatter guarantees](https://ryl-docs.pages.dev/formatter/#guarantees) and
 [diff guidance](https://ryl-docs.pages.dev/getting-started/quickstart/#preview-fixes-as-a-diff).
+
+## Presets and schema validation
+
+Use `ryl init` to create `.ryl.toml`, optionally with an
+[ecosystem preset](https://ryl-docs.pages.dev/config-presets/). For JSON Schema checks, configure the
+TOML-only [schema rule](https://ryl-docs.pages.dev/rules/schema/); remote URLs require separate user origin
+grants. `--offline` uses cached schemas only. In-file schema headers require
+`directives = true` and cannot enable rules or grant network access.
 
 ## Migrating existing tooling
 

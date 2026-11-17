@@ -16,7 +16,7 @@ codes, machine-readable output, in-place edits, and stdin support.
 Install: `pip install ryl`, `cargo install ryl`, or `npm i -g @owenlamont/ryl`.
 Pre-commit via `owenlamont/ryl-pre-commit`: `ryl-check` and `ryl-format`, plus
 `ryl-check-markdown` and `ryl-format-markdown` for embedded YAML. GitHub Actions:
-`owenlamont/ryl-action@v0.29.0` (default `args: check .`).
+`owenlamont/ryl-action@v0.30.0` (default `args: check .`).
 
 ## Critical: ryl has no default-on rules
 
@@ -34,7 +34,8 @@ ryl check --enable ALL --disable line-length,truthy --exclude 'generated/**' .
 `--enable` takes comma-separated rule IDs or `ALL` (every rule, ryl-only ones included)
 and replaces the config's rule selection for that run.
 `--disable` subtracts comma-separated IDs or `ALL` after selection; `--exclude`
-replaces configured exclusions, including for explicit files. Pass each flag once.
+replaces configured exclusions, including for explicit files. `--enable` is repeatable;
+pass `--disable` and `--exclude` once each.
 For `format`, `--disable` suppresses lint conflict warnings without disabling
 formatting passes.
 
@@ -52,6 +53,10 @@ new-line-at-end-of-file = "enable"
 for a rule wins over it.
 
 ## Run and branch on exit codes
+
+Create `.ryl.toml` with `ryl init`, optionally using `--preset kubernetes` or
+another [ecosystem preset](https://ryl-docs.pages.dev/config-presets/).
+Existing local project configs are refused; ancestor configs are not inherited.
 
 ```bash
 ryl check <path|file ...>    # files and/or directories; `ryl check .` recurses, honouring .gitignore
@@ -91,6 +96,24 @@ width. Lint indentation still defaults to `consistent`.
 Under `[format]`, `keep-quotes = true` retains optional scalar quotes;
 `prose-wrap = "preserve"`, `"always"` or `"never"` controls prose reflow.
 Do not combine explicit `prose-wrap` and `fold-long-lines` settings.
+
+Formatting adds quotes required by enabled `quoted-strings` settings unless
+`quote-style = "preserve"`. Scoped `[format] prose` entries control expression
+break points with `prose-wrap = "always"`; see
+[expression wrapping](https://ryl-docs.pages.dev/formatter/#expression-wrapping).
+
+## JSON Schema validation
+
+Enable the TOML-only `schema` rule and associate local schema paths or HTTPS URLs
+with file globs. Remote origins require independent user grants through
+`--schema-allow-origin ORIGIN`, `RYL_SCHEMA_ALLOWED_ORIGINS` or the user allowlist.
+Project configuration cannot grant access. `--offline` permits cached schemas only;
+formatting never loads schemas. Loading failures exit `2`; validation findings exit `1`.
+
+Opt into per-document `# yaml-language-server: $schema=...` or `# $schema: ...`
+headers with `[lint.rules.schema] directives = true`. Headers cannot enable the
+rule or grant origins; `none` skips a document. See the
+[schema rule](https://ryl-docs.pages.dev/rules/schema/) for confinement and limits.
 
 ## Machine-readable output
 
@@ -135,7 +158,7 @@ See [formatter migration](https://ryl-docs.pages.dev/getting-started/migrating-f
 - Formatter-only own-line `# ryl format-ignore` protects the following YAML node;
   `# ryl format-disable` / `# ryl format-enable` protect a region. Lint checks and
   lint fixes still apply. Legacy `yamllint` directives warn but remain supported
-  throughout 0.29.x; `--migrate-directives` converts active aliases.
+  in 0.30.0; `--migrate-directives` converts active aliases.
 - `--markdown` lints YAML front matter and fenced `yaml`/`yml` blocks in Markdown.
 
 ## Full documentation

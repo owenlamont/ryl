@@ -10,6 +10,13 @@ description: >-
 
 # Testing Traps
 
+## Workspace test data
+
+Run `git submodule update --init` before `cargo test --workspace --tests`.
+The parser crate's separate `yaml-test-suite` harness fails when its pinned data
+is missing, even after every integration test passes. Formatter properties also
+require the `tests/yaml-reference-parser` submodule and Node.
+
 ## Config-discovery isolation
 
 ryl's project-config discovery climbs from each input through its ancestors up to `HOME`,

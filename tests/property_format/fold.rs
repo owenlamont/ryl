@@ -229,7 +229,18 @@ fn arb_root() -> impl Strategy<Value = String> {
 
 pub fn arb_fold_document() -> impl Strategy<Value = String> {
     (
-        prop_oneof![3 => arb_mapping(), 2 => arb_sequence(), 1 => arb_root()],
+        prop_oneof![
+            3 => arb_mapping(),
+            2 => arb_sequence(),
+            1 => arb_root(),
+            1 => (
+                prop::sample::select(vec!["ééé", "🦀"]),
+                prop::sample::select(vec![">", ">+", ">3"]),
+                0..3_usize,
+            ).prop_map(|(key, header, blanks)| {
+                format!("{key}: {header}\n{}", "\n".repeat(blanks))
+            }),
+        ],
         prop_oneof![Just("\n"), Just("\r\n"), Just("\r")],
     )
         .prop_map(|(text, newline)| text.replace('\n', newline))

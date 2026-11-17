@@ -42,6 +42,14 @@ diff exit codes, use
 the [formatter guarantees](formatter.md#guarantees) and
 [diff guidance](getting-started/quickstart.md#preview-fixes-as-a-diff).
 
+## Presets and schema validation
+
+Use `ryl init` to create `.ryl.toml`, optionally with an
+[ecosystem preset](config-presets.md). For JSON Schema checks, configure the
+TOML-only [schema rule](rules/schema.md); remote URLs require separate user origin
+grants. `--offline` uses cached schemas only. In-file schema headers require
+`directives = true` and cannot enable rules or grant network access.
+
 ## Migrating existing tooling
 
 Use `ryl --migrate-configs` to preview yamllint or static formatter imports.
