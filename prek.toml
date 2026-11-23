@@ -160,14 +160,14 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/rvben/rumdl-pre-commit"
-rev = "v0.3.2"
+rev = "v0.3.4"
 hooks = [
   { id = "rumdl" }
 ]
 
 [[repos]]
 repo = "https://github.com/charliermarsh/ruff-pre-commit"
-rev = "v0.17.4"
+rev = "v0.17.5"
 hooks = [
   {
     id = "ruff-check",
@@ -204,7 +204,7 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/adhtruong/mirrors-typos"
-rev = "v1.52.0"
+rev = "v1.52.2"
 hooks = [
   {
     id = "typos",
