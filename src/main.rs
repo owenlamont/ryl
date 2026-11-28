@@ -14,6 +14,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 mod cache;
 mod deprecation;
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, IsTerminal, Read, Write};
@@ -72,22 +73,18 @@ fn no_rules_error(config_found: bool) -> String {
     }
 }
 
-fn gather_inputs(inputs: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
-    let mut explicit_files = Vec::new();
-    let mut candidates = Vec::new();
-    for p in inputs {
-        if p.is_dir() {
-            candidates.extend(
-                walk_dir(p)
-                    .flatten()
-                    .filter(is_walked_file)
-                    .map(ignore::DirEntry::into_path),
-            );
-        } else {
-            explicit_files.push(p.clone());
-        }
-    }
-    (candidates, explicit_files)
+fn gather_inputs(inputs: &[PathBuf]) -> impl Iterator<Item = (Cow<'_, Path>, bool)> {
+    let (directories, explicit): (Vec<_>, Vec<_>) = inputs
+        .iter()
+        .map(PathBuf::as_path)
+        .partition(|path| path.is_dir());
+    directories
+        .into_iter()
+        .flat_map(walk_dir)
+        .flatten()
+        .filter(is_walked_file)
+        .map(|entry| (Cow::Owned(entry.into_path()), false))
+        .chain(explicit.into_iter().map(|path| (Cow::Borrowed(path), true)))
 }
 
 fn cli_overrides(args: &LintArgs) -> Overrides {
@@ -1654,15 +1651,10 @@ fn collect_files(args: &LintArgs) -> Result<CollectedFiles, String> {
     } else {
         None
     };
-    let inputs = &args.source.inputs;
-
-    let (candidates, explicit_files) = gather_inputs(inputs);
-
     let mut cache = ConfigCache::default();
     let mut files: Vec<LintFile> = Vec::new();
     let ruleless_config_found = gather_lint_files(
-        &candidates,
-        &explicit_files,
+        gather_inputs(&args.source.inputs),
         global_cfg.as_ref(),
         &flags,
         &mut cache,
@@ -2547,10 +2539,8 @@ fn warn_cached_encoding_override() {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn gather_lint_files(
-    candidates: &[PathBuf],
-    explicit_files: &[PathBuf],
+fn gather_lint_files<'a>(
+    candidates: impl Iterator<Item = (Cow<'a, Path>, bool)>,
     global_cfg: Option<&Arc<ResolvedConfig>>,
     flags: &CliConfigFlags,
     cache: &mut ConfigCache,
@@ -2564,14 +2554,8 @@ fn gather_lint_files(
     // De-duplicate across the walk and explicit args, so a file listed twice is linted once
     // (and `--diff` does not emit a duplicate patch block that fails to apply).
     let mut seen: HashSet<PathBuf> = HashSet::new();
-    // Directory candidates first (a no-kind file is silently skipped), then explicit args (a
-    // no-kind file is a hard error, since the user named it); `explicit` selects which.
-    // `seen` spans both, so a file reached both ways is linted once, in walk order.
-    let tagged = candidates
-        .iter()
-        .map(|path| (path, false))
-        .chain(explicit_files.iter().map(|path| (path, true)));
-    for (path, explicit) in tagged {
+    for (candidate, explicit) in candidates {
+        let path = candidate.as_ref();
         let (context, file_notices) = resolve_ctx(path, global_cfg, flags, cache)?;
         let (cfg, base_dir) = (&context.config, &context.base_dir);
         notices.extend(file_notices);
@@ -2598,7 +2582,7 @@ fn gather_lint_files(
         if !cfg.enables_any_rule() && ruleless_config_found.is_none() {
             ruleless_config_found = Some(context.found);
         }
-        files.push((path.clone(), context, kind));
+        files.push((candidate.into_owned(), context, kind));
     }
 
     Ok(ruleless_config_found)

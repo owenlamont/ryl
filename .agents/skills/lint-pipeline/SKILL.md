@@ -44,13 +44,14 @@ Meta-actions
   `disables_file` before their parse gate, so an unparsable template prints no skip.
 - Config exclusions and `--exclude` skip even explicitly named files; `--exclude`
   replaces config patterns and `exclude-from-file` with cwd-relative globs.
-- Inputs are de-duplicated: a file reached by two spellings (`ryl check . f.yaml`, `f.yaml`
-  twice, or `f.yaml sub/../f.yaml`) is processed once. `gather_lint_files` keys a `seen`
-  set on `main::canonical_input` (`std::path::absolute` + lexical `..` normalization —
-  purely lexical, no symlink resolution, so a symlink stays distinct from its target),
+- Inputs are de-duplicated: a file reached by two spellings (`ryl check . f.yaml`,
+  `f.yaml` twice, or `f.yaml sub/../f.yaml`) is processed once. `gather_lint_files`
+  keys a `seen` set on `cli_support::lexical_abspath` (`std::path::absolute` +
+  lexical `..` normalization, so a symlink stays distinct from its target),
   spanning lint/`--fix`/`--diff`/`--list-files`. Stricter than yamllint (which keeps
   duplicates); for `--diff` a duplicate would emit a repeat patch block that fails to
-  apply on the second copy.
+  apply on the second copy. Directory entries feed selection in walk order, followed by
+  explicitly named files. The selected list still exists before any output is opened.
 - Source kinds (`config::SourceKind`): the `[files]` TOML table maps `yaml` and
   `markdown` to glob lists (`yaml` defaults to `*.yaml`/`*.yml`/`.yamllint`). A file
   matching two kinds is a hard error. `yaml-files` is rejected in TOML (use
@@ -145,9 +146,9 @@ and `fix::diff_files` through `read_in_order`) runs on
 `cli_support::try_for_each_ordered`.
 The calling thread spawns chunks of files on the rayon pool, at most `8 × threads` chunks
 past the oldest unemitted one, and hands each result to its `emit` callback in input
-order, so memory stays flat in the file count. Tasks never block, so a nested
-`rayon::join` cannot deadlock against the window, and a worker panic is re-raised on the
-caller. `check` renders each record to its targets from that callback, `diff_files`
+order, so buffered results are bounded by the worker count. Tasks never block, so
+a nested `rayon::join` cannot deadlock against the window. Worker panics are re-raised on
+the caller. `check` renders each record to its targets from that callback, `diff_files`
 streams each diff and `format` finding, and lint-cache misses are stored every
 `CACHE_BATCH` files. The helper captures each file's stderr for `emit` to replay, through
 the console target when it owns stderr. An error that aborts the run leaves the files
