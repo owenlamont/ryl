@@ -193,6 +193,19 @@ fn named_jinja_template_is_refused() {
 }
 
 #[test]
+fn named_jinja_template_is_refused_even_if_the_walk_selected_it() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("template.yaml");
+    fs::write(&path, TEMPLATE).unwrap();
+    let (code, out) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "-d", "[lint.rules]\ncolons = \"enable\""])
+        .arg(dir.path())
+        .arg(path));
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("a Jinja template"), "{out}");
+}
+
+#[test]
 fn named_template_is_refused_under_an_encoding_override() {
     let td = tempdir().unwrap();
     let path = td.path().join("t.yaml");

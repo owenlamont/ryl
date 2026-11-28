@@ -9,11 +9,13 @@ use crate::config::{
     load_project_config, locate_per_file,
 };
 
-/// Base dir, shared config and whether one was found. `Arc`, not a clone per file: a
-/// cloned glob matcher re-allocates its regex cache on first use.
-pub type ResolvedConfig = (PathBuf, Arc<YamlLintConfig>, bool);
+pub struct ResolvedConfig {
+    pub base_dir: PathBuf,
+    pub config: YamlLintConfig,
+    pub found: bool,
+}
 
-pub type LintFile = (PathBuf, PathBuf, Arc<YamlLintConfig>, SourceKind);
+pub type LintFile = (PathBuf, Arc<ResolvedConfig>, SourceKind);
 
 #[must_use]
 pub fn small_file_batch(files: &[LintFile]) -> bool {
@@ -232,18 +234,18 @@ fn relativize(target: &Path, base: &Path) -> PathBuf {
 /// Returns an error when configuration discovery fails for `path`.
 pub fn resolve_ctx(
     path: &Path,
-    global_cfg: Option<&ResolvedConfig>,
+    global_cfg: Option<&Arc<ResolvedConfig>>,
     flags: &CliConfigFlags,
     cache: &mut ConfigCache,
-) -> Result<(PathBuf, Arc<YamlLintConfig>, Vec<String>, bool), String> {
-    if let Some((base_dir, cfg, found)) = global_cfg {
-        return Ok((base_dir.clone(), Arc::clone(cfg), Vec::new(), *found));
+) -> Result<(Arc<ResolvedConfig>, Vec<String>), String> {
+    if let Some(context) = global_cfg {
+        return Ok((Arc::clone(context), Vec::new()));
     }
     let start = path
         .parent()
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
-    if let Some(entry) = cache.by_dir.get(&start).cloned() {
-        return Ok((entry.0, entry.1, Vec::new(), entry.2));
+    if let Some(entry) = cache.by_dir.get(&start) {
+        return Ok((Arc::clone(entry), Vec::new()));
     }
     let envx: &dyn crate::config::Env = if flags.format_only {
         &crate::config::FormatEnv
@@ -256,7 +258,7 @@ pub fn resolve_ctx(
             mut notices,
         } => {
             if let Some(entry) = cache.by_config.get(&cfg_path) {
-                (entry.clone(), notices)
+                (Arc::clone(entry), notices)
             } else {
                 let ctx = load_project_config(&cfg_path, envx)?;
                 // Each spelling keeps its own base dir, but one file warns once.
@@ -266,7 +268,7 @@ pub fn resolve_ctx(
                     notices.extend(ctx.notices.iter().cloned());
                 }
                 let entry = resolved(ctx, flags, &mut notices)?;
-                cache.by_config.insert(cfg_path, entry.clone());
+                cache.by_config.insert(cfg_path, Arc::clone(&entry));
                 (entry, notices)
             }
         }
@@ -275,8 +277,8 @@ pub fn resolve_ctx(
             (resolved(*ctx, flags, &mut notices)?, notices)
         }
     };
-    cache.by_dir.insert(start, entry.clone());
-    Ok((entry.0, entry.1, notices, entry.2))
+    cache.by_dir.insert(start, Arc::clone(&entry));
+    Ok((entry, notices))
 }
 
 /// Resolved configs keyed by input directory, and project configs by their file, so
@@ -284,8 +286,8 @@ pub fn resolve_ctx(
 /// files whose notices were already reported.
 #[derive(Default)]
 pub struct ConfigCache {
-    by_dir: HashMap<PathBuf, ResolvedConfig>,
-    by_config: HashMap<PathBuf, ResolvedConfig>,
+    by_dir: HashMap<PathBuf, Arc<ResolvedConfig>>,
+    by_config: HashMap<PathBuf, Arc<ResolvedConfig>>,
     warned: HashSet<PathBuf>,
 }
 
@@ -336,14 +338,14 @@ fn resolved(
     ctx: ConfigContext,
     flags: &CliConfigFlags,
     notices: &mut Vec<String>,
-) -> Result<ResolvedConfig, String> {
+) -> Result<Arc<ResolvedConfig>, String> {
     let mut cfg = ctx.config;
     notices.extend(flags.apply(&mut cfg, &ctx.base_dir)?);
-    Ok((
-        ctx.base_dir,
-        Arc::new(cfg),
-        ctx.config_found || flags.enable.is_some(),
-    ))
+    Ok(Arc::new(ResolvedConfig {
+        base_dir: ctx.base_dir,
+        config: cfg,
+        found: ctx.config_found || flags.enable.is_some(),
+    }))
 }
 
 #[must_use]
