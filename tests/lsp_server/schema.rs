@@ -287,7 +287,7 @@ fn directive_formatting_never_fetches_and_offline_never_approves() {
     let mut client = h.client(Limits::default());
     let uri = file_uri(h.dir.path(), "test.yaml");
     client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":format!("# $schema: {ROOT}\nx:  1\n")}}));
-    await_error(&client, "approval required");
+    await_error(&client, "origin not granted");
     let id = client.request(
         "textDocument/formatting",
         json!({"textDocument":{"uri":uri},"options":{"tabSize":2,"insertSpaces":true}}),
@@ -605,6 +605,7 @@ impl Clock for Time {
 
 struct Environment {
     root: std::path::PathBuf,
+    config_dir: std::path::PathBuf,
     remote: Arc<Remote>,
     offline: bool,
     grants: String,
@@ -635,7 +636,7 @@ impl Env for Environment {
             gate.release.recv_timeout(Duration::from_secs(5)).unwrap();
         }
         (!self.config_unavailable.load(Ordering::Relaxed))
-            .then(|| self.root.join("user"))
+            .then(|| self.config_dir.clone())
     }
     fn home_dir(&self) -> Option<std::path::PathBuf> {
         Some(self.root.clone())
@@ -685,6 +686,7 @@ impl Harness {
             .insert(ROOT.to_owned(), br#"{"type":"integer"}"#.to_vec());
         let env = Arc::new(Environment {
             root: dir.path().to_path_buf(),
+            config_dir: dir.path().join("user"),
             remote,
             offline,
             grants: grants.to_owned(),
@@ -2658,6 +2660,105 @@ fn newer_queued_config_replaces_obsolete_preparations() {
 }
 
 #[test]
+fn offline_ungranted_schema_diagnostics_point_to_the_user_allowlist() {
+    let h = Harness::new("", true);
+    let mut client = h.client(Limits::default());
+    let uri = h.open(&client);
+    let allowlist = h.env.config_dir.join("ryl").join("allowed-schema-origins");
+    let expected = format!(
+        "ryl: configuration error, linting is off: schema origin not granted (approvals disabled offline). Add to {} and restart the language server: {ORIGIN}/",
+        allowlist.display()
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    for expected_uri in [&uri, &file_uri(h.dir.path(), ".ryl.toml")] {
+        let diagnostic = loop {
+            assert!(Instant::now() < deadline, "waiting for {expected_uri:?}");
+            let report = client.publish_params();
+            if &report.uri == expected_uri {
+                let [diagnostic]: [Diagnostic; 1] =
+                    report.diagnostics.try_into().expect("one diagnostic");
+                if !diagnostic.message.contains("pending") {
+                    break diagnostic;
+                }
+            }
+        };
+        assert_eq!(
+            diagnostic.severity,
+            Some(lsp_types::DiagnosticSeverity::ERROR)
+        );
+        assert_eq!(diagnostic.message, expected);
+    }
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({"textDocument":{"uri":uri}}),
+    );
+    let diagnostics = pull_items(client.response(&id));
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].message, expected);
+    let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":uri},"range":Range::default(),"context":{"diagnostics":diagnostics,"only":["quickfix"]}}));
+    assert!(client.response(&id).response_result.unwrap().is_null());
+    assert_eq!(h.calls(), 0);
+    client.shutdown();
+}
+
+#[test]
+fn offline_directive_diagnostics_keep_each_origin_at_its_header() {
+    for config_unavailable in [false, true] {
+        let mut h = Harness::new("", true);
+        let dirname = if cfg!(windows) { "A B" } else { "A B: config" };
+        let config_dir = h.dir.path().join(dirname);
+        Arc::get_mut(&mut h.env).unwrap().config_dir = config_dir.clone();
+        h.env
+            .config_unavailable
+            .store(config_unavailable, Ordering::Relaxed);
+        std::fs::write(
+            h.dir.path().join(".ryl.toml"),
+            "[lint.rules.schema]\ndirectives = true\n",
+        )
+        .unwrap();
+        let mut client = h.client(Limits::default());
+        let uri = file_uri(h.dir.path(), "test.yaml");
+        let other = "https://other.example.org";
+        let text = format!(
+            "# $schema: {ROOT}\nx: 1\n---\n# $schema: {other}/root.json\nx: 2\n"
+        );
+        client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":text}}));
+        await_error(&client, "origin not granted");
+        let id = client.request(
+            "textDocument/diagnostic",
+            json!({"textDocument":{"uri":uri}}),
+        );
+        let diagnostics = pull_items(client.response(&id));
+        let allowlist = if config_unavailable {
+            "<user-config-dir>/ryl/allowed-schema-origins".to_owned()
+        } else {
+            config_dir
+                .join("ryl")
+                .join("allowed-schema-origins")
+                .display()
+                .to_string()
+        };
+        assert_eq!(diagnostics.len(), 2);
+        for (diagnostic, (origin, line)) in
+            diagnostics.iter().zip([(other, 3), (ORIGIN, 0)])
+        {
+            assert_eq!(
+                diagnostic.message,
+                format!(
+                    "ryl: configuration error, linting is off: schema origin not granted (approvals disabled offline). Add to {allowlist} and restart the language server: {origin}/"
+                )
+            );
+            assert_eq!(
+                diagnostic.range,
+                Range::new(Position::new(line, 0), Position::new(line, 1))
+            );
+        }
+        assert_eq!(h.calls(), 0);
+        client.shutdown();
+    }
+}
+
+#[test]
 fn offline_and_unprepared_sessions_ignore_approval_commands_and_actions() {
     let h = Harness::new("", true);
     let mut client = h.client(Limits::default());
@@ -2670,7 +2771,7 @@ fn offline_and_unprepared_sessions_ignore_approval_commands_and_actions() {
     for active in [false, true] {
         if active {
             h.open(&client);
-            await_error(&client, "approval required");
+            await_error(&client, "origin not granted");
         }
         for params in [
             json!({"command":"foreign"}),

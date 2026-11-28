@@ -285,9 +285,7 @@ impl Network {
                 grants.insert(origin(raw)?);
             }
         }
-        if let Some(path) = env
-            .config_dir()
-            .map(|p| p.join("ryl/allowed-schema-origins"))
+        if let Some(path) = allowlist_path(env)
             && env.path_exists(&path)
         {
             let fs = allowlist_filesystem(env);
@@ -571,6 +569,11 @@ fn allowlist_filesystem(env: &dyn Env) -> Arc<dyn cache_io::FileSystem> {
     )
 }
 
+pub(crate) fn allowlist_path(env: &dyn Env) -> Option<PathBuf> {
+    env.config_dir()
+        .map(|dir| dir.join("ryl").join("allowed-schema-origins"))
+}
+
 fn regular_allowlist(
     fs: &dyn cache_io::FileSystem,
     path: &Path,
@@ -590,17 +593,16 @@ pub fn persist_origin(env: &dyn Env, raw: &str) -> Result<(), String> {
     if raw != origin {
         return Err("schema grant must be a canonical HTTPS origin".to_owned());
     }
-    let parent = env
-        .config_dir()
-        .ok_or("user config directory unavailable")?
-        .join("ryl");
-    let path = parent.join("allowed-schema-origins");
+    let path = allowlist_path(env).ok_or("user config directory unavailable")?;
+    let parent = path
+        .parent()
+        .expect("allowlist path includes the ryl directory");
     let fs = allowlist_filesystem(env);
     safe_path(fs.as_ref(), &path)
         .map_err(|_| "schema allowlist refuses symlinks or unreadable paths")?;
     regular_allowlist(fs.as_ref(), &path)
         .map_err(|_| "schema allowlist requires a regular file or missing path")?;
-    fs.create_dirs(&parent)
+    fs.create_dirs(parent)
         .map_err(|_| "cannot create user schema allowlist directory")?;
     let lock_path = parent.join("allowed-schema-origins.lock");
     safe_path(fs.as_ref(), &lock_path)
