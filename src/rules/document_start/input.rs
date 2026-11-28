@@ -82,10 +82,7 @@ impl<'a> Lines<'a> {
     }
     pub(super) fn end(&self, line: usize) -> document_end::RetainedMarker {
         document_end::retained_marker(
-            self.source
-                .line_content(line - 1)
-                .strip_prefix('\u{feff}')
-                .unwrap_or(self.source.line_content(line - 1)),
+            self.source.line_content(line - 1).trim_prefix('\u{feff}'),
         )
     }
 }

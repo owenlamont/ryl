@@ -239,8 +239,5 @@ fn is_valid_exponent(exponent: &str) -> bool {
 }
 
 fn without_sign(value: &str) -> &str {
-    value
-        .strip_prefix('+')
-        .or_else(|| value.strip_prefix('-'))
-        .unwrap_or(value)
+    value.trim_prefix(['+', '-'])
 }

@@ -295,7 +295,7 @@ fn decode_utf8(bytes: &[u8]) -> Result<String, String> {
 }
 
 fn decode_utf8_bom(bytes: &[u8]) -> Result<String, String> {
-    let sliced = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+    let sliced = bytes.trim_prefix(&[0xEF, 0xBB, 0xBF]);
     decode_utf8(sliced)
 }
 

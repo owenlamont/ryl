@@ -41,9 +41,7 @@ pub(super) fn boundary(
     final_newline: bool,
 ) -> String {
     if final_newline && initial.unterminated() {
-        text.strip_prefix(initial.ending())
-            .unwrap_or(&text)
-            .to_string()
+        text.trim_prefix(initial.ending()).to_string()
     } else {
         text
     }

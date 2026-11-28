@@ -17,7 +17,7 @@ pub(super) fn validate_prose(entries: &[super::ProseEntry]) -> Result<(), String
             ));
         }
         for glob in &entry.files {
-            Glob::new(glob.strip_prefix('!').unwrap_or(glob))
+            Glob::new(glob.trim_prefix('!'))
                 .map_err(|err| invalid(format!("invalid files glob: {err}")))?;
         }
         key_path::parse(&entry.path).map_err(invalid)?;
@@ -71,7 +71,7 @@ pub fn validate_per_line_ignores(entries: &[PerLineIgnore]) -> Result<(), String
         if let Some(pattern) = entry.path.as_deref() {
             // Validate the same glob the matcher compiles: a leading `!` is a negation
             // marker (per-file-ignores parity), stripped before compilation.
-            let glob = pattern.strip_prefix('!').unwrap_or(pattern);
+            let glob = pattern.trim_prefix('!');
             Glob::new(glob).map_err(|err| {
                 format!(
                     "invalid config: per-line-ignores `path` '{pattern}' is invalid: {err}"
@@ -189,7 +189,7 @@ fn validate_schema_rule(
         .flatten()
         .flat_map(|entry| &entry.files)
     {
-        Glob::new(pattern.strip_prefix('!').unwrap_or(pattern)).map_err(|err| {
+        Glob::new(pattern.trim_prefix('!')).map_err(|err| {
             format!("invalid config: schema files glob '{pattern}': {err}")
         })?;
     }
@@ -242,7 +242,7 @@ fn validate_key_order(order: &KeyOrderEntry) -> Result<(), String> {
         return Err("has an empty `files` list".to_owned());
     }
     for pattern in &order.files {
-        Glob::new(pattern.strip_prefix('!').unwrap_or(pattern))
+        Glob::new(pattern.trim_prefix('!'))
             .map_err(|err| format!("has an invalid `files` glob '{pattern}': {err}"))?;
     }
     key_path::parse(&order.path)

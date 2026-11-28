@@ -35,7 +35,7 @@ pub(super) fn prettier(path: &Path) -> Result<Value, String> {
 pub(super) fn value(path: &Path, syntax: Syntax) -> Result<Value, String> {
     let text = fs::read_to_string(path)
         .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let text = text.trim_prefix('\u{feff}');
     let parsed = match syntax {
         Syntax::Json => serde_json::from_str(text).map_err(|error| error.to_string()),
         Syntax::Json5 => bounded_json5::parse(text).map_err(|error| error.to_string()),
@@ -63,7 +63,7 @@ pub(super) enum YamlfmtRead {
 pub(super) fn yamlfmt(path: &Path) -> Result<YamlfmtRead, String> {
     let text = fs::read_to_string(path)
         .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let text = text.trim_prefix('\u{feff}');
     let version = TextVersion::new(text);
     let analysis = version.analysis();
     let document = checked_document(text, analysis)
@@ -182,7 +182,7 @@ fn yamlfmt_number(text: &str) -> Option<yaml_version::Value> {
     let lower = text.to_ascii_lowercase();
     yaml_version::value(&lower, true, None, true).or_else(|| {
         let cleaned = lower.replace('_', "");
-        let unsigned = cleaned.strip_prefix(['+', '-']).unwrap_or(&cleaned);
+        let unsigned = cleaned.trim_prefix(['+', '-']);
         if unsigned.starts_with("0o") {
             let value = crate::yaml_dom::core_schema_int(unsigned)?;
             return Some(yaml_version::Value::Int(if cleaned.starts_with('-') {

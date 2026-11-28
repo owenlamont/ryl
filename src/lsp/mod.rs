@@ -1564,7 +1564,7 @@ fn prepare_target(
     let env = schema_preparation::SchemaEnv::discovery(session.env.as_ref(), true);
     let generation = session.generation.load(Ordering::Relaxed);
     let result = target.context.config.prepare_document_schemas(
-        text.strip_prefix('\u{feff}').unwrap_or(text),
+        text.trim_prefix('\u{feff}'),
         path,
         &target.context.base_dir,
         target.kind,
