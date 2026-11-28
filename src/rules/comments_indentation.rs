@@ -270,13 +270,11 @@ pub(crate) fn align_trailing(
             RetainedLines(std::borrow::Cow::Borrowed(&retained)),
             columns,
         );
-        for (line, candidate_delta) in candidates
-            .deltas
-            .iter_mut()
-            .enumerate()
-            .take(tail.end)
-            .skip(planner.first())
+        let first = planner.first();
+        for (offset, candidate_delta) in
+            candidates.deltas[first..tail.end].iter_mut().enumerate()
         {
+            let line = first + offset;
             let column = layout.column(line, *candidate_delta);
             let anchor = column.source_anchor();
             if let Some(delta) = planner.line(line, column)
