@@ -340,7 +340,7 @@ impl RetainedFirstLine {
 
 pub(crate) fn retained_first_line(line: &str) -> RetainedFirstLine {
     RetainedFirstLine(crate::rules::support::line_syntax::is_magic_first_line(
-        line.strip_prefix('\u{feff}').unwrap_or(line),
+        line.trim_prefix('\u{feff}'),
     ))
 }
 

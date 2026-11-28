@@ -70,7 +70,6 @@ pub enum SessionOutcome {
 /// # Panics
 /// Only if the stdio reader/writer threads fail to join, which a working transport never
 /// triggers.
-#[must_use]
 pub fn run() -> ExitCode {
     let (connection, io_threads) = Connection::stdio();
     let outcome = serve(&connection);
@@ -1242,9 +1241,7 @@ impl Server {
         let token = params.as_ref().and_then(|params| {
             params.partial_result_params.partial_result_token.clone()
         });
-        let previous = params
-            .map(|params| params.previous_result_ids)
-            .unwrap_or_default();
+        let previous = params.map_or_default(|params| params.previous_result_ids);
         let by_path = previous_by_path(&previous);
         self.pull = Some(Pull {
             id: id.clone(),
@@ -1571,7 +1568,7 @@ fn prepare_target(
     let env = schema_preparation::SchemaEnv::discovery(session.env.as_ref(), true);
     let generation = session.generation.load(Ordering::Relaxed);
     let result = target.context.config.prepare_document_schemas(
-        text.strip_prefix('\u{feff}').unwrap_or(text),
+        text.trim_prefix('\u{feff}'),
         path,
         &target.context.base_dir,
         target.kind,

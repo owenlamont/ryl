@@ -17,7 +17,7 @@ impl CollectionPrefix {
             .all(|token| token.is_empty() || token == "-");
         let dashes = prefix.trim_end_matches(' ');
         let outer = if compact {
-            dashes.strip_suffix('-').unwrap_or(dashes)
+            dashes.trim_suffix('-')
         } else {
             prefix
         };
@@ -68,7 +68,7 @@ impl EntrySite {
         let line = start.line() - 1;
         let at = marker_byte_offset(start).get();
         let prefix = &input.text()[input.byte_line_starts()[line]..at];
-        let prefix = prefix.strip_prefix('\u{feff}').unwrap_or(prefix);
+        let prefix = prefix.trim_prefix('\u{feff}');
         let inline = prefix
             .trim_end_matches([' ', '\t'])
             .strip_suffix('-')

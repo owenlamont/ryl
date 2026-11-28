@@ -558,15 +558,13 @@ fn sorted(entries: &[Entry], order: Order<'_>) -> Vec<usize> {
         .collect();
     moving.sort_by(|&a, &b| order.compare(key(a), key(b)));
     let mut moving = moving.into_iter();
-    (0..entries.len())
-        .map(|slot| {
-            if order.ranks(key(slot)) {
-                moving.next().unwrap_or(slot)
-            } else {
-                slot
-            }
-        })
-        .collect()
+    Vec::from_fn(entries.len(), |slot| {
+        if order.ranks(key(slot)) {
+            moving.next().unwrap_or(slot)
+        } else {
+            slot
+        }
+    })
 }
 
 fn keeps_meaning(

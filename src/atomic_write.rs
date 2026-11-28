@@ -1,20 +1,13 @@
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
+use std::mem::DropGuard;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-struct TempPath(PathBuf);
-
-impl Drop for TempPath {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
-fn temp_file(path: &Path) -> io::Result<(TempPath, File)> {
+fn temp_file(path: &Path) -> io::Result<(PathBuf, File)> {
     let name = path.file_name().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "write target has no file name")
     })?;
@@ -30,7 +23,7 @@ fn temp_file(path: &Path) -> io::Result<(TempPath, File)> {
         .write(true)
         .create_new(true)
         .open(&temp)?;
-    Ok((TempPath(temp), file))
+    Ok((temp, file))
 }
 
 pub(crate) fn write(path: &Path, bytes: &[u8], replace: bool) -> io::Result<()> {
@@ -76,7 +69,11 @@ fn write_temp(
     replace: bool,
     metadata: Option<fs::Metadata>,
 ) -> io::Result<()> {
-    let (temp, mut file) = temp_file(path)?;
+    let (temp, file) = temp_file(path)?;
+    let temp = DropGuard::new(temp, |path| {
+        let _ = fs::remove_file(path);
+    });
+    let mut file = file;
     let written = metadata
         .map_or(Ok(()), |metadata| preserve_metadata(&file, &metadata))
         .and_then(|()| file.write_all(bytes))
@@ -84,9 +81,9 @@ fn write_temp(
     drop(file);
     written.and_then(|()| {
         if replace {
-            fs::rename(&temp.0, path)
+            fs::rename(temp.as_path(), path)
         } else {
-            fs::hard_link(&temp.0, path)
+            fs::hard_link(temp.as_path(), path)
         }
     })
 }

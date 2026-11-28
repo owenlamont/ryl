@@ -704,11 +704,7 @@ fn cwd_relative_label(path: &Path) -> String {
     #[cfg(not(windows))]
     let label = {
         let abspath = crate::cli_support::lexical_abspath(path);
-        abspath
-            .strip_prefix(&cwd)
-            .unwrap_or(&abspath)
-            .display()
-            .to_string()
+        abspath.trim_prefix(&cwd).display().to_string()
     };
     crate::cli_support::sanitize_control(&label).into_owned()
 }
@@ -720,8 +716,7 @@ pub fn windows_diff_label(path: &str, cwd: &str) -> String {
     if path == cwd {
         String::new()
     } else {
-        path.strip_prefix(&format!("{}/", cwd.trim_end_matches('/')))
-            .unwrap_or(&path)
+        path.trim_prefix(&format!("{}/", cwd.trim_end_matches('/')))
             .to_owned()
     }
 }
@@ -731,7 +726,7 @@ fn diff_display_path(path: &str) -> String {
     if let Some(unc) = label.strip_prefix("//?/UNC/") {
         format!("//{unc}")
     } else {
-        label.strip_prefix("//?/").unwrap_or(&label).to_owned()
+        label.trim_prefix("//?/").to_owned()
     }
 }
 
@@ -1107,7 +1102,7 @@ pub(crate) fn non_ascii_marker(formatted: &str) -> bool {
     // The reference parser's marker lookahead includes non-ASCII whitespace.
     crate::rules::support::line_syntax::split_lines_preserve_endings(formatted).any(
         |(_, line, _)| {
-            let line = line.strip_prefix('\u{feff}').unwrap_or(line);
+            let line = line.trim_prefix('\u{feff}');
             crate::rules::support::line_syntax::starts_with_document_marker(line)
                 && line.as_bytes().get(3).is_some_and(|byte| !byte.is_ascii())
         },

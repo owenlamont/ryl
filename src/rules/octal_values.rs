@@ -107,7 +107,7 @@ fn walk(input: Analysis<'_>, cfg: &Config) -> (Vec<Violation>, Vec<Replacement>)
 }
 
 fn is_implicit_octal(value: &str) -> bool {
-    let bytes = value.strip_prefix(['-', '+']).unwrap_or(value).as_bytes();
+    let bytes = value.trim_prefix(['-', '+']).as_bytes();
     if bytes.len() <= 1 || bytes[0] != b'0' {
         return false;
     }

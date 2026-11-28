@@ -128,7 +128,7 @@ fn core_schema_int_digits(v: &str) -> Option<(&str, u32)> {
     } else if let Some(octal) = v.strip_prefix("0o") {
         (octal, octal, 8)
     } else {
-        (v, v.strip_prefix(['+', '-']).unwrap_or(v), 10)
+        (v, v.trim_prefix(['+', '-']), 10)
     };
     (!unsigned.is_empty() && unsigned.chars().all(|c| c.is_digit(radix)))
         .then_some((digits, radix))
