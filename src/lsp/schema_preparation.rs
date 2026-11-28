@@ -16,14 +16,48 @@ use crate::yaml_dom::YamlOwned;
 
 pub(super) type Origins = BTreeMap<String, BTreeSet<String>>;
 
-pub(super) const APPROVAL_REQUIRED: &str = "schema origin approval required: ";
-pub(super) const OFFLINE_UNGRANTED: &str = "schema origin not granted (approvals are disabled offline). Add to the user allowlist at <user-config-dir>/ryl/allowed-schema-origins: ";
+pub(super) fn origin_message(origins: &str, offline_allowlist: Option<&str>) -> String {
+    match offline_allowlist {
+        Some(path) => format!(
+            "schema origin not granted (approvals disabled offline). Add to {path} and restart the language server: {origins}"
+        ),
+        None => format!("schema origin approval required: {origins}"),
+    }
+}
 
-const fn origin_error_prefix(offline: bool) -> &'static str {
-    if offline {
-        OFFLINE_UNGRANTED
-    } else {
-        APPROVAL_REQUIRED
+#[derive(Debug, thiserror::Error)]
+#[error("{detail}")]
+pub(super) struct ConfigError {
+    pub(super) position: (usize, usize),
+    pub(super) detail: ErrorDetail,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(super) enum ErrorDetail {
+    #[error("{0}")]
+    Message(String),
+    #[error("{}", origin_message(&origins.join(" "), offline_allowlist.as_deref()))]
+    Ungranted {
+        origins: Vec<String>,
+        offline_allowlist: Option<String>,
+    },
+}
+
+impl From<PreparationError> for ConfigError {
+    fn from(error: PreparationError) -> Self {
+        Self {
+            position: (error.line, error.column),
+            detail: ErrorDetail::Message(error.message),
+        }
+    }
+}
+
+impl From<String> for ConfigError {
+    fn from(message: String) -> Self {
+        Self {
+            position: (1, 1),
+            detail: ErrorDetail::Message(message),
+        }
     }
 }
 
@@ -49,7 +83,7 @@ impl Default for Limits {
 enum Status {
     Queued,
     Running,
-    AwaitingApproval(PreparationError),
+    AwaitingApproval(PreparationError, Option<String>),
     Finished(Result<Arc<ConfigContext>, PreparationError>),
 }
 
@@ -135,7 +169,7 @@ impl Service {
     pub(super) fn request(
         &self,
         context: ConfigContext,
-    ) -> Result<ConfigContext, PreparationError> {
+    ) -> Result<ConfigContext, ConfigError> {
         let key = format!("{}:{:?}", context.base_dir.display(), context.config);
         let group = context.config.schema_directives().then(|| {
             format!(
@@ -159,19 +193,21 @@ impl Service {
                 Status::Finished(result) => result
                     .as_ref()
                     .map(|context| context.as_ref().clone())
-                    .map_err(Clone::clone),
-                Status::AwaitingApproval(error) => Err(PreparationError {
-                    message: format!(
-                        "{}{}",
-                        origin_error_prefix(net::offline(self.env.as_ref())),
-                        entry.origins.keys().cloned().collect::<Vec<_>>().join(" ")
-                    ),
-                    ..error.clone()
-                }),
+                    .map_err(|error| error.clone().into()),
+                Status::AwaitingApproval(error, offline_allowlist) => {
+                    Err(ConfigError {
+                        position: (error.line, error.column),
+                        detail: ErrorDetail::Ungranted {
+                            origins: entry.origins.keys().cloned().collect(),
+                            offline_allowlist: offline_allowlist.clone(),
+                        },
+                    })
+                }
                 Status::Queued | Status::Running => Err(preparation_error(
                     &entry.context,
                     "schema remote preparation pending".to_owned(),
-                )),
+                )
+                .into()),
             };
         }
         state.retain_entries(|_, entry| {
@@ -185,7 +221,9 @@ impl Service {
                 .count()
                 >= self.limits.document_selections
         {
-            return Err(preparation_error(&context, net::RESOURCE_LIMIT.to_owned()));
+            return Err(
+                preparation_error(&context, net::RESOURCE_LIMIT.to_owned()).into()
+            );
         }
         let pending =
             preparation_error(&context, "schema remote preparation pending".to_owned());
@@ -204,21 +242,26 @@ impl Service {
         );
         state.queue.push_back(key);
         let _ = self.wake.try_send(());
-        Err(pending)
+        Err(pending.into())
     }
 
-    fn associations(&self) -> Vec<(PathBuf, Origins, String)> {
+    fn associations(&self) -> Vec<(PathBuf, Origins, String, Option<String>)> {
         self.state
             .lock()
             .expect("schema service lock")
             .entries
             .values()
             .filter_map(|entry| {
-                if matches!(entry.status, Status::AwaitingApproval(..))
+                if let Status::AwaitingApproval(_, offline_allowlist) = &entry.status
                     && entry.context.config.schema_request().is_none()
                 {
                     entry.context.source.clone().map(|source| {
-                        (source, entry.origins.clone(), entry.source_text.clone())
+                        (
+                            source,
+                            entry.origins.clone(),
+                            entry.source_text.clone(),
+                            offline_allowlist.clone(),
+                        )
                     })
                 } else {
                     None
@@ -384,6 +427,13 @@ fn perform_job(
     let mut result = prepared.map(|()| Arc::new(job.context));
     let needed =
         std::mem::take(&mut *policy.needed.lock().expect("schema approval lock"));
+    let offline_allowlist =
+        (!needed.is_empty() && net::offline(environment)).then(|| {
+            net::allowlist_path(environment).map_or_else(
+                || "<user-config-dir>/ryl/allowed-schema-origins".to_owned(),
+                |path| path.display().to_string(),
+            )
+        });
     let mut state = owned.lock().expect("schema service lock");
     if let Some(current) = state.entries.get(&job.key) {
         let (mut bytes, mut resources) = result
@@ -438,6 +488,7 @@ fn perform_job(
     } else {
         Status::AwaitingApproval(
             result.expect_err("unapproved origins prevent preparation"),
+            offline_allowlist,
         )
     };
     if retry {
@@ -675,7 +726,7 @@ impl Session {
         env: &SchemaEnv<'_>,
         generation: u64,
         result: Result<(), PreparationError>,
-    ) -> Result<Option<ConfigContext>, PreparationError> {
+    ) -> Result<Option<ConfigContext>, ConfigError> {
         let request = context
             .config
             .schema_request()
@@ -692,13 +743,14 @@ impl Session {
             return Err(preparation_error(
                 context,
                 "schema preparation superseded by a newer document revision".to_owned(),
-            ));
+            )
+            .into());
         }
         self.observe_document(context);
         self.record_dependencies(request.owner.clone(), env, generation, Some(context));
         result?;
         if context.config.needs_remote_preparation() {
-            self.request_document(context.clone()).map(Some)
+            self.request(context.clone()).map(Some)
         } else {
             Ok(None)
         }
@@ -802,15 +854,7 @@ impl Session {
     pub(super) fn request(
         &self,
         context: ConfigContext,
-    ) -> Result<ConfigContext, String> {
-        self.request_document(context)
-            .map_err(|error| error.to_string())
-    }
-
-    pub(super) fn request_document(
-        &self,
-        context: ConfigContext,
-    ) -> Result<ConfigContext, PreparationError> {
+    ) -> Result<ConfigContext, ConfigError> {
         self.service
             .get_or_init(|| {
                 Arc::new(Service::new(
@@ -1015,9 +1059,8 @@ impl super::Server {
         let service = self
             .schema_service()
             .expect("schema events have a preparation service");
-        let error_prefix = origin_error_prefix(net::offline(service.env.as_ref()));
         let mut old = std::mem::take(&mut self.schema_config_diagnostics);
-        for (path, origins, text) in service.associations() {
+        for (path, origins, text, offline_allowlist) in service.associations() {
             let uri = super::encoding::path_to_uri(&path);
             let diagnostics = origins
                 .into_iter()
@@ -1037,9 +1080,9 @@ impl super::Server {
                         column,
                         self.encoding,
                     );
-                    let mut diagnostic = super::config_error_diagnostic(&format!(
-                        "{error_prefix}{origin}"
-                    ));
+                    let mut diagnostic = super::config_error_diagnostic(
+                        &origin_message(&origin, offline_allowlist.as_deref()),
+                    );
                     diagnostic.range = lsp_types::Range::new(position, position);
                     diagnostic
                 })
@@ -1077,8 +1120,7 @@ impl super::Server {
             .needed()
             .keys()
             .filter(|origin| {
-                let message =
-                    super::config_error_text(&format!("{APPROVAL_REQUIRED}{origin}"));
+                let message = super::config_error_text(&origin_message(origin, None));
                 params.context.diagnostics.iter().any(|diagnostic| {
                     diagnostic.source.as_deref() == Some("ryl")
                         && diagnostic.message == message

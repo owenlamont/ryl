@@ -133,9 +133,9 @@ error and still grants access for the session. Workspace settings and project
 configuration cannot grant access.
 
 `server --offline` and `RYL_OFFLINE=1` disable approval actions and all DNS/HTTP access.
-For an ungranted origin, the server error points to the user allowlist at
-`<user-config-dir>/ryl/allowed-schema-origins`. Granted origins can still use cached
-schemas. Formatting never retrieves schemas.
+For an ungranted origin, the server error shows the user allowlist path.
+Restart the language server after editing the allowlist. Granted origins can still use
+cached schemas. Formatting never retrieves schemas.
 
 <!-- ryl-config-check: skip -->
 ```toml
