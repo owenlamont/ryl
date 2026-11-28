@@ -1,13 +1,16 @@
 use std::sync::Arc;
 
-use ryl::cli_support::{LintFile, small_file_batch};
+use ryl::cli_support::{LintFile, ResolvedConfig, small_file_batch};
 use ryl::config::{SourceKind, YamlLintConfig};
 
 fn file(path: std::path::PathBuf) -> LintFile {
     (
         path,
-        std::path::PathBuf::new(),
-        Arc::new(YamlLintConfig::default()),
+        Arc::new(ResolvedConfig {
+            base_dir: std::path::PathBuf::new(),
+            config: YamlLintConfig::default(),
+            found: false,
+        }),
         SourceKind::Yaml,
     )
 }

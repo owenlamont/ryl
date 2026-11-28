@@ -495,10 +495,18 @@ pub fn rewrite_files(
 
 fn rewrite_file(
     decoded: &decoder::DecodedFile,
-    (path, base, cfg, kind): &LintFile,
+    (path, context, kind): &LintFile,
     rewrite: Rewrite,
 ) -> Result<RewriteOutcome, String> {
-    let cfg = rewrite_schemas(cfg, decoded.content(), path, base, *kind, rewrite)?;
+    let base = &context.base_dir;
+    let cfg = rewrite_schemas(
+        &context.config,
+        decoded.content(),
+        path,
+        base,
+        *kind,
+        rewrite,
+    )?;
     let output = rewrite_checked(
         decoded.content(),
         &cfg,
@@ -541,8 +549,10 @@ fn check_files(
         ReadOptions {
             follow_symlinks: true,
         },
-        |decoded, (path, base_dir, cfg, kind)| {
-            let cfg = cfg
+        |decoded, (path, context, kind)| {
+            let base_dir = &context.base_dir;
+            let cfg = context
+                .config
                 .document_schemas(
                     decoded.content(),
                     Some(path),
@@ -1284,9 +1294,10 @@ pub fn diff_files<'a>(
         ReadOptions {
             follow_symlinks: false,
         },
-        |decoded, (path, base_dir, cfg, kind)| {
+        |decoded, (path, context, kind)| {
+            let base_dir = &context.base_dir;
             let cfg = rewrite_schemas(
-                cfg,
+                &context.config,
                 decoded.content(),
                 path,
                 base_dir,

@@ -78,7 +78,7 @@ pub(crate) fn emit_summary() {
 }
 
 pub(crate) fn file_notice(no_warnings: bool) -> impl Fn(&str, &LintFile) + Sync {
-    move |content, (_, _, cfg, kind)| {
-        record(content, cfg, *kind, no_warnings);
+    move |content, (_, context, kind)| {
+        record(content, &context.config, *kind, no_warnings);
     }
 }

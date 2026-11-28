@@ -1049,6 +1049,21 @@ fn output_file_pointing_at_a_linted_input_is_rejected() {
 }
 
 #[test]
+fn output_file_collision_is_reported_before_ruleless_config() {
+    let dir = tempdir().unwrap();
+    let file = dirty_yaml(dir.path());
+    let original = fs::read_to_string(&file).unwrap();
+    let (code, stdout, stderr) = run(Command::new(env!("CARGO_BIN_EXE_ryl"))
+        .args(["check", "-d", "[lint]", "-f", "gitlab", "-o"])
+        .arg(&file)
+        .arg(&file));
+    assert_eq!(code, 2, "{stderr}");
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.contains("is also a linted input"), "{stderr}");
+    assert_eq!(fs::read_to_string(file).unwrap(), original);
+}
+
+#[test]
 fn empty_input_emits_an_empty_gitlab_report() {
     // A clean/empty project must still produce a valid `[]` artifact, not a missing file.
     let dir = tempdir().unwrap();

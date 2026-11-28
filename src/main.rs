@@ -136,7 +136,7 @@ fn build_global_cfg(
 ///
 /// Propagates config discovery/parse/validation errors, including for empty inputs.
 fn run_config_settings(
-    global_cfg: Option<&ConfigContext>,
+    global_cfg: Option<&ResolvedConfig>,
     inputs: &[PathBuf],
     args: &LintArgs,
 ) -> Result<(Option<OutputTable>, bool), String> {
@@ -1577,7 +1577,7 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     let (output_config, config_strict) = if args.lint.fix.diff {
         (None, false)
     } else {
-        run_config_settings(global_cfg.as_ref(), &args.source.inputs, args)?
+        run_config_settings(global_cfg.as_deref(), &args.source.inputs, args)?
     };
     let targets = resolve_targets(matches, args, output_config.as_ref())?;
     validate_targets(&targets, args.lint.fix.diff)?;
@@ -1616,7 +1616,7 @@ fn run_lint(args: &LintArgs, matches: &ArgMatches) -> Result<ExitCode, String> {
     lint_and_exit(&files, args, targets, config_strict)
 }
 
-type CollectedFiles = (Option<ConfigContext>, Vec<LintFile>, Option<bool>);
+type CollectedFiles = (Option<Arc<ResolvedConfig>>, Vec<LintFile>, Option<bool>);
 
 /// The deduplicated files the (non-stdin) inputs select, with the global config they were
 /// resolved under and [`gather_lint_files`]' no-rules marker; config notices are emitted.
@@ -1641,30 +1641,29 @@ fn collect_files(args: &LintArgs) -> Result<CollectedFiles, String> {
     }
 
     let flags = cli_config_flags(args);
-    let mut global_cfg = build_global_cfg(&args.source.inputs, args)?;
     let mut notices = Vec::new();
-    if let Some(ctx) = global_cfg.as_mut() {
-        notices.clone_from(&ctx.notices);
+    let global_cfg = if let Some(mut ctx) = build_global_cfg(&args.source.inputs, args)?
+    {
+        notices = ctx.notices;
         notices.extend(flags.apply(&mut ctx.config, &ctx.base_dir)?);
-        ctx.config_found |= flags.enable.is_some();
-    }
+        Some(Arc::new(ResolvedConfig {
+            base_dir: ctx.base_dir,
+            config: ctx.config,
+            found: ctx.config_found | flags.enable.is_some(),
+        }))
+    } else {
+        None
+    };
     let inputs = &args.source.inputs;
 
     let (candidates, explicit_files) = gather_inputs(inputs);
 
-    let global_resolved = global_cfg.as_ref().map(|ctx| {
-        (
-            ctx.base_dir.clone(),
-            Arc::new(ctx.config.clone()),
-            ctx.config_found,
-        )
-    });
     let mut cache = ConfigCache::default();
     let mut files: Vec<LintFile> = Vec::new();
     let ruleless_config_found = gather_lint_files(
         &candidates,
         &explicit_files,
-        global_resolved.as_ref(),
+        global_cfg.as_ref(),
         &flags,
         &mut cache,
         &mut notices,
@@ -1748,7 +1747,7 @@ fn lint_and_exit(
         if summary.hidden_unsafe_fixes > 0 && (human || github || before_fix.is_some()) {
             let versions = files
                 .iter()
-                .map(|(_, _, cfg, _)| match cfg.source_version() {
+                .map(|(_, context, _)| match context.config.source_version() {
                     ryl::config::SourceVersion::Yaml11 => "1.1",
                     ryl::config::SourceVersion::Yaml12 => "1.2",
                 })
@@ -2120,13 +2119,13 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         return run_stdin_format(&args, preview, format.output_format);
     }
     let (global_cfg, files, _) = collect_files(&args)?;
-    warn_format_conflicts(files.iter().map(|(.., cfg, _)| cfg.as_ref()), &args);
+    warn_format_conflicts(files.iter().map(|(_, context, _)| &context.config), &args);
     let settings = args.source.cache_settings();
     let mut pending = Vec::new();
     let mut entries = Vec::new();
     let mut cache_hits = Vec::new();
     let notice = deprecation::file_notice(format.no_warnings);
-    for file @ (path, _, cfg, kind) in &files {
+    for file @ (path, context, kind) in &files {
         let symlink = std::fs::symlink_metadata(path)
             .is_ok_and(|metadata| metadata.file_type().is_symlink());
         let entry = if format.diff || symlink {
@@ -2137,7 +2136,12 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
         let (entry, bytes) = entry.unzip();
         let hit = entry.as_deref().is_some_and(cache::clean_hit);
         if let Some(bytes) = bytes.filter(|_| hit) {
-            deprecation::record_bytes(&bytes, cfg, *kind, format.no_warnings);
+            deprecation::record_bytes(
+                &bytes,
+                &context.config,
+                *kind,
+                format.no_warnings,
+            );
         }
         cache_hits.push(hit);
         if !hit {
@@ -2147,7 +2151,7 @@ fn run_format(format: &FormatArgs) -> Result<ExitCode, String> {
     }
     if let Some(preview) = preview {
         let output_config = if preview == Preview::Check {
-            run_config_settings(global_cfg.as_ref(), &args.source.inputs, &args)?.0
+            run_config_settings(global_cfg.as_deref(), &args.source.inputs, &args)?.0
         } else {
             None
         };
@@ -2414,10 +2418,11 @@ fn lint_path(file: &LintFile, no_warnings: bool) -> LintOutcome {
 }
 
 fn lint_decoded(
-    (path, base_dir, cfg, kind): &LintFile,
+    (path, resolved, kind): &LintFile,
     content: Result<String, String>,
     no_warnings: bool,
 ) -> LintOutcome {
+    let (cfg, base_dir) = (&resolved.config, &resolved.base_dir);
     if let Ok(content) = &content {
         deprecation::record(content, cfg, *kind, no_warnings);
     }
@@ -2441,7 +2446,8 @@ fn lint_files_cached(
     no_warnings: bool,
     mut emit: impl FnMut(usize, (LintOutcome, Vec<u8>)),
 ) -> Result<(), String> {
-    let compute = |file @ (path, base_dir, cfg, kind): &LintFile| -> Result<_, String> {
+    let compute = |file @ (path, context, kind): &LintFile| -> Result<_, String> {
+        let (cfg, base_dir) = (&context.config, &context.base_dir);
         if cfg.schema_directives() {
             let bytes = match std::fs::read(path) {
                 Ok(bytes) => bytes,
@@ -2545,7 +2551,7 @@ fn warn_cached_encoding_override() {
 fn gather_lint_files(
     candidates: &[PathBuf],
     explicit_files: &[PathBuf],
-    global_cfg: Option<&ResolvedConfig>,
+    global_cfg: Option<&Arc<ResolvedConfig>>,
     flags: &CliConfigFlags,
     cache: &mut ConfigCache,
     notices: &mut Vec<String>,
@@ -2566,13 +2572,13 @@ fn gather_lint_files(
         .map(|path| (path, false))
         .chain(explicit_files.iter().map(|path| (path, true)));
     for (path, explicit) in tagged {
-        let (base_dir, cfg, file_notices, found) =
-            resolve_ctx(path, global_cfg, flags, cache)?;
+        let (context, file_notices) = resolve_ctx(path, global_cfg, flags, cache)?;
+        let (cfg, base_dir) = (&context.config, &context.base_dir);
         notices.extend(file_notices);
-        if cfg.is_file_ignored(path, &base_dir) {
+        if cfg.is_file_ignored(path, base_dir) {
             continue;
         }
-        let kind = match cfg.source_kind(path, &base_dir)? {
+        let kind = match cfg.source_kind(path, base_dir)? {
             Some(kind) => kind,
             None if explicit => {
                 return Err(format!(
@@ -2590,9 +2596,9 @@ fn gather_lint_files(
             continue;
         }
         if !cfg.enables_any_rule() && ruleless_config_found.is_none() {
-            ruleless_config_found = Some(found);
+            ruleless_config_found = Some(context.found);
         }
-        files.push((path.clone(), base_dir, cfg, kind));
+        files.push((path.clone(), context, kind));
     }
 
     Ok(ruleless_config_found)

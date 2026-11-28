@@ -21,7 +21,7 @@ pub(crate) struct Settings {
     cwd: PathBuf,
     checked: Mutex<HashSet<PathBuf>>,
     lint_entries: Mutex<HashMap<PathBuf, Arc<LintEntries>>>,
-    prefixes: Mutex<HashMap<(usize, bool, bool, PathBuf), blake3::Hasher>>,
+    prefixes: Mutex<HashMap<(usize, bool, bool), blake3::Hasher>>,
 }
 
 impl Settings {
@@ -41,13 +41,14 @@ impl Settings {
 
     pub fn entry(
         &self,
-        (path, base_dir, cfg, kind): &ryl::cli_support::LintFile,
+        (path, resolved, kind): &ryl::cli_support::LintFile,
         mode: &str,
         document: Option<(Vec<u8>, String)>,
     ) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
         if self.disabled {
             return Ok(None);
         }
+        let (cfg, base_dir) = (&resolved.config, &resolved.base_dir);
         let root = self.directory.as_deref().or_else(|| cfg.cache_dir());
         let root = root.map_or_else(
             || self.cwd.join(".ryl_cache"),
@@ -99,10 +100,9 @@ impl Settings {
             return Ok(None);
         }
         let key = (
-            std::ptr::from_ref::<YamlLintConfig>(cfg.as_ref()) as usize,
+            std::ptr::from_ref::<YamlLintConfig>(cfg) as usize,
             *kind == SourceKind::Markdown,
             mode == "format",
-            base_dir.clone(),
         );
         let mut prefixes = self.prefixes.lock().expect("cache lock not poisoned");
         let mut hash = prefixes

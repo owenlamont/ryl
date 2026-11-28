@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
+use ryl::cli_support::ResolvedConfig;
 use ryl::config::{Overrides, SourceKind, YamlLintConfig, discover_config};
 use ryl::fix::{FixStats, Rewrite, apply_safe_fixes, rewrite_files};
 use tempfile::tempdir;
@@ -14,8 +15,11 @@ fn rewrite_one_file(path: &Path, cfg: YamlLintConfig, base_dir: &Path) -> FixSta
     rewrite_files(
         &[(
             path.to_path_buf(),
-            base_dir.to_path_buf(),
-            Arc::new(cfg),
+            Arc::new(ResolvedConfig {
+                base_dir: base_dir.to_path_buf(),
+                config: cfg,
+                found: true,
+            }),
             SourceKind::Yaml,
         )],
         Rewrite::Fix,
@@ -221,22 +225,16 @@ fn apply_safe_fixes_to_files_updates_each_entry() {
     let second = dir.path().join("second.yaml");
     fs::write(&first, "key: value #comment").unwrap();
     fs::write(&second, "alpha: beta").unwrap();
-    let cfg = Arc::new(config(
-        "rules:\n  comments: enable\n  new-line-at-end-of-file: enable\n",
-    ));
+    let context = Arc::new(ResolvedConfig {
+        base_dir: dir.path().to_path_buf(),
+        config: config(
+            "rules:\n  comments: enable\n  new-line-at-end-of-file: enable\n",
+        ),
+        found: true,
+    });
     let files = vec![
-        (
-            first.clone(),
-            dir.path().to_path_buf(),
-            cfg.clone(),
-            SourceKind::Yaml,
-        ),
-        (
-            second.clone(),
-            dir.path().to_path_buf(),
-            cfg,
-            SourceKind::Yaml,
-        ),
+        (first.clone(), Arc::clone(&context), SourceKind::Yaml),
+        (second.clone(), context, SourceKind::Yaml),
     ];
 
     let stats = rewrite_files(&files, Rewrite::Fix, &|_, _| {});
