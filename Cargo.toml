@@ -101,7 +101,7 @@ mimalloc = "0.1.52"
 
 [dev-dependencies]
 rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
-noyalib = "0.0.60"
+noyalib = "0.0.63"
 # A different diff implementation than `similar` (which produces the diff), so the
 # `--diff` round-trip property test validates the output is standard-compliant.
 diffy = { version = "0.5.0", default-features = false }
