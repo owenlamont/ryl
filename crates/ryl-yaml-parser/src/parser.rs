@@ -12,10 +12,7 @@ use crate::{
 };
 
 use crate::scanner::Placement;
-use core::{
-    convert::Infallible,
-    fmt::{self, Display},
-};
+use core::fmt::{self, Display};
 use std::collections::VecDeque;
 use std::{
     borrow::Cow,
@@ -791,7 +788,7 @@ struct InfallibleSpannedReceiver<'receiver, R>(&'receiver mut R);
 impl<'input, R: SpannedEventReceiver<'input>> TrySpannedEventReceiver<'input>
     for InfallibleSpannedReceiver<'_, R>
 {
-    type Error = Infallible;
+    type Error = !;
 
     fn on_event(&mut self, ev: Event<'input>, span: Span) -> Result<(), Self::Error> {
         self.0.on_event(ev, span);
@@ -799,9 +796,7 @@ impl<'input, R: SpannedEventReceiver<'input>> TrySpannedEventReceiver<'input>
     }
 }
 
-fn into_scan_result(
-    result: Result<(), TryLoadError<Infallible>>,
-) -> Result<(), ScanError> {
+fn into_scan_result(result: Result<(), TryLoadError<!>>) -> Result<(), ScanError> {
     match result {
         Ok(()) => Ok(()),
         Err(TryLoadError::Scan(error)) => error.into_result(),

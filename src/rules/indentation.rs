@@ -1125,8 +1125,9 @@ impl<'a> Analyzer<'a> {
             self.block_tails.push((token.end_line, delta, content));
         }
         let last = last_line(token);
-        for line in token.line + 1..=last {
-            self.shifts[line] = Some(Shift::Carried(delta));
+        let carried = token.line + 1..=last;
+        if !carried.is_empty() {
+            self.shifts[carried].fill(Some(Shift::Carried(delta)));
         }
         if block
             && self.initial.projected_len() == last + 2

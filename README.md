@@ -64,7 +64,7 @@ scoop bucket add orb https://github.com/o-l-a-v/scoop-bucket
 scoop install ryl                   # Scoop (Windows, community bucket)
 ```
 
-Building from source (`cargo install`, or a `pip` sdist) needs Rust 1.99.1 or
+Building from source (`cargo install`, or a `pip` sdist) needs Rust 1.100.1 or
 newer. The prebuilt wheels, npm, conda-forge, winget and Scoop packages do not,
 and Homebrew builds with its own Rust where it has no prebuilt bottle.
 

@@ -10,7 +10,7 @@ impl<'a> Magic<'a> {
     pub(super) fn end(self) -> Option<usize> {
         let first = self.buffer.lines().next().unwrap_or_default();
         crate::rules::support::line_syntax::is_magic_first_line(
-            first.strip_prefix('\u{feff}').unwrap_or(first),
+            first.trim_prefix('\u{feff}'),
         )
         .then_some(first.len())
     }

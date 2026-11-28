@@ -214,23 +214,18 @@ pub fn mark_clean(path: &Path) -> Result<(), String> {
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let temp = TempPath(path.with_extension(format!(
+    let temp = path.with_extension(format!(
         "{}.{}.tmp",
         std::process::id(),
         NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-    )));
-    create_new(&temp.0)
+    ));
+    let temp = std::mem::DropGuard::new(temp, |path| {
+        let _ = fs::remove_file(path);
+    });
+    create_new(&temp)
         .and_then(|mut file| file.write_all(bytes))
-        .and_then(|()| fs::rename(&temp.0, path))
+        .and_then(|()| fs::rename(temp.as_path(), path))
         .map_err(|err| cache_error(path, &err))
-}
-
-struct TempPath(PathBuf);
-
-impl Drop for TempPath {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
 }
 
 #[derive(Deserialize)]

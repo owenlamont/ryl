@@ -124,7 +124,7 @@ comes from `$schema`, defaulting to 2020-12.
 Remote associations require a default-on `schema-network` build. A project requests
 resources; grants come only from the launcher or user allowlist, including offline.
 Every retrieved reference needs a grant for the resolved origin, even after `$id` rebasing.
-`ryl server` prepares remote schemas in the background. Before accessing an ungranted
+`ryl server` prepares remote schemas in the background. Online, for an ungranted
 origin, the server reports an approval diagnostic on the affected file and configuration.
 Use **Always allow `<origin>`** or **Allow once `<origin>`** from the diagnostic's quick
 fixes. Allow once lasts for the server session; Always allow atomically updates the user
@@ -132,8 +132,10 @@ allowlist, refusing symlinks and non-regular files. A failed save reports a conf
 error and still grants access for the session. Workspace settings and project
 configuration cannot grant access.
 
-`server --offline` and `RYL_OFFLINE=1` disable approval actions and all DNS/HTTP access;
-granted origins can still use cached schemas. Formatting never retrieves schemas.
+`server --offline` and `RYL_OFFLINE=1` disable approval actions and all DNS/HTTP access.
+For an ungranted origin, the server error shows the user allowlist path.
+Restart the language server after editing the allowlist. Granted origins can still use
+cached schemas. Formatting never retrieves schemas.
 
 <!-- ryl-config-check: skip -->
 ```toml
@@ -153,7 +155,7 @@ ryl check --schema-allow-origin https://schemas.example.org app.yaml
 | :--- | :--- |
 | `--schema-allow-origin ORIGIN` | Repeatable exact HTTPS origin; no wildcard, path, query or fragment. |
 | `RYL_SCHEMA_ALLOWED_ORIGINS` | Comma-separated origins, unioned with CLI grants. |
-| User allowlist | `<user-config-dir>/ryl/allowed-schema-origins`, one origin per line, unioned with grants. |
+| User allowlist | `<user-config-dir>/ryl/allowed-schema-origins`, one origin per line, unioned with grants. The config directory is `$XDG_CONFIG_HOME` when set or the platform's user config directory. |
 | `--offline` / `RYL_OFFLINE=1` | No DNS or HTTP; cached full reference closure required. Stale entries are allowed. |
 | `--no-cache` / `RYL_NO_CACHE=1` | Disable both lint and schema caches. Offline then cannot retrieve remote schemas. |
 | `RYL_SCHEMA_CACHE_DIR` | Override the user schema cache (`<user-cache-dir>/ryl/schemas/v1`). |

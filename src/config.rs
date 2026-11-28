@@ -1675,8 +1675,7 @@ fn relative_to_base<'a>(
         None
     };
     Cow::Owned(
-        normalized
-            .unwrap_or_else(|| path.file_name().map(PathBuf::from).unwrap_or_default()),
+        normalized.unwrap_or_else(|| path.file_name().map_or_default(PathBuf::from)),
     )
 }
 

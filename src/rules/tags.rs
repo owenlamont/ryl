@@ -165,7 +165,7 @@ fn unsafe_namespace<'a>(tag: &'a Tag, core: Option<&'a str>) -> Option<&'a str> 
     if let Some(core) = core {
         Some(core)
     } else if tag.handle() == "!" || tag.handle().is_empty() {
-        Some(tag.suffix().strip_prefix('!').unwrap_or(tag.suffix()))
+        Some(tag.suffix().trim_prefix('!'))
     } else {
         None
     }

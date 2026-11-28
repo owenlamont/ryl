@@ -20,8 +20,7 @@ fn resolve_plain(value: Cow<'_, str>) -> Option<Scalar<'_>> {
     }
     // yamllint's quoted-strings module adds `0o` integers to PyYAML's resolver globally.
     let explicit_octal = value
-        .strip_prefix(['-', '+'])
-        .unwrap_or(&value)
+        .trim_prefix(['-', '+'])
         .strip_prefix("0o")
         .is_some_and(|digits| {
             digits

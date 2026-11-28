@@ -76,8 +76,7 @@ pub fn try_for_each_ordered<R: Send, E>(
             });
         };
         (0..chunks.min(in_flight)).for_each(spawn);
-        let mut ring: Vec<Option<Option<Vec<_>>>> =
-            std::iter::repeat_with(|| None).take(in_flight).collect();
+        let mut ring = Vec::from_fn(in_flight, |_| None);
         for task in 0..chunks {
             let results = loop {
                 if let Some(results) = ring[task % in_flight].take() {

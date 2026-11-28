@@ -48,9 +48,7 @@ impl Revision {
     pub(crate) fn new(version: i64, text: &str) -> Self {
         Self {
             version,
-            text: blake3::hash(
-                text.strip_prefix('\u{feff}').unwrap_or(text).as_bytes(),
-            ),
+            text: blake3::hash(text.trim_prefix('\u{feff}').as_bytes()),
         }
     }
 }

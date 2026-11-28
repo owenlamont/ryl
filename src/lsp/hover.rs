@@ -80,7 +80,7 @@ pub(super) fn schema(
 ) -> Option<(String, Option<lsp_types::Range>)> {
     let original = text;
     let bom = text.starts_with('\u{feff}');
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let text = text.trim_prefix('\u{feff}');
     let mut position = position;
     if bom && position.line == 0 {
         position.character = position
