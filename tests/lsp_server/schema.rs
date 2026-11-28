@@ -287,7 +287,7 @@ fn directive_formatting_never_fetches_and_offline_never_approves() {
     let mut client = h.client(Limits::default());
     let uri = file_uri(h.dir.path(), "test.yaml");
     client.notify("textDocument/didOpen", json!({"textDocument":{"uri":uri,"languageId":"yaml","version":1,"text":format!("# $schema: {ROOT}\nx:  1\n")}}));
-    await_error(&client, "approval required");
+    await_error(&client, "origin not granted");
     let id = client.request(
         "textDocument/formatting",
         json!({"textDocument":{"uri":uri},"options":{"tabSize":2,"insertSpaces":true}}),
@@ -2658,6 +2658,46 @@ fn newer_queued_config_replaces_obsolete_preparations() {
 }
 
 #[test]
+fn offline_ungranted_schema_diagnostics_point_to_the_user_allowlist() {
+    let h = Harness::new("", true);
+    let mut client = h.client(Limits::default());
+    let uri = h.open(&client);
+    let expected = format!(
+        "ryl: configuration error, linting is off: schema origin not granted (approvals are disabled offline). Add to the user allowlist at <user-config-dir>/ryl/allowed-schema-origins: {ORIGIN}/"
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    for expected_uri in [&uri, &file_uri(h.dir.path(), ".ryl.toml")] {
+        let diagnostic = loop {
+            assert!(Instant::now() < deadline, "waiting for {expected_uri:?}");
+            let report = client.publish_params();
+            if &report.uri == expected_uri {
+                let [diagnostic]: [Diagnostic; 1] =
+                    report.diagnostics.try_into().expect("one diagnostic");
+                if !diagnostic.message.contains("pending") {
+                    break diagnostic;
+                }
+            }
+        };
+        assert_eq!(
+            diagnostic.severity,
+            Some(lsp_types::DiagnosticSeverity::ERROR)
+        );
+        assert_eq!(diagnostic.message, expected);
+    }
+    let id = client.request(
+        "textDocument/diagnostic",
+        json!({"textDocument":{"uri":uri}}),
+    );
+    let diagnostics = pull_items(client.response(&id));
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].message, expected);
+    let id = client.request("textDocument/codeAction", json!({"textDocument":{"uri":uri},"range":Range::default(),"context":{"diagnostics":diagnostics,"only":["quickfix"]}}));
+    assert!(client.response(&id).response_result.unwrap().is_null());
+    assert_eq!(h.calls(), 0);
+    client.shutdown();
+}
+
+#[test]
 fn offline_and_unprepared_sessions_ignore_approval_commands_and_actions() {
     let h = Harness::new("", true);
     let mut client = h.client(Limits::default());
@@ -2670,7 +2710,7 @@ fn offline_and_unprepared_sessions_ignore_approval_commands_and_actions() {
     for active in [false, true] {
         if active {
             h.open(&client);
-            await_error(&client, "approval required");
+            await_error(&client, "origin not granted");
         }
         for params in [
             json!({"command":"foreign"}),

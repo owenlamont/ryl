@@ -16,6 +16,17 @@ use crate::yaml_dom::YamlOwned;
 
 pub(super) type Origins = BTreeMap<String, BTreeSet<String>>;
 
+pub(super) const APPROVAL_REQUIRED: &str = "schema origin approval required: ";
+pub(super) const OFFLINE_UNGRANTED: &str = "schema origin not granted (approvals are disabled offline). Add to the user allowlist at <user-config-dir>/ryl/allowed-schema-origins: ";
+
+const fn origin_error_prefix(offline: bool) -> &'static str {
+    if offline {
+        OFFLINE_UNGRANTED
+    } else {
+        APPROVAL_REQUIRED
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
     pub preparation: Duration,
@@ -151,7 +162,8 @@ impl Service {
                     .map_err(Clone::clone),
                 Status::AwaitingApproval(error) => Err(PreparationError {
                     message: format!(
-                        "schema origin approval required: {}",
+                        "{}{}",
+                        origin_error_prefix(net::offline(self.env.as_ref())),
                         entry.origins.keys().cloned().collect::<Vec<_>>().join(" ")
                     ),
                     ..error.clone()
@@ -1003,6 +1015,7 @@ impl super::Server {
         let service = self
             .schema_service()
             .expect("schema events have a preparation service");
+        let error_prefix = origin_error_prefix(net::offline(service.env.as_ref()));
         let mut old = std::mem::take(&mut self.schema_config_diagnostics);
         for (path, origins, text) in service.associations() {
             let uri = super::encoding::path_to_uri(&path);
@@ -1025,7 +1038,7 @@ impl super::Server {
                         self.encoding,
                     );
                     let mut diagnostic = super::config_error_diagnostic(&format!(
-                        "schema origin approval required: {origin}"
+                        "{error_prefix}{origin}"
                     ));
                     diagnostic.range = lsp_types::Range::new(position, position);
                     diagnostic
@@ -1064,9 +1077,8 @@ impl super::Server {
             .needed()
             .keys()
             .filter(|origin| {
-                let message = super::config_error_text(&format!(
-                    "schema origin approval required: {origin}"
-                ));
+                let message =
+                    super::config_error_text(&format!("{APPROVAL_REQUIRED}{origin}"));
                 params.context.diagnostics.iter().any(|diagnostic| {
                     diagnostic.source.as_deref() == Some("ryl")
                         && diagnostic.message == message

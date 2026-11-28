@@ -1512,24 +1512,23 @@ fn schema_error_diagnostics(
     encoding: PositionEncoding,
 ) -> Vec<Diagnostic> {
     let lines = crate::rules::support::line_syntax::line_contents(text);
-    config_error_diagnostics(&error.message)
+    config_error_diagnostics_with_origins(&error.message)
         .into_iter()
-        .map(|mut diagnostic| {
-            let declaration = config.schema_request().and_then(|request| {
-                request.declarations.iter().find(|declaration| {
-                    declaration
-                        .value
-                        .as_deref()
-                        .and_then(|value| url::Url::parse(value).ok())
-                        .is_some_and(|url| {
-                            diagnostic.message
-                                == config_error_text(&format!(
-                                    "schema origin approval required: {}",
-                                    url.origin().ascii_serialization()
-                                ))
+        .map(|(mut diagnostic, origin)| {
+            let declaration =
+                origin
+                    .zip(config.schema_request())
+                    .and_then(|(origin, request)| {
+                        request.declarations.iter().find(|declaration| {
+                            declaration
+                                .value
+                                .as_deref()
+                                .and_then(|value| url::Url::parse(value).ok())
+                                .is_some_and(|url| {
+                                    url.origin().ascii_serialization() == origin
+                                })
                         })
-                })
-            });
+                    });
             let (line, column) =
                 declaration.map_or((error.line, error.column), |d| (d.line, d.column));
             diagnostic.range = encoding::problem_range(
@@ -1951,18 +1950,32 @@ fn config_error_text(error: &str) -> String {
 }
 
 fn config_error_diagnostics(error: &str) -> Vec<Diagnostic> {
-    if let Some(origins) = error.strip_prefix("schema origin approval required: ") {
-        origins
-            .split_whitespace()
-            .map(|origin| {
-                config_error_diagnostic(&format!(
-                    "schema origin approval required: {origin}"
-                ))
-            })
-            .collect()
-    } else {
-        vec![config_error_diagnostic(error)]
+    config_error_diagnostics_with_origins(error)
+        .into_iter()
+        .map(|(diagnostic, _)| diagnostic)
+        .collect()
+}
+
+fn config_error_diagnostics_with_origins(
+    error: &str,
+) -> Vec<(Diagnostic, Option<&str>)> {
+    for prefix in [
+        schema_preparation::APPROVAL_REQUIRED,
+        schema_preparation::OFFLINE_UNGRANTED,
+    ] {
+        if let Some(origins) = error.strip_prefix(prefix) {
+            return origins
+                .split_whitespace()
+                .map(|origin| {
+                    (
+                        config_error_diagnostic(&format!("{prefix}{origin}")),
+                        Some(origin),
+                    )
+                })
+                .collect();
+        }
     }
+    vec![(config_error_diagnostic(error), None)]
 }
 
 fn config_error_diagnostic(error: &str) -> Diagnostic {
