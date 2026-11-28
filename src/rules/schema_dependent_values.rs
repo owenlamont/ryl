@@ -161,10 +161,9 @@ fn walk<'a>(
                     .filter(|kind| cfg.forbidden.contains(kind))?;
                 let (yaml12, yaml11) = kind.readings();
                 let edit = respelling.edit(input.text(), span, &value);
-                let note = edit
-                    .as_ref()
-                    .map(|(_, _, spelling)| respelling.note(&value, spelling))
-                    .unwrap_or_default();
+                let note = edit.as_ref().map_or_default(|(_, _, spelling)| {
+                    respelling.note(&value, spelling)
+                });
                 Some((
                     Violation {
                         line: span.start.line(),

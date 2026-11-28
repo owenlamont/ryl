@@ -1650,8 +1650,7 @@ pub(crate) fn format_keys(input: &str, pyproject: bool) -> BTreeSet<String> {
         .as_ref()
         .and_then(|table| table.get("format"))
         .and_then(toml::Value::as_table)
-        .map(|format| format.keys().cloned().collect())
-        .unwrap_or_default()
+        .map_or_default(|format| format.keys().cloned().collect())
 }
 
 /// # Errors
@@ -1994,15 +1993,13 @@ pub(crate) fn yaml_rule_filter_patterns(
     let ignore = map
         .iter()
         .find_map(|(key, value)| (key.as_str() == Some("ignore")).then_some(value))
-        .map(load_ignore_patterns)
-        .unwrap_or_default();
+        .map_or_default(load_ignore_patterns);
     let ignore_from_files = map
         .iter()
         .find_map(|(key, value)| {
             (key.as_str() == Some("ignore-from-file")).then_some(value)
         })
-        .map(load_ignore_from_files)
-        .unwrap_or_default();
+        .map_or_default(load_ignore_from_files);
     Some((ignore, ignore_from_files))
 }
 

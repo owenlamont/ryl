@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Raised the minimum supported Rust version to 1.100.1.
+
 ## 0.1.2
 
 ### Changed
