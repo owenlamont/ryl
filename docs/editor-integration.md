@@ -72,14 +72,16 @@ Always allow writes `<user-config-dir>/ryl/allowed-schema-origins` atomically an
 symlinks and non-regular files. A failed save reports a configuration error and still
 grants access for the current session. Persistence runs on the schema worker so requests
 and shutdown stay responsive. `ryl server --offline` or `RYL_OFFLINE=1` disables approval
-actions and network access; previously granted origins can use cached schemas.
-Editor integrations should set offline mode in an untrusted workspace.
+actions and network access. The error for an ungranted origin shows the user allowlist
+path. Add one origin per line and restart the language server after editing the file.
+Granted origins can use cached schemas. Editor integrations should set offline mode
+in an untrusted workspace, such as VS Code Restricted Mode.
 
 Schema preparation uses one worker. Directive selections from unsaved buffers coexist
 within bounded configuration groups; edits supersede obsolete selections and closing
-documents releases their dependencies. Directive errors point to the source header;
-approval emits one diagnostic per origin at the corresponding header with the same quick
-fixes, without publishing config diagnostics onto the YAML URI.
+documents releases their dependencies. Directive errors appear on the YAML source header.
+Each ungranted origin gets its own diagnostic, with approval quick fixes online.
+For directives, the YAML URI receives only the source diagnostics.
 Pending and failed preparations appear as configuration errors. Queued preparations have
 a 65-second deadline from enqueue; timeouts are final. Formatting never prepares schemas.
 

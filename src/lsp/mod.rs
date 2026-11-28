@@ -872,8 +872,9 @@ impl Server {
                 diagnostics
             }
             Err(error) => {
-                self.report_config_error(connection, &error);
-                if error.contains("schema") {
+                let message = error.to_string();
+                self.report_config_error(connection, &message);
+                if message.contains("schema") {
                     config_error_diagnostics(&error)
                 } else {
                     Vec::new()
@@ -1396,7 +1397,8 @@ impl Server {
         &self,
         uri: &str,
         text: &str,
-    ) -> Result<(Vec<Diagnostic>, Option<Target>), String> {
+    ) -> Result<(Vec<Diagnostic>, Option<Target>), schema_preparation::ConfigError>
+    {
         Ok(match self.resolve(uri)? {
             Some(mut target) => {
                 let revision = self
@@ -1453,7 +1455,10 @@ impl Server {
     /// Resolve the path, config, and source kind for a URI. `Ok(None)` means nothing to lint
     /// (disabled, no config, no rules, ignored, or not a linted kind); `Err` is a config
     /// failure the caller surfaces.
-    fn resolve(&self, uri: &str) -> Result<Option<Target>, String> {
+    fn resolve(
+        &self,
+        uri: &str,
+    ) -> Result<Option<Target>, schema_preparation::ConfigError> {
         let (path, is_file) = self.uri_path(uri);
         self.resolve_path(path, is_file, true)
     }
@@ -1466,7 +1471,7 @@ impl Server {
         path: PathBuf,
         is_file: bool,
         require_rules: bool,
-    ) -> Result<Option<Target>, String> {
+    ) -> Result<Option<Target>, schema_preparation::ConfigError> {
         resolve_for_path(path, is_file, require_rules, &self.settings)
     }
 
@@ -1507,31 +1512,30 @@ struct Target {
 
 fn schema_error_diagnostics(
     text: &str,
-    error: &crate::rules::schema::PreparationError,
+    error: &schema_preparation::ConfigError,
     config: &crate::config::YamlLintConfig,
     encoding: PositionEncoding,
 ) -> Vec<Diagnostic> {
     let lines = crate::rules::support::line_syntax::line_contents(text);
-    config_error_diagnostics(&error.message)
+    config_error_diagnostics_with_origins(error)
         .into_iter()
-        .map(|mut diagnostic| {
-            let declaration = config.schema_request().and_then(|request| {
-                request.declarations.iter().find(|declaration| {
-                    declaration
-                        .value
-                        .as_deref()
-                        .and_then(|value| url::Url::parse(value).ok())
-                        .is_some_and(|url| {
-                            diagnostic.message
-                                == config_error_text(&format!(
-                                    "schema origin approval required: {}",
-                                    url.origin().ascii_serialization()
-                                ))
+        .map(|(mut diagnostic, origin)| {
+            let declaration =
+                origin
+                    .zip(config.schema_request())
+                    .and_then(|(origin, request)| {
+                        request.declarations.iter().find(|declaration| {
+                            declaration
+                                .value
+                                .as_deref()
+                                .and_then(|value| url::Url::parse(value).ok())
+                                .is_some_and(|url| {
+                                    url.origin().ascii_serialization() == origin
+                                })
                         })
-                })
-            });
+                    });
             let (line, column) =
-                declaration.map_or((error.line, error.column), |d| (d.line, d.column));
+                declaration.map_or(error.position, |d| (d.line, d.column));
             diagnostic.range = encoding::problem_range(
                 &lines,
                 line,
@@ -1549,7 +1553,7 @@ fn prepare_target(
     is_file: bool,
     (owner, revision): (&Path, Option<i64>),
     settings: &Settings,
-) -> Result<(), crate::rules::schema::PreparationError> {
+) -> Result<(), schema_preparation::ConfigError> {
     let path = is_file.then_some(target.path.as_path());
     if !target
         .context
@@ -1594,7 +1598,7 @@ fn resolve_for_path(
     is_file: bool,
     require_rules: bool,
     settings: &Settings,
-) -> Result<Option<Target>, String> {
+) -> Result<Option<Target>, schema_preparation::ConfigError> {
     if !settings.enable {
         return Ok(None);
     }
@@ -1631,7 +1635,7 @@ fn resolve_for_path(
         context = settings
             .schema
             .as_ref()
-            .ok_or("schema remote preparation unavailable")?
+            .ok_or("schema remote preparation unavailable".to_owned())?
             .request(context)?;
     }
     if require_rules && !context.config.enables_any_rule() {
@@ -1950,18 +1954,36 @@ fn config_error_text(error: &str) -> String {
     )
 }
 
-fn config_error_diagnostics(error: &str) -> Vec<Diagnostic> {
-    if let Some(origins) = error.strip_prefix("schema origin approval required: ") {
-        origins
-            .split_whitespace()
+fn config_error_diagnostics(
+    error: &schema_preparation::ConfigError,
+) -> Vec<Diagnostic> {
+    config_error_diagnostics_with_origins(error)
+        .into_iter()
+        .map(|(diagnostic, _)| diagnostic)
+        .collect()
+}
+
+fn config_error_diagnostics_with_origins(
+    error: &schema_preparation::ConfigError,
+) -> Vec<(Diagnostic, Option<&str>)> {
+    use schema_preparation::{ErrorDetail, origin_message};
+    match &error.detail {
+        ErrorDetail::Message(message) => vec![(config_error_diagnostic(message), None)],
+        ErrorDetail::Ungranted {
+            origins,
+            offline_allowlist,
+        } => origins
+            .iter()
             .map(|origin| {
-                config_error_diagnostic(&format!(
-                    "schema origin approval required: {origin}"
-                ))
+                (
+                    config_error_diagnostic(&origin_message(
+                        origin,
+                        offline_allowlist.as_deref(),
+                    )),
+                    Some(origin.as_str()),
+                )
             })
-            .collect()
-    } else {
-        vec![config_error_diagnostic(error)]
+            .collect(),
     }
 }
 
